@@ -186,16 +186,12 @@ def fastapi_app(
 
 
 @pytest.fixture
-async def client(
-    fastapi_app: FastAPI, anyio_backend: Any
-) -> AsyncGenerator[AsyncClient]:
+async def client(fastapi_app: FastAPI, anyio_backend: Any) -> AsyncGenerator[AsyncClient]:
     """
     Fixture that creates client for requesting server.
 
     :param fastapi_app: the application.
     :yield: client for the app.
     """
-    async with AsyncClient(
-        transport=ASGITransport(fastapi_app), base_url="http://test", timeout=2.0
-    ) as ac:
+    async with AsyncClient(transport=ASGITransport(fastapi_app), base_url="http://test", timeout=2.0) as ac:
         yield ac

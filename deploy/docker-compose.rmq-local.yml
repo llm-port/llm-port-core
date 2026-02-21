@@ -1,0 +1,15 @@
+# docker-compose.rmq-local.yml
+# ─────────────────────────────────────────────────────────────
+# Overlay that exposes RabbitMQ ports to the host so a locally
+# running backend (uv run -m airgap_backend) can reach it.
+#
+# Usage (managed automatically by scripts/start-dev.ps1):
+#   docker compose -f docker-compose.yml \
+#                  -f deploy/docker-compose.rmq-local.yml \
+#                  up -d rmq
+# ─────────────────────────────────────────────────────────────
+services:
+  rmq:
+    ports:
+      - "127.0.0.1:5672:5672"    # AMQP
+      - "127.0.0.1:15672:15672"  # Management UI  →  http://localhost:15672

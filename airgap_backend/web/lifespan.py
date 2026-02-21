@@ -28,9 +28,12 @@ from prometheus_fastapi_instrumentator.instrumentation import (
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from taskiq.instrumentation import TaskiqInstrumentor
 
+from airgap_backend.services.docker.client import DockerService
 from airgap_backend.services.rabbit.lifespan import init_rabbit, shutdown_rabbit
 from airgap_backend.settings import settings
 from airgap_backend.tkq import broker
+
+log = logging.getLogger(__name__)
 
 
 def _setup_db(app: FastAPI) -> None:  # pragma: no cover
@@ -83,20 +86,14 @@ def setup_opentelemetry(app: FastAPI) -> None:  # pragma: no cover
     meter_provider = MeterProvider(
         resource=otlp_resource,
         metric_readers=[
-            (
-                PeriodicExportingMetricReader(
-                    OTLPMetricExporter(endpoint=settings.opentelemetry_endpoint)
-                )
-            ),
+            (PeriodicExportingMetricReader(OTLPMetricExporter(endpoint=settings.opentelemetry_endpoint))),
         ],
     )
     metrics.set_meter_provider(meter_provider)
 
     logger_provider = LoggerProvider(resource=otlp_resource)
     logger_provider.add_log_record_processor(
-        BatchLogRecordProcessor(
-            OTLPLogExporter(endpoint=settings.opentelemetry_endpoint)
-        ),
+        BatchLogRecordProcessor(OTLPLogExporter(endpoint=settings.opentelemetry_endpoint)),
     )
     logging.getLogger().addHandler(
         LoggingHandler(
@@ -179,7 +176,12 @@ async def lifespan_setup(
     setup_opentelemetry(app)
     init_rabbit(app)
     setup_prometheus(app)
+    app.state.docker = DockerService()
     app.middleware_stack = app.build_middleware_stack()
+
+    # Seed a default admin user in dev mode so the UI is usable immediately
+    if settings.environment == "dev":
+        await _seed_dev_user(app)
 
     yield
     if not broker.is_worker_process:
@@ -188,3 +190,33 @@ async def lifespan_setup(
 
     await shutdown_rabbit(app)
     stop_opentelemetry(app)
+    await app.state.docker.close()
+
+
+async def _seed_dev_user(app: FastAPI) -> None:
+    """Create admin@localhost / admin superuser if it doesn't exist (dev only)."""
+    from fastapi_users.password import PasswordHelper  # noqa: PLC0415
+    from sqlalchemy import select  # noqa: PLC0415
+
+    from airgap_backend.db.models.users import User  # noqa: PLC0415
+
+    async with app.state.db_session_factory() as session:
+        result = await session.execute(
+            select(User).where(User.email == "admin@localhost"),  # type: ignore[arg-type]
+        )
+        existing = result.scalars().first()
+        if existing:
+            log.info("Dev admin user already exists (id=%s)", existing.id)
+            return
+
+        ph = PasswordHelper()
+        user = User(
+            email="admin@localhost",
+            hashed_password=ph.hash("admin"),
+            is_active=True,
+            is_superuser=True,
+            is_verified=True,
+        )
+        session.add(user)
+        await session.commit()
+        log.info("Seeded dev admin user admin@localhost (password: admin)")

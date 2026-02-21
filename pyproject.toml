@@ -37,6 +37,7 @@ dependencies = [
   "taskiq >=0.12.0,<1",
   "taskiq-fastapi >=0.3.6,<1",
   "taskiq-aio-pika >=0.5.0,<1",
+  "aiodocker >=0.23.0,<1",
 ]
 
 [dependency-groups]
@@ -139,12 +140,15 @@ exclude = [
     ".venv/"
 ]
 lint.mccabe = { max-complexity = 10 }
-line-length = 88
+line-length = 110
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = [
     "S101",    # Use of assert detected
-	"PLC0415", # Import outside toplevel
+    "PLC0415", # Import outside toplevel (intentional in test helpers)
+    "D103",    # Missing docstring in public function
+    "D205",    # Missing blank line after summary
+    "E501",    # Line too long (long parametrize args and inline data are normal)
 ]
 
 [tool.ruff.lint.pydocstyle]

@@ -1,5 +1,6 @@
 import os
 import shutil
+import sys
 from pathlib import Path
 
 import uvicorn
@@ -23,7 +24,7 @@ def set_multiproc_dir() -> None:
     to avoid undefined behaviour.
     """
     shutil.rmtree(settings.prometheus_dir, ignore_errors=True)
-    Path(settings.prometheus_dir).mkdir(parents=True)
+    Path(settings.prometheus_dir).mkdir(parents=True, exist_ok=True)
     os.environ["prometheus_multiproc_dir"] = str(  # noqa: SIM112
         settings.prometheus_dir.expanduser().absolute(),
     )
@@ -34,6 +35,13 @@ def set_multiproc_dir() -> None:
 
 def main() -> None:
     """Entrypoint of the application."""
+    # On Windows, aiodocker needs the proactor event loop for named-pipe access
+    # to the Docker Engine.
+    if sys.platform == "win32":
+        import asyncio  # noqa: PLC0415
+
+        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
     set_multiproc_dir()
     uvicorn.run(
         "airgap_backend.web.application:get_app",

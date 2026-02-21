@@ -24,7 +24,7 @@ async def create_database() -> None:
     async with engine.connect() as conn:
         await conn.execute(
             text(
-                f'CREATE DATABASE "{settings.db_base}" ENCODING "utf8" TEMPLATE template1',  # noqa: E501
+                f'CREATE DATABASE "{settings.db_base}" ENCODING "utf8" TEMPLATE template1',
             )
         )
 

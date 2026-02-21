@@ -79,10 +79,11 @@ auth_jwt = AuthenticationBackend(
     transport=bearer_transport,
     get_strategy=get_jwt_strategy,
 )
-cookie_transport = CookieTransport()
-auth_cookie = AuthenticationBackend(
-    name="cookie", transport=cookie_transport, get_strategy=get_jwt_strategy
+cookie_transport = CookieTransport(
+    cookie_name="fapiauth",
+    cookie_secure=settings.environment != "dev",
 )
+auth_cookie = AuthenticationBackend(name="cookie", transport=cookie_transport, get_strategy=get_jwt_strategy)
 
 backends = [
     auth_cookie,
