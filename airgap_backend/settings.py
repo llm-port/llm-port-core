@@ -70,6 +70,11 @@ class Settings(BaseSettings):
     # E.G. http://localhost:4317
     opentelemetry_endpoint: str | None = None
 
+    # LLM Server settings
+    model_store_root: str = "/srv/air-gap/models"
+    hf_token: str | None = None
+    default_vllm_image: str = "vllm/vllm-openai:latest"
+
     @property
     def db_url(self) -> URL:
         """

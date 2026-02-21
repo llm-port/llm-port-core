@@ -90,6 +90,9 @@ class DockerService:
         volumes: list[str] | None = None,
         network: str | None = None,
         auto_start: bool = False,
+        gpu_devices: str | list[int] | None = None,
+        healthcheck: dict[str, Any] | None = None,
+        labels: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """
         Create (and optionally start) a container.
@@ -103,6 +106,16 @@ class DockerService:
         :param volumes: Host-path binds, e.g. ``["/host/path:/container/path"]``.
         :param network: Name/ID of network to attach on creation.
         :param auto_start: If ``True``, start the container immediately.
+        :param gpu_devices: GPU passthrough — ``"all"`` for all GPUs, or a list
+            of device indices (e.g. ``[0, 1]``).  Requires NVIDIA Container
+            Toolkit on the host.
+        :param healthcheck: Docker healthcheck config dict with keys:
+            ``Test`` (list[str]), ``Interval`` (int, ns), ``Timeout`` (int, ns),
+            ``Retries`` (int).  Example::
+
+                {"Test": ["CMD-SHELL", "curl -f http://localhost:8000/health"],
+                 "Interval": 30_000_000_000, "Timeout": 5_000_000_000, "Retries": 3}
+        :param labels: Optional container labels, e.g. ``{"app": "vllm"}``.
         :return: Container inspect dict.
         """
         config: dict[str, Any] = {"Image": image}
@@ -110,6 +123,10 @@ class DockerService:
             config["Cmd"] = cmd
         if env:
             config["Env"] = env
+        if labels:
+            config["Labels"] = labels
+        if healthcheck:
+            config["Healthcheck"] = healthcheck
         host_config: dict[str, Any] = {}
         if ports:
             host_config["PortBindings"] = ports
@@ -118,6 +135,19 @@ class DockerService:
             host_config["Binds"] = volumes
         if network:
             host_config["NetworkMode"] = network
+        if gpu_devices is not None:
+            device_ids: list[str]
+            if gpu_devices == "all":
+                device_ids = ["all"]
+            else:
+                device_ids = [str(d) for d in gpu_devices]
+            host_config["DeviceRequests"] = [
+                {
+                    "Driver": "nvidia",
+                    "DeviceIDs": device_ids,
+                    "Capabilities": [["gpu"]],
+                },
+            ]
         config["HostConfig"] = host_config
 
         create_kwargs: dict[str, Any] = {"config": config}

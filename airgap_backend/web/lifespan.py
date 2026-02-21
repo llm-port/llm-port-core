@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from taskiq.instrumentation import TaskiqInstrumentor
 
 from airgap_backend.services.docker.client import DockerService
+from airgap_backend.services.llm.service import LLMService
 from airgap_backend.services.rabbit.lifespan import init_rabbit, shutdown_rabbit
 from airgap_backend.settings import settings
 from airgap_backend.tkq import broker
@@ -177,11 +178,13 @@ async def lifespan_setup(
     init_rabbit(app)
     setup_prometheus(app)
     app.state.docker = DockerService()
+    app.state.llm_service = LLMService(app.state.docker)
     app.middleware_stack = app.build_middleware_stack()
 
     # Seed a default admin user in dev mode so the UI is usable immediately
     if settings.environment == "dev":
         await _seed_dev_user(app)
+        await _seed_rbac(app)
 
     yield
     if not broker.is_worker_process:
@@ -220,3 +223,28 @@ async def _seed_dev_user(app: FastAPI) -> None:
         session.add(user)
         await session.commit()
         log.info("Seeded dev admin user admin@localhost (password: admin)")
+
+
+async def _seed_rbac(app: FastAPI) -> None:
+    """Seed default RBAC roles, permissions, and assign admin role to dev user."""
+    from sqlalchemy import select  # noqa: PLC0415
+
+    from airgap_backend.db.dao.rbac_dao import RbacDAO  # noqa: PLC0415
+    from airgap_backend.db.models.users import User  # noqa: PLC0415
+
+    async with app.state.db_session_factory() as session:
+        rbac_dao = RbacDAO(session)
+        await rbac_dao.seed_defaults()
+
+        # Assign admin role to the dev user
+        result = await session.execute(
+            select(User).where(User.email == "admin@localhost"),  # type: ignore[arg-type]
+        )
+        dev_user = result.scalars().first()
+        if dev_user:
+            admin_role = await rbac_dao.get_role_by_name("admin")
+            if admin_role:
+                await rbac_dao.assign_role(dev_user.id, admin_role.id)
+
+        await session.commit()
+        log.info("Seeded RBAC roles and permissions")
