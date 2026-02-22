@@ -3,7 +3,7 @@ import { Link as RouterLink } from "react-router";
 import { useTranslation } from "react-i18next";
 
 import { containers, type ContainerSummary } from "~/api/admin";
-import { getAdminGeneralSettings } from "~/lib/adminSettings";
+import { systemSettingsApi } from "~/api/systemSettings";
 
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
@@ -20,14 +20,13 @@ import RestartAltIcon from "@mui/icons-material/RestartAlt";
 
 export default function ApiDocsPage() {
   const { t } = useTranslation();
-  const [generalSettings, setGeneralSettings] = useState(() => getAdminGeneralSettings());
+  const [containerName, setContainerName] = useState("llm-port-api");
+  const [activeUrl, setActiveUrl] = useState("http://localhost:8001/api/docs");
   const [serviceContainer, setServiceContainer] = useState<ContainerSummary | null>(null);
   const [loadingService, setLoadingService] = useState(false);
   const [actionBusy, setActionBusy] = useState<"start" | "stop" | "restart" | "register" | null>(null);
   const [serviceError, setServiceError] = useState<string | null>(null);
 
-  const containerName = generalSettings.apiServer.containerName;
-  const activeUrl = useMemo(() => generalSettings.apiServer.endpointUrl.trim(), [generalSettings.apiServer.endpointUrl]);
   const normalizedContainerName = useMemo(() => containerName.trim().toLowerCase(), [containerName]);
 
   const refreshService = useCallback(async () => {
@@ -47,7 +46,22 @@ export default function ApiDocsPage() {
   }, [normalizedContainerName, t]);
 
   useEffect(() => {
-    setGeneralSettings(getAdminGeneralSettings());
+    async function loadSystemSettings() {
+      try {
+        const values = await systemSettingsApi.values();
+        const endpoint = values.items["api.server.endpoint_url"];
+        const container = values.items["api.server.container_name"];
+        if (endpoint && !endpoint.is_secret && typeof endpoint.value === "string") {
+          setActiveUrl(endpoint.value);
+        }
+        if (container && !container.is_secret && typeof container.value === "string") {
+          setContainerName(container.value);
+        }
+      } catch {
+        // Keep fallback defaults if backend settings endpoint is unavailable.
+      }
+    }
+    void loadSystemSettings();
   }, []);
 
   useEffect(() => {

@@ -118,9 +118,15 @@ Built with ❤️ using React Router.
 - Route: `/admin/llm/endpoint`
 - Embeds `llm_port_api` Swagger UI and includes container lifecycle controls (`Start`, `Stop`, `Restart`).
 - Uses backend container admin APIs only (no direct Docker access from browser).
-- Optional frontend env vars:
-  - `VITE_LLM_PORT_API_DOCS_URL` (default `http://localhost:8001/api/docs`)
-  - `VITE_LLM_PORT_API_CONTAINER_NAME` (default `llm-port-api`)
+
+## System Settings + Wizard
+
+- Route: `/admin/settings?tab=general`
+  - Backend schema-driven settings rendering (`/api/admin/system/settings/*`)
+  - Searchable/grouped fields with apply-scope badges.
+- Route: `/admin/settings?tab=system-init`
+  - Step-based system initialization wizard (`/api/admin/system/wizard/*`)
+  - Uses the same backend settings update/apply path as General settings.
 
 ## Breaking Rename Migration (`airgap` -> `llm-port`)
 
