@@ -4,6 +4,7 @@ export default [
   index("routes/home.tsx"),
   route("/login", "routes/login.tsx"),
   layout("routes/admin.tsx", [
+    route("/admin/dashboard", "pages/admin/DashboardPage.tsx"),
     route("/admin/containers", "pages/admin/ContainersPage.tsx"),
     route("/admin/containers/new", "pages/admin/CreateContainerPage.tsx"),
     route("/admin/containers/:id", "pages/admin/ContainerDetailPage.tsx"),

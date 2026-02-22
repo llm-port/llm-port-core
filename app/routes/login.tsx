@@ -15,7 +15,7 @@ import Typography from "@mui/material/Typography";
 export default function LoginPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const next = params.get("next") || "/admin/containers";
+  const next = params.get("next") || "/admin/dashboard";
 
   const [username, setUsername] = useState("admin@localhost");
   const [password, setPassword] = useState("admin");

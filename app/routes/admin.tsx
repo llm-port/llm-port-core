@@ -33,6 +33,7 @@ import DnsIcon from "@mui/icons-material/Dns";
 import ViewInArIcon from "@mui/icons-material/ViewInAr";
 import LayersIcon from "@mui/icons-material/Layers";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
+import DashboardIcon from "@mui/icons-material/Dashboard";
 import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
 import SecurityIcon from "@mui/icons-material/Security";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
@@ -74,6 +75,7 @@ interface NavLeaf {
 type NavEntry = NavGroup | NavLeaf;
 
 const NAV: NavEntry[] = [
+  { kind: "leaf", to: "/admin/dashboard", label: "Dashboard", icon: <DashboardIcon /> },
   {
     kind: "group",
     label: "Containers",
@@ -530,14 +532,12 @@ export default function AdminLayout() {
           </form>
         </Dialog>
 
-        {/* Page content — children manage their own scroll */}
+        {/* Page content */}
         <Box
           sx={{
             flexGrow: 1,
             minHeight: 0,
-            overflow: "hidden",
-            display: "flex",
-            flexDirection: "column",
+            overflow: "auto",
             p: 3,
           }}
         >

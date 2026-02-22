@@ -127,6 +127,78 @@ export interface AuditEvent {
   metadata_json: string | null;
 }
 
+export interface DashboardTopUser {
+  container_id: string;
+  name: string;
+  value: number;
+  unit: string;
+}
+
+export interface DashboardOverview {
+  system_status: string;
+  system_badge: string;
+
+  cpu_percent: number | null;
+  load_1m: number | null;
+  load_5m: number | null;
+  load_15m: number | null;
+
+  ram_used_bytes: number | null;
+  ram_total_bytes: number | null;
+  swap_used_bytes: number | null;
+  swap_total_bytes: number | null;
+
+  disk_free_bytes: number;
+  disk_total_bytes: number;
+  disk_free_percent: number;
+
+  network_rx_bytes: number | null;
+  network_tx_bytes: number | null;
+
+  containers_running: number;
+  containers_total: number;
+  containers_restarting: number;
+  restart_rate_1h: number;
+  restart_rate_24h: number;
+
+  api_error_rate_5xx: number;
+
+  postgres_connections: number | null;
+  postgres_max_connections: number | null;
+
+  gpu_util_percent: number | null;
+  gpu_vram_used_bytes: number | null;
+  gpu_vram_total_bytes: number | null;
+
+  top_cpu_containers: DashboardTopUser[];
+  top_memory_containers: DashboardTopUser[];
+}
+
+export interface DashboardHealthItem {
+  name: string;
+  status: string;
+  detail: string | null;
+}
+
+export interface DashboardHealth {
+  overall_status: string;
+  items: DashboardHealthItem[];
+}
+
+export interface GrafanaPanel {
+  panel_id: number;
+  title: string;
+  embed_url: string;
+}
+
+export interface GrafanaPanels {
+  enabled: boolean;
+  grafana_url: string | null;
+  dashboard_uid: string | null;
+  open_dashboard_url: string | null;
+  panels: GrafanaPanel[];
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -289,6 +361,18 @@ export const rootMode = {
   },
   stop() {
     return request<RootSession>("/root-mode/stop", { method: "POST" });
+  },
+};
+
+export const dashboard = {
+  overview() {
+    return request<DashboardOverview>("/dashboard/overview");
+  },
+  health() {
+    return request<DashboardHealth>("/dashboard/health");
+  },
+  grafanaPanels() {
+    return request<GrafanaPanels>("/dashboard/grafana/panels");
   },
 };
 
