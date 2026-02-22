@@ -101,5 +101,6 @@ poetry run pytest -vv
 ```
 
 ## Additional Docs
+- `docs/api-sequence.md`
 - `docs/gateway-architecture.md`
 - `docs/database.md`
