@@ -19,6 +19,7 @@ import ListItem from "@mui/material/ListItem";
 import ListItemText from "@mui/material/ListItemText";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
+import GaugeCard from "~/components/GaugeCard";
 
 function fmtPct(value: number | null | undefined): string {
   if (value == null) return "N/A";
@@ -114,29 +115,10 @@ export default function DashboardPage() {
     void load();
   }, []);
 
+  /* Remaining flat stat cards (non-gauge metrics) */
   const cards = useMemo(() => {
     if (!overview) return [];
     return [
-      {
-        label: "System Status",
-        value: overview.system_status,
-        detail: `Badge: ${overview.system_badge}`,
-      },
-      {
-        label: "CPU",
-        value: fmtPct(overview.cpu_percent),
-        detail: `Load ${overview.load_1m ?? "-"}/${overview.load_5m ?? "-"}/${overview.load_15m ?? "-"}`,
-      },
-      {
-        label: "RAM / Swap",
-        value: fmtRatio(overview.ram_used_bytes, overview.ram_total_bytes),
-        detail: `Swap ${fmtRatio(overview.swap_used_bytes, overview.swap_total_bytes)}`,
-      },
-      {
-        label: "Disk Free",
-        value: fmtPct(overview.disk_free_percent),
-        detail: `${fmtBytes(overview.disk_free_bytes)} free of ${fmtBytes(overview.disk_total_bytes)}`,
-      },
       {
         label: "Network RX/TX",
         value: `${fmtBytes(overview.network_rx_bytes)} / ${fmtBytes(overview.network_tx_bytes)}`,
@@ -162,17 +144,19 @@ export default function DashboardPage() {
             ? undefined
             : `Max ${overview.postgres_max_connections}`,
       },
-      {
-        label: "GPU Util + VRAM",
-        value:
-          overview.gpu_util_percent == null
-            ? "N/A"
-            : `${fmtPct(overview.gpu_util_percent)} / ${fmtRatio(
-                overview.gpu_vram_used_bytes,
-                overview.gpu_vram_total_bytes,
-              )}`,
-      },
     ];
+  }, [overview]);
+
+  /** RAM usage as a 0-100 percentage */
+  const ramPercent = useMemo(() => {
+    if (!overview?.ram_used_bytes || !overview?.ram_total_bytes || overview.ram_total_bytes <= 0) return null;
+    return (overview.ram_used_bytes / overview.ram_total_bytes) * 100;
+  }, [overview]);
+
+  /** Disk usage (inverse of free) as 0-100 */
+  const diskUsedPercent = useMemo(() => {
+    if (overview?.disk_free_percent == null) return null;
+    return 100 - overview.disk_free_percent;
   }, [overview]);
 
   return (
@@ -211,6 +195,42 @@ export default function DashboardPage() {
               />
             )}
           </Stack>
+
+          {/* Gauge row — CPU, RAM, Disk, GPU */}
+          <Grid container spacing={1.5} sx={{ mb: 1.5 }}>
+            <Grid size={{ xs: 6, sm: 3 }}>
+              <GaugeCard
+                label="CPU"
+                value={overview.cpu_percent}
+                detail={`Load ${overview.load_1m ?? "-"} / ${overview.load_5m ?? "-"} / ${overview.load_15m ?? "-"}`}
+              />
+            </Grid>
+            <Grid size={{ xs: 6, sm: 3 }}>
+              <GaugeCard
+                label="RAM"
+                value={ramPercent}
+                detail={fmtRatio(overview.ram_used_bytes, overview.ram_total_bytes)}
+                secondaryDetail={`Swap ${fmtRatio(overview.swap_used_bytes, overview.swap_total_bytes)}`}
+              />
+            </Grid>
+            <Grid size={{ xs: 6, sm: 3 }}>
+              <GaugeCard
+                label="Disk"
+                value={diskUsedPercent}
+                detail={`${fmtBytes(overview.disk_free_bytes)} free of ${fmtBytes(overview.disk_total_bytes)}`}
+              />
+            </Grid>
+            <Grid size={{ xs: 6, sm: 3 }}>
+              <GaugeCard
+                label="GPU"
+                value={overview.gpu_util_percent}
+                detail={overview.gpu_util_percent != null ? fmtRatio(overview.gpu_vram_used_bytes, overview.gpu_vram_total_bytes) : undefined}
+                secondaryDetail={overview.gpu_util_percent != null ? "VRAM" : undefined}
+              />
+            </Grid>
+          </Grid>
+
+          {/* Remaining stat cards */}
           <Grid container spacing={1.5}>
             {cards.map((card) => (
               <Grid key={card.label} size={{ xs: 12, sm: 6, md: 4, lg: 3 }}>
