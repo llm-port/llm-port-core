@@ -1,13 +1,13 @@
 from typing import AsyncGenerator
 
-from redis.asyncio import Redis
+from redis.asyncio import ConnectionPool
 from starlette.requests import Request
 from taskiq import TaskiqDepends
 
 
 async def get_redis_pool(
     request: Request = TaskiqDepends(),
-) -> AsyncGenerator[Redis, None]:  # pragma: no cover
+) -> AsyncGenerator[ConnectionPool, None]:  # pragma: no cover
     """
     Returns connection pool.
 
@@ -22,6 +22,6 @@ async def get_redis_pool(
     I use pools, so you don't acquire connection till the end of the handler.
 
     :param request: current request.
-    :returns:  redis connection pool.
+    :returns: redis connection pool.
     """
     return request.app.state.redis_pool

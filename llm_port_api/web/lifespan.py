@@ -6,6 +6,7 @@ from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExport
 from opentelemetry.instrumentation.aio_pika import AioPikaInstrumentor
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.redis import RedisInstrumentor
+from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 from opentelemetry.sdk.resources import (
     DEPLOYMENT_ENVIRONMENT,
     SERVICE_NAME,
@@ -18,6 +19,7 @@ from opentelemetry.trace import set_tracer_provider
 from prometheus_fastapi_instrumentator.instrumentation import (
     PrometheusFastApiInstrumentator,
 )
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from llm_port_api.services.rabbit.lifespan import init_rabbit, shutdown_rabbit
 from llm_port_api.services.redis.lifespan import init_redis, shutdown_redis
@@ -70,6 +72,10 @@ def setup_opentelemetry(app: FastAPI) -> None:  # pragma: no cover
     RedisInstrumentor().instrument(
         tracer_provider=tracer_provider,
     )
+    SQLAlchemyInstrumentor().instrument(
+        tracer_provider=tracer_provider,
+        engine=app.state.db_engine.sync_engine,
+    )
     AioPikaInstrumentor().instrument(
         tracer_provider=tracer_provider,
     )
@@ -88,6 +94,7 @@ def stop_opentelemetry(app: FastAPI) -> None:  # pragma: no cover
 
     FastAPIInstrumentor().uninstrument_app(app)
     RedisInstrumentor().uninstrument()
+    SQLAlchemyInstrumentor().uninstrument()
     AioPikaInstrumentor().uninstrument()
 
 
@@ -100,6 +107,18 @@ def setup_prometheus(app: FastAPI) -> None:  # pragma: no cover
     PrometheusFastApiInstrumentator(should_group_status_codes=False).instrument(
         app,
     ).expose(app, should_gzip=True, name="prometheus_metrics")
+
+
+def _setup_db(app: FastAPI) -> None:  # pragma: no cover
+    """
+    Initialize async SQLAlchemy engine and session factory.
+
+    :param app: current fastapi application.
+    """
+    engine = create_async_engine(str(settings.db_url), echo=settings.db_echo)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    app.state.db_engine = engine
+    app.state.db_session_factory = session_factory
 
 
 @asynccontextmanager
@@ -119,6 +138,7 @@ async def lifespan_setup(
     app.middleware_stack = None
     if not broker.is_worker_process:
         await broker.startup()
+    _setup_db(app)
     setup_opentelemetry(app)
     init_redis(app)
     init_rabbit(app)
@@ -128,6 +148,7 @@ async def lifespan_setup(
     yield
     if not broker.is_worker_process:
         await broker.shutdown()
+    await app.state.db_engine.dispose()
     await shutdown_redis(app)
     await shutdown_rabbit(app)
     stop_opentelemetry(app)

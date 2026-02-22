@@ -40,6 +40,15 @@ class Settings(BaseSettings):
 
     log_level: LogLevel = LogLevel.INFO
 
+    # Variables for the database
+    db_host: str = "localhost"
+    db_port: int = 5432
+    db_user: str = "llm_user"
+    db_pass: str = "llm_user"
+    db_base: str = "llm_api"
+    db_echo: bool = False
+    db_url_override: str | None = None
+
     # Variables for Redis
     redis_host: str = "llm_port_api-redis"
     redis_port: int = 6379
@@ -68,6 +77,35 @@ class Settings(BaseSettings):
     # Grpc endpoint for opentelemetry.
     # E.G. http://localhost:4317
     opentelemetry_endpoint: Optional[str] = None
+
+    # JWT settings (compatible with backend-issued tokens)
+    jwt_secret: str = ""
+    jwt_algorithm: str = "HS256"
+
+    # Gateway behavior
+    http_timeout_sec: float = 30.0
+    lease_ttl_sec: int = 90
+    retry_pre_first_token: int = 1
+    request_max_body_bytes: int = 2 * 1024 * 1024
+    stream_idle_timeout_sec: float = 60.0
+
+    @property
+    def db_url(self) -> URL:
+        """
+        Assemble database URL from settings.
+
+        :return: database URL.
+        """
+        if self.db_url_override:
+            return URL(self.db_url_override)
+        return URL.build(
+            scheme="postgresql+asyncpg",
+            host=self.db_host,
+            port=self.db_port,
+            user=self.db_user,
+            password=self.db_pass,
+            path=f"/{self.db_base}",
+        )
 
     @property
     def redis_url(self) -> URL:
@@ -105,7 +143,7 @@ class Settings(BaseSettings):
         )
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(".env", "llm_port_api/.env"),
         env_prefix="LLM_PORT_API_",
         env_file_encoding="utf-8",
     )

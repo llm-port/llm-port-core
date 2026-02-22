@@ -9,9 +9,13 @@ from aio_pika.pool import Pool
 from fakeredis import FakeServer
 from fakeredis.aioredis import FakeConnection
 from fastapi import FastAPI
-from httpx import AsyncClient
+from httpx import ASGITransport, AsyncClient
 from redis.asyncio import ConnectionPool
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from llm_port_api.db.dependencies import get_db_session
+from llm_port_api.db.meta import meta
+from llm_port_api.db.models import load_all_models
 from llm_port_api.services.rabbit.dependencies import get_rmq_channel_pool
 from llm_port_api.services.rabbit.lifespan import init_rabbit, shutdown_rabbit
 from llm_port_api.services.redis.dependency import get_redis_pool
@@ -73,14 +77,16 @@ async def test_exchange(
     :param test_rmq_pool: channel pool for rabbitmq.
     :yield: created exchange.
     """
-    async with test_rmq_pool.acquire() as conn:
-        exchange = await conn.declare_exchange(
-            name=test_exchange_name,
-            auto_delete=True,
-        )
-        yield exchange
-
-        await exchange.delete(if_unused=False)
+    try:
+        async with test_rmq_pool.acquire() as conn:
+            exchange = await conn.declare_exchange(
+                name=test_exchange_name,
+                auto_delete=True,
+            )
+            yield exchange
+            await exchange.delete(if_unused=False)
+    except Exception as exc:  # noqa: BLE001
+        pytest.skip(f"RabbitMQ unavailable in test environment: {exc}")
 
 
 @pytest.fixture
@@ -124,8 +130,44 @@ async def fake_redis_pool() -> AsyncGenerator[ConnectionPool, None]:
     await pool.disconnect()
 
 
+@pytest.fixture(scope="session")
+async def db_engine(anyio_backend: Any) -> AsyncGenerator[Any, None]:
+    """
+    Create in-memory sqlite engine for tests.
+
+    :yield: async engine.
+    """
+    load_all_models()
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(meta.create_all)
+    try:
+        yield engine
+    finally:
+        await engine.dispose()
+
+
+@pytest.fixture
+async def db_session(db_engine: Any) -> AsyncGenerator[AsyncSession, None]:
+    """
+    Get transaction-scoped db session.
+
+    :yield: async db session.
+    """
+    async with db_engine.connect() as conn:
+        tx = await conn.begin()
+        session_factory = async_sessionmaker(conn, expire_on_commit=False)
+        session = session_factory()
+        try:
+            yield session
+        finally:
+            await session.close()
+            await tx.rollback()
+
+
 @pytest.fixture
 def fastapi_app(
+    db_session: AsyncSession,
     fake_redis_pool: ConnectionPool,
     test_rmq_pool: Pool[Channel],
 ) -> FastAPI:
@@ -135,6 +177,9 @@ def fastapi_app(
     :return: fastapi app with mocked dependencies.
     """
     application = get_app()
+    application.state.redis_pool = fake_redis_pool
+    application.state.rmq_channel_pool = test_rmq_pool
+    application.dependency_overrides[get_db_session] = lambda: db_session
     application.dependency_overrides[get_redis_pool] = lambda: fake_redis_pool
     application.dependency_overrides[get_rmq_channel_pool] = lambda: test_rmq_pool
     return application
@@ -151,5 +196,8 @@ async def client(
     :param fastapi_app: the application.
     :yield: client for the app.
     """
-    async with AsyncClient(app=fastapi_app, base_url="http://test", timeout=2.0) as ac:
+    transport = ASGITransport(app=fastapi_app)
+    async with AsyncClient(
+        transport=transport, base_url="http://test", timeout=2.0,
+    ) as ac:
         yield ac
