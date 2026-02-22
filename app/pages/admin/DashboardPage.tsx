@@ -255,9 +255,9 @@ export default function DashboardPage() {
           </Grid>
 
           {/* Remaining stat cards */}
-          <Grid container spacing={1.5}>
+          <Grid container spacing={1.5} columns={{ xs: 12, lg: 10 }}>
             {cards.map((card) => (
-              <Grid key={card.label} size={{ xs: 12, sm: 6, md: 4, lg: 3 }}>
+              <Grid key={card.label} size={{ xs: 12, sm: 6, md: 4, lg: 2 }}>
                 <StatCard label={card.label} value={card.value} detail={card.detail} />
               </Grid>
             ))}

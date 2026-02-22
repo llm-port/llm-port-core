@@ -50,6 +50,7 @@ import WidgetsIcon from "@mui/icons-material/Widgets";
 import LanIcon from '@mui/icons-material/Lan';
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import LlmIcon from "~/components/LlmIcon";
+import AppBrand from "~/components/AppBrand";
 import ModelTrainingIcon from "@mui/icons-material/ModelTraining";
 import RocketLaunchIcon from "@mui/icons-material/RocketLaunch";
 import DownloadIcon from "@mui/icons-material/Download";
@@ -325,11 +326,7 @@ export default function AdminLayout() {
           >
             <AdminPanelSettingsIcon sx={{ fontSize: 20 }} />
           </IconButton>
-          {drawerOpen && (
-            <Typography variant="h6" noWrap sx={{ fontSize: "1rem", color: "primary.light" }}>
-              {t("app.title")}
-            </Typography>
-          )}
+          {drawerOpen && <AppBrand />}
         </Box>
 
         {/* Nav items */}
