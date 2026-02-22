@@ -273,6 +273,12 @@
     "title": "设置",
     "search_placeholder": "搜索设置...",
     "no_results": "没有匹配的设置项。",
+    "generate_secret": "生成安全令牌",
+    "secret_generated": "已生成安全令牌。",
+    "secret_generate_failed": "生成安全令牌失败。",
+    "secret_copied": "密钥已复制到剪贴板。",
+    "secret_copy_failed": "复制密钥到剪贴板失败。",
+    "secret_copy_empty": "请先生成或输入密钥后再复制。",
     "general": {
       "title": "通用",
       "api_server": {
@@ -282,6 +288,14 @@
         "container_name": "API 容器名称",
         "container_name_desc": "用于启动/停止/重启控制的容器名称。"
       }
+    },
+    "system_init": {
+      "title": "系统初始化",
+      "description": "配置共享服务并立即应用变更。",
+      "target_host": "目标主机",
+      "no_fields": "此步骤不需要设置项。",
+      "apply_step": "应用当前步骤",
+      "next_step": "下一步"
     }
   },
   "users": {

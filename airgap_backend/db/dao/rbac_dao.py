@@ -14,7 +14,6 @@ from airgap_backend.db.models.rbac import (
     UserRole,
 )
 
-
 # Default roles and their permission scopes
 _DEFAULT_ROLES: dict[str, dict[str, list[str]]] = {
     "admin": {
@@ -43,6 +42,11 @@ _DEFAULT_ROLES: dict[str, dict[str, list[str]]] = {
         "audit": ["read"],
         "logs": ["read"],
         "root_mode": ["start", "stop", "read"],
+        "system.settings": ["read", "update"],
+        "system.secrets": ["read_masked", "update"],
+        "system.apply": ["execute", "read"],
+        "system.wizard": ["read", "execute"],
+        "system.agents": ["read", "manage"],
     },
     "operator": {
         "llm.providers": ["read"],
@@ -58,6 +62,11 @@ _DEFAULT_ROLES: dict[str, dict[str, list[str]]] = {
         "audit": ["read"],
         "logs": ["read"],
         "root_mode": ["read"],
+        "system.settings": ["read"],
+        "system.secrets": ["read_masked"],
+        "system.apply": ["read"],
+        "system.wizard": ["read"],
+        "system.agents": ["read"],
     },
     "viewer": {
         "llm.providers": ["read"],
@@ -73,6 +82,11 @@ _DEFAULT_ROLES: dict[str, dict[str, list[str]]] = {
         "audit": ["read"],
         "logs": ["read"],
         "root_mode": ["read"],
+        "system.settings": [],
+        "system.secrets": [],
+        "system.apply": ["read"],
+        "system.wizard": [],
+        "system.agents": [],
     },
 }
 
@@ -178,7 +192,7 @@ class RbacDAO:
     # Seeding
     # ------------------------------------------------------------------
 
-    async def seed_defaults(self) -> None:
+    async def seed_defaults(self) -> None:  # noqa: C901
         """Create built-in roles and permissions if they don't exist."""
         # 1. Collect all unique (resource, action) pairs
         perm_map: dict[tuple[str, str], Permission] = {}

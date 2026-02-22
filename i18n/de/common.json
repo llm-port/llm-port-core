@@ -273,6 +273,12 @@
     "title": "Einstellungen",
     "search_placeholder": "Einstellungen suchen...",
     "no_results": "Keine passenden Einstellungen gefunden.",
+    "generate_secret": "Sicheres Token erzeugen",
+    "secret_generated": "Sicheres Token wurde erzeugt.",
+    "secret_generate_failed": "Sicheres Token konnte nicht erzeugt werden.",
+    "secret_copied": "Secret in die Zwischenablage kopiert.",
+    "secret_copy_failed": "Secret konnte nicht kopiert werden.",
+    "secret_copy_empty": "Vor dem Kopieren zuerst Secret erzeugen oder eingeben.",
     "general": {
       "title": "Allgemein",
       "api_server": {
@@ -282,6 +288,14 @@
         "container_name": "API-Containername",
         "container_name_desc": "Containername fuer Start/Stopp/Neustart-Steuerung."
       }
+    },
+    "system_init": {
+      "title": "System-Init",
+      "description": "Gemeinsame Dienste konfigurieren und direkt anwenden.",
+      "target_host": "Ziel-Host",
+      "no_fields": "Fuer diesen Schritt sind keine Einstellungen erforderlich.",
+      "apply_step": "Schritt anwenden",
+      "next_step": "Naechster Schritt"
     }
   },
   "users": {

@@ -136,6 +136,31 @@ The traces endpoints read from the gateway (`llm_port_api`) request log DB:
 - `LLM_PORT_BACKEND_LLM_GRAPH_DB_BASE`
 - `LLM_PORT_BACKEND_LLM_GRAPH_DB_URL_OVERRIDE` (optional full DSN override)
 
+## System Settings + Init Wizard APIs
+
+The backend now exposes a system control plane used by `/admin/settings`:
+
+- `GET /api/admin/system/settings/schema`
+- `GET /api/admin/system/settings/values`
+- `PUT /api/admin/system/settings/values/{key}`
+- `GET /api/admin/system/apply/{job_id}`
+- `GET /api/admin/system/wizard/steps`
+- `POST /api/admin/system/wizard/apply`
+- `POST /api/admin/system/agents/register`
+- `POST /api/admin/system/agents/heartbeat`
+- `GET /api/admin/system/agents`
+
+Related env variables:
+- `LLM_PORT_BACKEND_SETTINGS_MASTER_KEY`
+- `LLM_PORT_BACKEND_SYSTEM_COMPOSE_FILE`
+- `LLM_PORT_BACKEND_SYSTEM_AGENT_ENABLED`
+- `LLM_PORT_BACKEND_SYSTEM_AGENT_TOKEN` (optional)
+
+Docs:
+- `docs/system-settings.md`
+- `docs/system-init-wizard.md`
+- `docs/agent-api.md`
+
 ## I18n API (runtime translation bundles)
 
 The frontend loads translations at runtime from backend endpoints:

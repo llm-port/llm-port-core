@@ -273,6 +273,12 @@
     "title": "Configuracion",
     "search_placeholder": "Buscar ajustes...",
     "no_results": "Ningun ajuste coincide con la busqueda.",
+    "generate_secret": "Generar Token Seguro",
+    "secret_generated": "Token seguro generado.",
+    "secret_generate_failed": "No se pudo generar el token seguro.",
+    "secret_copied": "Secreto copiado al portapapeles.",
+    "secret_copy_failed": "No se pudo copiar el secreto al portapapeles.",
+    "secret_copy_empty": "Genera o ingresa un secreto antes de copiar.",
     "general": {
       "title": "General",
       "api_server": {
@@ -282,6 +288,14 @@
         "container_name": "Nombre del Contenedor API",
         "container_name_desc": "Nombre de contenedor usado para controles iniciar/detener/reiniciar."
       }
+    },
+    "system_init": {
+      "title": "Inicio del Sistema",
+      "description": "Configura servicios compartidos y aplica cambios de inmediato.",
+      "target_host": "Host Objetivo",
+      "no_fields": "No se requieren ajustes para este paso.",
+      "apply_step": "Aplicar Paso",
+      "next_step": "Siguiente Paso"
     }
   },
   "users": {

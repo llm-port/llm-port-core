@@ -268,6 +268,12 @@
     "title": "Settings",
     "search_placeholder": "Search settings...",
     "no_results": "No settings match your search.",
+    "generate_secret": "Generate Secure Token",
+    "secret_generated": "Secure token generated.",
+    "secret_generate_failed": "Failed to generate secure token.",
+    "secret_copied": "Secret copied to clipboard.",
+    "secret_copy_failed": "Failed to copy secret to clipboard.",
+    "secret_copy_empty": "Generate or enter a secret value before copying.",
     "general": {
       "title": "General",
       "api_server": {
@@ -277,6 +283,14 @@
         "container_name": "API Container Name",
         "container_name_desc": "Container name used for start/stop/restart controls."
       }
+    },
+    "system_init": {
+      "title": "System Init",
+      "description": "Configure and initialize shared services with immediate apply.",
+      "target_host": "Target Host",
+      "no_fields": "No settings are required for this step.",
+      "apply_step": "Apply Step",
+      "next_step": "Next Step"
     }
   },
   "users": {

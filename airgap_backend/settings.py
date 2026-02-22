@@ -112,6 +112,10 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("LLM_PORT_BACKEND_LOGS_ALLOWED_LABELS"),
     )
     i18n_dir: str = "i18n"
+    settings_master_key: str = "dev-settings-master-key-change-me"
+    system_compose_file: str = "../airgap_shared/docker-compose.yaml"
+    system_agent_enabled: bool = False
+    system_agent_token: str | None = None
 
     @property
     def db_url(self) -> URL:
