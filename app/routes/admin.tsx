@@ -34,6 +34,8 @@ import Typography from "@mui/material/Typography";
 import Alert from "@mui/material/Alert";
 import MenuItem from "@mui/material/MenuItem";
 import Menu from "@mui/material/Menu";
+import MobileStepper from "@mui/material/MobileStepper";
+import Stack from "@mui/material/Stack";
 
 import StorageIcon from '@mui/icons-material/Storage';
 import DnsIcon from "@mui/icons-material/Dns";
@@ -59,6 +61,9 @@ import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
 import LightModeOutlinedIcon from "@mui/icons-material/LightModeOutlined";
 import LogoutIcon from "@mui/icons-material/Logout";
 import TranslateIcon from "@mui/icons-material/Translate";
+import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
+import KeyboardArrowLeftIcon from "@mui/icons-material/KeyboardArrowLeft";
+import KeyboardArrowRightIcon from "@mui/icons-material/KeyboardArrowRight";
 
 const DRAWER_WIDTH_OPEN = 240;
 const DRAWER_WIDTH_CLOSED = 64;
@@ -180,6 +185,8 @@ export default function AdminLayout() {
   const [languageMenuAnchor, setLanguageMenuAnchor] = useState<HTMLElement | null>(null);
   const [rootStatus, setRootStatus] = useState<RootModeStatus | null>(null);
   const [showRootForm, setShowRootForm] = useState(false);
+  const [showInfoWizard, setShowInfoWizard] = useState(false);
+  const [infoWizardStep, setInfoWizardStep] = useState(0);
   const [reason, setReason] = useState("");
   const [duration, setDuration] = useState(600);
   const [error, setError] = useState<string | null>(null);
@@ -305,6 +312,28 @@ export default function AdminLayout() {
     })
     .filter((entry): entry is NavEntry => entry !== null)
     .filter((entry) => entry.kind === "leaf" || entry.children.length > 0);
+  const infoSlides = [
+    {
+      title: t("help.slides.containers.title"),
+      description: t("help.slides.containers.description"),
+      image: "/help-containers.svg",
+    },
+    {
+      title: t("help.slides.llm_server.title"),
+      description: t("help.slides.llm_server.description"),
+      image: "/help-llm-server.svg",
+    },
+    {
+      title: t("help.slides.tracing.title"),
+      description: t("help.slides.tracing.description"),
+      image: "/help-llm-tracing.svg",
+    },
+    {
+      title: t("help.slides.endpoint.title"),
+      description: t("help.slides.endpoint.description"),
+      image: "/help-api-endpoint.svg",
+    },
+  ];
 
   if (!authReady) {
     return (
@@ -576,6 +605,18 @@ export default function AdminLayout() {
         {/* App bar */}
         <AppBar position="static" elevation={0}>
           <Toolbar variant="dense" sx={{ justifyContent: "flex-end", gap: 1.5 }}>
+            <Tooltip title={t("help.title")} arrow>
+              <IconButton
+                size="small"
+                onClick={() => {
+                  setInfoWizardStep(0);
+                  setShowInfoWizard(true);
+                }}
+                sx={{ color: "text.primary" }}
+              >
+                <HelpOutlineIcon />
+              </IconButton>
+            </Tooltip>
             <Tooltip title={t("language.label")} arrow>
               <IconButton
                 size="small"
@@ -714,6 +755,77 @@ export default function AdminLayout() {
               </Button>
             </DialogActions>
           </form>
+        </Dialog>
+
+        <Dialog
+          open={showInfoWizard}
+          onClose={() => setShowInfoWizard(false)}
+          maxWidth="md"
+          fullWidth
+        >
+          <DialogTitle>{t("help.title")}</DialogTitle>
+          <DialogContent sx={{ pt: "8px !important" }}>
+            <Stack spacing={1.5}>
+              <Typography variant="subtitle1" fontWeight={600}>
+                {infoSlides[infoWizardStep]?.title}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {infoSlides[infoWizardStep]?.description}
+              </Typography>
+              <Box
+                sx={{
+                  width: "100%",
+                  borderRadius: 2,
+                  overflow: "hidden",
+                  border: (theme) => `1px solid ${theme.palette.divider}`,
+                  bgcolor: "background.default",
+                }}
+              >
+                <Box
+                  component="img"
+                  src={infoSlides[infoWizardStep]?.image}
+                  alt={infoSlides[infoWizardStep]?.title}
+                  sx={{
+                    width: "100%",
+                    maxHeight: 360,
+                    objectFit: "cover",
+                    display: "block",
+                  }}
+                />
+              </Box>
+            </Stack>
+          </DialogContent>
+          <DialogActions sx={{ px: 2, pb: 1.5, justifyContent: "space-between" }}>
+            <Button onClick={() => setShowInfoWizard(false)}>
+              {t("common.close")}
+            </Button>
+            <MobileStepper
+              variant="dots"
+              position="static"
+              steps={infoSlides.length}
+              activeStep={infoWizardStep}
+              nextButton={(
+                <Button
+                  size="small"
+                  onClick={() => setInfoWizardStep((prev) => Math.min(infoSlides.length - 1, prev + 1))}
+                  disabled={infoWizardStep >= infoSlides.length - 1}
+                >
+                  {t("help.next")}
+                  <KeyboardArrowRightIcon fontSize="small" />
+                </Button>
+              )}
+              backButton={(
+                <Button
+                  size="small"
+                  onClick={() => setInfoWizardStep((prev) => Math.max(0, prev - 1))}
+                  disabled={infoWizardStep === 0}
+                >
+                  <KeyboardArrowLeftIcon fontSize="small" />
+                  {t("help.back")}
+                </Button>
+              )}
+            />
+          </DialogActions>
         </Dialog>
 
         {/* Page content */}
