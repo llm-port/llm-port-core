@@ -1,0 +1,14 @@
+services:
+  llm-port-api:
+    build:
+      context: ../llm_port_api
+      dockerfile: Dockerfile
+      target: dev
+    volumes:
+      - ../llm_port_api:/app/src
+    environment:
+      LLM_PORT_API_RELOAD: "true"
+    command:
+      - /usr/local/bin/python
+      - -m
+      - llm_port_api

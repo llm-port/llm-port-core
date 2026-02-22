@@ -185,6 +185,69 @@ services:
       LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
 
   # -----------------------------
+  # llm_port_api (OpenAI-compatible endpoint gateway)
+  # -----------------------------
+  llm-port-api-rmq:
+    image: rabbitmq:3.9.16-alpine
+    container_name: llm-port-api-rmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: "guest"
+      RABBITMQ_DEFAULT_PASS: "guest"
+      RABBITMQ_DEFAULT_VHOST: "/"
+    healthcheck:
+      test: rabbitmq-diagnostics check_running -q
+      interval: 3s
+      timeout: 3s
+      retries: 50
+
+  llm-port-api:
+    build:
+      context: ../llm_port_api
+      dockerfile: Dockerfile
+    container_name: llm-port-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      llm-port-api-rmq:
+        condition: service_healthy
+    ports:
+      - "8001:8000"
+    environment:
+      LLM_PORT_API_HOST: 0.0.0.0
+      LLM_PORT_API_PORT: 8000
+      LLM_PORT_API_RELOAD: "false"
+      LLM_PORT_API_ENVIRONMENT: dev
+      LLM_PORT_API_JWT_SECRET: ${LLM_PORT_API_JWT_SECRET:-dev-jwt-secret-not-for-production}
+      LLM_PORT_API_JWT_ALGORITHM: HS256
+      LLM_PORT_API_DB_HOST: postgres
+      LLM_PORT_API_DB_PORT: 5432
+      LLM_PORT_API_DB_USER: llm_user
+      LLM_PORT_API_DB_PASS: llm_user
+      LLM_PORT_API_DB_BASE: llm_api
+      LLM_PORT_API_REDIS_HOST: redis
+      LLM_PORT_API_REDIS_PORT: 6379
+      LLM_PORT_API_REDIS_PASS: ${REDIS_AUTH:-myredissecret}
+      LLM_PORT_API_REDIS_BASE: 1
+      LLM_PORT_API_RABBIT_HOST: llm-port-api-rmq
+      LLM_PORT_API_RABBIT_PORT: 5672
+      LLM_PORT_API_RABBIT_USER: guest
+      LLM_PORT_API_RABBIT_PASS: guest
+      LLM_PORT_API_RABBIT_VHOST: /
+      LLM_PORT_API_LANGFUSE_ENABLED: ${LLM_PORT_API_LANGFUSE_ENABLED:-false}
+      LLM_PORT_API_LANGFUSE_HOST: ${LLM_PORT_API_LANGFUSE_HOST:-http://langfuse-web:3000}
+      LLM_PORT_API_LANGFUSE_PUBLIC_KEY: ${LLM_PORT_API_LANGFUSE_PUBLIC_KEY:-}
+      LLM_PORT_API_LANGFUSE_SECRET_KEY: ${LLM_PORT_API_LANGFUSE_SECRET_KEY:-}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=3).read()"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # -----------------------------
   # Logs: Loki + Grafana + Alloy
   # -----------------------------
   loki:
