@@ -100,5 +100,13 @@ Built with ❤️ using React Router.
 - Bundles are loaded from:
   - `/api/i18n/languages`
   - `/api/i18n/{lang}/{namespace}`
-- Language selection is available in the admin top bar and persisted in `localStorage` (`airgap-lang`).
+- Language selection is available in the admin top bar and persisted in `localStorage` (`llm-port-lang`).
 - New languages can be added on backend bundle files without rebuilding frontend assets.
+
+## Breaking Rename Migration (`airgap` -> `llm-port`)
+
+- Frontend branding is now `llm-port`.
+- Local storage keys changed:
+  - `airgap-lang` -> `llm-port-lang`
+  - `airgap-theme-mode` -> `llm-port-theme-mode`
+- Existing browsers may need one fresh login/theme/language re-selection after upgrade.

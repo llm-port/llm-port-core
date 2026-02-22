@@ -24,7 +24,7 @@ void i18n
     },
     detection: {
       order: ["localStorage", "navigator", "htmlTag"],
-      lookupLocalStorage: "airgap-lang",
+      lookupLocalStorage: "llm-port-lang",
       caches: ["localStorage"],
     },
     react: {

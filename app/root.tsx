@@ -37,7 +37,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const [mode, setMode] = useState<PaletteMode>("dark");
 
   useEffect(() => {
-    const stored = window.localStorage.getItem("airgap-theme-mode");
+    const stored = window.localStorage.getItem("llm-port-theme-mode");
     if (stored === "light" || stored === "dark") {
       setMode(stored);
       return;
@@ -48,7 +48,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    window.localStorage.setItem("airgap-theme-mode", mode);
+    window.localStorage.setItem("llm-port-theme-mode", mode);
     document.body.dataset.theme = mode;
   }, [mode]);
 

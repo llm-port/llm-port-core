@@ -1,5 +1,5 @@
 {
-  "name": "airgap-frontend",
+  "name": "llm-port-frontend",
   "private": true,
   "type": "module",
   "scripts": {

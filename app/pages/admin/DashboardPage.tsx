@@ -20,6 +20,7 @@ import ListItem from "@mui/material/ListItem";
 import ListItemText from "@mui/material/ListItemText";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
+import { useTheme } from "@mui/material/styles";
 import GaugeCard from "~/components/GaugeCard";
 
 function fmtPct(value: number | null | undefined): string {
@@ -87,9 +88,21 @@ function StatCard({ label, value, detail }: StatCardProps) {
 
 export default function DashboardPage() {
   const { t } = useTranslation();
-  const grafanaDashboardUrl =
+  const theme = useTheme();
+  const grafanaDashboardBaseUrl =
     (import.meta.env.VITE_GRAFANA_DASHBOARD_URL as string | undefined) ??
-    "http://localhost:3001/d/airgap-overview/airgap-overview?orgId=1&from=now-6h&to=now&timezone=browser&refresh=30s";
+    "http://localhost:3001/d/llm-port-overview/llm-port-overview?orgId=1&from=now-6h&to=now&timezone=browser&refresh=30s";
+
+  const grafanaDashboardUrl = useMemo(() => {
+    try {
+      const url = new URL(grafanaDashboardBaseUrl);
+      url.searchParams.set("theme", theme.palette.mode === "dark" ? "dark" : "light");
+      return url.toString();
+    } catch {
+      const separator = grafanaDashboardBaseUrl.includes("?") ? "&" : "?";
+      return `${grafanaDashboardBaseUrl}${separator}theme=${theme.palette.mode === "dark" ? "dark" : "light"}`;
+    }
+  }, [grafanaDashboardBaseUrl, theme.palette.mode]);
 
   const [overview, setOverview] = useState<DashboardOverview | null>(null);
   const [health, setHealth] = useState<DashboardHealth | null>(null);

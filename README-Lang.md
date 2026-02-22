@@ -59,6 +59,7 @@ If not added there, language still works but may show raw code as display name.
 Frontend i18n uses versioned load path and reload on language switch.
 
 - Config file: `airgap_frontend/app/i18n.ts`
+- Language key in localStorage: `llm-port-lang`
 - Optional env var to force cache bust:
   - `VITE_I18N_VERSION=2` (any new value)
 
@@ -86,4 +87,3 @@ If translations do not appear:
 - Hardcoded text left in JSX/dialog/tooltips.
 - JSON typo (invalid commas/quotes) in translation file.
 - Added key in one language but not others.
-

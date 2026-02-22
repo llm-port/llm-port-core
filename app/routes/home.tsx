@@ -9,8 +9,8 @@ import { useTranslation } from "react-i18next";
 
 export function meta({}: Route.MetaArgs) {
   return [
-    { title: "AIrgap Console" },
-    { name: "description", content: "Airgap container management console" },
+    { title: "llm-port" },
+    { name: "description", content: "llm-port container management console" },
   ];
 }
 
