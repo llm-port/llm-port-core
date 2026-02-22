@@ -44,7 +44,7 @@ def get_app() -> FastAPI:
             ],
         )
     app = FastAPI(
-        title="airgap_backend",
+        title="llm-port-backend",
         lifespan=lifespan_setup,
         docs_url=None,
         redoc_url=None,

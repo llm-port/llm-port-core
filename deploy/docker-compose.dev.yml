@@ -10,7 +10,7 @@ services:
     - .:/app/src/
     environment:
       # Enables autoreload.
-      AIRGAP_BACKEND_RELOAD: "True"
+      LLM_PORT_BACKEND_RELOAD: "True"
 
   taskiq-worker:
     volumes:

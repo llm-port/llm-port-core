@@ -1,6 +1,6 @@
 {
   "app": {
-    "title": "AIrgap Konsole",
+    "title": "llm-port",
     "check_session": "Sitzung wird geprueft..."
   },
   "theme": {
@@ -29,7 +29,7 @@
     "back_home": "Zurueck zur Startseite",
     "email": "E-Mail",
     "password": "Passwort",
-    "login_title": "Bei AIrgap Console anmelden",
+    "login_title": "Bei llm-port anmelden",
     "login_desc": "Melde dich mit deinen Zugangsdaten an, um das Admin-Dashboard zu oeffnen."
   },
   "root_mode": {

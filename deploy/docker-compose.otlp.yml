@@ -2,11 +2,11 @@ services:
   api:
     environment:
       # Adds opentelemetry endpoint.
-      AIRGAP_BACKEND_OPENTELEMETRY_ENDPOINT: "http://otel-collector:4317"
+      LLM_PORT_BACKEND_OPENTELEMETRY_ENDPOINT: "http://otel-collector:4317"
   taskiq-worker:
     environment:
       # Adds opentelemetry endpoint.
-      AIRGAP_BACKEND_OPENTELEMETRY_ENDPOINT: "http://otel-collector:4317"
+      LLM_PORT_BACKEND_OPENTELEMETRY_ENDPOINT: "http://otel-collector:4317"
 
   otel-stack:
     image: grafana/otel-lgtm

@@ -1,5 +1,5 @@
 [project]
-name = "airgap_backend"
+name = "llm-port-backend"
 version = "0.1.0"
 requires-python = ">=3.12,<4.0"
 description = ""
@@ -89,9 +89,9 @@ filterwarnings = [
 ]
 anyio_mode = "auto"
 env = [
-    "AIRGAP_BACKEND_ENVIRONMENT=pytest",
-    "AIRGAP_BACKEND_DB_BASE=airgap_backend_test",
-    "AIRGAP_BACKEND_SENTRY_DSN=",
+    "LLM_PORT_BACKEND_ENVIRONMENT=pytest",
+    "LLM_PORT_BACKEND_DB_BASE=llm_port_backend_test",
+    "LLM_PORT_BACKEND_SENTRY_DSN=",
 ]
 
 [tool.ruff]
@@ -171,7 +171,7 @@ extend-immutable-calls = [
 ]
 
 [fastapi-template.options]
-project_name = "airgap_backend"
+project_name = "llm-port-backend"
 api_type = "rest"
 enable_redis = "None"
 enable_rmq = "True"

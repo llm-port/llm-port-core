@@ -1,6 +1,6 @@
 {
   "app": {
-    "title": "Consola AIrgap",
+    "title": "llm-port",
     "check_session": "Verificando sesion..."
   },
   "theme": {
@@ -29,7 +29,7 @@
     "back_home": "Volver al inicio",
     "email": "Correo",
     "password": "Contrasena",
-    "login_title": "Inicia sesion en AIrgap Console",
+    "login_title": "Inicia sesion en llm-port",
     "login_desc": "Usa tus credenciales para acceder al panel de administracion."
   },
   "root_mode": {

@@ -125,14 +125,14 @@ class VLLMAdapter(ProviderAdapter):
         }
 
         labels = {
-            "airgap.service": "llm-runtime",
-            "airgap.runtime_id": str(runtime.id),
-            "airgap.provider": "vllm",
+            "llm-port.service": "llm-runtime",
+            "llm-port.runtime_id": str(runtime.id),
+            "llm-port.provider": "vllm",
         }
 
         return ContainerSpec(
             image=image,
-            name=f"airgap-vllm-{runtime.name}",
+            name=f"llm-port-vllm-{runtime.name}",
             cmd=cmd,
             env=env or None,
             ports=ports,

@@ -67,7 +67,7 @@ def setup_opentelemetry(app: FastAPI) -> None:  # pragma: no cover
 
     otlp_resource = Resource(
         attributes={
-            SERVICE_NAME: "airgap_backend",
+            SERVICE_NAME: "llm-port-backend",
             TELEMETRY_SDK_LANGUAGE: "python",
             DEPLOYMENT_ENVIRONMENT: settings.environment,
         }
@@ -200,6 +200,7 @@ async def _seed_dev_user(app: FastAPI) -> None:
     """Create admin@localhost / admin superuser if it doesn't exist (dev only)."""
     from fastapi_users.password import PasswordHelper  # noqa: PLC0415
     from sqlalchemy import select  # noqa: PLC0415
+    from sqlalchemy.exc import IntegrityError  # noqa: PLC0415
 
     from airgap_backend.db.models.users import User  # noqa: PLC0415
 
@@ -221,8 +222,21 @@ async def _seed_dev_user(app: FastAPI) -> None:
             is_verified=True,
         )
         session.add(user)
-        await session.commit()
-        log.info("Seeded dev admin user admin@localhost (password: admin)")
+        try:
+            await session.commit()
+            log.info("Seeded dev admin user admin@localhost (password: admin)")
+        except IntegrityError:
+            # Another startup process may insert the same dev user concurrently.
+            # Treat duplicate-email conflicts as a successful seed.
+            await session.rollback()
+            result = await session.execute(
+                select(User).where(User.email == "admin@localhost"),  # type: ignore[arg-type]
+            )
+            existing = result.scalars().first()
+            if existing:
+                log.info("Dev admin user already exists (id=%s)", existing.id)
+                return
+            raise
 
 
 async def _seed_rbac(app: FastAPI) -> None:

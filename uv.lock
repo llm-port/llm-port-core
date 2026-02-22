@@ -162,113 +162,6 @@ wheels = [
 ]
 
 [[package]]
-name = "airgap-backend"
-version = "0.1.0"
-source = { virtual = "." }
-dependencies = [
-    { name = "aio-pika" },
-    { name = "aiodocker" },
-    { name = "aiofiles" },
-    { name = "alembic" },
-    { name = "asyncpg" },
-    { name = "fastapi" },
-    { name = "fastapi-users" },
-    { name = "fastapi-users-db-sqlalchemy" },
-    { name = "hf-xet" },
-    { name = "httptools" },
-    { name = "httpx" },
-    { name = "httpx-oauth" },
-    { name = "huggingface-hub" },
-    { name = "loguru" },
-    { name = "opentelemetry-api" },
-    { name = "opentelemetry-exporter-otlp" },
-    { name = "opentelemetry-instrumentation" },
-    { name = "opentelemetry-instrumentation-aio-pika" },
-    { name = "opentelemetry-instrumentation-fastapi" },
-    { name = "opentelemetry-instrumentation-sqlalchemy" },
-    { name = "opentelemetry-sdk" },
-    { name = "prometheus-client" },
-    { name = "prometheus-fastapi-instrumentator" },
-    { name = "psutil" },
-    { name = "pydantic" },
-    { name = "pydantic-settings" },
-    { name = "pymongo" },
-    { name = "sentry-sdk" },
-    { name = "sqlalchemy", extra = ["asyncio"] },
-    { name = "taskiq" },
-    { name = "taskiq-aio-pika" },
-    { name = "taskiq-fastapi" },
-    { name = "ujson" },
-    { name = "uvicorn", extra = ["standard"] },
-    { name = "yarl" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "anyio" },
-    { name = "httpx" },
-    { name = "mypy" },
-    { name = "pre-commit" },
-    { name = "pytest" },
-    { name = "pytest-cov" },
-    { name = "pytest-env" },
-    { name = "ruff" },
-    { name = "taskiq", extra = ["reload"] },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aio-pika", specifier = ">=9.5.8,<10" },
-    { name = "aiodocker", specifier = ">=0.23.0,<1" },
-    { name = "aiofiles", specifier = ">=25.1.0,<26" },
-    { name = "alembic", specifier = ">=1.17.2,<2" },
-    { name = "asyncpg", specifier = ">=0.31.0,<1" },
-    { name = "fastapi", specifier = ">=0.122.0,<1" },
-    { name = "fastapi-users", specifier = ">=15.0.1,<16" },
-    { name = "fastapi-users-db-sqlalchemy", specifier = ">=7.0.0,<8" },
-    { name = "hf-xet", specifier = ">=1.1.0,<2" },
-    { name = "httptools", specifier = ">=0.7.1,<1" },
-    { name = "httpx", specifier = ">=0.28.1,<1" },
-    { name = "httpx-oauth", specifier = ">=0.16.1,<1" },
-    { name = "huggingface-hub", specifier = ">=0.27.0,<1" },
-    { name = "loguru", specifier = ">=0.7.3,<1" },
-    { name = "opentelemetry-api", specifier = ">=1.38.0,<2" },
-    { name = "opentelemetry-exporter-otlp", specifier = ">=1.38.0,<2" },
-    { name = "opentelemetry-instrumentation", specifier = ">=0.59b0,<1" },
-    { name = "opentelemetry-instrumentation-aio-pika", specifier = ">=0.59b0,<1" },
-    { name = "opentelemetry-instrumentation-fastapi", specifier = ">=0.59b0,<1" },
-    { name = "opentelemetry-instrumentation-sqlalchemy", specifier = ">=0.59b0,<1" },
-    { name = "opentelemetry-sdk", specifier = ">=1.38.0,<2" },
-    { name = "prometheus-client", specifier = ">=0.23.1,<1" },
-    { name = "prometheus-fastapi-instrumentator", specifier = ">=7.1.0,<8" },
-    { name = "psutil", specifier = ">=6.0.0,<7" },
-    { name = "pydantic", specifier = ">=2.12.5,<3" },
-    { name = "pydantic-settings", specifier = ">=2.12.0,<3" },
-    { name = "pymongo", specifier = ">=4.15.4,<5" },
-    { name = "sentry-sdk", specifier = ">=2.46.0,<3" },
-    { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.44,<3" },
-    { name = "taskiq", specifier = ">=0.12.0,<1" },
-    { name = "taskiq-aio-pika", specifier = ">=0.5.0,<1" },
-    { name = "taskiq-fastapi", specifier = ">=0.3.6,<1" },
-    { name = "ujson", specifier = ">=5.11.0,<6" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.38.0,<1" },
-    { name = "yarl", specifier = ">=1.22.0,<2" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "anyio", specifier = ">=4.11.0,<5" },
-    { name = "httpx", specifier = ">=0.28.1,<1" },
-    { name = "mypy", specifier = ">=1.19.0,<2" },
-    { name = "pre-commit", specifier = ">=4.5.0,<5" },
-    { name = "pytest", specifier = ">=9.0.1,<10" },
-    { name = "pytest-cov", specifier = ">=7.0.0,<8" },
-    { name = "pytest-env", specifier = ">=1.2.0,<2" },
-    { name = "ruff", specifier = ">=0.14.6,<1" },
-    { name = "taskiq", extras = ["reload"], specifier = ">=0.12.0,<1" },
-]
-
-[[package]]
 name = "alembic"
 version = "1.18.4"
 source = { registry = "https://pypi.org/simple" }
@@ -1288,6 +1181,113 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/b9/eb/7697f60fbe7042ab4e88f4ee6af496b7f222fffb0a4e3593ef1f29f81652/librt-0.8.1-cp314-cp314t-win32.whl", hash = "sha256:738f08021b3142c2918c03692608baed43bc51144c29e35807682f8070ee2a3a", size = 51328, upload-time = "2026-02-17T16:12:45.148Z" },
     { url = "https://files.pythonhosted.org/packages/7c/72/34bf2eb7a15414a23e5e70ecb9440c1d3179f393d9349338a91e2781c0fb/librt-0.8.1-cp314-cp314t-win_amd64.whl", hash = "sha256:89815a22daf9c51884fb5dbe4f1ef65ee6a146e0b6a8df05f753e2e4a9359bf4", size = 58722, upload-time = "2026-02-17T16:12:46.85Z" },
     { url = "https://files.pythonhosted.org/packages/b2/c8/d148e041732d631fc76036f8b30fae4e77b027a1e95b7a84bb522481a940/librt-0.8.1-cp314-cp314t-win_arm64.whl", hash = "sha256:bf512a71a23504ed08103a13c941f763db13fb11177beb3d9244c98c29fb4a61", size = 48755, upload-time = "2026-02-17T16:12:47.943Z" },
+]
+
+[[package]]
+name = "llm-port-backend"
+version = "0.1.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "aio-pika" },
+    { name = "aiodocker" },
+    { name = "aiofiles" },
+    { name = "alembic" },
+    { name = "asyncpg" },
+    { name = "fastapi" },
+    { name = "fastapi-users" },
+    { name = "fastapi-users-db-sqlalchemy" },
+    { name = "hf-xet" },
+    { name = "httptools" },
+    { name = "httpx" },
+    { name = "httpx-oauth" },
+    { name = "huggingface-hub" },
+    { name = "loguru" },
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-exporter-otlp" },
+    { name = "opentelemetry-instrumentation" },
+    { name = "opentelemetry-instrumentation-aio-pika" },
+    { name = "opentelemetry-instrumentation-fastapi" },
+    { name = "opentelemetry-instrumentation-sqlalchemy" },
+    { name = "opentelemetry-sdk" },
+    { name = "prometheus-client" },
+    { name = "prometheus-fastapi-instrumentator" },
+    { name = "psutil" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+    { name = "pymongo" },
+    { name = "sentry-sdk" },
+    { name = "sqlalchemy", extra = ["asyncio"] },
+    { name = "taskiq" },
+    { name = "taskiq-aio-pika" },
+    { name = "taskiq-fastapi" },
+    { name = "ujson" },
+    { name = "uvicorn", extra = ["standard"] },
+    { name = "yarl" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "anyio" },
+    { name = "httpx" },
+    { name = "mypy" },
+    { name = "pre-commit" },
+    { name = "pytest" },
+    { name = "pytest-cov" },
+    { name = "pytest-env" },
+    { name = "ruff" },
+    { name = "taskiq", extra = ["reload"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aio-pika", specifier = ">=9.5.8,<10" },
+    { name = "aiodocker", specifier = ">=0.23.0,<1" },
+    { name = "aiofiles", specifier = ">=25.1.0,<26" },
+    { name = "alembic", specifier = ">=1.17.2,<2" },
+    { name = "asyncpg", specifier = ">=0.31.0,<1" },
+    { name = "fastapi", specifier = ">=0.122.0,<1" },
+    { name = "fastapi-users", specifier = ">=15.0.1,<16" },
+    { name = "fastapi-users-db-sqlalchemy", specifier = ">=7.0.0,<8" },
+    { name = "hf-xet", specifier = ">=1.1.0,<2" },
+    { name = "httptools", specifier = ">=0.7.1,<1" },
+    { name = "httpx", specifier = ">=0.28.1,<1" },
+    { name = "httpx-oauth", specifier = ">=0.16.1,<1" },
+    { name = "huggingface-hub", specifier = ">=0.27.0,<1" },
+    { name = "loguru", specifier = ">=0.7.3,<1" },
+    { name = "opentelemetry-api", specifier = ">=1.38.0,<2" },
+    { name = "opentelemetry-exporter-otlp", specifier = ">=1.38.0,<2" },
+    { name = "opentelemetry-instrumentation", specifier = ">=0.59b0,<1" },
+    { name = "opentelemetry-instrumentation-aio-pika", specifier = ">=0.59b0,<1" },
+    { name = "opentelemetry-instrumentation-fastapi", specifier = ">=0.59b0,<1" },
+    { name = "opentelemetry-instrumentation-sqlalchemy", specifier = ">=0.59b0,<1" },
+    { name = "opentelemetry-sdk", specifier = ">=1.38.0,<2" },
+    { name = "prometheus-client", specifier = ">=0.23.1,<1" },
+    { name = "prometheus-fastapi-instrumentator", specifier = ">=7.1.0,<8" },
+    { name = "psutil", specifier = ">=6.0.0,<7" },
+    { name = "pydantic", specifier = ">=2.12.5,<3" },
+    { name = "pydantic-settings", specifier = ">=2.12.0,<3" },
+    { name = "pymongo", specifier = ">=4.15.4,<5" },
+    { name = "sentry-sdk", specifier = ">=2.46.0,<3" },
+    { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.44,<3" },
+    { name = "taskiq", specifier = ">=0.12.0,<1" },
+    { name = "taskiq-aio-pika", specifier = ">=0.5.0,<1" },
+    { name = "taskiq-fastapi", specifier = ">=0.3.6,<1" },
+    { name = "ujson", specifier = ">=5.11.0,<6" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.38.0,<1" },
+    { name = "yarl", specifier = ">=1.22.0,<2" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "anyio", specifier = ">=4.11.0,<5" },
+    { name = "httpx", specifier = ">=0.28.1,<1" },
+    { name = "mypy", specifier = ">=1.19.0,<2" },
+    { name = "pre-commit", specifier = ">=4.5.0,<5" },
+    { name = "pytest", specifier = ">=9.0.1,<10" },
+    { name = "pytest-cov", specifier = ">=7.0.0,<8" },
+    { name = "pytest-env", specifier = ">=1.2.0,<2" },
+    { name = "ruff", specifier = ">=0.14.6,<1" },
+    { name = "taskiq", extras = ["reload"], specifier = ">=0.12.0,<1" },
 ]
 
 [[package]]

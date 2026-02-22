@@ -1,6 +1,6 @@
 {
   "app": {
-    "title": "AIrgap 控制台",
+    "title": "llm-port",
     "check_session": "正在检查会话..."
   },
   "theme": {
@@ -29,7 +29,7 @@
     "back_home": "返回首页",
     "email": "邮箱",
     "password": "密码",
-    "login_title": "登录 AIrgap 控制台",
+    "login_title": "登录 llm-port",
     "login_desc": "使用你的账户凭据访问管理后台。"
   },
   "root_mode": {

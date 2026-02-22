@@ -29,7 +29,7 @@ async def set_hf_token(
     Set the Hugging Face token.
 
     MVP: updates the in-memory settings object. For persistence across
-    restarts, also set the ``AIRGAP_BACKEND_HF_TOKEN`` env var or store
+    restarts, also set the ``LLM_PORT_BACKEND_HF_TOKEN`` env var or store
     in the database (future enhancement).
     """
     settings.hf_token = body.token

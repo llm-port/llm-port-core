@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: ./Dockerfile
-    image: airgap_backend:${AIRGAP_BACKEND_VERSION:-latest}
+    image: llm-port-backend:${LLM_PORT_BACKEND_VERSION:-latest}
     restart: always
     env_file:
       - path: .env
@@ -16,13 +16,13 @@ services:
       migrator:
         condition: service_completed_successfully
     environment:
-      AIRGAP_BACKEND_HOST: 0.0.0.0
-      AIRGAP_BACKEND_DB_HOST: airgap_backend-db
-      AIRGAP_BACKEND_DB_PORT: 5432
-      AIRGAP_BACKEND_DB_USER: airgap_backend
-      AIRGAP_BACKEND_DB_PASS: airgap_backend
-      AIRGAP_BACKEND_DB_BASE: airgap_backend
-      AIRGAP_BACKEND_RABBIT_HOST: airgap_backend-rmq
+      LLM_PORT_BACKEND_HOST: 0.0.0.0
+      LLM_PORT_BACKEND_DB_HOST: llm-port-backend-db
+      LLM_PORT_BACKEND_DB_PORT: 5432
+      LLM_PORT_BACKEND_DB_USER: llm_port_backend
+      LLM_PORT_BACKEND_DB_PASS: llm_port_backend
+      LLM_PORT_BACKEND_DB_BASE: llm_port_backend
+      LLM_PORT_BACKEND_RABBIT_HOST: llm-port-backend-rmq
 
   taskiq-worker:
     <<: *main_app
@@ -34,16 +34,16 @@ services:
 
   db:
     image: postgres:18.1-bookworm
-    hostname: airgap_backend-db
+    hostname: llm-port-backend-db
     environment:
-      POSTGRES_PASSWORD: "airgap_backend"
-      POSTGRES_USER: "airgap_backend"
-      POSTGRES_DB: "airgap_backend"
+      POSTGRES_PASSWORD: "llm_port_backend"
+      POSTGRES_USER: "llm_port_backend"
+      POSTGRES_DB: "llm_port_backend"
     volumes:
-      - airgap_backend-db-data:/var/lib/postgresql
+      - llm-port-backend-db-data:/var/lib/postgresql
     restart: always
     healthcheck:
-      test: pg_isready -U airgap_backend
+      test: pg_isready -U llm_port_backend
       interval: 2s
       timeout: 3s
       retries: 40
@@ -58,7 +58,7 @@ services:
 
   rmq:
     image: rabbitmq:4.2.1-management-alpine
-    hostname: "airgap_backend-rmq"
+    hostname: "llm-port-backend-rmq"
     restart: always
     environment:
       RABBITMQ_DEFAULT_USER: "guest"
@@ -73,5 +73,5 @@ services:
 
 
 volumes:
-  airgap_backend-db-data:
-    name: airgap_backend-db-data
+  llm-port-backend-db-data:
+    name: llm-port-backend-db-data

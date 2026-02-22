@@ -1,4 +1,4 @@
-# airgap_backend
+# llm-port-backend
 
 This project was generated using fastapi_template.
 
@@ -71,29 +71,40 @@ This application can be configured with environment variables.
 You can create `.env` file in the root directory and place all
 environment variables here. 
 
-All environment variables should start with "AIRGAP_BACKEND_" prefix.
+All environment variables should start with "LLM_PORT_BACKEND_" prefix.
 
 For example if you see in your "airgap_backend/settings.py" a variable named like
-`random_parameter`, you should provide the "AIRGAP_BACKEND_RANDOM_PARAMETER" 
+`random_parameter`, you should provide the "LLM_PORT_BACKEND_RANDOM_PARAMETER" 
 variable to configure the value. This behaviour can be changed by overriding `env_prefix` property
 in `airgap_backend.settings.Settings.Config`.
 
 An example of .env file:
 ```bash
-AIRGAP_BACKEND_RELOAD="True"
-AIRGAP_BACKEND_PORT="8000"
-AIRGAP_BACKEND_ENVIRONMENT="dev"
-AIRGAP_GRAFANA_URL="http://localhost:3001"
-AIRGAP_GRAFANA_DASHBOARD_UID_OVERVIEW=""
-AIRGAP_GRAFANA_PANELS_OVERVIEW=""
-AIRGAP_BACKEND_LOKI_BASE_URL="http://loki:3100"
-AIRGAP_BACKEND_LOGS_MAX_LIMIT="5000"
-AIRGAP_BACKEND_LOGS_DEFAULT_LIMIT="200"
-AIRGAP_BACKEND_LOGS_ALLOWED_LABELS="compose_service,container,job,host,level"
-AIRGAP_BACKEND_I18N_DIR="i18n"
+LLM_PORT_BACKEND_RELOAD="True"
+LLM_PORT_BACKEND_PORT="8000"
+LLM_PORT_BACKEND_ENVIRONMENT="dev"
+LLM_PORT_GRAFANA_URL="http://localhost:3001"
+LLM_PORT_GRAFANA_DASHBOARD_UID_OVERVIEW=""
+LLM_PORT_GRAFANA_PANELS_OVERVIEW=""
+LLM_PORT_BACKEND_LOKI_BASE_URL="http://loki:3100"
+LLM_PORT_BACKEND_LOGS_MAX_LIMIT="5000"
+LLM_PORT_BACKEND_LOGS_DEFAULT_LIMIT="200"
+LLM_PORT_BACKEND_LOGS_ALLOWED_LABELS="compose_service,container,job,host,level"
+LLM_PORT_BACKEND_I18N_DIR="i18n"
 ```
 
 You can read more about BaseSettings class here: https://pydantic-docs.helpmanual.io/usage/settings/
+
+## Breaking Rename Migration (`airgap` -> `llm-port`)
+
+This release switches backend configuration names to `LLM_PORT_BACKEND_*` and removes support for the old
+`AIRGAP_*` variable namespace.
+
+Required migration actions:
+1. Rename all backend env vars from `AIRGAP_BACKEND_*` to `LLM_PORT_BACKEND_*`.
+2. Rename Grafana env vars from `AIRGAP_GRAFANA_*` to `LLM_PORT_GRAFANA_*`.
+3. Recreate containers/volumes if you rely on old docker identifiers (`airgap_backend-*`).
+4. Redeploy backend and worker together to avoid mixed env namespace usage.
 
 ## Logs API (Loki Proxy)
 
@@ -113,7 +124,7 @@ The frontend loads translations at runtime from backend endpoints:
 - `GET /api/i18n/languages`
 - `GET /api/i18n/{lang}/{namespace}`
 
-By default the backend reads bundles from `airgap_backend/i18n` (configurable via `AIRGAP_BACKEND_I18N_DIR`).
+By default the backend reads bundles from `airgap_backend/i18n` (configurable via `LLM_PORT_BACKEND_I18N_DIR`).
 
 To add a language without frontend recompilation:
 1. Create `airgap_backend/i18n/<lang>/common.json`.
@@ -203,7 +214,7 @@ For running tests on your local machine.
 
 I prefer doing it with docker:
 ```
-docker run -p "5432:5432" -e "POSTGRES_PASSWORD=airgap_backend" -e "POSTGRES_USER=airgap_backend" -e "POSTGRES_DB=airgap_backend" postgres:18.1-bookworm
+docker run -p "5432:5432" -e "POSTGRES_PASSWORD=llm_port_backend" -e "POSTGRES_USER=llm_port_backend" -e "POSTGRES_DB=llm_port_backend" postgres:18.1-bookworm
 ```
 
 
@@ -211,3 +222,4 @@ docker run -p "5432:5432" -e "POSTGRES_PASSWORD=airgap_backend" -e "POSTGRES_USE
 ```bash
 pytest -vv .
 ```
+

@@ -44,13 +44,13 @@ class Settings(BaseSettings):
     # Variables for the database
     db_host: str = "localhost"
     db_port: int = 5432
-    db_user: str = "airgap_backend"
-    db_pass: str = "airgap_backend"  # noqa: S105
-    db_base: str = "admin"
+    db_user: str = "llm_port_backend"
+    db_pass: str = "llm_port_backend"  # noqa: S105
+    db_base: str = "llm_port_backend"
     db_echo: bool = False
 
     # Variables for RabbitMQ
-    rabbit_host: str = "airgap_backend-rmq"
+    rabbit_host: str = "llm-port-backend-rmq"
     rabbit_port: int = 5672
     rabbit_user: str = "guest"
     rabbit_pass: str = "guest"  # noqa: S105
@@ -72,7 +72,7 @@ class Settings(BaseSettings):
     opentelemetry_endpoint: str | None = None
 
     # LLM Server settings
-    model_store_root: str = "/srv/air-gap/models"
+    model_store_root: str = "/srv/llm-port/models"
     hf_token: str | None = None
     default_vllm_image: str = "vllm/vllm-openai:latest"
 
@@ -80,22 +80,22 @@ class Settings(BaseSettings):
     grafana_url: str | None = Field(
         default=None,
         validation_alias=AliasChoices(
-            "AIRGAP_BACKEND_GRAFANA_URL",
-            "AIRGAP_GRAFANA_URL",
+            "LLM_PORT_BACKEND_GRAFANA_URL",
+            "LLM_PORT_GRAFANA_URL",
         ),
     )
     grafana_dashboard_uid_overview: str | None = Field(
         default=None,
         validation_alias=AliasChoices(
-            "AIRGAP_BACKEND_GRAFANA_DASHBOARD_UID_OVERVIEW",
-            "AIRGAP_GRAFANA_DASHBOARD_UID_OVERVIEW",
+            "LLM_PORT_BACKEND_GRAFANA_DASHBOARD_UID_OVERVIEW",
+            "LLM_PORT_GRAFANA_DASHBOARD_UID_OVERVIEW",
         ),
     )
     grafana_panels_overview: str | None = Field(
         default=None,
         validation_alias=AliasChoices(
-            "AIRGAP_BACKEND_GRAFANA_PANELS_OVERVIEW",
-            "AIRGAP_GRAFANA_PANELS_OVERVIEW",
+            "LLM_PORT_BACKEND_GRAFANA_PANELS_OVERVIEW",
+            "LLM_PORT_GRAFANA_PANELS_OVERVIEW",
         ),
     )
     loki_base_url: str = "http://loki:3100"
@@ -103,7 +103,7 @@ class Settings(BaseSettings):
     logs_default_limit: int = 200
     logs_allowed_labels_raw: str | None = Field(
         default=None,
-        validation_alias=AliasChoices("AIRGAP_BACKEND_LOGS_ALLOWED_LABELS"),
+        validation_alias=AliasChoices("LLM_PORT_BACKEND_LOGS_ALLOWED_LABELS"),
     )
     i18n_dir: str = "i18n"
 
@@ -161,7 +161,7 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_file=(".env", "airgap_backend/.env"),
-        env_prefix="AIRGAP_BACKEND_",
+        env_prefix="LLM_PORT_BACKEND_",
         env_file_encoding="utf-8",
     )
 
