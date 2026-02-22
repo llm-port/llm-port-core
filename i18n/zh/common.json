@@ -270,7 +270,19 @@
     "driver_options": "驱动选项"
   },
   "settings": {
-    "title": "设置"
+    "title": "设置",
+    "search_placeholder": "搜索设置...",
+    "no_results": "没有匹配的设置项。",
+    "general": {
+      "title": "通用",
+      "api_server": {
+        "group_title": "API 服务",
+        "endpoint_url": "端点 URL",
+        "endpoint_url_desc": "Endpoint 页面使用的 Swagger/OpenAPI URL。",
+        "container_name": "API 容器名称",
+        "container_name_desc": "用于启动/停止/重启控制的容器名称。"
+      }
+    }
   },
   "users": {
     "title": "用户管理",
@@ -445,8 +457,16 @@
   "agents_api_docs": {
     "title": "端点",
     "endpoint_url": "端点 URL",
+    "container_name": "容器名称",
+    "service_not_found": "未找到服务容器",
+    "class_label": "分类",
+    "register_aux": "注册为 SYSTEM_AUX",
     "load": "加载",
     "open_new_tab": "新标签打开",
+    "failed_service": "加载端点服务状态失败。",
+    "failed_action": "执行服务操作失败。",
+    "failed_register": "注册服务分类失败。",
+    "edit_in_settings": "在设置中编辑",
     "note": "如果嵌入失败，请检查目标 docs 端点的 X-Frame-Options/CSP。"
   }
 }

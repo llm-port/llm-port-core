@@ -68,7 +68,18 @@ _AUTO_CLASS_RULES: list[tuple[list[str], ContainerClass, str]] = [
     (["postgres", "clickhouse", "redis"], ContainerClass.SYSTEM_CORE, "platform"),
     # SYSTEM_AUX — supporting services
     (
-        ["grafana", "loki", "alloy", "pgadmin", "minio", "langfuse", "rabbitmq", "rmq"],
+        [
+            "grafana",
+            "loki",
+            "alloy",
+            "pgadmin",
+            "minio",
+            "langfuse",
+            "rabbitmq",
+            "rmq",
+            "llm-port-api",
+            "llm_port_api",
+        ],
         ContainerClass.SYSTEM_AUX,
         "platform",
     ),

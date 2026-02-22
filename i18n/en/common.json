@@ -265,7 +265,19 @@
     "driver_options": "Driver Options"
   },
   "settings": {
-    "title": "Settings"
+    "title": "Settings",
+    "search_placeholder": "Search settings...",
+    "no_results": "No settings match your search.",
+    "general": {
+      "title": "General",
+      "api_server": {
+        "group_title": "API Server",
+        "endpoint_url": "Endpoint URL",
+        "endpoint_url_desc": "Swagger/OpenAPI URL used by the Endpoint page.",
+        "container_name": "API Container Name",
+        "container_name_desc": "Container name used for start/stop/restart controls."
+      }
+    }
   },
   "users": {
     "title": "User Management",
@@ -440,8 +452,16 @@
   "agents_api_docs": {
     "title": "Endpoint",
     "endpoint_url": "Endpoint URL",
+    "container_name": "Container Name",
+    "service_not_found": "Service container not found",
+    "class_label": "Class",
+    "register_aux": "Register as SYSTEM_AUX",
     "load": "Load",
     "open_new_tab": "Open in new tab",
+    "failed_service": "Failed to load endpoint service status.",
+    "failed_action": "Failed to execute service action.",
+    "failed_register": "Failed to register service class.",
+    "edit_in_settings": "Edit in Settings",
     "note": "If embedding fails, check X-Frame-Options/CSP on the target docs endpoint."
   },
   "errors": {

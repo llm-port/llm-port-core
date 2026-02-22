@@ -270,7 +270,19 @@
     "driver_options": "Treiberoptionen"
   },
   "settings": {
-    "title": "Einstellungen"
+    "title": "Einstellungen",
+    "search_placeholder": "Einstellungen suchen...",
+    "no_results": "Keine passenden Einstellungen gefunden.",
+    "general": {
+      "title": "Allgemein",
+      "api_server": {
+        "group_title": "API-Server",
+        "endpoint_url": "Endpoint-URL",
+        "endpoint_url_desc": "Swagger/OpenAPI-URL fuer die Endpoint-Seite.",
+        "container_name": "API-Containername",
+        "container_name_desc": "Containername fuer Start/Stopp/Neustart-Steuerung."
+      }
+    }
   },
   "users": {
     "title": "Benutzerverwaltung",
@@ -445,8 +457,16 @@
   "agents_api_docs": {
     "title": "Endpunkt",
     "endpoint_url": "Endpunkt-URL",
+    "container_name": "Containername",
+    "service_not_found": "Service-Container nicht gefunden",
+    "class_label": "Klasse",
+    "register_aux": "Als SYSTEM_AUX registrieren",
     "load": "Laden",
     "open_new_tab": "In neuem Tab oeffnen",
+    "failed_service": "Status des Endpoint-Service konnte nicht geladen werden.",
+    "failed_action": "Service-Aktion konnte nicht ausgefuehrt werden.",
+    "failed_register": "Service-Klasse konnte nicht registriert werden.",
+    "edit_in_settings": "In Einstellungen bearbeiten",
     "note": "Wenn das Einbetten fehlschlaegt, pruefe X-Frame-Options/CSP am Ziel-Endpunkt."
   }
 }

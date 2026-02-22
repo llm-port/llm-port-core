@@ -270,7 +270,19 @@
     "driver_options": "Driver Options"
   },
   "settings": {
-    "title": "Settings"
+    "title": "Configuracion",
+    "search_placeholder": "Buscar ajustes...",
+    "no_results": "Ningun ajuste coincide con la busqueda.",
+    "general": {
+      "title": "General",
+      "api_server": {
+        "group_title": "Servidor API",
+        "endpoint_url": "URL del Endpoint",
+        "endpoint_url_desc": "URL de Swagger/OpenAPI usada por la pagina Endpoint.",
+        "container_name": "Nombre del Contenedor API",
+        "container_name_desc": "Nombre de contenedor usado para controles iniciar/detener/reiniciar."
+      }
+    }
   },
   "users": {
     "title": "User Management",
@@ -445,8 +457,16 @@
   "agents_api_docs": {
     "title": "Punto de Acceso",
     "endpoint_url": "URL del Endpoint",
+    "container_name": "Nombre del Contenedor",
+    "service_not_found": "Contenedor del servicio no encontrado",
+    "class_label": "Clase",
+    "register_aux": "Registrar como SYSTEM_AUX",
     "load": "Cargar",
     "open_new_tab": "Abrir en nueva pestana",
+    "failed_service": "No se pudo cargar el estado del servicio del endpoint.",
+    "failed_action": "No se pudo ejecutar la accion del servicio.",
+    "failed_register": "No se pudo registrar la clase del servicio.",
+    "edit_in_settings": "Editar en Configuracion",
     "note": "Si falla el embed, revisa X-Frame-Options/CSP en el endpoint de docs."
   }
 }
