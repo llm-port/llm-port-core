@@ -85,3 +85,11 @@ This template comes with [Tailwind CSS](https://tailwindcss.com/) already config
 ---
 
 Built with ❤️ using React Router.
+
+## Admin Logs Page
+
+- Primary route: `/admin/logs`
+- Tabs:
+  - `Logs` (Loki query + live tail through backend `/api/logs/*`)
+  - `Audit` (existing audit log table)
+- Legacy route `/admin/audit` now redirects to `/admin/logs?tab=audit`.

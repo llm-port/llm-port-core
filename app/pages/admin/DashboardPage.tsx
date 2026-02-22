@@ -370,7 +370,7 @@ export default function DashboardPage() {
           <Typography variant="h6" sx={{ mb: 1.5 }}>Drill-down</Typography>
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
             <Button component={RouterLink} to="/admin/containers" variant="outlined">Containers</Button>
-            <Button component={RouterLink} to="/admin/audit" variant="outlined">Logs / Audit</Button>
+            <Button component={RouterLink} to="/admin/logs" variant="outlined">Logs / Audit</Button>
             <Button component={RouterLink} to="/admin/stacks" variant="outlined">Services / Stacks</Button>
             <Button component={RouterLink} to="/admin/settings?tab=users" variant="outlined">DB / Users</Button>
             <Button component={RouterLink} to="/admin/llm/runtimes" variant="outlined">GPU / Runtimes</Button>

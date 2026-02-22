@@ -99,7 +99,6 @@ const NAV: NavEntry[] = [
       { to: "/admin/llm/jobs", label: "Jobs", icon: <DownloadIcon /> },
     ],
   },
-  { kind: "leaf", to: "/admin/audit", label: "Audit Log", icon: <ReceiptLongIcon /> },
 ];
 
 /* ── Shared link button styles ─────────────────────────────────────── */
@@ -391,53 +390,83 @@ export default function AdminLayout() {
           })}
         </List>
 
-        <Box
-          sx={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: isSuperuser && drawerOpen ? "space-between" : "flex-end",
-            px: drawerOpen ? 1 : 0.5,
-            pb: 0.5,
-            gap: 0.5,
-          }}
-        >
-          {isSuperuser && (
-            <Tooltip title={drawerOpen ? "" : "Settings"} placement="right" arrow>
-              <ListItemButton
-                component={NavLink}
-                to="/admin/settings?tab=users"
+        <Box sx={{ px: drawerOpen ? 1 : 0.5, pb: 0.5, display: "flex", flexDirection: "column", gap: 0.5 }}>
+          <Tooltip title={drawerOpen ? "" : "Logs"} placement="right" arrow>
+            <ListItemButton
+              component={NavLink}
+              to="/admin/logs"
+              sx={{
+                ...linkButtonSx,
+                justifyContent: "center",
+                minWidth: drawerOpen ? 120 : 40,
+                px: drawerOpen ? 1 : 0.5,
+                py: 0.5,
+              }}
+            >
+              <ListItemIcon
                 sx={{
-                  ...linkButtonSx,
+                  minWidth: drawerOpen ? 28 : "unset",
+                  color: "text.secondary",
                   justifyContent: "center",
-                  minWidth: drawerOpen ? 120 : 40,
-                  px: drawerOpen ? 1 : 0.5,
-                  py: 0.5,
                 }}
               >
-                <ListItemIcon
+                <ReceiptLongIcon />
+              </ListItemIcon>
+              {drawerOpen && (
+                <ListItemText
+                  primary="Logs"
+                  primaryTypographyProps={{ fontSize: "0.875rem", fontWeight: 500 }}
+                />
+              )}
+            </ListItemButton>
+          </Tooltip>
+
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: isSuperuser && drawerOpen ? "space-between" : "flex-end",
+              gap: 0.5,
+            }}
+          >
+            {isSuperuser && (
+              <Tooltip title={drawerOpen ? "" : "Settings"} placement="right" arrow>
+                <ListItemButton
+                  component={NavLink}
+                  to="/admin/settings?tab=users"
                   sx={{
-                    minWidth: drawerOpen ? 28 : "unset",
-                    color: "text.secondary",
+                    ...linkButtonSx,
                     justifyContent: "center",
+                    minWidth: drawerOpen ? 120 : 40,
+                    px: drawerOpen ? 1 : 0.5,
+                    py: 0.5,
                   }}
                 >
-                  <SettingsIcon />
-                </ListItemIcon>
-                {drawerOpen && (
-                  <ListItemText
-                    primary="Settings"
-                    primaryTypographyProps={{ fontSize: "0.875rem", fontWeight: 500 }}
-                  />
-                )}
-              </ListItemButton>
-            </Tooltip>
-          )}
+                  <ListItemIcon
+                    sx={{
+                      minWidth: drawerOpen ? 28 : "unset",
+                      color: "text.secondary",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <SettingsIcon />
+                  </ListItemIcon>
+                  {drawerOpen && (
+                    <ListItemText
+                      primary="Settings"
+                      primaryTypographyProps={{ fontSize: "0.875rem", fontWeight: 500 }}
+                    />
+                  )}
+                </ListItemButton>
+              </Tooltip>
+            )}
 
-          {drawerOpen && (
-            <IconButton size="small" onClick={() => setDrawerOpen(false)}>
-              <ChevronLeftIcon />
-            </IconButton>
-          )}
+            {drawerOpen && (
+              <IconButton size="small" onClick={() => setDrawerOpen(false)}>
+                <ChevronLeftIcon />
+              </IconButton>
+            )}
+          </Box>
         </Box>
       </Drawer>
 
