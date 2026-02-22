@@ -113,6 +113,15 @@ Built with ❤️ using React Router.
   - `GET /api/llm/graph/traces/stream` (SSE)
 - Frontend never calls Langfuse directly and does not contain Langfuse credentials.
 
+## LLM Endpoint Admin Page
+
+- Route: `/admin/llm/endpoint`
+- Embeds `llm_port_api` Swagger UI and includes container lifecycle controls (`Start`, `Stop`, `Restart`).
+- Uses backend container admin APIs only (no direct Docker access from browser).
+- Optional frontend env vars:
+  - `VITE_LLM_PORT_API_DOCS_URL` (default `http://localhost:8001/api/docs`)
+  - `VITE_LLM_PORT_API_CONTAINER_NAME` (default `llm-port-api`)
+
 ## Breaking Rename Migration (`airgap` -> `llm-port`)
 
 - Frontend branding is now `llm-port`.

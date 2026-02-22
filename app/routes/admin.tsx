@@ -534,7 +534,7 @@ export default function AdminLayout() {
               <Tooltip title={drawerOpen ? "" : t("nav.settings")} placement="right" arrow>
                 <ListItemButton
                   component={NavLink}
-                  to="/admin/settings?tab=users"
+                  to="/admin/settings?tab=general"
                   sx={{
                     ...linkButtonSx,
                     justifyContent: "center",
