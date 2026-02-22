@@ -4,6 +4,7 @@
  */
 import { useState, useEffect } from "react";
 import { Link as RouterLink, useOutletContext, useNavigate } from "react-router";
+import { useTranslation } from "react-i18next";
 import {
   containers,
   canStop,
@@ -42,6 +43,7 @@ const CLASS_OPTIONS: { value: string; label: string }[] = [
 ];
 
 export default function ContainersPage() {
+  const { t } = useTranslation();
   const { rootModeActive } = useOutletContext<AdminContext>();
   const navigate = useNavigate();
   const [data, setData] = useState<ContainerSummary[]>([]);
@@ -58,7 +60,7 @@ export default function ContainersPage() {
     try {
       setData(await containers.list());
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to load containers.");
+      setError(e instanceof Error ? e.message : t("containers.failed_load"));
     } finally {
       setLoading(false);
     }
@@ -77,20 +79,20 @@ export default function ContainersPage() {
       await containers.lifecycle(id, action);
       await load();
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Action failed.");
+      alert(e instanceof Error ? e.message : t("common.action_failed"));
     } finally {
       setActionLoading(null);
     }
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("Delete this container?")) return;
+    if (!confirm(t("containers.confirm_delete"))) return;
     setActionLoading(`${id}-delete`);
     try {
       await containers.delete(id);
       await load();
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Delete failed.");
+      alert(e instanceof Error ? e.message : t("common.delete_failed"));
     } finally {
       setActionLoading(null);
     }
@@ -99,7 +101,7 @@ export default function ContainersPage() {
   const columns: ColumnDef<ContainerSummary>[] = [
     {
       key: "name",
-      label: "Name",
+      label: t("common.name"),
       sortable: true,
       sortValue: (c) => c.name,
       searchValue: (c) => `${c.name} ${c.id}`,
@@ -128,7 +130,7 @@ export default function ContainersPage() {
     },
     {
       key: "image",
-      label: "Image",
+      label: t("containers.image"),
       sortable: true,
       sortValue: (c) => c.image,
       searchValue: (c) => c.image,
@@ -140,7 +142,7 @@ export default function ContainersPage() {
     },
     {
       key: "state",
-      label: "State",
+      label: t("containers.state"),
       sortable: true,
       sortValue: (c) => c.state,
       searchValue: (c) => c.state,
@@ -155,7 +157,7 @@ export default function ContainersPage() {
     },
     {
       key: "container_class",
-      label: "Class",
+      label: t("containers.class"),
       sortable: true,
       sortValue: (c) => c.container_class,
       searchValue: (c) => c.container_class,
@@ -163,7 +165,7 @@ export default function ContainersPage() {
     },
     {
       key: "owner_scope",
-      label: "Scope",
+      label: t("containers.scope"),
       sortable: true,
       sortValue: (c) => c.owner_scope,
       searchValue: (c) => c.owner_scope,
@@ -175,7 +177,7 @@ export default function ContainersPage() {
     },
     {
       key: "actions",
-      label: "Actions",
+      label: t("common.actions"),
       align: "right",
       render: (c) => {
         const busy = !!actionLoading?.startsWith(c.id);
@@ -184,7 +186,7 @@ export default function ContainersPage() {
         return (
           <Stack direction="row" spacing={0.5} justifyContent="flex-end">
             {!isRunning && !isPaused && (
-              <Tooltip title="Start">
+              <Tooltip title={t("common.start")}>
                 <IconButton
                   size="small"
                   color="success"
@@ -199,7 +201,7 @@ export default function ContainersPage() {
               </Tooltip>
             )}
             {(isRunning || isPaused) && canStop(c.container_class, rootModeActive) && (
-              <Tooltip title="Stop">
+              <Tooltip title={t("common.stop")}>
                 <IconButton
                   size="small"
                   color="warning"
@@ -214,7 +216,7 @@ export default function ContainersPage() {
               </Tooltip>
             )}
             {isRunning && canPause(c.container_class, rootModeActive) && (
-              <Tooltip title="Pause">
+              <Tooltip title={t("common.pause")}>
                 <IconButton
                   size="small"
                   color="info"
@@ -229,7 +231,7 @@ export default function ContainersPage() {
               </Tooltip>
             )}
             {isPaused && (
-              <Tooltip title="Unpause">
+              <Tooltip title={t("common.unpause")}>
                 <IconButton
                   size="small"
                   color="success"
@@ -244,7 +246,7 @@ export default function ContainersPage() {
               </Tooltip>
             )}
             {isRunning && (
-              <Tooltip title="Restart">
+              <Tooltip title={t("common.restart")}>
                 <IconButton
                   size="small"
                   disabled={busy}
@@ -258,7 +260,7 @@ export default function ContainersPage() {
               </Tooltip>
             )}
             {canDelete(c.container_class, rootModeActive) && (
-              <Tooltip title="Delete">
+              <Tooltip title={t("common.delete")}>
                 <IconButton
                   size="small"
                   color="error"
@@ -272,7 +274,7 @@ export default function ContainersPage() {
                 </IconButton>
               </Tooltip>
             )}
-            <Tooltip title="Details">
+            <Tooltip title={t("common.details")}>
               <IconButton
                 size="small"
                 component={RouterLink}
@@ -290,15 +292,15 @@ export default function ContainersPage() {
 
   return (
     <DataTable
-      title="Containers"
+      title={t("containers.title")}
       columns={columns}
       rows={data.filter((c) => filterClasses.includes(c.container_class))}
       rowKey={(c) => c.id}
       loading={loading}
       error={error}
-      emptyMessage="No containers found."
+      emptyMessage={t("containers.empty")}
       onRefresh={load}
-      searchPlaceholder="Search name, image, state…"
+      searchPlaceholder={t("containers.search_placeholder")}
       toolbarActions={
         <Button
           variant="contained"
@@ -306,12 +308,12 @@ export default function ContainersPage() {
           startIcon={<AddIcon />}
           onClick={() => navigate("/admin/containers/new")}
         >
-          Create
+          {t("containers.create")}
         </Button>
       }
       columnFilters={[
         {
-          label: "Class",
+          label: t("containers.class"),
           value: "",
           multi: true,
           multiValue: filterClasses,

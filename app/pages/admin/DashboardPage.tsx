@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link as RouterLink } from "react-router";
+import { useTranslation } from "react-i18next";
 import {
   dashboard,
   type DashboardHealth,
@@ -85,6 +86,7 @@ function StatCard({ label, value, detail }: StatCardProps) {
 }
 
 export default function DashboardPage() {
+  const { t } = useTranslation();
   const grafanaDashboardUrl =
     (import.meta.env.VITE_GRAFANA_DASHBOARD_URL as string | undefined) ??
     "http://localhost:3001/d/airgap-overview/airgap-overview?orgId=1&from=now-6h&to=now&timezone=browser&refresh=30s";
@@ -105,7 +107,7 @@ export default function DashboardPage() {
       setOverview(o);
       setHealth(h);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to load dashboard.");
+      setError(err instanceof Error ? err.message : t("dashboard.failed_load"));
     } finally {
       setLoading(false);
     }
@@ -120,32 +122,32 @@ export default function DashboardPage() {
     if (!overview) return [];
     return [
       {
-        label: "Network RX/TX",
+        label: t("dashboard.cards.network_rx_tx"),
         value: `${fmtBytes(overview.network_rx_bytes)} / ${fmtBytes(overview.network_tx_bytes)}`,
       },
       {
-        label: "Containers",
+        label: t("dashboard.cards.containers"),
         value: `${overview.containers_running} / ${overview.containers_total}`,
-        detail: `Restarting ${overview.containers_restarting}`,
+        detail: t("dashboard.cards.restarting", { count: overview.containers_restarting }),
       },
       {
-        label: "Restarts (1h / 24h)",
+        label: t("dashboard.cards.restarts"),
         value: `${overview.restart_rate_1h} / ${overview.restart_rate_24h}`,
       },
       {
-        label: "API 5xx",
+        label: t("dashboard.cards.api_5xx"),
         value: fmtPct(overview.api_error_rate_5xx),
       },
       {
-        label: "Postgres Connections",
+        label: t("dashboard.cards.postgres_connections"),
         value: overview.postgres_connections == null ? "N/A" : String(overview.postgres_connections),
         detail:
           overview.postgres_max_connections == null
             ? undefined
-            : `Max ${overview.postgres_max_connections}`,
+            : t("dashboard.cards.max", { count: overview.postgres_max_connections }),
       },
     ];
-  }, [overview]);
+  }, [overview, t]);
 
   /** RAM usage as a 0-100 percentage */
   const ramPercent = useMemo(() => {
@@ -170,10 +172,10 @@ export default function DashboardPage() {
       }}
     >
       <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
-        <Typography variant="h5">Admin Dashboard</Typography>
+        <Typography variant="h5">{t("dashboard.title")}</Typography>
         <Stack direction="row" spacing={1} alignItems="center">
           {loading && <CircularProgress size={20} />}
-          <Button variant="outlined" onClick={load} disabled={loading}>Refresh</Button>
+          <Button variant="outlined" onClick={load} disabled={loading}>{t("dashboard.refresh")}</Button>
         </Stack>
       </Stack>
 
@@ -183,13 +185,13 @@ export default function DashboardPage() {
         <Box>
           <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
             <Chip
-              label={`System: ${overview.system_status}`}
+              label={t("dashboard.system", { status: overview.system_status })}
               color={systemBadgeColor(overview.system_badge)}
               size="small"
             />
             {health && (
               <Chip
-                label={`Dependencies: ${health.overall_status}`}
+                label={t("dashboard.dependencies", { status: health.overall_status })}
                 color={healthColor(health.overall_status)}
                 size="small"
               />
@@ -200,32 +202,41 @@ export default function DashboardPage() {
           <Grid container spacing={1.5} sx={{ mb: 1.5 }}>
             <Grid size={{ xs: 6, sm: 3 }}>
               <GaugeCard
-                label="CPU"
+                label={t("dashboard.gauges.cpu")}
                 value={overview.cpu_percent}
-                detail={`Load ${overview.load_1m ?? "-"} / ${overview.load_5m ?? "-"} / ${overview.load_15m ?? "-"}`}
+                detail={t("dashboard.gauges.load", {
+                  one: overview.load_1m ?? "-",
+                  five: overview.load_5m ?? "-",
+                  fifteen: overview.load_15m ?? "-",
+                })}
               />
             </Grid>
             <Grid size={{ xs: 6, sm: 3 }}>
               <GaugeCard
-                label="RAM"
+                label={t("dashboard.gauges.ram")}
                 value={ramPercent}
                 detail={fmtRatio(overview.ram_used_bytes, overview.ram_total_bytes)}
-                secondaryDetail={`Swap ${fmtRatio(overview.swap_used_bytes, overview.swap_total_bytes)}`}
+                secondaryDetail={t("dashboard.gauges.swap", {
+                  value: fmtRatio(overview.swap_used_bytes, overview.swap_total_bytes),
+                })}
               />
             </Grid>
             <Grid size={{ xs: 6, sm: 3 }}>
               <GaugeCard
-                label="Disk"
+                label={t("dashboard.gauges.disk")}
                 value={diskUsedPercent}
-                detail={`${fmtBytes(overview.disk_free_bytes)} free of ${fmtBytes(overview.disk_total_bytes)}`}
+                detail={t("dashboard.gauges.disk_free_of", {
+                  free: fmtBytes(overview.disk_free_bytes),
+                  total: fmtBytes(overview.disk_total_bytes),
+                })}
               />
             </Grid>
             <Grid size={{ xs: 6, sm: 3 }}>
               <GaugeCard
-                label="GPU"
+                label={t("dashboard.gauges.gpu")}
                 value={overview.gpu_util_percent}
                 detail={overview.gpu_util_percent != null ? fmtRatio(overview.gpu_vram_used_bytes, overview.gpu_vram_total_bytes) : undefined}
-                secondaryDetail={overview.gpu_util_percent != null ? "VRAM" : undefined}
+                secondaryDetail={overview.gpu_util_percent != null ? t("dashboard.gauges.vram") : undefined}
               />
             </Grid>
           </Grid>
@@ -249,9 +260,9 @@ export default function DashboardPage() {
       <Card variant="outlined">
         <CardContent>
           <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.5 }}>
-            <Typography variant="h6">Grafana Dashboard</Typography>
+            <Typography variant="h6">{t("dashboard.grafana_title")}</Typography>
             <Button component="a" href={grafanaDashboardUrl} target="_blank" rel="noreferrer">
-              Open full dashboard
+              {t("dashboard.open_full")}
             </Button>
           </Stack>
 
@@ -259,7 +270,7 @@ export default function DashboardPage() {
             <Box
               component="iframe"
               src={`${grafanaDashboardUrl}&kiosk`}
-              title="Grafana Dashboard"
+              title={t("dashboard.grafana_title")}
               sx={{
                 display: "block",
                 width: "100%",
@@ -274,7 +285,7 @@ export default function DashboardPage() {
               href={grafanaDashboardUrl}
               target="_blank"
               rel="noreferrer"
-              aria-label="Open Grafana dashboard in new tab"
+              aria-label={t("dashboard.open_grafana_aria")}
               sx={{
                 position: "absolute",
                 inset: 0,
@@ -290,7 +301,7 @@ export default function DashboardPage() {
               }}
             >
               <Typography variant="h6" sx={{ fontWeight: 700 }}>
-                Open in Grafana
+                {t("dashboard.open_grafana")}
               </Typography>
             </Box>
           </Box>
@@ -300,7 +311,7 @@ export default function DashboardPage() {
       {health && (
         <Card variant="outlined">
           <CardContent>
-            <Typography variant="h6" sx={{ mb: 1.5 }}>Dependency Health</Typography>
+            <Typography variant="h6" sx={{ mb: 1.5 }}>{t("dashboard.dependency_health")}</Typography>
             <Stack direction="row" gap={1} flexWrap="wrap" useFlexGap>
               {health.items.map((item) => (
                 <Chip
@@ -321,9 +332,9 @@ export default function DashboardPage() {
           <Grid size={{ xs: 12, md: 6 }}>
             <Card variant="outlined">
               <CardContent>
-                <Typography variant="h6" sx={{ mb: 1 }}>Top CPU Containers</Typography>
+                <Typography variant="h6" sx={{ mb: 1 }}>{t("dashboard.top_cpu")}</Typography>
                 {overview.top_cpu_containers.length === 0 ? (
-                  <Typography variant="body2" color="text.secondary">No running container stats available.</Typography>
+                  <Typography variant="body2" color="text.secondary">{t("dashboard.no_running_stats")}</Typography>
                 ) : (
                   <List dense disablePadding>
                     {overview.top_cpu_containers.map((item) => (
@@ -343,9 +354,9 @@ export default function DashboardPage() {
           <Grid size={{ xs: 12, md: 6 }}>
             <Card variant="outlined">
               <CardContent>
-                <Typography variant="h6" sx={{ mb: 1 }}>Top Memory Containers</Typography>
+                <Typography variant="h6" sx={{ mb: 1 }}>{t("dashboard.top_memory")}</Typography>
                 {overview.top_memory_containers.length === 0 ? (
-                  <Typography variant="body2" color="text.secondary">No running container stats available.</Typography>
+                  <Typography variant="body2" color="text.secondary">{t("dashboard.no_running_stats")}</Typography>
                 ) : (
                   <List dense disablePadding>
                     {overview.top_memory_containers.map((item) => (
@@ -367,13 +378,13 @@ export default function DashboardPage() {
 
       <Card variant="outlined">
         <CardContent>
-          <Typography variant="h6" sx={{ mb: 1.5 }}>Drill-down</Typography>
+          <Typography variant="h6" sx={{ mb: 1.5 }}>{t("dashboard.drill_down")}</Typography>
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-            <Button component={RouterLink} to="/admin/containers" variant="outlined">Containers</Button>
-            <Button component={RouterLink} to="/admin/logs" variant="outlined">Logs / Audit</Button>
-            <Button component={RouterLink} to="/admin/stacks" variant="outlined">Services / Stacks</Button>
-            <Button component={RouterLink} to="/admin/settings?tab=users" variant="outlined">DB / Users</Button>
-            <Button component={RouterLink} to="/admin/llm/runtimes" variant="outlined">GPU / Runtimes</Button>
+            <Button component={RouterLink} to="/admin/containers" variant="outlined">{t("dashboard.links.containers")}</Button>
+            <Button component={RouterLink} to="/admin/logs" variant="outlined">{t("dashboard.links.logs_audit")}</Button>
+            <Button component={RouterLink} to="/admin/stacks" variant="outlined">{t("dashboard.links.services_stacks")}</Button>
+            <Button component={RouterLink} to="/admin/settings?tab=users" variant="outlined">{t("dashboard.links.db_users")}</Button>
+            <Button component={RouterLink} to="/admin/llm/runtimes" variant="outlined">{t("dashboard.links.gpu_runtimes")}</Button>
           </Stack>
         </CardContent>
       </Card>

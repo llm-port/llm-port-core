@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { adminUsers, type AdminUser, type RbacRole } from "~/api/admin";
 import { DataTable, type ColumnDef } from "~/components/DataTable";
 
@@ -17,6 +18,7 @@ import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 
 export default function UsersPage() {
+  const { t } = useTranslation();
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [roles, setRoles] = useState<RbacRole[]>([]);
   const [loading, setLoading] = useState(true);
@@ -34,7 +36,7 @@ export default function UsersPage() {
       setUsers(allUsers);
       setRoles(allRoles);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to load users.");
+      setError(err instanceof Error ? err.message : t("users.failed_load"));
     } finally {
       setLoading(false);
     }
@@ -63,7 +65,7 @@ export default function UsersPage() {
       setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
       setEditing(null);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to update roles.");
+      setError(err instanceof Error ? err.message : t("users.failed_update_roles"));
     } finally {
       setSaving(false);
     }
@@ -78,7 +80,7 @@ export default function UsersPage() {
   const columns: ColumnDef<AdminUser>[] = [
     {
       key: "email",
-      label: "User",
+      label: t("users.user"),
       sortable: true,
       sortValue: (u) => u.email,
       searchValue: (u) => u.email,
@@ -94,20 +96,20 @@ export default function UsersPage() {
     },
     {
       key: "flags",
-      label: "Flags",
+      label: t("users.flags"),
       searchValue: (u) => `${u.is_active} ${u.is_superuser} ${u.is_verified}`,
       render: (u) => (
         <Stack direction="row" spacing={0.8}>
-          {u.is_superuser && <Chip size="small" color="warning" label="Superuser" />}
+          {u.is_superuser && <Chip size="small" color="warning" label={t("users.superuser")} />}
           {u.is_active ? (
-            <Chip size="small" color="success" label="Active" />
+            <Chip size="small" color="success" label={t("common.active")} />
           ) : (
-            <Chip size="small" color="default" label="Inactive" />
+            <Chip size="small" color="default" label={t("common.inactive")} />
           )}
           {u.is_verified ? (
-            <Chip size="small" color="info" label="Verified" />
+            <Chip size="small" color="info" label={t("users.verified")} />
           ) : (
-            <Chip size="small" color="default" label="Unverified" />
+            <Chip size="small" color="default" label={t("users.unverified")} />
           )}
         </Stack>
       ),
@@ -115,14 +117,14 @@ export default function UsersPage() {
     },
     {
       key: "roles",
-      label: "Roles",
+      label: t("users.roles"),
       searchValue: (u) => u.roles.map((r) => r.name).join(" "),
       render: (u) => (
         <Stack direction="row" spacing={0.8} flexWrap="wrap" useFlexGap>
           {u.roles.length ? (
             u.roles.map((r) => <Chip key={r.id} size="small" label={r.name} />)
           ) : (
-            <Typography variant="body2" color="text.secondary">No roles</Typography>
+            <Typography variant="body2" color="text.secondary">{t("users.no_roles")}</Typography>
           )}
         </Stack>
       ),
@@ -130,7 +132,7 @@ export default function UsersPage() {
     },
     {
       key: "permissions",
-      label: "Permissions",
+      label: t("users.permissions"),
       sortable: true,
       sortValue: (u) => u.permissions.length,
       searchValue: (u) => u.permissions.map((p) => `${p.resource}:${p.action}`).join(" "),
@@ -139,11 +141,11 @@ export default function UsersPage() {
     },
     {
       key: "actions",
-      label: "Actions",
+      label: t("common.actions"),
       align: "right",
       render: (u) => (
         <Button size="small" variant="outlined" onClick={() => openEdit(u)}>
-          Edit Roles
+          {t("users.edit_roles")}
         </Button>
       ),
       minWidth: 140,
@@ -159,18 +161,18 @@ export default function UsersPage() {
       )}
 
       <DataTable
-        title="User Management"
+        title={t("users.title")}
         rows={users}
         columns={columns}
         rowKey={(u) => u.id}
         loading={loading}
         onRefresh={load}
-        emptyMessage="No users found."
-        searchPlaceholder="Search users, roles, permissions…"
+        emptyMessage={t("users.empty")}
+        searchPlaceholder={t("users.search_placeholder")}
       />
 
       <Dialog open={!!editing} onClose={() => (saving ? undefined : setEditing(null))} fullWidth maxWidth="sm">
-        <DialogTitle>Assign Roles</DialogTitle>
+        <DialogTitle>{t("users.assign_roles")}</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             {editing?.email}
@@ -186,19 +188,22 @@ export default function UsersPage() {
                     disabled={saving}
                   />
                 }
-                label={`${role.name} (${rolePermissionCount[role.id] ?? 0} permissions)`}
+                label={t("users.role_permissions", {
+                  name: role.name,
+                  count: rolePermissionCount[role.id] ?? 0,
+                })}
               />
             ))}
           </FormGroup>
           {!roles.length && (
             <Box sx={{ mt: 1 }}>
-              <Typography variant="body2" color="text.secondary">No roles available.</Typography>
+              <Typography variant="body2" color="text.secondary">{t("users.no_roles_available")}</Typography>
             </Box>
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setEditing(null)} disabled={saving}>Cancel</Button>
-          <Button variant="contained" onClick={saveRoles} disabled={saving}>Save</Button>
+          <Button onClick={() => setEditing(null)} disabled={saving}>{t("common.cancel")}</Button>
+          <Button variant="contained" onClick={saveRoles} disabled={saving}>{t("common.save")}</Button>
         </DialogActions>
       </Dialog>
     </>

@@ -8,6 +8,7 @@ import Stack from "@mui/material/Stack";
 import Switch from "@mui/material/Switch";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
+import { useTranslation } from "react-i18next";
 
 const PRESETS = ["15m", "1h", "6h", "24h", "custom"] as const;
 export type TimePreset = (typeof PRESETS)[number];
@@ -47,21 +48,23 @@ export default function LogsFilters({
   onLabelValueChange,
   onApply,
 }: LogsFiltersProps) {
+  const { t } = useTranslation();
+
   return (
     <Stack spacing={1.5} sx={{ mb: 2 }}>
       <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
         <FormControl size="small" sx={{ minWidth: 130 }}>
-          <InputLabel>Time range</InputLabel>
+          <InputLabel>{t("logs.time_range")}</InputLabel>
           <Select
             value={preset}
-            label="Time range"
+            label={t("logs.time_range")}
             onChange={(e) => onPresetChange(e.target.value as TimePreset)}
           >
-            <MenuItem value="15m">Last 15m</MenuItem>
-            <MenuItem value="1h">Last 1h</MenuItem>
-            <MenuItem value="6h">Last 6h</MenuItem>
-            <MenuItem value="24h">Last 24h</MenuItem>
-            <MenuItem value="custom">Custom</MenuItem>
+            <MenuItem value="15m">{t("logs.preset_15m")}</MenuItem>
+            <MenuItem value="1h">{t("logs.preset_1h")}</MenuItem>
+            <MenuItem value="6h">{t("logs.preset_6h")}</MenuItem>
+            <MenuItem value="24h">{t("logs.preset_24h")}</MenuItem>
+            <MenuItem value="custom">{t("logs.preset_custom")}</MenuItem>
           </Select>
         </FormControl>
 
@@ -69,7 +72,7 @@ export default function LogsFilters({
           <>
             <TextField
               size="small"
-              label="Start"
+              label={t("logs.start")}
               type="datetime-local"
               value={customStart}
               onChange={(e) => onCustomStartChange(e.target.value)}
@@ -77,7 +80,7 @@ export default function LogsFilters({
             />
             <TextField
               size="small"
-              label="End"
+              label={t("logs.end")}
               type="datetime-local"
               value={customEnd}
               onChange={(e) => onCustomEndChange(e.target.value)}
@@ -88,7 +91,7 @@ export default function LogsFilters({
 
         <TextField
           size="small"
-          label="Search text"
+          label={t("logs.search")}
           value={search}
           onChange={(e) => onSearchChange(e.target.value)}
           sx={{ minWidth: 200 }}
@@ -96,11 +99,11 @@ export default function LogsFilters({
 
         <Stack direction="row" spacing={0.5} alignItems="center">
           <Switch checked={live} onChange={(e) => onLiveChange(e.target.checked)} />
-          <Typography variant="body2">Live</Typography>
+          <Typography variant="body2">{t("logs.live")}</Typography>
         </Stack>
 
         <Button variant="outlined" size="small" onClick={onApply}>
-          Apply
+          {t("logs.apply")}
         </Button>
       </Stack>
 
@@ -113,7 +116,7 @@ export default function LogsFilters({
               label={labelKey}
               onChange={(e) => onLabelValueChange(labelKey, e.target.value)}
             >
-              <MenuItem value="">All</MenuItem>
+              <MenuItem value="">{t("table.all", { defaultValue: "All" })}</MenuItem>
               {(valuesByLabel[labelKey] ?? []).map((value) => (
                 <MenuItem key={value} value={value}>
                   {value}
@@ -126,7 +129,7 @@ export default function LogsFilters({
 
       <Box>
         <Typography variant="caption" color="text.secondary">
-          Query is generated from selected labels and search text.
+          {t("logs.query_hint")}
         </Typography>
       </Box>
     </Stack>

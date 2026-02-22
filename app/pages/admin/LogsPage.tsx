@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
+import { useTranslation } from "react-i18next";
 
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
@@ -115,6 +116,7 @@ function parseTailPayload(raw: string): LogStream[] {
 }
 
 export default function LogsPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const tab = getTab(searchParams.get("tab"));
@@ -172,7 +174,7 @@ export default function LogsPage() {
       });
       setStreams(response.streams);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to load logs.");
+      setError(e instanceof Error ? e.message : t("logs.failed_load"));
     } finally {
       setLoading(false);
     }
@@ -193,12 +195,12 @@ export default function LogsPage() {
       }
     };
     ws.onerror = () => {
-      setError("Live tail websocket failed.");
+      setError(t("logs.live_failed"));
       setLive(false);
     };
     ws.onclose = () => {
       if (!manualCloseRef.current) {
-        setError("Live tail disconnected.");
+        setError(t("logs.live_disconnected"));
         setLive(false);
       }
     };
@@ -218,7 +220,7 @@ export default function LogsPage() {
       );
       setValuesByLabel(Object.fromEntries(valuesPairs));
     } catch (e: unknown) {
-      setTopError(e instanceof Error ? e.message : "Failed to load labels.");
+      setTopError(e instanceof Error ? e.message : t("logs.failed_load_labels"));
     }
   }
 
@@ -260,11 +262,11 @@ export default function LogsPage() {
   return (
     <Box sx={{ display: "flex", flexDirection: "column", minHeight: 0, height: "100%" }}>
       <Typography variant="h5" sx={{ mb: 1 }}>
-        Logs
+        {t("logs.title")}
       </Typography>
       <Tabs value={tab} onChange={onTabChange} sx={{ mb: 2 }}>
-        <Tab value="logs" label="System" />
-        <Tab value="audit" label="Audit" />
+        <Tab value="logs" label={t("logs.tab_logs")} />
+        <Tab value="audit" label={t("logs.tab_audit")} />
       </Tabs>
 
       {tab === "logs" && (

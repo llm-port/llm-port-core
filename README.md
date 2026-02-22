@@ -93,3 +93,12 @@ Built with ❤️ using React Router.
   - `Logs` (Loki query + live tail through backend `/api/logs/*`)
   - `Audit` (existing audit log table)
 - Legacy route `/admin/audit` now redirects to `/admin/logs?tab=audit`.
+
+## Runtime i18n
+
+- Frontend uses `react-i18next` with HTTP backend.
+- Bundles are loaded from:
+  - `/api/i18n/languages`
+  - `/api/i18n/{lang}/{namespace}`
+- Language selection is available in the admin top bar and persisted in `localStorage` (`airgap-lang`).
+- New languages can be added on backend bundle files without rebuilding frontend assets.

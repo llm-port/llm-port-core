@@ -4,6 +4,7 @@
  */
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Link as RouterLink } from "react-router";
+import { useTranslation } from "react-i18next";
 import {
   models,
   search,
@@ -36,6 +37,7 @@ import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/Delete";
 
 export default function ModelsPage() {
+  const { t } = useTranslation();
   const [data, setData] = useState<Model[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -90,7 +92,7 @@ export default function ModelsPage() {
       setData(await models.list());
       setError(null);
     } catch (e: unknown) {
-      if (!silent) setError(e instanceof Error ? e.message : "Failed to load models.");
+      if (!silent) setError(e instanceof Error ? e.message : t("llm_models.failed_load"));
     } finally {
       if (!silent) setLoading(false);
       loadingRef.current = false;
@@ -124,11 +126,13 @@ export default function ModelsPage() {
       resetForm();
       if (!resp.dispatched) {
         alert(
-          `Model queued but download could not be dispatched: ${resp.dispatch_error ?? "unknown error"}.\nGo to Jobs page and click Retry.`,
+          t("llm_models.download_dispatch_failed", {
+            error: resp.dispatch_error ?? t("common.unknown_error"),
+          }),
         );
       }
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Download request failed.");
+      alert(err instanceof Error ? err.message : t("llm_models.download_request_failed"));
       // Still refresh in case the model was partially created
       await load(true);
     }
@@ -146,18 +150,18 @@ export default function ModelsPage() {
       resetForm();
       await load(true);
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Register failed.");
+      alert(err instanceof Error ? err.message : t("llm_models.register_failed"));
     }
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("Delete this model and all its jobs/artifacts?")) return;
+    if (!confirm(t("llm_models.confirm_delete"))) return;
     // Optimistic: remove from list immediately
     setData((prev) => prev.filter((m) => m.id !== id));
     try {
       await models.delete(id);
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Delete failed.");
+      alert(err instanceof Error ? err.message : t("common.delete_failed"));
       // Revert on failure
       await load(true);
     }
@@ -174,7 +178,7 @@ export default function ModelsPage() {
   const columns: ColumnDef<Model>[] = [
     {
       key: "display_name",
-      label: "Name",
+      label: t("common.name"),
       sortable: true,
       sortValue: (m) => m.display_name,
       searchValue: (m) => `${m.display_name} ${m.hf_repo_id ?? ""}`,
@@ -200,7 +204,7 @@ export default function ModelsPage() {
     },
     {
       key: "source",
-      label: "Source",
+      label: t("llm_common.source"),
       sortable: true,
       sortValue: (m) => m.source,
       searchValue: (m) => m.source,
@@ -212,14 +216,14 @@ export default function ModelsPage() {
     },
     {
       key: "status",
-      label: "Status",
+      label: t("common.status"),
       sortable: true,
       sortValue: (m) => m.status,
       render: (m) => <ModelStatusChip value={m.status} />,
     },
     {
       key: "created_at",
-      label: "Created",
+      label: t("common.created"),
       sortable: true,
       sortValue: (m) => m.created_at,
       render: (m) => (
@@ -233,7 +237,7 @@ export default function ModelsPage() {
       label: "",
       align: "right",
       render: (m) => (
-        <Tooltip title="Delete">
+        <Tooltip title={t("common.delete")}>
           <IconButton
             size="small"
             color="error"
@@ -257,18 +261,18 @@ export default function ModelsPage() {
         rowKey={(m) => m.id}
         loading={loading}
         error={error}
-        title="LLM Models"
-        emptyMessage="No models registered. Download from Hugging Face or register a local path."
+        title={t("llm_models.title")}
+        emptyMessage={t("llm_models.empty")}
         onRefresh={load}
-        searchPlaceholder="Search models…"
+        searchPlaceholder={t("llm_models.search_placeholder")}
         columnFilters={[
           {
-            label: "Status",
+            label: t("common.status"),
             value: "",
             options: [
-              { value: "available", label: "Available" },
-              { value: "downloading", label: "Downloading" },
-              { value: "failed", label: "Failed" },
+              { value: "available", label: t("llm_common.available") },
+              { value: "downloading", label: t("llm_common.downloading") },
+              { value: "failed", label: t("llm_common.failed") },
             ],
             onChange: () => {},
           },
@@ -280,7 +284,7 @@ export default function ModelsPage() {
             startIcon={<AddIcon />}
             onClick={() => setShowAdd(true)}
           >
-            Add Model
+            {t("llm_models.add_model")}
           </Button>
         }
       />
@@ -292,10 +296,10 @@ export default function ModelsPage() {
         maxWidth="sm"
         fullWidth
       >
-        <DialogTitle>Add Model</DialogTitle>
+        <DialogTitle>{t("llm_models.add_model")}</DialogTitle>
         <Tabs value={addTab} onChange={(_, v) => setAddTab(v)} sx={{ px: 3 }}>
-          <Tab label="Download from HF" />
-          <Tab label="Register Local" />
+          <Tab label={t("llm_models.download_from_hf")} />
+          <Tab label={t("llm_models.register_local")} />
         </Tabs>
 
         {addTab === 0 && (
@@ -329,11 +333,11 @@ export default function ModelsPage() {
                           {(opt as HFModelHit).id}
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
-                          {(opt as HFModelHit).pipeline_tag ?? "model"}
+                          {(opt as HFModelHit).pipeline_tag ?? t("llm_models.model")}
                           {" \u00b7 "}
-                          {((opt as HFModelHit).downloads ?? 0).toLocaleString()} downloads
+                          {t("llm_models.downloads", { count: (opt as HFModelHit).downloads ?? 0 })}
                           {" \u00b7 "}
-                          {((opt as HFModelHit).likes ?? 0).toLocaleString()} likes
+                          {t("llm_models.likes", { count: (opt as HFModelHit).likes ?? 0 })}
                         </Typography>
                       </Stack>
                     </li>
@@ -342,7 +346,7 @@ export default function ModelsPage() {
                 renderInput={(params) => (
                   <TextField
                     {...params}
-                    label="HuggingFace Repo ID"
+                    label={t("llm_models.hf_repo_id")}
                     placeholder="meta-llama/Llama-3.1-8B"
                     required
                     autoFocus
@@ -361,23 +365,23 @@ export default function ModelsPage() {
                 )}
               />
               <TextField
-                label="Revision (optional)"
+                label={t("llm_models.revision_optional")}
                 placeholder="main"
                 value={hfRevision}
                 onChange={(e) => setHfRevision(e.target.value)}
                 fullWidth
               />
               <TextField
-                label="Display Name (optional)"
+                label={t("llm_models.display_name_optional")}
                 value={dlDisplayName}
                 onChange={(e) => setDlDisplayName(e.target.value)}
                 fullWidth
               />
             </DialogContent>
             <DialogActions>
-              <Button onClick={() => { setShowAdd(false); resetForm(); }}>Cancel</Button>
+              <Button onClick={() => { setShowAdd(false); resetForm(); }}>{t("common.cancel")}</Button>
               <Button type="submit" variant="contained">
-                Start Download
+                {t("llm_models.start_download")}
               </Button>
             </DialogActions>
           </form>
@@ -387,7 +391,7 @@ export default function ModelsPage() {
           <form onSubmit={handleRegister}>
             <DialogContent sx={{ display: "flex", flexDirection: "column", gap: 2, pt: "16px !important" }}>
               <TextField
-                label="Display Name"
+                label={t("llm_models.display_name")}
                 value={regName}
                 onChange={(e) => setRegName(e.target.value)}
                 required
@@ -395,7 +399,7 @@ export default function ModelsPage() {
                 fullWidth
               />
               <TextField
-                label="Path on host"
+                label={t("llm_models.path_on_host")}
                 placeholder="/srv/air-gap/models/my-model"
                 value={regPath}
                 onChange={(e) => setRegPath(e.target.value)}
@@ -404,9 +408,9 @@ export default function ModelsPage() {
               />
             </DialogContent>
             <DialogActions>
-              <Button onClick={() => { setShowAdd(false); resetForm(); }}>Cancel</Button>
+              <Button onClick={() => { setShowAdd(false); resetForm(); }}>{t("common.cancel")}</Button>
               <Button type="submit" variant="contained">
-                Register
+                {t("llm_models.register")}
               </Button>
             </DialogActions>
           </form>

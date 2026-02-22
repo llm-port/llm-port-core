@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
@@ -21,6 +22,7 @@ interface LogLineProps {
 }
 
 export default function LogLine({ entry, labels }: LogLineProps) {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
   const labelsText = useMemo(
@@ -65,9 +67,9 @@ export default function LogLine({ entry, labels }: LogLineProps) {
               {expanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
             </IconButton>
           )}
-          <Tooltip title={copied ? "Copied" : "Copy line"}>
+          <Tooltip title={copied ? t("logs.copied") : t("logs.copy_line")}>
             <Button size="small" variant="text" onClick={copyLine} startIcon={<ContentCopyIcon fontSize="small" />}>
-              Copy
+              {t("logs.copy")}
             </Button>
           </Tooltip>
         </Stack>

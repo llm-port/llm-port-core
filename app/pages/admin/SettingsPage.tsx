@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
+import { useTranslation } from "react-i18next";
 
 import Box from "@mui/material/Box";
 import Tab from "@mui/material/Tab";
@@ -17,6 +18,7 @@ function getCurrentTab(pathname: string, tabQuery: string | null): SettingsTab {
 }
 
 export default function SettingsPage() {
+  const { t } = useTranslation();
   const location = useLocation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -34,10 +36,10 @@ export default function SettingsPage() {
     <Box sx={{ display: "flex", flexDirection: "column", minHeight: 0, height: "100%" }}>
       <Box sx={{ mb: 2 }}>
         <Typography variant="h5" sx={{ mb: 1 }}>
-          Settings
+          {t("settings.title")}
         </Typography>
         <Tabs value={tab} onChange={handleTabChange}>
-          <Tab label="User Management" value="users" />
+          <Tab label={t("users.title")} value="users" />
         </Tabs>
       </Box>
 

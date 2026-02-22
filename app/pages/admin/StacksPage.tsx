@@ -3,6 +3,7 @@
  * Deploy, update, and roll back compose stacks. List view uses DataTable.
  */
 import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { stacks, type StackSummary, type StackRevision, type StackDiff } from "~/api/admin";
 import { DataTable, type ColumnDef } from "~/components/DataTable";
 
@@ -29,43 +30,8 @@ import CompareArrowsIcon from "@mui/icons-material/CompareArrows";
 
 type View = "list" | "deploy" | "revisions" | "diff";
 
-const COLUMNS: ColumnDef<StackSummary>[] = [
-  {
-    key: "stack_id",
-    label: "Stack ID",
-    sortable: true,
-    searchValue: (s) => s.stack_id,
-    render: (s) => (
-      <Typography variant="body2" fontFamily="monospace" fontWeight={600}>
-        {s.stack_id}
-      </Typography>
-    ),
-  },
-  {
-    key: "latest_rev",
-    label: "Latest Rev",
-    sortable: true,
-    sortValue: (s) => s.latest_rev,
-    render: (s) => (
-      <Typography variant="body2" color="text.secondary">
-        v{s.latest_rev}
-      </Typography>
-    ),
-  },
-  {
-    key: "created_at",
-    label: "Updated",
-    sortable: true,
-    sortValue: (s) => new Date(s.created_at).getTime(),
-    render: (s) => (
-      <Typography variant="body2" color="text.secondary" fontSize="0.8rem">
-        {new Date(s.created_at).toLocaleString()}
-      </Typography>
-    ),
-  },
-];
-
 export default function StacksPage() {
+  const { t } = useTranslation();
   const [data, setData] = useState<StackSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -83,6 +49,41 @@ export default function StacksPage() {
   const [toRev, setToRev] = useState("");
   const [diff, setDiff] = useState<StackDiff | null>(null);
   const [diffError, setDiffError] = useState<string | null>(null);
+  const columns: ColumnDef<StackSummary>[] = [
+    {
+      key: "stack_id",
+      label: t("stacks.stack_id"),
+      sortable: true,
+      searchValue: (s) => s.stack_id,
+      render: (s) => (
+        <Typography variant="body2" fontFamily="monospace" fontWeight={600}>
+          {s.stack_id}
+        </Typography>
+      ),
+    },
+    {
+      key: "latest_rev",
+      label: t("stacks.latest_rev"),
+      sortable: true,
+      sortValue: (s) => s.latest_rev,
+      render: (s) => (
+        <Typography variant="body2" color="text.secondary">
+          v{s.latest_rev}
+        </Typography>
+      ),
+    },
+    {
+      key: "created_at",
+      label: t("stacks.updated"),
+      sortable: true,
+      sortValue: (s) => new Date(s.created_at).getTime(),
+      render: (s) => (
+        <Typography variant="body2" color="text.secondary" fontSize="0.8rem">
+          {new Date(s.created_at).toLocaleString()}
+        </Typography>
+      ),
+    },
+  ];
 
   async function load() {
     setLoading(true);
@@ -90,7 +91,7 @@ export default function StacksPage() {
     try {
       setData(await stacks.list());
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to load stacks.");
+      setError(e instanceof Error ? e.message : t("stacks.failed_load"));
     } finally {
       setLoading(false);
     }
@@ -111,7 +112,7 @@ export default function StacksPage() {
       setComposeYaml("");
       await load();
     } catch (e: unknown) {
-      setDeployError(e instanceof Error ? e.message : "Deploy failed.");
+      setDeployError(e instanceof Error ? e.message : t("stacks.deploy_failed"));
     } finally {
       setDeploying(false);
     }
@@ -126,13 +127,13 @@ export default function StacksPage() {
 
   async function handleRollback(rev: number) {
     if (!selectedStack) return;
-    if (!confirm(`Roll back ${selectedStack} to revision ${rev}?`)) return;
+    if (!confirm(t("stacks.confirm_rollback", { stack: selectedStack, rev }))) return;
     try {
       await stacks.rollback(selectedStack, rev);
       await load();
       await handleLoadRevisions(selectedStack);
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Rollback failed.");
+      alert(e instanceof Error ? e.message : t("stacks.rollback_failed"));
     }
   }
 
@@ -144,7 +145,7 @@ export default function StacksPage() {
       const d = await stacks.diff(selectedStack, Number(fromRev), Number(toRev));
       setDiff(d);
     } catch (e: unknown) {
-      setDiffError(e instanceof Error ? e.message : "Diff failed.");
+      setDiffError(e instanceof Error ? e.message : t("stacks.diff_failed"));
     }
   }
 
@@ -161,17 +162,7 @@ export default function StacksPage() {
                 startIcon={<ArrowBackIcon />}
                 onClick={() => setView("list")}
               >
-                Back
-              </Button>
-            )}
-            {view === "list" && (
-              <Button
-                variant="contained"
-                size="small"
-                startIcon={<RocketLaunchIcon />}
-                onClick={() => setView("deploy")}
-              >
-                Deploy Stack
+                {t("common.back")}
               </Button>
             )}
           </Stack>
@@ -183,15 +174,15 @@ export default function StacksPage() {
         {/* List view */}
         {view === "list" && (
           <DataTable
-            title="Stacks"
-            columns={COLUMNS}
+            title={t("stacks.title")}
+            columns={columns}
             rows={data}
             rowKey={(s) => s.stack_id}
             loading={loading}
             error={error}
-            emptyMessage="No stacks deployed."
+            emptyMessage={t("stacks.empty")}
             onRefresh={load}
-            searchPlaceholder="Search stack ID…"
+            searchPlaceholder={t("stacks.search_placeholder")}
             onRowClick={(s) => handleLoadRevisions(s.stack_id)}
             toolbarActions={
               <Button
@@ -200,7 +191,7 @@ export default function StacksPage() {
                 startIcon={<RocketLaunchIcon />}
                 onClick={() => setView("deploy")}
               >
-                Deploy Stack
+                {t("stacks.deploy_stack")}
               </Button>
             }
           />
@@ -211,10 +202,10 @@ export default function StacksPage() {
           <Paper variant="outlined" sx={{ p: 4, maxWidth: 640, flexShrink: 0 }}>
             <form onSubmit={handleDeploy}>
               <Typography variant="h6" gutterBottom>
-                Deploy / Update Stack
+                {t("stacks.deploy_update")}
               </Typography>
               <TextField
-                label="Stack ID"
+                label={t("stacks.stack_id")}
                 fullWidth
                 size="small"
                 placeholder="my-app"
@@ -248,7 +239,7 @@ export default function StacksPage() {
                   deploying ? <CircularProgress size={16} /> : <RocketLaunchIcon />
                 }
               >
-                {deploying ? "Deploying…" : "Deploy"}
+                {deploying ? t("stacks.deploying") : t("common.deploy")}
               </Button>
             </form>
           </Paper>
@@ -258,7 +249,7 @@ export default function StacksPage() {
         {view === "revisions" && selectedStack && (
           <Box sx={{ flexShrink: 0 }}>
             <Typography variant="h6" gutterBottom>
-              Revisions —{" "}
+              {t("stacks.revisions")} —{" "}
               <Box component="span" sx={{ fontFamily: "monospace" }}>
                 {selectedStack}
               </Box>
@@ -269,7 +260,7 @@ export default function StacksPage() {
               <form onSubmit={handleDiff}>
                 <Stack direction="row" spacing={1.5} alignItems="flex-end">
                   <TextField
-                    label="From Rev"
+                    label={t("stacks.from_rev")}
                     type="number"
                     size="small"
                     sx={{ width: 100 }}
@@ -278,7 +269,7 @@ export default function StacksPage() {
                     required
                   />
                   <TextField
-                    label="To Rev"
+                    label={t("stacks.to_rev")}
                     type="number"
                     size="small"
                     sx={{ width: 100 }}
@@ -292,7 +283,7 @@ export default function StacksPage() {
                     size="small"
                     startIcon={<CompareArrowsIcon />}
                   >
-                    View Diff
+                    {t("stacks.view_diff")}
                   </Button>
                 </Stack>
                 {diffError && (
@@ -311,11 +302,17 @@ export default function StacksPage() {
                   </Typography>
                   <Paper
                     variant="outlined"
-                    sx={{ bgcolor: "#0d1117", p: 2, height: 200, overflow: "auto", mt: 0.5 }}
+                    sx={(theme) => ({
+                      bgcolor: theme.palette.mode === "dark" ? "grey.900" : "grey.100",
+                      p: 2,
+                      height: 200,
+                      overflow: "auto",
+                      mt: 0.5,
+                    })}
                   >
                     <Box
                       component="pre"
-                      sx={{ m: 0, fontFamily: "monospace", fontSize: "0.75rem", color: "#69f0ae" }}
+                      sx={{ m: 0, fontFamily: "monospace", fontSize: "0.75rem", color: "success.main" }}
                     >
                       {diff.compose_yaml_from}
                     </Box>
@@ -327,11 +324,17 @@ export default function StacksPage() {
                   </Typography>
                   <Paper
                     variant="outlined"
-                    sx={{ bgcolor: "#0d1117", p: 2, height: 200, overflow: "auto", mt: 0.5 }}
+                    sx={(theme) => ({
+                      bgcolor: theme.palette.mode === "dark" ? "grey.900" : "grey.100",
+                      p: 2,
+                      height: 200,
+                      overflow: "auto",
+                      mt: 0.5,
+                    })}
                   >
                     <Box
                       component="pre"
-                      sx={{ m: 0, fontFamily: "monospace", fontSize: "0.75rem", color: "#69f0ae" }}
+                      sx={{ m: 0, fontFamily: "monospace", fontSize: "0.75rem", color: "success.main" }}
                     >
                       {diff.compose_yaml_to}
                     </Box>
@@ -344,9 +347,9 @@ export default function StacksPage() {
               <Table size="small" stickyHeader>
                 <TableHead>
                   <TableRow>
-                    <TableCell>Rev</TableCell>
-                    <TableCell>Created At</TableCell>
-                    <TableCell align="right">Actions</TableCell>
+                    <TableCell>{t("stacks.rev")}</TableCell>
+                    <TableCell>{t("stacks.created_at")}</TableCell>
+                    <TableCell align="right">{t("common.actions")}</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -369,7 +372,7 @@ export default function StacksPage() {
                           color="warning"
                           onClick={() => handleRollback(r.rev)}
                         >
-                          Rollback to v{r.rev}
+                          {t("stacks.rollback_to", { rev: r.rev })}
                         </Button>
                       </TableCell>
                     </TableRow>

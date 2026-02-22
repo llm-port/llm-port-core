@@ -4,6 +4,7 @@
  */
 import { useState, useEffect } from "react";
 import { useOutletContext } from "react-router";
+import { useTranslation } from "react-i18next";
 import { images, type ImageSummary, type PruneReport } from "~/api/admin";
 import { DataTable, type ColumnDef } from "~/components/DataTable";
 
@@ -31,65 +32,8 @@ function bytes(n: number): string {
   return `${(n / 1024 ** 3).toFixed(2)} GB`;
 }
 
-const COLUMNS: ColumnDef<ImageSummary>[] = [
-  {
-    key: "tags",
-    label: "Tags",
-    searchValue: (img) => img.repo_tags.join(" "),
-    render: (img) =>
-      img.repo_tags.length > 0 ? (
-        <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
-          {img.repo_tags.map((t) => (
-            <Chip
-              key={t}
-              label={t}
-              size="small"
-              variant="outlined"
-              sx={{ fontFamily: "monospace", fontSize: "0.75rem" }}
-            />
-          ))}
-        </Stack>
-      ) : (
-        <Typography variant="caption" color="text.secondary">
-          &lt;none&gt;
-        </Typography>
-      ),
-  },
-  {
-    key: "id",
-    label: "ID",
-    searchValue: (img) => img.id,
-    render: (img) => (
-      <Typography variant="body2" fontFamily="monospace" fontSize="0.8rem" color="text.secondary">
-        {img.id.slice(7, 19)}
-      </Typography>
-    ),
-  },
-  {
-    key: "size",
-    label: "Size",
-    sortable: true,
-    sortValue: (img) => img.size,
-    render: (img) => (
-      <Typography variant="body2" fontSize="0.8rem">
-        {bytes(img.size)}
-      </Typography>
-    ),
-  },
-  {
-    key: "created",
-    label: "Created",
-    sortable: true,
-    sortValue: (img) => img.created,
-    render: (img) => (
-      <Typography variant="body2" fontSize="0.8rem" color="text.secondary">
-        {img.created ? new Date(Number(img.created) * 1000).toLocaleDateString() : "—"}
-      </Typography>
-    ),
-  },
-];
-
 export default function ImagesPage() {
+  const { t } = useTranslation();
   const { rootModeActive } = useOutletContext<AdminContext>();
   const [data, setData] = useState<ImageSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -100,6 +44,63 @@ export default function ImagesPage() {
   const [pullError, setPullError] = useState<string | null>(null);
   const [pruneReport, setPruneReport] = useState<PruneReport | null>(null);
   const [pruning, setPruning] = useState(false);
+  const columns: ColumnDef<ImageSummary>[] = [
+    {
+      key: "tags",
+      label: t("images.tags"),
+      searchValue: (img) => img.repo_tags.join(" "),
+      render: (img) =>
+        img.repo_tags.length > 0 ? (
+          <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+            {img.repo_tags.map((tag) => (
+              <Chip
+                key={tag}
+                label={tag}
+                size="small"
+                variant="outlined"
+                sx={{ fontFamily: "monospace", fontSize: "0.75rem" }}
+              />
+            ))}
+          </Stack>
+        ) : (
+          <Typography variant="caption" color="text.secondary">
+            {t("common.none")}
+          </Typography>
+        ),
+    },
+    {
+      key: "id",
+      label: "ID",
+      searchValue: (img) => img.id,
+      render: (img) => (
+        <Typography variant="body2" fontFamily="monospace" fontSize="0.8rem" color="text.secondary">
+          {img.id.slice(7, 19)}
+        </Typography>
+      ),
+    },
+    {
+      key: "size",
+      label: t("common.size"),
+      sortable: true,
+      sortValue: (img) => img.size,
+      render: (img) => (
+        <Typography variant="body2" fontSize="0.8rem">
+          {bytes(img.size)}
+        </Typography>
+      ),
+    },
+    {
+      key: "created",
+      label: t("common.created"),
+      sortable: true,
+      sortValue: (img) => img.created,
+      render: (img) => (
+        <Typography variant="body2" fontSize="0.8rem" color="text.secondary">
+          {img.created ? new Date(Number(img.created) * 1000).toLocaleDateString() : "—"}
+        </Typography>
+      ),
+    },
+  ];
 
   async function load() {
     setLoading(true);
@@ -107,7 +108,7 @@ export default function ImagesPage() {
     try {
       setData(await images.list());
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to load images.");
+      setError(e instanceof Error ? e.message : t("images.failed_load"));
     } finally {
       setLoading(false);
     }
@@ -127,7 +128,7 @@ export default function ImagesPage() {
       setPullTag("latest");
       await load();
     } catch (e: unknown) {
-      setPullError(e instanceof Error ? e.message : "Pull failed.");
+      setPullError(e instanceof Error ? e.message : t("images.pull_failed"));
     } finally {
       setPulling(false);
     }
@@ -140,7 +141,7 @@ export default function ImagesPage() {
       setPruneReport(report);
       if (!dryRun) await load();
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Prune failed.");
+      alert(e instanceof Error ? e.message : t("images.prune_failed"));
     } finally {
       setPruning(false);
     }
@@ -155,7 +156,7 @@ export default function ImagesPage() {
           <form onSubmit={handlePull}>
             <Stack direction="row" spacing={1.5} alignItems="flex-end" flexWrap="wrap">
               <TextField
-                label="Image"
+                label={t("containers.image")}
                 size="small"
                 placeholder="nginx"
                 value={pullImage}
@@ -164,7 +165,7 @@ export default function ImagesPage() {
                 sx={{ width: 220 }}
               />
               <TextField
-                label="Tag"
+                label={t("images.tag")}
                 size="small"
                 placeholder="latest"
                 value={pullTag}
@@ -177,7 +178,7 @@ export default function ImagesPage() {
                 disabled={pulling}
                 startIcon={pulling ? <CircularProgress size={16} /> : <CloudDownloadIcon />}
               >
-                {pulling ? "Pulling…" : "Pull Image"}
+                {pulling ? t("images.pulling") : t("images.pull_image")}
               </Button>
             </Stack>
             {pullError && (
@@ -192,9 +193,9 @@ export default function ImagesPage() {
         <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
           <Stack direction="row" alignItems="center" spacing={2}>
             <Typography variant="body2" color="text.secondary" sx={{ flexGrow: 1 }}>
-              Prune dangling images{" "}
+              {t("images.prune_dangling")}{" "}
               <Typography component="span" variant="caption" color="text.secondary">
-                (requires Root Mode)
+                ({t("images.requires_root_mode")})
               </Typography>
             </Typography>
             <Button
@@ -203,7 +204,7 @@ export default function ImagesPage() {
               disabled={!rootModeActive || pruning}
               onClick={() => handlePrune(true)}
             >
-              Dry Run
+              {t("images.dry_run")}
             </Button>
             <Button
               size="small"
@@ -213,30 +214,35 @@ export default function ImagesPage() {
               startIcon={<DeleteSweepIcon />}
               onClick={() => handlePrune(false)}
             >
-              {pruning ? "Pruning…" : "Prune"}
+              {pruning ? t("images.pruning") : t("images.prune")}
             </Button>
           </Stack>
         </Paper>
 
         {pruneReport && (
           <Alert severity={pruneReport.dry_run ? "info" : "success"} sx={{ mb: 2 }}>
-            <strong>{pruneReport.dry_run ? "Dry Run — would prune:" : "Pruned:"}</strong>{" "}
-            {pruneReport.deleted.length} image(s) / saved {bytes(pruneReport.space_reclaimed)}
+            <strong>
+              {pruneReport.dry_run ? t("images.dry_run_would_prune") : t("images.pruned")}
+            </strong>{" "}
+            {t("images.prune_result", {
+              count: pruneReport.deleted.length,
+              space: bytes(pruneReport.space_reclaimed),
+            })}
           </Alert>
         )}
       </Box>
 
       {/* Table */}
       <DataTable
-        title="Images"
-        columns={COLUMNS}
+        title={t("images.title")}
+        columns={columns}
         rows={data}
         rowKey={(img) => img.id}
         loading={loading}
         error={error}
-        emptyMessage="No images."
+        emptyMessage={t("images.empty")}
         onRefresh={load}
-        searchPlaceholder="Search tags or ID…"
+        searchPlaceholder={t("images.search_placeholder")}
       />
     </Box>
   );

@@ -4,6 +4,7 @@
  * shows system networks as read-only (stats only). Table powered by DataTable.
  */
 import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import {
   networks,
   type NetworkSummary,
@@ -40,6 +41,7 @@ import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import LockIcon from "@mui/icons-material/Lock";
 
 export default function NetworksPage() {
+  const { t } = useTranslation();
   const [data, setData] = useState<NetworkSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -73,7 +75,7 @@ export default function NetworksPage() {
     try {
       setData(await networks.list());
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to load networks.");
+      setError(e instanceof Error ? e.message : t("networks.failed_load"));
     } finally {
       setLoading(false);
     }
@@ -100,20 +102,20 @@ export default function NetworksPage() {
       setCreateForm({ name: "", driver: "bridge", internal: false, subnet: null, gateway: null, labels: {} });
       await load();
     } catch (err: unknown) {
-      setCreateError(err instanceof Error ? err.message : "Create failed.");
+      setCreateError(err instanceof Error ? err.message : t("common.create_failed"));
     } finally {
       setCreating(false);
     }
   }
 
   async function handleDelete(id: string, name: string) {
-    if (!confirm(`Delete network "${name}"?`)) return;
+    if (!confirm(t("networks.confirm_delete", { name }))) return;
     setActionLoading(id);
     try {
       await networks.delete(id);
       await load();
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Delete failed.");
+      alert(err instanceof Error ? err.message : t("common.delete_failed"));
     } finally {
       setActionLoading(null);
     }
@@ -125,7 +127,7 @@ export default function NetworksPage() {
       const detail = await networks.get(id);
       setInspectNet(detail);
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Failed to inspect network.");
+      alert(err instanceof Error ? err.message : t("networks.failed_inspect"));
     } finally {
       setInspectLoading(false);
     }
@@ -134,7 +136,7 @@ export default function NetworksPage() {
   const columns: ColumnDef<NetworkSummary>[] = [
     {
       key: "name",
-      label: "Name",
+      label: t("common.name"),
       sortable: true,
       searchValue: (n) => n.name + " " + n.id,
       render: (n) => (
@@ -156,13 +158,13 @@ export default function NetworksPage() {
     },
     {
       key: "driver",
-      label: "Driver",
+      label: t("networks.driver"),
       searchValue: (n) => n.driver ?? "",
       render: (n) => <Chip label={n.driver || "—"} size="small" variant="outlined" />,
     },
     {
       key: "scope",
-      label: "Scope",
+      label: t("containers.scope"),
       sortable: true,
       searchValue: (n) => n.scope,
       render: (n) => (
@@ -173,11 +175,11 @@ export default function NetworksPage() {
     },
     {
       key: "internal",
-      label: "Internal",
+      label: t("networks.internal"),
       align: "center",
       render: (n) =>
         n.internal ? (
-          <Chip label="Yes" size="small" color="info" variant="outlined" />
+          <Chip label={t("common.yes")} size="small" color="info" variant="outlined" />
         ) : (
           <Typography variant="body2" color="text.secondary">
             —
@@ -186,7 +188,7 @@ export default function NetworksPage() {
     },
     {
       key: "containers",
-      label: "Containers",
+      label: t("containers.title"),
       align: "center",
       sortable: true,
       sortValue: (n) => n.container_count,
@@ -201,24 +203,24 @@ export default function NetworksPage() {
     },
     {
       key: "type",
-      label: "Type",
+      label: t("networks.type"),
       align: "center",
       render: (n) =>
         n.is_system ? (
-          <Chip icon={<LockIcon />} label="System" size="small" color="warning" variant="filled" />
+          <Chip icon={<LockIcon />} label={t("networks.system")} size="small" color="warning" variant="filled" />
         ) : (
-          <Chip label="User" size="small" color="success" variant="outlined" />
+          <Chip label={t("networks.user")} size="small" color="success" variant="outlined" />
         ),
     },
     {
       key: "actions",
-      label: "Actions",
+      label: t("common.actions"),
       align: "right",
       render: (n) => {
         const busy = actionLoading === n.id;
         return (
           <Stack direction="row" spacing={0.5} justifyContent="flex-end">
-            <Tooltip title="Inspect">
+            <Tooltip title={t("networks.inspect")}>
               <IconButton
                 size="small"
                 onClick={(e) => {
@@ -231,7 +233,7 @@ export default function NetworksPage() {
               </IconButton>
             </Tooltip>
             {!n.is_system && (
-              <Tooltip title="Delete">
+              <Tooltip title={t("common.delete")}>
                 <IconButton
                   size="small"
                   color="error"
@@ -253,14 +255,14 @@ export default function NetworksPage() {
 
   const columnFilters: ColumnFilter[] = [
     {
-      label: "Type",
+      label: t("networks.type"),
       value: "",
       multi: true,
       multiValue: typeFilter,
       onMultiChange: setTypeFilter,
       options: [
-        { label: "System", value: "system" },
-        { label: "User", value: "user" },
+        { label: t("networks.system"), value: "system" },
+        { label: t("networks.user"), value: "user" },
       ],
       minWidth: 140,
     },
@@ -274,15 +276,15 @@ export default function NetworksPage() {
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
       <DataTable
-        title="Networks"
+        title={t("networks.title")}
         columns={columns}
         rows={filteredData}
         rowKey={(n) => n.id}
         loading={loading}
         error={error}
-        emptyMessage="No networks found."
+        emptyMessage={t("networks.empty")}
         onRefresh={load}
-        searchPlaceholder="Search name or ID…"
+        searchPlaceholder={t("networks.search_placeholder")}
         columnFilters={columnFilters}
         toolbarActions={
           <Button
@@ -291,7 +293,7 @@ export default function NetworksPage() {
             startIcon={<AddIcon />}
             onClick={() => setShowCreate(true)}
           >
-            Create Network
+            {t("networks.create_network")}
           </Button>
         }
       />
@@ -307,12 +309,12 @@ export default function NetworksPage() {
         fullWidth
       >
         <form onSubmit={handleCreate}>
-          <DialogTitle>Create Network</DialogTitle>
+          <DialogTitle>{t("networks.create_network")}</DialogTitle>
           <DialogContent
             sx={{ display: "flex", flexDirection: "column", gap: 2, pt: "8px !important" }}
           >
             <TextField
-              label="Network Name"
+              label={t("networks.network_name")}
               required
               fullWidth
               value={createForm.name}
@@ -322,7 +324,7 @@ export default function NetworksPage() {
             />
             <TextField
               select
-              label="Driver"
+              label={t("networks.driver")}
               fullWidth
               value={createForm.driver}
               onChange={(e) => setCreateForm((f) => ({ ...f, driver: e.target.value }))}
@@ -339,21 +341,21 @@ export default function NetworksPage() {
                   onChange={(e) => setCreateForm((f) => ({ ...f, internal: e.target.checked }))}
                 />
               }
-              label="Internal (isolated, no outbound access)"
+              label={t("networks.internal_help")}
             />
             <Divider sx={{ my: 0.5 }} />
             <Typography variant="subtitle2" color="text.secondary">
-              IPAM Configuration (optional)
+              {t("networks.ipam_optional")}
             </Typography>
             <TextField
-              label="Subnet"
+              label={t("networks.subnet")}
               fullWidth
               placeholder="e.g. 172.28.0.0/16"
               value={createForm.subnet ?? ""}
               onChange={(e) => setCreateForm((f) => ({ ...f, subnet: e.target.value || null }))}
             />
             <TextField
-              label="Gateway"
+              label={t("networks.gateway")}
               fullWidth
               placeholder="e.g. 172.28.0.1"
               value={createForm.gateway ?? ""}
@@ -368,14 +370,14 @@ export default function NetworksPage() {
                 setCreateError(null);
               }}
             >
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               type="submit"
               variant="contained"
               disabled={creating || !createForm.name.trim()}
             >
-              {creating ? "Creating…" : "Create"}
+              {creating ? t("common.creating") : t("common.create")}
             </Button>
           </DialogActions>
         </form>
@@ -388,7 +390,7 @@ export default function NetworksPage() {
             <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
               {inspectNet.name}
               {inspectNet.is_system && (
-                <Chip icon={<LockIcon />} label="System" size="small" color="warning" sx={{ ml: 1 }} />
+                <Chip icon={<LockIcon />} label={t("networks.system")} size="small" color="warning" sx={{ ml: 1 }} />
               )}
             </DialogTitle>
             <DialogContent>
@@ -396,18 +398,18 @@ export default function NetworksPage() {
                 {/* Key/value info */}
                 <Paper variant="outlined" sx={{ p: 2 }}>
                   <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                    Details
+                    {t("common.details")}
                   </Typography>
                   <Stack spacing={0.5}>
                     {(
                       [
                         ["ID", inspectNet.id],
-                        ["Driver", inspectNet.driver],
-                        ["Scope", inspectNet.scope],
-                        ["Subnet", inspectNet.subnet || "—"],
-                        ["Gateway", inspectNet.gateway || "—"],
-                        ["Internal", inspectNet.internal ? "Yes" : "No"],
-                        ["Created", inspectNet.created],
+                        [t("networks.driver"), inspectNet.driver],
+                        [t("containers.scope"), inspectNet.scope],
+                        [t("networks.subnet"), inspectNet.subnet || "—"],
+                        [t("networks.gateway"), inspectNet.gateway || "—"],
+                        [t("networks.internal"), inspectNet.internal ? t("common.yes") : t("common.no")],
+                        [t("common.created"), inspectNet.created],
                       ] as [string, string][]
                     ).map(([k, v]) => (
                       <Stack key={k} direction="row" spacing={2}>
@@ -429,7 +431,7 @@ export default function NetworksPage() {
                 {Object.keys(inspectNet.labels).length > 0 && (
                   <Paper variant="outlined" sx={{ p: 2 }}>
                     <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                      Labels
+                      {t("common.labels")}
                     </Typography>
                     <Stack spacing={0.25}>
                       {Object.entries(inspectNet.labels).map(([k, v]) => (
@@ -443,11 +445,11 @@ export default function NetworksPage() {
 
                 <Paper variant="outlined" sx={{ p: 2 }}>
                   <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                    Connected Containers ({inspectNet.containers.length})
+                    {t("networks.connected_containers", { count: inspectNet.containers.length })}
                   </Typography>
                   {inspectNet.containers.length === 0 ? (
                     <Typography variant="body2" color="text.secondary">
-                      No containers connected.
+                      {t("networks.no_connected_containers")}
                     </Typography>
                   ) : (
                     <List dense disablePadding>
@@ -455,7 +457,7 @@ export default function NetworksPage() {
                         <ListItem key={c.id} disableGutters>
                           <ListItemText
                             primary={c.name || c.id.slice(0, 12)}
-                            secondary={`${c.ipv4_address || "no IP"} · ${c.mac_address || "no MAC"}`}
+                            secondary={`${c.ipv4_address || t("networks.no_ip")} · ${c.mac_address || t("networks.no_mac")}`}
                             primaryTypographyProps={{ fontFamily: "monospace", fontSize: "0.85rem" }}
                             secondaryTypographyProps={{
                               fontFamily: "monospace",
@@ -471,7 +473,7 @@ export default function NetworksPage() {
                 {Object.keys(inspectNet.options).length > 0 && (
                   <Paper variant="outlined" sx={{ p: 2 }}>
                     <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                      Driver Options
+                      {t("networks.driver_options")}
                     </Typography>
                     <Stack spacing={0.25}>
                       {Object.entries(inspectNet.options).map(([k, v]) => (
@@ -485,7 +487,7 @@ export default function NetworksPage() {
               </Stack>
             </DialogContent>
             <DialogActions>
-              <Button onClick={() => setInspectNet(null)}>Close</Button>
+              <Button onClick={() => setInspectNet(null)}>{t("common.close")}</Button>
             </DialogActions>
           </>
         )}

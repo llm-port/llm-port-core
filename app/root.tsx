@@ -6,11 +6,16 @@ import {
   Scripts,
   ScrollRestoration,
 } from "react-router";
+import { useEffect, useMemo, useState } from "react";
+import type { PaletteMode } from "@mui/material";
 import { ThemeProvider } from "@mui/material/styles";
 import CssBaseline from "@mui/material/CssBaseline";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
-import theme from "./theme";
+import { useTranslation } from "react-i18next";
+import { getAppTheme } from "./theme";
+import { ThemeModeContext } from "./theme-mode";
+import "./i18n";
 
 import type { Route } from "./+types/root";
 import "./app.css";
@@ -29,6 +34,33 @@ export const links: Route.LinksFunction = () => [
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {
+  const [mode, setMode] = useState<PaletteMode>("dark");
+
+  useEffect(() => {
+    const stored = window.localStorage.getItem("airgap-theme-mode");
+    if (stored === "light" || stored === "dark") {
+      setMode(stored);
+      return;
+    }
+    if (window.matchMedia?.("(prefers-color-scheme: light)").matches) {
+      setMode("light");
+    }
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem("airgap-theme-mode", mode);
+    document.body.dataset.theme = mode;
+  }, [mode]);
+
+  const theme = useMemo(() => getAppTheme(mode), [mode]);
+  const themeModeValue = useMemo(
+    () => ({
+      mode,
+      toggleMode: () => setMode((prev) => (prev === "dark" ? "light" : "dark")),
+    }),
+    [mode],
+  );
+
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -38,10 +70,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <Links />
       </head>
       <body>
-        <ThemeProvider theme={theme}>
-          <CssBaseline />
-          {children}
-        </ThemeProvider>
+        <ThemeModeContext.Provider value={themeModeValue}>
+          <ThemeProvider theme={theme}>
+            <CssBaseline />
+            {children}
+          </ThemeProvider>
+        </ThemeModeContext.Provider>
         <ScrollRestoration />
         <Scripts />
       </body>
@@ -54,15 +88,16 @@ export default function App() {
 }
 
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
-  let message = "Oops!";
-  let details = "An unexpected error occurred.";
+  const { t } = useTranslation();
+  let message = t("errors.oops");
+  let details = t("errors.unexpected");
   let stack: string | undefined;
 
   if (isRouteErrorResponse(error)) {
     message = error.status === 404 ? "404" : "Error";
     details =
       error.status === 404
-        ? "The requested page could not be found."
+        ? t("errors.not_found")
         : error.statusText || details;
   } else if (import.meta.env.DEV && error && error instanceof Error) {
     details = error.message;

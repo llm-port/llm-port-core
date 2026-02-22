@@ -4,6 +4,7 @@
  */
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router";
+import { useTranslation } from "react-i18next";
 import { models, type Model, type Artifact } from "~/api/llm";
 import { ModelStatusChip, FormatChip } from "~/components/Chips";
 import { DataTable, type ColumnDef } from "~/components/DataTable";
@@ -29,6 +30,7 @@ function humanSize(bytes: number): string {
 }
 
 export default function ModelDetailPage() {
+  const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [model, setModel] = useState<Model | null>(null);
@@ -45,7 +47,7 @@ export default function ModelDetailPage() {
       setModel(m);
       setArtifacts(arts);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to load model.");
+      setError(e instanceof Error ? e.message : t("llm_model_detail.failed_load"));
     } finally {
       setLoading(false);
     }
@@ -56,12 +58,12 @@ export default function ModelDetailPage() {
   }, [id]);
 
   async function handleDelete() {
-    if (!id || !confirm("Delete this model?")) return;
+    if (!id || !confirm(t("llm_model_detail.confirm_delete"))) return;
     try {
       await models.delete(id);
       navigate("/admin/llm/models");
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Delete failed.");
+      alert(e instanceof Error ? e.message : t("common.delete_failed"));
     }
   }
 
@@ -74,13 +76,13 @@ export default function ModelDetailPage() {
   }
 
   if (error || !model) {
-    return <Alert severity="error">{error ?? "Model not found."}</Alert>;
+    return <Alert severity="error">{error ?? t("llm_model_detail.not_found")}</Alert>;
   }
 
   const artifactCols: ColumnDef<Artifact>[] = [
     {
       key: "path",
-      label: "File",
+      label: t("llm_model_detail.file"),
       sortable: true,
       sortValue: (a) => a.path,
       searchValue: (a) => a.path,
@@ -92,14 +94,14 @@ export default function ModelDetailPage() {
     },
     {
       key: "format",
-      label: "Format",
+      label: t("llm_model_detail.format"),
       sortable: true,
       sortValue: (a) => a.format,
       render: (a) => <FormatChip value={a.format} />,
     },
     {
       key: "size",
-      label: "Size",
+      label: t("common.size"),
       sortable: true,
       sortValue: (a) => a.size_bytes,
       render: (a) => (
@@ -110,7 +112,7 @@ export default function ModelDetailPage() {
     },
     {
       key: "engines",
-      label: "Compatible Engines",
+      label: t("llm_model_detail.compatible_engines"),
       render: (a) => (
         <Stack direction="row" spacing={0.5}>
           {(a.engine_compat ?? []).map((eng) => (
@@ -144,7 +146,7 @@ export default function ModelDetailPage() {
           startIcon={<ArrowBackIcon />}
           onClick={() => navigate("/admin/llm/models")}
         >
-          Models
+          {t("llm_models.title")}
         </Button>
         <Typography variant="h5" sx={{ flexGrow: 1 }}>
           {model.display_name}
@@ -158,7 +160,7 @@ export default function ModelDetailPage() {
           disabled={model.status === "downloading"}
           onClick={handleDelete}
         >
-          Delete
+          {t("common.delete")}
         </Button>
       </Stack>
 
@@ -166,14 +168,14 @@ export default function ModelDetailPage() {
       <Card variant="outlined">
         <CardContent>
           <Stack direction="row" flexWrap="wrap" gap={4}>
-            <MetaField label="Source" value={model.source} />
-            {model.hf_repo_id && <MetaField label="Repo" value={model.hf_repo_id} mono />}
-            {model.hf_revision && <MetaField label="Revision" value={model.hf_revision} mono />}
-            <MetaField label="Created" value={new Date(model.created_at).toLocaleString()} />
+            <MetaField label={t("llm_common.source")} value={model.source} />
+            {model.hf_repo_id && <MetaField label={t("llm_model_detail.repo")} value={model.hf_repo_id} mono />}
+            {model.hf_revision && <MetaField label={t("llm_model_detail.revision")} value={model.hf_revision} mono />}
+            <MetaField label={t("common.created")} value={new Date(model.created_at).toLocaleString()} />
             {model.tags && model.tags.length > 0 && (
               <Box>
                 <Typography variant="caption" color="text.secondary">
-                  Tags
+                  {t("images.tags")}
                 </Typography>
                 <Stack direction="row" spacing={0.5} mt={0.5}>
                   {model.tags.map((t) => (
@@ -191,8 +193,8 @@ export default function ModelDetailPage() {
         columns={artifactCols}
         rows={artifacts}
         rowKey={(a) => a.id}
-        title="Artifacts"
-        emptyMessage="No artifacts detected yet."
+        title={t("llm_model_detail.artifacts")}
+        emptyMessage={t("llm_model_detail.no_artifacts")}
         onRefresh={load}
       />
     </Box>

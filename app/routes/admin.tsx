@@ -6,6 +6,10 @@ import { useState, useEffect } from "react";
 import { Outlet, NavLink, useLocation, useNavigate } from "react-router";
 import { adminUsers, rootMode, type RootModeStatus } from "~/api/admin";
 import { auth } from "~/api/auth";
+import { useThemeMode } from "~/theme-mode";
+import { listLanguages, type UiLanguage } from "~/api/i18n";
+import { useTranslation } from "react-i18next";
+import i18n from "~/i18n";
 
 import AppBar from "@mui/material/AppBar";
 import Box from "@mui/material/Box";
@@ -28,6 +32,8 @@ import Toolbar from "@mui/material/Toolbar";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import Alert from "@mui/material/Alert";
+import MenuItem from "@mui/material/MenuItem";
+import Menu from "@mui/material/Menu";
 
 import StorageIcon from '@mui/icons-material/Storage';
 import DnsIcon from "@mui/icons-material/Dns";
@@ -48,6 +54,10 @@ import ModelTrainingIcon from "@mui/icons-material/ModelTraining";
 import RocketLaunchIcon from "@mui/icons-material/RocketLaunch";
 import DownloadIcon from "@mui/icons-material/Download";
 import SettingsIcon from "@mui/icons-material/Settings";
+import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
+import LightModeOutlinedIcon from "@mui/icons-material/LightModeOutlined";
+import LogoutIcon from "@mui/icons-material/Logout";
+import TranslateIcon from "@mui/icons-material/Translate";
 
 const DRAWER_WIDTH_OPEN = 240;
 const DRAWER_WIDTH_CLOSED = 64;
@@ -55,13 +65,13 @@ const DRAWER_WIDTH_CLOSED = 64;
 /* ── Navigation structure ──────────────────────────────────────────── */
 interface NavChild {
   to: string;
-  label: string;
+  labelKey: string;
   icon: React.ReactNode;
 }
 
 interface NavGroup {
   kind: "group";
-  label: string;
+  labelKey: string;
   icon: React.ReactNode;
   children: NavChild[];
 }
@@ -69,37 +79,61 @@ interface NavGroup {
 interface NavLeaf {
   kind: "leaf";
   to: string;
-  label: string;
+  labelKey: string;
   icon: React.ReactNode;
 }
 
 type NavEntry = NavGroup | NavLeaf;
 
 const NAV: NavEntry[] = [
-  { kind: "leaf", to: "/admin/dashboard", label: "Dashboard", icon: <DashboardIcon /> },
+  { kind: "leaf", to: "/admin/dashboard", labelKey: "nav.dashboard", icon: <DashboardIcon /> },
   {
     kind: "group",
-    label: "Containers",
+    labelKey: "nav.containers_group",
     icon: <StorageIcon />,
     children: [
-      { to: "/admin/containers", label: "Containers", icon: <DnsIcon /> },
-      { to: "/admin/images", label: "Images", icon: <ViewInArIcon /> },
-      { to: "/admin/networks", label: "Networks", icon: <LanIcon /> },
-      { to: "/admin/stacks", label: "Stacks", icon: <LayersIcon /> },
+      { to: "/admin/containers", labelKey: "nav.containers", icon: <DnsIcon /> },
+      { to: "/admin/images", labelKey: "nav.images", icon: <ViewInArIcon /> },
+      { to: "/admin/networks", labelKey: "nav.networks", icon: <LanIcon /> },
+      { to: "/admin/stacks", labelKey: "nav.stacks", icon: <LayersIcon /> },
     ],
   },
   {
     kind: "group",
-    label: "LLM",
+    labelKey: "nav.llm_group",
     icon: <LlmIcon />,
     children: [
-      { to: "/admin/llm/providers", label: "Providers", icon: <AccountTreeIcon /> },
-      { to: "/admin/llm/models", label: "Models", icon: <ModelTrainingIcon /> },
-      { to: "/admin/llm/runtimes", label: "Runtimes", icon: <RocketLaunchIcon /> },
-      { to: "/admin/llm/jobs", label: "Jobs", icon: <DownloadIcon /> },
+      { to: "/admin/llm/providers", labelKey: "nav.providers", icon: <AccountTreeIcon /> },
+      { to: "/admin/llm/models", labelKey: "nav.models", icon: <ModelTrainingIcon /> },
+      { to: "/admin/llm/runtimes", labelKey: "nav.runtimes", icon: <RocketLaunchIcon /> },
+      { to: "/admin/llm/jobs", labelKey: "nav.jobs", icon: <DownloadIcon /> },
     ],
   },
 ];
+
+function adminPageTitle(pathname: string, search: string, t: (key: string) => string): string {
+  if (pathname.startsWith("/admin/dashboard")) return t("dashboard.title");
+  if (pathname.startsWith("/admin/containers/new")) return t("create_container.title");
+  if (pathname.startsWith("/admin/containers/")) return t("container_detail.page_title");
+  if (pathname.startsWith("/admin/containers")) return t("containers.title");
+  if (pathname.startsWith("/admin/images")) return t("images.title");
+  if (pathname.startsWith("/admin/networks")) return t("networks.title");
+  if (pathname.startsWith("/admin/stacks")) return t("stacks.title");
+  if (pathname.startsWith("/admin/llm/providers")) return t("llm_providers.title");
+  if (pathname.startsWith("/admin/llm/models/")) return t("llm_model_detail.page_title");
+  if (pathname.startsWith("/admin/llm/models")) return t("llm_models.title");
+  if (pathname.startsWith("/admin/llm/runtimes/")) return t("llm_runtime_detail.page_title");
+  if (pathname.startsWith("/admin/llm/runtimes")) return t("llm_runtimes.title");
+  if (pathname.startsWith("/admin/llm/jobs")) return t("llm_jobs.title");
+  if (pathname.startsWith("/admin/logs")) {
+    const tab = new URLSearchParams(search).get("tab");
+    return tab === "audit" ? t("logs.tab_audit") : t("logs.tab_logs");
+  }
+  if (pathname.startsWith("/admin/settings") || pathname.startsWith("/admin/users")) {
+    return t("settings.title");
+  }
+  return t("app.title");
+}
 
 /* ── Shared link button styles ─────────────────────────────────────── */
 const linkButtonSx = {
@@ -117,6 +151,11 @@ const linkButtonSx = {
 export default function AdminLayout() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { mode, toggleMode } = useThemeMode();
+  const { t } = useTranslation();
+  const [languages, setLanguages] = useState<UiLanguage[]>([]);
+  const [language, setLanguage] = useState(i18n.resolvedLanguage || i18n.language || "en");
+  const [languageMenuAnchor, setLanguageMenuAnchor] = useState<HTMLElement | null>(null);
   const [rootStatus, setRootStatus] = useState<RootModeStatus | null>(null);
   const [showRootForm, setShowRootForm] = useState(false);
   const [reason, setReason] = useState("");
@@ -135,7 +174,7 @@ export default function AdminLayout() {
     const init: Record<string, boolean> = {};
     for (const entry of NAV) {
       if (entry.kind === "group") {
-        init[entry.label] = entry.children.some((c) => location.pathname.startsWith(c.to));
+        init[entry.labelKey] = entry.children.some((c) => location.pathname.startsWith(c.to));
       }
     }
     return init;
@@ -168,9 +207,32 @@ export default function AdminLayout() {
     }
   }
 
+  async function loadLanguages() {
+    try {
+      const supported = await listLanguages();
+      setLanguages(supported);
+    } catch {
+      setLanguages([{ code: "en", name: "English" }]);
+    }
+  }
+
   useEffect(() => {
     void ensureAuthenticated();
+    void loadLanguages();
   }, []);
+
+  useEffect(() => {
+    const handler = () => setLanguage(i18n.resolvedLanguage || i18n.language || "en");
+    i18n.on("languageChanged", handler);
+    return () => {
+      i18n.off("languageChanged", handler);
+    };
+  }, []);
+
+  useEffect(() => {
+    const page = adminPageTitle(location.pathname, location.search, t);
+    document.title = `${page} | ${t("app.title")}`;
+  }, [location.pathname, location.search, t]);
 
   useEffect(() => {
     if (!authReady || !isSuperuser) return;
@@ -212,7 +274,7 @@ export default function AdminLayout() {
   if (!authReady) {
     return (
       <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}>
-        <Typography color="text.secondary">Checking session…</Typography>
+        <Typography color="text.secondary">{t("app.check_session")}</Typography>
       </Box>
     );
   }
@@ -265,7 +327,7 @@ export default function AdminLayout() {
           </IconButton>
           {drawerOpen && (
             <Typography variant="h6" noWrap sx={{ fontSize: "1rem", color: "primary.light" }}>
-              AIrgap Console
+              {t("app.title")}
             </Typography>
           )}
         </Box>
@@ -276,7 +338,7 @@ export default function AdminLayout() {
             if (entry.kind === "leaf") {
               return (
                 <ListItem key={entry.to} disablePadding sx={{ mb: 0.5 }}>
-                  <Tooltip title={drawerOpen ? "" : entry.label} placement="right" arrow>
+                  <Tooltip title={drawerOpen ? "" : t(entry.labelKey)} placement="right" arrow>
                     <ListItemButton
                       component={NavLink}
                       to={entry.to}
@@ -293,7 +355,7 @@ export default function AdminLayout() {
                       </ListItemIcon>
                       {drawerOpen && (
                         <ListItemText
-                          primary={entry.label}
+                          primary={t(entry.labelKey)}
                           primaryTypographyProps={{ fontSize: "0.875rem", fontWeight: 500 }}
                         />
                       )}
@@ -304,22 +366,22 @@ export default function AdminLayout() {
             }
 
             /* Group header */
-            const isGroupExpanded = expanded[entry.label] ?? false;
+            const isGroupExpanded = expanded[entry.labelKey] ?? false;
             const isGroupActive = entry.children.some((c) => location.pathname.startsWith(c.to));
 
             return (
-              <Box key={entry.label}>
+              <Box key={entry.labelKey}>
                 <ListItem disablePadding sx={{ mb: 0.5 }}>
-                  <Tooltip title={drawerOpen ? "" : entry.label} placement="right" arrow>
+                  <Tooltip title={drawerOpen ? "" : t(entry.labelKey)} placement="right" arrow>
                     <ListItemButton
                       onClick={() => {
                         const defaultTo = entry.children[0]?.to;
                         if (drawerOpen) {
-                          toggleGroup(entry.label);
+                          toggleGroup(entry.labelKey);
                           if (!isGroupExpanded && defaultTo) navigate(defaultTo);
                         } else {
                           setDrawerOpen(true);
-                          setExpanded((prev) => ({ ...prev, [entry.label]: true }));
+                          setExpanded((prev) => ({ ...prev, [entry.labelKey]: true }));
                           if (defaultTo) navigate(defaultTo);
                         }
                       }}
@@ -347,7 +409,7 @@ export default function AdminLayout() {
                       {drawerOpen && (
                         <>
                           <ListItemText
-                            primary={entry.label}
+                            primary={t(entry.labelKey)}
                             primaryTypographyProps={{ fontSize: "0.875rem", fontWeight: 600 }}
                           />
                           {isGroupExpanded ? (
@@ -376,7 +438,7 @@ export default function AdminLayout() {
                               {child.icon}
                             </ListItemIcon>
                             <ListItemText
-                              primary={child.label}
+                              primary={t(child.labelKey)}
                               primaryTypographyProps={{ fontSize: "0.8rem", fontWeight: 500 }}
                             />
                           </ListItemButton>
@@ -391,7 +453,7 @@ export default function AdminLayout() {
         </List>
 
         <Box sx={{ px: drawerOpen ? 1 : 0.5, pb: 0.5, display: "flex", flexDirection: "column", gap: 0.5 }}>
-          <Tooltip title={drawerOpen ? "" : "Logs"} placement="right" arrow>
+          <Tooltip title={drawerOpen ? "" : t("nav.logs")} placement="right" arrow>
             <ListItemButton
               component={NavLink}
               to="/admin/logs"
@@ -414,7 +476,7 @@ export default function AdminLayout() {
               </ListItemIcon>
               {drawerOpen && (
                 <ListItemText
-                  primary="Logs"
+                  primary={t("nav.logs")}
                   primaryTypographyProps={{ fontSize: "0.875rem", fontWeight: 500 }}
                 />
               )}
@@ -430,7 +492,7 @@ export default function AdminLayout() {
             }}
           >
             {isSuperuser && (
-              <Tooltip title={drawerOpen ? "" : "Settings"} placement="right" arrow>
+              <Tooltip title={drawerOpen ? "" : t("nav.settings")} placement="right" arrow>
                 <ListItemButton
                   component={NavLink}
                   to="/admin/settings?tab=users"
@@ -453,7 +515,7 @@ export default function AdminLayout() {
                   </ListItemIcon>
                   {drawerOpen && (
                     <ListItemText
-                      primary="Settings"
+                      primary={t("nav.settings")}
                       primaryTypographyProps={{ fontSize: "0.875rem", fontWeight: 500 }}
                     />
                   )}
@@ -475,39 +537,93 @@ export default function AdminLayout() {
         {/* App bar */}
         <AppBar position="static" elevation={0}>
           <Toolbar variant="dense" sx={{ justifyContent: "flex-end", gap: 1.5 }}>
+            <Tooltip title={t("language.label")} arrow>
+              <IconButton
+                size="small"
+                onClick={(e) => setLanguageMenuAnchor(e.currentTarget)}
+                sx={{ color: "text.primary" }}
+              >
+                <TranslateIcon />
+              </IconButton>
+            </Tooltip>
+            <Menu
+              anchorEl={languageMenuAnchor}
+              open={Boolean(languageMenuAnchor)}
+              onClose={() => setLanguageMenuAnchor(null)}
+              anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+              transformOrigin={{ vertical: "top", horizontal: "right" }}
+            >
+              {languages.map((lang) => (
+                <MenuItem
+                  key={lang.code}
+                  selected={language === lang.code}
+                  onClick={() => {
+                    setLanguage(lang.code);
+                    void i18n
+                      .reloadResources([lang.code], ["common"])
+                      .then(() => i18n.changeLanguage(lang.code));
+                    setLanguageMenuAnchor(null);
+                  }}
+                >
+                  {lang.name}
+                </MenuItem>
+              ))}
+            </Menu>
+            <Tooltip title={mode === "dark" ? t("theme.light") : t("theme.dark")} arrow>
+              <IconButton
+                size="small"
+                onClick={toggleMode}
+                sx={{ color: "text.primary" }}
+              >
+                {mode === "dark" ? <LightModeOutlinedIcon /> : <DarkModeOutlinedIcon />}
+              </IconButton>
+            </Tooltip>
             {isSuperuser && (
               <>
                 {isRootActive ? (
                   <>
                     <Chip
                       icon={<SecurityIcon />}
-                      label="ROOT MODE ACTIVE"
+                      label={t("root_mode.active")}
                       color="error"
                       size="small"
                       variant="filled"
                       sx={{ fontWeight: 700 }}
                     />
                     <Button size="small" color="error" variant="outlined" onClick={handleDeactivateRoot}>
-                      Deactivate
+                      {t("root_mode.deactivate")}
                     </Button>
                   </>
                 ) : (
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    color="warning"
-                    startIcon={<SecurityIcon />}
-                    onClick={() => setShowRootForm(true)}
-                  >
-                    Activate Root Mode
-                  </Button>
+                  <Tooltip title={t("root_mode.activate")} arrow>
+                    <IconButton
+                      size="small"
+                      color="warning"
+                      onClick={() => setShowRootForm(true)}
+                      sx={{
+                        width: 30,
+                        height: 30,
+                        border: (theme) => `1px solid ${theme.palette.warning.main}`,
+                        borderRadius: "50%",
+                      }}
+                    >
+                      <SecurityIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
                 )}
               </>
             )}
-            <Chip size="small" label={currentUserEmail} />
-            <Button size="small" variant="outlined" onClick={handleLogout}>
-              Logout
-            </Button>
+            <Chip
+              label={currentUserEmail}
+              onDelete={handleLogout}
+              deleteIcon={<LogoutIcon fontSize="small" />}
+              variant="outlined"
+              sx={{
+                height: 30,
+                "& .MuiChip-label": { px: 1.25 },
+                "& .MuiChip-deleteIcon": { fontSize: 18, mr: 0.5 },
+              }}
+            />
           </Toolbar>
         </AppBar>
 
@@ -519,14 +635,13 @@ export default function AdminLayout() {
           fullWidth
         >
           <form onSubmit={handleActivateRoot}>
-            <DialogTitle>Activate Root Mode</DialogTitle>
+            <DialogTitle>{t("root_mode.dialog_title")}</DialogTitle>
             <DialogContent>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                Root mode grants elevated privileges on system containers. All
-                actions are audited at high severity.
+                {t("root_mode.dialog_desc")}
               </Typography>
               <TextField
-                label="Reason (min 10 chars)"
+                label={t("root_mode.reason")}
                 fullWidth
                 multiline
                 rows={3}
@@ -534,11 +649,11 @@ export default function AdminLayout() {
                 onChange={(e) => setReason(e.target.value)}
                 required
                 inputProps={{ minLength: 10 }}
-                placeholder="Describe why you need root access…"
+                placeholder={t("root_mode.reason")}
                 sx={{ mb: 2 }}
               />
               <TextField
-                label="Duration (seconds, 60–3600)"
+                label={t("root_mode.duration")}
                 type="number"
                 fullWidth
                 value={duration}
@@ -553,10 +668,10 @@ export default function AdminLayout() {
             </DialogContent>
             <DialogActions>
               <Button onClick={() => { setShowRootForm(false); setError(null); }}>
-                Cancel
+                {t("root_mode.cancel")}
               </Button>
               <Button type="submit" variant="contained" color="error">
-                Activate
+                {t("root_mode.confirm")}
               </Button>
             </DialogActions>
           </form>

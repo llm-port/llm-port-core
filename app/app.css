@@ -12,6 +12,16 @@ body {
   margin: 0;
 }
 
+body[data-theme="dark"] {
+  --scroll-thumb: rgba(124, 77, 255, 0.25);
+  --scroll-thumb-hover: rgba(124, 77, 255, 0.45);
+}
+
+body[data-theme="light"] {
+  --scroll-thumb: rgba(30, 64, 175, 0.25);
+  --scroll-thumb-hover: rgba(30, 64, 175, 0.42);
+}
+
 /* ── Modern thin scrollbars ────────────────────────────────────────── */
 
 /* Webkit / Blink (Chrome, Edge, Safari) */
@@ -25,12 +35,12 @@ body {
 }
 
 *::-webkit-scrollbar-thumb {
-  background: rgba(124, 77, 255, 0.25);
+  background: var(--scroll-thumb, rgba(124, 77, 255, 0.25));
   border-radius: 3px;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: rgba(124, 77, 255, 0.45);
+  background: var(--scroll-thumb-hover, rgba(124, 77, 255, 0.45));
 }
 
 *::-webkit-scrollbar-corner {
@@ -40,7 +50,7 @@ body {
 /* Firefox */
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(124, 77, 255, 0.25) transparent;
+  scrollbar-color: var(--scroll-thumb, rgba(124, 77, 255, 0.25)) transparent;
 }
 
 /* Let MUI handle backgrounds and colors */

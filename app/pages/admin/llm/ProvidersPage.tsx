@@ -2,6 +2,7 @@
  * Admin → LLM → Providers list page.
  */
 import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { providers, type Provider, type ProviderType, type CreateProviderPayload } from "~/api/llm";
 import { DataTable, type ColumnDef } from "~/components/DataTable";
 import { EngineChip } from "~/components/Chips";
@@ -28,6 +29,7 @@ import EditIcon from "@mui/icons-material/Edit";
 const PROVIDER_TYPES: ProviderType[] = ["vllm", "llamacpp", "tgi", "ollama"];
 
 export default function ProvidersPage() {
+  const { t } = useTranslation();
   const [data, setData] = useState<Provider[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -47,7 +49,7 @@ export default function ProvidersPage() {
     try {
       setData(await providers.list());
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to load providers.");
+      setError(e instanceof Error ? e.message : t("llm_providers.failed_load"));
     } finally {
       setLoading(false);
     }
@@ -65,7 +67,7 @@ export default function ProvidersPage() {
       setCreateName("");
       await load();
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Create failed.");
+      alert(err instanceof Error ? err.message : t("common.create_failed"));
     }
   }
 
@@ -77,24 +79,24 @@ export default function ProvidersPage() {
       setEditTarget(null);
       await load();
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Update failed.");
+      alert(err instanceof Error ? err.message : t("common.update_failed"));
     }
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("Delete this provider? This will fail if runtimes still reference it.")) return;
+    if (!confirm(t("llm_providers.confirm_delete"))) return;
     try {
       await providers.delete(id);
       await load();
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Delete failed.");
+      alert(err instanceof Error ? err.message : t("common.delete_failed"));
     }
   }
 
   const columns: ColumnDef<Provider>[] = [
     {
       key: "name",
-      label: "Name",
+      label: t("common.name"),
       sortable: true,
       sortValue: (p) => p.name,
       searchValue: (p) => p.name,
@@ -106,7 +108,7 @@ export default function ProvidersPage() {
     },
     {
       key: "type",
-      label: "Engine",
+      label: t("llm_common.engine"),
       sortable: true,
       sortValue: (p) => p.type,
       searchValue: (p) => p.type,
@@ -114,7 +116,7 @@ export default function ProvidersPage() {
     },
     {
       key: "target",
-      label: "Target",
+      label: t("llm_providers.target"),
       sortable: true,
       sortValue: (p) => p.target,
       render: (p) => (
@@ -125,7 +127,7 @@ export default function ProvidersPage() {
     },
     {
       key: "created_at",
-      label: "Created",
+      label: t("common.created"),
       sortable: true,
       sortValue: (p) => p.created_at,
       render: (p) => (
@@ -136,11 +138,11 @@ export default function ProvidersPage() {
     },
     {
       key: "actions",
-      label: "Actions",
+      label: t("common.actions"),
       align: "right",
       render: (p) => (
         <Stack direction="row" spacing={0.5} justifyContent="flex-end">
-          <Tooltip title="Edit">
+          <Tooltip title={t("common.edit")}>
             <IconButton
               size="small"
               onClick={(e) => {
@@ -152,7 +154,7 @@ export default function ProvidersPage() {
               <EditIcon fontSize="small" />
             </IconButton>
           </Tooltip>
-          <Tooltip title="Delete">
+          <Tooltip title={t("common.delete")}>
             <IconButton
               size="small"
               color="error"
@@ -177,10 +179,10 @@ export default function ProvidersPage() {
         rowKey={(p) => p.id}
         loading={loading}
         error={error}
-        title="LLM Providers"
-        emptyMessage="No providers configured yet."
+        title={t("llm_providers.title")}
+        emptyMessage={t("llm_providers.empty")}
         onRefresh={load}
-        searchPlaceholder="Search providers…"
+        searchPlaceholder={t("llm_providers.search_placeholder")}
         toolbarActions={
           <Button
             size="small"
@@ -188,7 +190,7 @@ export default function ProvidersPage() {
             startIcon={<AddIcon />}
             onClick={() => setShowCreate(true)}
           >
-            Add Provider
+            {t("llm_providers.add_provider")}
           </Button>
         }
       />
@@ -201,10 +203,10 @@ export default function ProvidersPage() {
         fullWidth
       >
         <form onSubmit={handleCreate}>
-          <DialogTitle>New Provider</DialogTitle>
+          <DialogTitle>{t("llm_providers.new_provider")}</DialogTitle>
           <DialogContent sx={{ display: "flex", flexDirection: "column", gap: 2, pt: "8px !important" }}>
             <TextField
-              label="Name"
+              label={t("common.name")}
               value={createName}
               onChange={(e) => setCreateName(e.target.value)}
               required
@@ -212,10 +214,10 @@ export default function ProvidersPage() {
               fullWidth
             />
             <FormControl fullWidth>
-              <InputLabel>Engine</InputLabel>
+              <InputLabel>{t("llm_common.engine")}</InputLabel>
               <Select
                 value={createType}
-                label="Engine"
+                label={t("llm_common.engine")}
                 onChange={(e) => setCreateType(e.target.value as ProviderType)}
               >
                 {PROVIDER_TYPES.map((t) => (
@@ -227,9 +229,9 @@ export default function ProvidersPage() {
             </FormControl>
           </DialogContent>
           <DialogActions>
-            <Button onClick={() => setShowCreate(false)}>Cancel</Button>
+            <Button onClick={() => setShowCreate(false)}>{t("common.cancel")}</Button>
             <Button type="submit" variant="contained">
-              Create
+              {t("common.create")}
             </Button>
           </DialogActions>
         </form>
@@ -243,10 +245,10 @@ export default function ProvidersPage() {
         fullWidth
       >
         <form onSubmit={handleUpdate}>
-          <DialogTitle>Edit Provider</DialogTitle>
+          <DialogTitle>{t("llm_providers.edit_provider")}</DialogTitle>
           <DialogContent sx={{ pt: "8px !important" }}>
             <TextField
-              label="Name"
+              label={t("common.name")}
               value={editName}
               onChange={(e) => setEditName(e.target.value)}
               required
@@ -255,9 +257,9 @@ export default function ProvidersPage() {
             />
           </DialogContent>
           <DialogActions>
-            <Button onClick={() => setEditTarget(null)}>Cancel</Button>
+            <Button onClick={() => setEditTarget(null)}>{t("common.cancel")}</Button>
             <Button type="submit" variant="contained">
-              Save
+              {t("common.save")}
             </Button>
           </DialogActions>
         </form>

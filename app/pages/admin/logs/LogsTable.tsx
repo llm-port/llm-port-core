@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import type { ReactElement } from "react";
+import { useTranslation } from "react-i18next";
 
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
@@ -39,7 +41,7 @@ const PAGE_SIZE = 200;
 function levelUi(level: string): {
   label: string;
   color: "default" | "error" | "warning" | "info" | "success";
-  icon: JSX.Element;
+  icon: ReactElement;
 } {
   const value = level.toLowerCase();
   if (value === "error" || value === "fatal") {
@@ -55,6 +57,7 @@ function levelUi(level: string): {
 }
 
 export default function LogsTable({ streams, loading, error, live }: LogsTableProps) {
+  const { t } = useTranslation();
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [levelFilter, setLevelFilter] = useState<string[]>([]);
   const [serviceFilter, setServiceFilter] = useState<string[]>([]);
@@ -166,7 +169,7 @@ export default function LogsTable({ streams, loading, error, live }: LogsTablePr
   const columns: ColumnDef<FlattenedLog>[] = [
     {
       key: "time",
-      label: "Time",
+      label: t("logs.time"),
       sortable: true,
       sortValue: (row) => row.__tsMs,
       minWidth: 120,
@@ -178,7 +181,7 @@ export default function LogsTable({ streams, loading, error, live }: LogsTablePr
     },
     {
       key: "level",
-      label: "Level",
+      label: t("logs.level"),
       sortable: true,
       sortValue: (row) => row.__level,
       searchValue: (row) => row.__level,
@@ -199,13 +202,13 @@ export default function LogsTable({ streams, loading, error, live }: LogsTablePr
     },
     {
       key: "service",
-      label: "Service",
+      label: t("logs.service"),
       sortable: true,
       sortValue: (row) => row.__service,
       searchValue: (row) => `${row.__service} ${row.__job} ${row.__host}`,
       minWidth: 180,
       render: (row) => (
-        <Tooltip title={`${row.__service || "—"} ${row.__job ? `(job=${row.__job})` : ""}`}>
+        <Tooltip title={`${row.__service || "—"} ${row.__job ? `(${t("logs.job")}=${row.__job})` : ""}`}>
           <Typography variant="body2" noWrap sx={{ maxWidth: 260 }}>
             {row.__service || "—"}
           </Typography>
@@ -214,7 +217,7 @@ export default function LogsTable({ streams, loading, error, live }: LogsTablePr
     },
     {
       key: "container",
-      label: "Container",
+      label: t("logs.container"),
       sortable: true,
       sortValue: (row) => row.__container,
       searchValue: (row) => row.__container,
@@ -229,7 +232,7 @@ export default function LogsTable({ streams, loading, error, live }: LogsTablePr
     },
     {
       key: "message",
-      label: "Message",
+      label: t("logs.message"),
       searchValue: (row) => row.line,
       minWidth: 480,
       render: (row) => (
@@ -251,7 +254,7 @@ export default function LogsTable({ streams, loading, error, live }: LogsTablePr
     },
     {
       key: "copy",
-      label: "Actions",
+      label: t("common.actions"),
       minWidth: 90,
       render: (row) => (
         <Button
@@ -261,7 +264,7 @@ export default function LogsTable({ streams, loading, error, live }: LogsTablePr
             await navigator.clipboard.writeText(row.line);
           }}
         >
-          Copy
+          {t("logs.copy")}
         </Button>
       ),
     },
@@ -280,33 +283,35 @@ export default function LogsTable({ streams, loading, error, live }: LogsTablePr
   }
 
   if (filteredRows.length === 0 && flatLogs.length === 0) {
-    return <Alert severity="info">No logs found for the current filters.</Alert>;
+    return <Alert severity="info">{t("logs.no_logs_current_filters")}</Alert>;
   }
 
   return (
     <Box sx={{ minHeight: 0, display: "flex", flexDirection: "column", flexGrow: 1 }}>
       <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 0.5 }}>
         <Typography variant="caption" color="text.secondary">
-          {filteredRows.length} lines
+          {t("logs.lines_count", { count: filteredRows.length })}
         </Typography>
         {live && (
           <Typography variant="caption" color="success.main">
-            Live tail active
+            {t("logs.live_tail_active")}
           </Typography>
         )}
       </Stack>
       <DataTable
-        title="Log Entries"
+        title={t("logs.entries_title")}
         columns={columns}
         rows={visibleRows}
         rowKey={(row) => row.id}
         loading={false}
         error={null}
-        emptyMessage={flatLogs.length === 0 ? "No logs found." : "No rows match current column filters."}
-        searchPlaceholder="Search logs..."
+        emptyMessage={
+          flatLogs.length === 0 ? t("logs.no_logs_found") : t("logs.no_rows_match_filters")
+        }
+        searchPlaceholder={t("logs.search_logs")}
         columnFilters={[
           {
-            label: "Level",
+            label: t("logs.level"),
             value: "",
             options: levelOptions,
             multi: true,
@@ -315,7 +320,7 @@ export default function LogsTable({ streams, loading, error, live }: LogsTablePr
             minWidth: 120,
           },
           {
-            label: "Service",
+            label: t("logs.service"),
             value: "",
             options: serviceOptions,
             multi: true,
@@ -324,7 +329,7 @@ export default function LogsTable({ streams, loading, error, live }: LogsTablePr
             minWidth: 160,
           },
           {
-            label: "Container",
+            label: t("logs.container"),
             value: "",
             options: containerOptions,
             multi: true,
@@ -336,7 +341,7 @@ export default function LogsTable({ streams, loading, error, live }: LogsTablePr
         toolbarActions={
           visibleCount < filteredRows.length ? (
             <Button variant="outlined" size="small" onClick={() => setVisibleCount((v) => v + PAGE_SIZE)}>
-              Load more
+              {t("logs.load_more")}
             </Button>
           ) : undefined
         }

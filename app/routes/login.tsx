@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Link as RouterLink, useNavigate, useSearchParams } from "react-router";
 import { auth } from "~/api/auth";
+import { useTranslation } from "react-i18next";
 
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
@@ -13,6 +14,7 @@ import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 
 export default function LoginPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const next = params.get("next") || "/admin/dashboard";
@@ -80,16 +82,16 @@ export default function LoginPage() {
         <CardContent sx={{ p: 4 }}>
           <Stack spacing={2.5} component="form" onSubmit={handleSubmit}>
             <Typography variant="h5" fontWeight={700}>
-              Sign in to AIrgap Console
+              {t("auth.login_title")}
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Use your account credentials to access the admin dashboard.
+              {t("auth.login_desc")}
             </Typography>
 
             {error && <Alert severity="error">{error}</Alert>}
 
             <TextField
-              label="Email"
+              label={t("auth.email")}
               type="email"
               required
               value={username}
@@ -97,7 +99,7 @@ export default function LoginPage() {
               autoComplete="username"
             />
             <TextField
-              label="Password"
+              label={t("auth.password")}
               type="password"
               required
               value={password}
@@ -106,14 +108,14 @@ export default function LoginPage() {
             />
 
             <Button type="submit" variant="contained" size="large" disabled={loading}>
-              Sign In
+              {t("auth.sign_in")}
             </Button>
             <Button variant="outlined" disabled={loading} onClick={handleDevLogin}>
-              Dev Login
+              {t("auth.dev_login")}
             </Button>
 
             <Button component={RouterLink} to="/" size="small">
-              Back to Home
+              {t("auth.back_home")}
             </Button>
           </Stack>
         </CardContent>

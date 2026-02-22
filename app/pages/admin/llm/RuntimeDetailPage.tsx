@@ -4,6 +4,7 @@
  */
 import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router";
+import { useTranslation } from "react-i18next";
 import {
   runtimes,
   providers as provApi,
@@ -34,6 +35,7 @@ import FavoriteIcon from "@mui/icons-material/Favorite";
 import HeartBrokenIcon from "@mui/icons-material/HeartBroken";
 
 export default function RuntimeDetailPage() {
+  const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [rt, setRt] = useState<Runtime | null>(null);
@@ -74,7 +76,7 @@ export default function RuntimeDetailPage() {
         }
       }
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to load runtime.");
+      setError(e instanceof Error ? e.message : t("llm_runtime_detail.failed_load"));
     } finally {
       setLoading(false);
     }
@@ -97,17 +99,17 @@ export default function RuntimeDetailPage() {
       await runtimes[action](id);
       await load();
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Action failed.");
+      alert(e instanceof Error ? e.message : t("common.action_failed"));
     }
   }
 
   async function handleDelete() {
-    if (!id || !confirm("Delete this runtime?")) return;
+    if (!id || !confirm(t("llm_runtimes.confirm_delete"))) return;
     try {
       await runtimes.delete(id);
       navigate("/admin/llm/runtimes");
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Delete failed.");
+      alert(e instanceof Error ? e.message : t("common.delete_failed"));
     }
   }
 
@@ -120,7 +122,7 @@ export default function RuntimeDetailPage() {
   }
 
   if (error || !rt) {
-    return <Alert severity="error">{error ?? "Runtime not found."}</Alert>;
+    return <Alert severity="error">{error ?? t("llm_runtime_detail.not_found")}</Alert>;
   }
 
   const isRunning = rt.status === "running";
@@ -135,7 +137,7 @@ export default function RuntimeDetailPage() {
           startIcon={<ArrowBackIcon />}
           onClick={() => navigate("/admin/llm/runtimes")}
         >
-          Runtimes
+          {t("llm_runtimes.title")}
         </Button>
         <Typography variant="h5" sx={{ flexGrow: 1 }}>
           {rt.name}
@@ -150,7 +152,7 @@ export default function RuntimeDetailPage() {
               startIcon={<PlayArrowIcon />}
               onClick={() => handleAction("start")}
             >
-              Start
+              {t("common.start")}
             </Button>
           )}
           {isRunning && (
@@ -162,7 +164,7 @@ export default function RuntimeDetailPage() {
                 startIcon={<StopIcon />}
                 onClick={() => handleAction("stop")}
               >
-                Stop
+                {t("common.stop")}
               </Button>
               <Button
                 size="small"
@@ -171,7 +173,7 @@ export default function RuntimeDetailPage() {
                 startIcon={<RestartAltIcon />}
                 onClick={() => handleAction("restart")}
               >
-                Restart
+                {t("common.restart")}
               </Button>
             </>
           )}
@@ -183,7 +185,7 @@ export default function RuntimeDetailPage() {
             disabled={isRunning}
             onClick={handleDelete}
           >
-            Delete
+            {t("common.delete")}
           </Button>
         </Stack>
       </Stack>
@@ -192,18 +194,18 @@ export default function RuntimeDetailPage() {
       <Card variant="outlined">
         <CardContent>
           <Stack direction="row" flexWrap="wrap" gap={4}>
-            <MetaField label="Provider" value={provider?.name ?? rt.provider_id.slice(0, 8)} />
+            <MetaField label={t("llm_common.provider")} value={provider?.name ?? rt.provider_id.slice(0, 8)} />
             {provider && (
               <Box>
-                <Typography variant="caption" color="text.secondary">Engine</Typography>
+                <Typography variant="caption" color="text.secondary">{t("llm_common.engine")}</Typography>
                 <Box mt={0.5}><EngineChip value={provider.type} /></Box>
               </Box>
             )}
-            <MetaField label="Model" value={model?.display_name ?? rt.model_id.slice(0, 8)} />
-            <MetaField label="OpenAI Compat" value={rt.openai_compat ? "Yes" : "No"} />
-            {rt.endpoint_url && <MetaField label="Endpoint" value={rt.endpoint_url} mono />}
-            {rt.container_ref && <MetaField label="Container" value={rt.container_ref.slice(0, 12)} mono />}
-            <MetaField label="Created" value={new Date(rt.created_at).toLocaleString()} />
+            <MetaField label={t("llm_common.model")} value={model?.display_name ?? rt.model_id.slice(0, 8)} />
+            <MetaField label={t("llm_runtime_detail.openai_compat")} value={rt.openai_compat ? t("common.yes") : t("common.no")} />
+            {rt.endpoint_url && <MetaField label={t("llm_runtimes.endpoint")} value={rt.endpoint_url} mono />}
+            {rt.container_ref && <MetaField label={t("containers.title")} value={rt.container_ref.slice(0, 12)} mono />}
+            <MetaField label={t("common.created")} value={new Date(rt.created_at).toLocaleString()} />
           </Stack>
         </CardContent>
       </Card>
@@ -216,9 +218,9 @@ export default function RuntimeDetailPage() {
               {health ? (
                 <>
                   {health.healthy ? (
-                    <Chip icon={<FavoriteIcon />} label="Healthy" color="success" size="small" />
+                    <Chip icon={<FavoriteIcon />} label={t("llm_runtime_detail.healthy")} color="success" size="small" />
                   ) : (
-                    <Chip icon={<HeartBrokenIcon />} label="Unhealthy" color="error" size="small" />
+                    <Chip icon={<HeartBrokenIcon />} label={t("llm_runtime_detail.unhealthy")} color="error" size="small" />
                   )}
                   <Typography variant="body2" color="text.secondary">
                     {health.detail}
@@ -226,7 +228,7 @@ export default function RuntimeDetailPage() {
                 </>
               ) : (
                 <Typography variant="body2" color="text.disabled">
-                  Health check unavailable.
+                  {t("llm_runtime_detail.health_unavailable")}
                 </Typography>
               )}
             </Stack>
@@ -238,7 +240,7 @@ export default function RuntimeDetailPage() {
       {isRunning && (
         <Box sx={{ flexGrow: 1, minHeight: 200 }}>
           <Typography variant="subtitle2" sx={{ mb: 1 }}>
-            Container Logs (last 300 lines)
+            {t("llm_runtime_detail.container_logs")}
           </Typography>
           <Box
             ref={logRef}
@@ -257,7 +259,7 @@ export default function RuntimeDetailPage() {
               wordBreak: "break-all",
             }}
           >
-            {logs || "No logs available."}
+            {logs || t("llm_runtime_detail.no_logs")}
           </Box>
         </Box>
       )}

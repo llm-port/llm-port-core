@@ -4,6 +4,7 @@
  */
 import { useState, useEffect, useRef } from "react";
 import { useParams, useOutletContext } from "react-router";
+import { useTranslation } from "react-i18next";
 import {
   containers,
   canExec,
@@ -31,6 +32,7 @@ interface AdminContext {
 }
 
 export default function ContainerDetailPage() {
+  const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
   const { rootModeActive } = useOutletContext<AdminContext>();
   const [detail, setDetail] = useState<ContainerDetail | null>(null);
@@ -50,7 +52,7 @@ export default function ContainerDetailPage() {
     try {
       setDetail(await containers.get(id));
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to load container.");
+      setError(e instanceof Error ? e.message : t("container_detail.failed_load"));
     } finally {
       setLoading(false);
     }
@@ -69,7 +71,7 @@ export default function ContainerDetailPage() {
       setLogs(text);
       setTimeout(() => logRef.current?.scrollTo(0, logRef.current.scrollHeight), 50);
     } catch (e: unknown) {
-      setLogs(`Error loading logs: ${e instanceof Error ? e.message : String(e)}`);
+      setLogs(`${t("container_detail.error_loading_logs")}: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setLogLoading(false);
     }
@@ -86,7 +88,7 @@ export default function ContainerDetailPage() {
       const token = await containers.exec(id, ["/bin/sh"]);
       setExecId(token.exec_id);
     } catch (e: unknown) {
-      setExecError(e instanceof Error ? e.message : "Exec denied.");
+      setExecError(e instanceof Error ? e.message : t("container_detail.exec_denied"));
     }
   }
 
@@ -121,9 +123,9 @@ export default function ContainerDetailPage() {
         {/* Tabs */}
         <Paper variant="outlined" sx={{ mb: 2 }}>
           <Tabs value={tab} onChange={(_, v) => setTab(v)}>
-            <Tab label="Overview" />
-            <Tab label="Logs" />
-            <Tab label="Exec" />
+            <Tab label={t("container_detail.tabs.overview")} />
+            <Tab label={t("container_detail.tabs.logs")} />
+            <Tab label={t("container_detail.tabs.exec")} />
           </Tabs>
         </Paper>
       </Box>
@@ -136,15 +138,15 @@ export default function ContainerDetailPage() {
             <Grid size={{ xs: 12, md: 6 }}>
               <Paper variant="outlined" sx={{ p: 3 }}>
                 <Typography variant="overline" color="text.secondary" gutterBottom>
-                  Status
+                  {t("container_detail.status")}
                 </Typography>
                 <Divider sx={{ mb: 2 }} />
                 {[
-                  ["State", detail.state],
-                  ["Image", detail.image],
-                  ["Created", new Date(detail.created).toLocaleString()],
-                  ["Policy", detail.policy],
-                  ["Owner Scope", detail.owner_scope],
+                  [t("containers.state"), detail.state],
+                  [t("containers.image"), detail.image],
+                  [t("common.created"), new Date(detail.created).toLocaleString()],
+                  [t("create_container.policy"), detail.policy],
+                  [t("containers.scope"), detail.owner_scope],
                 ].map(([label, value]) => (
                   <Stack
                     key={label}
@@ -157,8 +159,8 @@ export default function ContainerDetailPage() {
                     </Typography>
                     <Typography
                       variant="body2"
-                      fontFamily={label === "Image" ? "monospace" : undefined}
-                      fontSize={label === "Image" ? "0.8rem" : undefined}
+                      fontFamily={label === t("containers.image") ? "monospace" : undefined}
+                      fontSize={label === t("containers.image") ? "0.8rem" : undefined}
                     >
                       {value}
                     </Typography>
@@ -169,12 +171,12 @@ export default function ContainerDetailPage() {
             <Grid size={{ xs: 12, md: 6 }}>
               <Paper variant="outlined" sx={{ p: 3 }}>
                 <Typography variant="overline" color="text.secondary" gutterBottom>
-                  Networks
+                  {t("networks.title")}
                 </Typography>
                 <Divider sx={{ mb: 2 }} />
                 {detail.networks.length === 0 ? (
                   <Typography variant="body2" color="text.secondary">
-                    None
+                    {t("common.none")}
                   </Typography>
                 ) : (
                   <Stack spacing={0.5}>
@@ -200,7 +202,7 @@ export default function ContainerDetailPage() {
               sx={{ mb: 1 }}
             >
               <Typography variant="caption" color="text.secondary">
-                Last 300 lines
+                {t("container_detail.last_lines")}
               </Typography>
               <Button
                 size="small"
@@ -209,12 +211,18 @@ export default function ContainerDetailPage() {
                 onClick={fetchLogs}
                 disabled={logLoading}
               >
-                {logLoading ? "Loading…" : "Refresh"}
+                {logLoading ? t("common.loading") : t("dashboard.refresh")}
               </Button>
             </Stack>
             <Paper
               variant="outlined"
-              sx={{ bgcolor: "#0d1117", p: 2, height: 420, overflow: "auto", borderRadius: 2 }}
+              sx={(theme) => ({
+                bgcolor: theme.palette.mode === "dark" ? "grey.900" : "grey.100",
+                p: 2,
+                height: 420,
+                overflow: "auto",
+                borderRadius: 2,
+              })}
             >
               <Box
                 component="pre"
@@ -223,12 +231,12 @@ export default function ContainerDetailPage() {
                   m: 0,
                   fontFamily: "monospace",
                   fontSize: "0.75rem",
-                  color: "#69f0ae",
+                  color: "success.main",
                   whiteSpace: "pre-wrap",
                   wordBreak: "break-all",
                 }}
               >
-                {logs || "No logs yet."}
+                {logs || t("container_detail.no_logs")}
               </Box>
             </Paper>
           </Box>
@@ -238,16 +246,16 @@ export default function ContainerDetailPage() {
         {tab === 2 && (
           <Paper variant="outlined" sx={{ p: 4 }}>
             {!canExec(cls, rootModeActive) ? (
-              <Alert severity="warning">
-                Exec is not permitted for {cls} containers without Root Mode.
+                <Alert severity="warning">
+                {t("container_detail.exec_not_permitted", { cls })}
               </Alert>
             ) : execId ? (
               <Box>
                 <Alert severity="success" sx={{ mb: 2 }}>
-                  Exec session created.
+                  {t("container_detail.exec_created")}
                 </Alert>
                 <Typography variant="caption" color="text.secondary">
-                  Exec ID (use with your websocket client):
+                  {t("container_detail.exec_id_label")}
                 </Typography>
                 <Paper
                   variant="outlined"
@@ -265,15 +273,14 @@ export default function ContainerDetailPage() {
             ) : (
               <Box>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                  Create an exec session into this container. The returned exec ID can be used with
-                  a terminal websocket client.
+                  {t("container_detail.exec_help")}
                 </Typography>
                 <Button
                   variant="contained"
                   startIcon={<TerminalIcon />}
                   onClick={handleCreateExec}
                 >
-                  Start Exec (/bin/sh)
+                  {t("container_detail.start_exec")}
                 </Button>
                 {execError && (
                   <Alert severity="error" sx={{ mt: 2 }}>

@@ -5,6 +5,7 @@
  */
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router";
+import { useTranslation } from "react-i18next";
 import {
   containers,
   networks,
@@ -72,6 +73,7 @@ function SectionHeader({ children }: { children: React.ReactNode }) {
 }
 
 export default function CreateContainerPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
 
   // ── Form state ────────────────────────────────────────────────────────────
@@ -180,7 +182,7 @@ export default function CreateContainerPage() {
       // Navigate to the new container's detail page
       navigate(`/admin/containers/${result.id}`);
     } catch (err: unknown) {
-      setSubmitError(err instanceof Error ? err.message : "Create failed.");
+      setSubmitError(err instanceof Error ? err.message : t("common.create_failed"));
     } finally {
       setSubmitting(false);
     }
@@ -191,12 +193,12 @@ export default function CreateContainerPage() {
       {/* Header */}
       <Box sx={{ flexShrink: 0, mb: 2 }}>
         <Stack direction="row" alignItems="center" spacing={1.5}>
-          <Tooltip title="Back to containers">
+          <Tooltip title={t("create_container.back_to_containers")}>
             <IconButton size="small" onClick={() => navigate("/admin/containers")}>
               <ArrowBackIcon />
             </IconButton>
           </Tooltip>
-          <Typography variant="h5">Create Container</Typography>
+          <Typography variant="h5">{t("create_container.title")}</Typography>
         </Stack>
       </Box>
 
@@ -211,7 +213,7 @@ export default function CreateContainerPage() {
 
                 {/* Image & Identity */}
                 <Paper variant="outlined" sx={{ p: 3 }}>
-                  <SectionHeader>Image &amp; Identity</SectionHeader>
+                  <SectionHeader>{t("create_container.sections.image_identity")}</SectionHeader>
                   <Stack spacing={2}>
                     <Autocomplete
                       freeSolo
@@ -221,28 +223,28 @@ export default function CreateContainerPage() {
                       renderInput={(params) => (
                         <TextField
                           {...params}
-                          label="Image"
+                          label={t("create_container.image")}
                           required
-                          placeholder="nginx:latest"
-                          helperText="Name and tag of the image to run. Suggestions from local images."
+                          placeholder={t("create_container.image_placeholder")}
+                          helperText={t("create_container.image_help")}
                           autoFocus
                         />
                       )}
                     />
                     <TextField
-                      label="Container Name"
+                      label={t("create_container.container_name")}
                       fullWidth
-                      placeholder="my-service  (leave blank for Docker-generated name)"
+                      placeholder={t("create_container.container_name_placeholder")}
                       value={name}
                       onChange={(e) => setName(e.target.value)}
                     />
                     <TextField
-                      label="Command Override"
+                      label={t("create_container.command_override")}
                       fullWidth
                       placeholder='/bin/sh -c "echo hello"'
                       value={cmdRaw}
                       onChange={(e) => setCmdRaw(e.target.value)}
-                      helperText="Shell-style command to override the image's default CMD (optional)."
+                      helperText={t("create_container.command_override_help")}
                       inputProps={{ style: { fontFamily: "monospace", fontSize: "0.85rem" } }}
                     />
                   </Stack>
@@ -251,21 +253,21 @@ export default function CreateContainerPage() {
                 {/* Port Bindings */}
                 <Paper variant="outlined" sx={{ p: 3 }}>
                   <Stack direction="row" alignItems="center" justifyContent="space-between" mb={1.5}>
-                    <SectionHeader>Port Bindings</SectionHeader>
+                    <SectionHeader>{t("create_container.sections.port_bindings")}</SectionHeader>
                     <Button size="small" startIcon={<AddIcon />} onClick={addPort}>
-                      Add
+                      {t("common.add")}
                     </Button>
                   </Stack>
                   {ports.length === 0 ? (
                     <Typography variant="body2" color="text.secondary">
-                      No port bindings. Click Add to expose ports.
+                      {t("create_container.no_port_bindings")}
                     </Typography>
                   ) : (
                     <Stack spacing={1}>
                       {ports.map((p, i) => (
                         <Stack key={i} direction="row" spacing={1} alignItems="center">
                           <TextField
-                            label="Host Port"
+                            label={t("create_container.host_port")}
                             size="small"
                             placeholder="8080"
                             value={p.host_port}
@@ -274,7 +276,7 @@ export default function CreateContainerPage() {
                           />
                           <Typography color="text.secondary">→</Typography>
                           <TextField
-                            label="Container Port"
+                            label={t("create_container.container_port")}
                             size="small"
                             placeholder="80/tcp"
                             value={p.container_port}
@@ -285,14 +287,14 @@ export default function CreateContainerPage() {
                             label={
                               p.host_port && p.container_port
                                 ? `${p.host_port}:${p.container_port}`
-                                : "incomplete"
+                                : t("create_container.incomplete")
                             }
                             size="small"
                             variant="outlined"
                             color={p.host_port && p.container_port ? "primary" : "default"}
                             sx={{ fontFamily: "monospace", flexShrink: 0 }}
                           />
-                          <Tooltip title="Remove">
+                          <Tooltip title={t("common.remove")}>
                             <IconButton size="small" color="error" onClick={() => removePort(i)}>
                               <DeleteOutlineIcon fontSize="small" />
                             </IconButton>
@@ -306,21 +308,21 @@ export default function CreateContainerPage() {
                 {/* Environment Variables */}
                 <Paper variant="outlined" sx={{ p: 3 }}>
                   <Stack direction="row" alignItems="center" justifyContent="space-between" mb={1.5}>
-                    <SectionHeader>Environment Variables</SectionHeader>
+                    <SectionHeader>{t("create_container.sections.environment_variables")}</SectionHeader>
                     <Button size="small" startIcon={<AddIcon />} onClick={addEnv}>
-                      Add
+                      {t("common.add")}
                     </Button>
                   </Stack>
                   {envRows.length === 0 ? (
                     <Typography variant="body2" color="text.secondary">
-                      No environment variables.
+                      {t("create_container.no_environment_variables")}
                     </Typography>
                   ) : (
                     <Stack spacing={1}>
                       {envRows.map((row, i) => (
                         <Stack key={i} direction="row" spacing={1} alignItems="center">
                           <TextField
-                            label="Key"
+                            label={t("common.key")}
                             size="small"
                             placeholder="POSTGRES_HOST"
                             value={row.key}
@@ -330,7 +332,7 @@ export default function CreateContainerPage() {
                           />
                           <Typography color="text.secondary">=</Typography>
                           <TextField
-                            label="Value"
+                            label={t("common.value")}
                             size="small"
                             placeholder="localhost"
                             value={row.value}
@@ -338,7 +340,7 @@ export default function CreateContainerPage() {
                             sx={{ flex: 2 }}
                             inputProps={{ style: { fontFamily: "monospace" } }}
                           />
-                          <Tooltip title="Remove">
+                          <Tooltip title={t("common.remove")}>
                             <IconButton size="small" color="error" onClick={() => removeEnv(i)}>
                               <DeleteOutlineIcon fontSize="small" />
                             </IconButton>
@@ -352,21 +354,21 @@ export default function CreateContainerPage() {
                 {/* Volume Mounts */}
                 <Paper variant="outlined" sx={{ p: 3 }}>
                   <Stack direction="row" alignItems="center" justifyContent="space-between" mb={1.5}>
-                    <SectionHeader>Volume Mounts</SectionHeader>
+                    <SectionHeader>{t("create_container.sections.volume_mounts")}</SectionHeader>
                     <Button size="small" startIcon={<AddIcon />} onClick={addVolume}>
-                      Add
+                      {t("common.add")}
                     </Button>
                   </Stack>
                   {volumeRows.length === 0 ? (
                     <Typography variant="body2" color="text.secondary">
-                      No volume mounts.
+                      {t("create_container.no_volume_mounts")}
                     </Typography>
                   ) : (
                     <Stack spacing={1}>
                       {volumeRows.map((row, i) => (
                         <Stack key={i} direction="row" spacing={1} alignItems="center">
                           <TextField
-                            label="Host Path"
+                            label={t("create_container.host_path")}
                             size="small"
                             placeholder="/data/app"
                             value={row.host}
@@ -376,7 +378,7 @@ export default function CreateContainerPage() {
                           />
                           <Typography color="text.secondary">:</Typography>
                           <TextField
-                            label="Container Path"
+                            label={t("create_container.container_path")}
                             size="small"
                             placeholder="/var/app"
                             value={row.container}
@@ -384,7 +386,7 @@ export default function CreateContainerPage() {
                             sx={{ flex: 1 }}
                             inputProps={{ style: { fontFamily: "monospace" } }}
                           />
-                          <Tooltip title="Remove">
+                          <Tooltip title={t("common.remove")}>
                             <IconButton size="small" color="error" onClick={() => removeVolume(i)}>
                               <DeleteOutlineIcon fontSize="small" />
                             </IconButton>
@@ -404,11 +406,11 @@ export default function CreateContainerPage() {
 
                 {/* Classification & Policy */}
                 <Paper variant="outlined" sx={{ p: 3 }}>
-                  <SectionHeader>Classification &amp; Policy</SectionHeader>
+                  <SectionHeader>{t("create_container.sections.classification_policy")}</SectionHeader>
                   <Stack spacing={2.5}>
                     <Box>
                       <Typography variant="body2" color="text.secondary" gutterBottom>
-                        Class
+                        {t("containers.class")}
                       </Typography>
                       <ToggleButtonGroup
                         value={containerClass}
@@ -431,7 +433,7 @@ export default function CreateContainerPage() {
 
                     <Box>
                       <Typography variant="body2" color="text.secondary" gutterBottom>
-                        Policy
+                        {t("create_container.policy")}
                       </Typography>
                       <ToggleButtonGroup
                         value={policy}
@@ -452,18 +454,18 @@ export default function CreateContainerPage() {
                     </Box>
 
                     <TextField
-                      label="Owner Scope"
+                      label={t("containers.scope")}
                       fullWidth
                       value={ownerScope}
                       onChange={(e) => setOwnerScope(e.target.value)}
-                      helperText="Team or unit that owns this container."
+                      helperText={t("create_container.owner_scope_help")}
                     />
                   </Stack>
                 </Paper>
 
                 {/* Runtime Options */}
                 <Paper variant="outlined" sx={{ p: 3 }}>
-                  <SectionHeader>Runtime Options</SectionHeader>
+                  <SectionHeader>{t("create_container.sections.runtime_options")}</SectionHeader>
                   <Stack spacing={2}>
                     <FormControlLabel
                       control={
@@ -472,18 +474,18 @@ export default function CreateContainerPage() {
                           onChange={(e) => setAutoStart(e.target.checked)}
                         />
                       }
-                      label="Start immediately after creation"
+                      label={t("create_container.start_immediately")}
                     />
                     <TextField
                       select
-                      label="Network"
+                      label={t("networks.title")}
                       fullWidth
                       value={network}
                       onChange={(e) => setNetwork(e.target.value)}
-                      helperText="Optional — defaults to bridge."
+                      helperText={t("create_container.network_help")}
                     >
                       <MenuItem value="">
-                        <em>Default (bridge)</em>
+                        <em>{t("create_container.default_bridge")}</em>
                       </MenuItem>
                       {networkOptions.map((n) => (
                         <MenuItem key={n.id} value={n.name}>
@@ -510,7 +512,11 @@ export default function CreateContainerPage() {
                       disabled={submitting || !image.trim()}
                       startIcon={submitting ? <CircularProgress size={18} /> : <RocketLaunchIcon />}
                     >
-                      {submitting ? "Creating…" : autoStart ? "Create & Start" : "Create Container"}
+                      {submitting
+                        ? t("common.creating")
+                        : autoStart
+                          ? t("create_container.create_start")
+                          : t("create_container.title")}
                     </Button>
                     <Divider sx={{ my: 0.5 }} />
                     <Button
@@ -519,7 +525,7 @@ export default function CreateContainerPage() {
                       onClick={() => navigate("/admin/containers")}
                       disabled={submitting}
                     >
-                      Cancel
+                      {t("common.cancel")}
                     </Button>
                   </Stack>
                 </Paper>

@@ -1,116 +1,123 @@
-import { createTheme } from "@mui/material/styles";
+import { alpha, createTheme } from "@mui/material/styles";
+import type { PaletteMode } from "@mui/material";
 
-const theme = createTheme({
-  palette: {
-    mode: "dark",
-    primary: {
-      main: "#7c4dff",
-      light: "#b47cff",
-      dark: "#3f1dcb",
+export function getAppTheme(mode: PaletteMode) {
+  const dark = mode === "dark";
+
+  return createTheme({
+    palette: {
+      mode,
+      primary: {
+        main: "#7c4dff",
+        light: "#b47cff",
+        dark: "#3f1dcb",
+      },
+      secondary: {
+        main: "#00b8d4",
+        light: "#6effff",
+        dark: "#0088a3",
+      },
+      background: dark
+        ? {
+            default: "#0a0e1a",
+            paper: "#111827",
+          }
+        : {
+            default: "#f5f7fb",
+            paper: "#ffffff",
+          },
+      error: { main: "#e53935" },
+      warning: { main: "#fb8c00" },
+      success: { main: "#2e7d32" },
+      text: dark
+        ? {
+            primary: "#e0e0e0",
+            secondary: "#9e9e9e",
+          }
+        : {
+            primary: "#1a1f2f",
+            secondary: "#4b5565",
+          },
+      divider: dark ? "rgba(255,255,255,0.08)" : "rgba(18,28,45,0.12)",
     },
-    secondary: {
-      main: "#00e5ff",
-      light: "#6effff",
-      dark: "#00b2cc",
+    typography: {
+      fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif',
+      h4: { fontWeight: 700 },
+      h5: { fontWeight: 700 },
+      h6: { fontWeight: 600 },
     },
-    background: {
-      default: "#0a0e1a",
-      paper: "#111827",
+    shape: {
+      borderRadius: 12,
     },
-    error: {
-      main: "#ff5252",
-    },
-    warning: {
-      main: "#ffab40",
-    },
-    success: {
-      main: "#69f0ae",
-    },
-    text: {
-      primary: "#e0e0e0",
-      secondary: "#9e9e9e",
-    },
-    divider: "rgba(255,255,255,0.08)",
-  },
-  typography: {
-    fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif',
-    h4: { fontWeight: 700 },
-    h5: { fontWeight: 700 },
-    h6: { fontWeight: 600 },
-  },
-  shape: {
-    borderRadius: 12,
-  },
-  components: {
-    MuiDrawer: {
-      styleOverrides: {
-        paper: {
-          backgroundColor: "#0f1525",
-          borderRight: "1px solid rgba(255,255,255,0.06)",
+    components: {
+      MuiDrawer: {
+        styleOverrides: {
+          paper: ({ theme }) => ({
+            backgroundColor: theme.palette.background.paper,
+            borderRight: `1px solid ${theme.palette.divider}`,
+          }),
         },
       },
-    },
-    MuiAppBar: {
-      styleOverrides: {
-        root: {
-          backgroundColor: "#111827",
-          borderBottom: "1px solid rgba(255,255,255,0.06)",
+      MuiAppBar: {
+        styleOverrides: {
+          root: ({ theme }) => ({
+            backgroundColor: theme.palette.background.paper,
+            borderBottom: `1px solid ${theme.palette.divider}`,
+          }),
         },
       },
-    },
-    MuiTableHead: {
-      styleOverrides: {
-        root: {
-          "& .MuiTableCell-head": {
-            backgroundColor: "#0f1525",
-            color: "#9e9e9e",
+      MuiTableHead: {
+        styleOverrides: {
+          root: ({ theme }) => ({
+            "& .MuiTableCell-head": {
+              backgroundColor: alpha(theme.palette.primary.main, dark ? 0.1 : 0.06),
+              color: theme.palette.text.secondary,
+              fontWeight: 600,
+              fontSize: "0.75rem",
+              textTransform: "uppercase",
+              letterSpacing: "0.05em",
+            },
+          }),
+        },
+      },
+      MuiTableRow: {
+        styleOverrides: {
+          root: ({ theme }) => ({
+            "&:hover": {
+              backgroundColor: `${alpha(theme.palette.primary.main, dark ? 0.08 : 0.06)} !important`,
+            },
+          }),
+        },
+      },
+      MuiTableCell: {
+        styleOverrides: {
+          root: ({ theme }) => ({
+            borderColor: theme.palette.divider,
+          }),
+        },
+      },
+      MuiPaper: {
+        styleOverrides: {
+          root: {
+            backgroundImage: "none",
+          },
+        },
+      },
+      MuiButton: {
+        styleOverrides: {
+          root: {
+            textTransform: "none",
             fontWeight: 600,
-            fontSize: "0.75rem",
-            textTransform: "uppercase",
-            letterSpacing: "0.05em",
+          },
+        },
+      },
+      MuiChip: {
+        styleOverrides: {
+          root: {
+            fontWeight: 600,
           },
         },
       },
     },
-    MuiTableRow: {
-      styleOverrides: {
-        root: {
-          "&:hover": {
-            backgroundColor: "rgba(124, 77, 255, 0.04) !important",
-          },
-        },
-      },
-    },
-    MuiTableCell: {
-      styleOverrides: {
-        root: {
-          borderColor: "rgba(255,255,255,0.06)",
-        },
-      },
-    },
-    MuiPaper: {
-      styleOverrides: {
-        root: {
-          backgroundImage: "none",
-        },
-      },
-    },
-    MuiButton: {
-      styleOverrides: {
-        root: {
-          textTransform: "none",
-          fontWeight: 600,
-        },
-      },
-    },
-    MuiChip: {
-      styleOverrides: {
-        root: {
-          fontWeight: 600,
-        },
-      },
-    },
-  },
-});
-
-export default theme;
+  });
+}

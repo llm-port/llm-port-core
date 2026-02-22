@@ -5,6 +5,7 @@ import Typography from "@mui/material/Typography";
 import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
 import DnsIcon from "@mui/icons-material/Dns";
+import { useTranslation } from "react-i18next";
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -14,6 +15,7 @@ export function meta({}: Route.MetaArgs) {
 }
 
 export default function Home() {
+  const { t } = useTranslation();
   return (
     <Box
       sx={{
@@ -39,7 +41,7 @@ export default function Home() {
           <DnsIcon sx={{ fontSize: 36, color: "#fff" }} />
         </Box>
         <Typography variant="h4" color="text.primary">
-          AIrgap Console
+          {t("app.title")}
         </Typography>
         <Typography
           variant="body1"
@@ -47,8 +49,7 @@ export default function Home() {
           textAlign="center"
           maxWidth={420}
         >
-          Container management, stack deployments, and audit logging for
-          air-gapped environments.
+          {t("home.subtitle")}
         </Typography>
         <Button
           component={RouterLink}
@@ -57,7 +58,7 @@ export default function Home() {
           size="large"
           sx={{ px: 4, py: 1.2 }}
         >
-          Sign In
+          {t("auth.sign_in")}
         </Button>
       </Stack>
     </Box>

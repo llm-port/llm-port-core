@@ -4,6 +4,7 @@
  */
 import { useState, useEffect } from "react";
 import { Link as RouterLink } from "react-router";
+import { useTranslation } from "react-i18next";
 import {
   runtimes,
   providers as provApi,
@@ -40,6 +41,7 @@ import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 
 export default function RuntimesPage() {
+  const { t } = useTranslation();
   const [data, setData] = useState<Runtime[]>([]);
   const [providersList, setProvidersList] = useState<Provider[]>([]);
   const [modelsList, setModelsList] = useState<Model[]>([]);
@@ -70,7 +72,7 @@ export default function RuntimesPage() {
       setProvidersList(p);
       setModelsList(m);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to load runtimes.");
+      setError(e instanceof Error ? e.message : t("llm_runtimes.failed_load"));
     } finally {
       setLoading(false);
     }
@@ -95,7 +97,7 @@ export default function RuntimesPage() {
       setCModelId("");
       await load();
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Create failed.");
+      alert(err instanceof Error ? err.message : t("common.create_failed"));
     }
   }
 
@@ -105,20 +107,20 @@ export default function RuntimesPage() {
       await runtimes[action](id);
       await load();
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Action failed.");
+      alert(e instanceof Error ? e.message : t("common.action_failed"));
     } finally {
       setActionLoading(null);
     }
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("Delete this runtime?")) return;
+    if (!confirm(t("llm_runtimes.confirm_delete"))) return;
     setActionLoading(`${id}-delete`);
     try {
       await runtimes.delete(id);
       await load();
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Delete failed.");
+      alert(e instanceof Error ? e.message : t("common.delete_failed"));
     } finally {
       setActionLoading(null);
     }
@@ -127,7 +129,7 @@ export default function RuntimesPage() {
   const columns: ColumnDef<Runtime>[] = [
     {
       key: "name",
-      label: "Name",
+      label: t("common.name"),
       sortable: true,
       sortValue: (r) => r.name,
       searchValue: (r) => r.name,
@@ -146,7 +148,7 @@ export default function RuntimesPage() {
     },
     {
       key: "provider",
-      label: "Provider",
+      label: t("llm_common.provider"),
       sortable: true,
       sortValue: (r) => provMap[r.provider_id]?.name ?? "",
       searchValue: (r) => provMap[r.provider_id]?.name ?? "",
@@ -168,7 +170,7 @@ export default function RuntimesPage() {
     },
     {
       key: "model",
-      label: "Model",
+      label: t("llm_common.model"),
       sortable: true,
       sortValue: (r) => modelMap[r.model_id]?.display_name ?? "",
       searchValue: (r) => modelMap[r.model_id]?.display_name ?? "",
@@ -180,14 +182,14 @@ export default function RuntimesPage() {
     },
     {
       key: "status",
-      label: "Status",
+      label: t("common.status"),
       sortable: true,
       sortValue: (r) => r.status,
       render: (r) => <RuntimeStatusChip value={r.status} />,
     },
     {
       key: "endpoint",
-      label: "Endpoint",
+      label: t("llm_runtimes.endpoint"),
       render: (r) =>
         r.endpoint_url ? (
           <Stack direction="row" spacing={0.5} alignItems="center">
@@ -212,7 +214,7 @@ export default function RuntimesPage() {
     },
     {
       key: "actions",
-      label: "Actions",
+      label: t("common.actions"),
       align: "right",
       render: (r) => {
         const busy = !!actionLoading?.startsWith(r.id);
@@ -221,7 +223,7 @@ export default function RuntimesPage() {
         return (
           <Stack direction="row" spacing={0.5} justifyContent="flex-end">
             {isStopped && (
-              <Tooltip title="Start">
+              <Tooltip title={t("common.start")}>
                 <IconButton
                   size="small"
                   color="success"
@@ -237,7 +239,7 @@ export default function RuntimesPage() {
             )}
             {isRunning && (
               <>
-                <Tooltip title="Stop">
+                <Tooltip title={t("common.stop")}>
                   <IconButton
                     size="small"
                     color="warning"
@@ -250,7 +252,7 @@ export default function RuntimesPage() {
                     <StopIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
-                <Tooltip title="Restart">
+                <Tooltip title={t("common.restart")}>
                   <IconButton
                     size="small"
                     color="info"
@@ -265,7 +267,7 @@ export default function RuntimesPage() {
                 </Tooltip>
               </>
             )}
-            <Tooltip title="Delete">
+            <Tooltip title={t("common.delete")}>
               <IconButton
                 size="small"
                 color="error"
@@ -292,10 +294,10 @@ export default function RuntimesPage() {
         rowKey={(r) => r.id}
         loading={loading}
         error={error}
-        title="LLM Runtimes"
-        emptyMessage="No runtimes configured."
+        title={t("llm_runtimes.title")}
+        emptyMessage={t("llm_runtimes.empty")}
         onRefresh={load}
-        searchPlaceholder="Search runtimes…"
+        searchPlaceholder={t("llm_runtimes.search_placeholder")}
         toolbarActions={
           <Button
             size="small"
@@ -303,7 +305,7 @@ export default function RuntimesPage() {
             startIcon={<AddIcon />}
             onClick={() => setShowCreate(true)}
           >
-            Create Runtime
+            {t("llm_runtimes.create_runtime")}
           </Button>
         }
       />
@@ -316,10 +318,10 @@ export default function RuntimesPage() {
         fullWidth
       >
         <form onSubmit={handleCreate}>
-          <DialogTitle>New Runtime</DialogTitle>
+          <DialogTitle>{t("llm_runtimes.new_runtime")}</DialogTitle>
           <DialogContent sx={{ display: "flex", flexDirection: "column", gap: 2, pt: "8px !important" }}>
             <TextField
-              label="Name"
+              label={t("common.name")}
               value={cName}
               onChange={(e) => setCName(e.target.value)}
               required
@@ -327,10 +329,10 @@ export default function RuntimesPage() {
               fullWidth
             />
             <FormControl fullWidth required>
-              <InputLabel>Provider</InputLabel>
+              <InputLabel>{t("llm_common.provider")}</InputLabel>
               <Select
                 value={cProviderId}
-                label="Provider"
+                label={t("llm_common.provider")}
                 onChange={(e) => setCProviderId(e.target.value)}
               >
                 {providersList.map((p) => (
@@ -341,10 +343,10 @@ export default function RuntimesPage() {
               </Select>
             </FormControl>
             <FormControl fullWidth required>
-              <InputLabel>Model</InputLabel>
+              <InputLabel>{t("llm_common.model")}</InputLabel>
               <Select
                 value={cModelId}
-                label="Model"
+                label={t("llm_common.model")}
                 onChange={(e) => setCModelId(e.target.value)}
               >
                 {modelsList
@@ -358,9 +360,9 @@ export default function RuntimesPage() {
             </FormControl>
           </DialogContent>
           <DialogActions>
-            <Button onClick={() => setShowCreate(false)}>Cancel</Button>
+            <Button onClick={() => setShowCreate(false)}>{t("common.cancel")}</Button>
             <Button type="submit" variant="contained">
-              Create
+              {t("common.create")}
             </Button>
           </DialogActions>
         </form>

@@ -2,6 +2,7 @@
  * Admin → LLM → Download Jobs list page.
  */
 import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import {
   jobs,
   models as modelApi,
@@ -21,20 +22,20 @@ import Typography from "@mui/material/Typography";
 import CancelIcon from "@mui/icons-material/Cancel";
 import ReplayIcon from "@mui/icons-material/Replay";
 
-const STATUS_OPTIONS: { value: string; label: string }[] = [
-  { value: "queued", label: "Queued" },
-  { value: "running", label: "Running" },
-  { value: "success", label: "Success" },
-  { value: "failed", label: "Failed" },
-  { value: "canceled", label: "Canceled" },
-];
-
 export default function JobsPage() {
+  const { t } = useTranslation();
   const [data, setData] = useState<DownloadJob[]>([]);
   const [modelsList, setModelsList] = useState<Model[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("");
+  const statusOptions: { value: string; label: string }[] = [
+    { value: "queued", label: t("llm_jobs.queued") },
+    { value: "running", label: t("llm_jobs.running") },
+    { value: "success", label: t("llm_jobs.success") },
+    { value: "failed", label: t("llm_jobs.failed") },
+    { value: "canceled", label: t("llm_jobs.canceled") },
+  ];
 
   const modelMap = Object.fromEntries(modelsList.map((m) => [m.id, m]));
 
@@ -49,7 +50,7 @@ export default function JobsPage() {
       setData(j);
       setModelsList(m);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to load jobs.");
+      setError(e instanceof Error ? e.message : t("llm_jobs.failed_load"));
     } finally {
       setLoading(false);
     }
@@ -72,7 +73,7 @@ export default function JobsPage() {
       await jobs.cancel(id);
       await load();
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Cancel failed.");
+      alert(e instanceof Error ? e.message : t("llm_jobs.cancel_failed"));
     }
   }
 
@@ -81,14 +82,14 @@ export default function JobsPage() {
       await jobs.retry(id);
       await load();
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Retry failed.");
+      alert(e instanceof Error ? e.message : t("llm_jobs.retry_failed"));
     }
   }
 
   const columns: ColumnDef<DownloadJob>[] = [
     {
       key: "model",
-      label: "Model",
+      label: t("llm_common.model"),
       sortable: true,
       sortValue: (j) => modelMap[j.model_id]?.display_name ?? "",
       searchValue: (j) => modelMap[j.model_id]?.display_name ?? j.model_id,
@@ -100,14 +101,14 @@ export default function JobsPage() {
     },
     {
       key: "status",
-      label: "Status",
+      label: t("common.status"),
       sortable: true,
       sortValue: (j) => j.status,
       render: (j) => <JobStatusChip value={j.status} />,
     },
     {
       key: "progress",
-      label: "Progress",
+      label: t("llm_jobs.progress"),
       sortable: true,
       sortValue: (j) => j.progress,
       render: (j) => (
@@ -125,7 +126,7 @@ export default function JobsPage() {
     },
     {
       key: "error",
-      label: "Error",
+      label: t("common.error"),
       searchValue: (j) => j.error_message ?? "",
       render: (j) =>
         j.error_message ? (
@@ -152,7 +153,7 @@ export default function JobsPage() {
     },
     {
       key: "created_at",
-      label: "Started",
+      label: t("llm_jobs.started"),
       sortable: true,
       sortValue: (j) => j.created_at,
       render: (j) => (
@@ -171,7 +172,7 @@ export default function JobsPage() {
         return (
           <Stack direction="row" spacing={0.5} justifyContent="flex-end">
             {retryable && (
-              <Tooltip title="Retry">
+              <Tooltip title={t("llm_jobs.retry")}>
                 <IconButton
                   size="small"
                   color="info"
@@ -185,7 +186,7 @@ export default function JobsPage() {
               </Tooltip>
             )}
             {cancelable && (
-              <Tooltip title="Cancel">
+              <Tooltip title={t("common.cancel")}>
                 <IconButton
                   size="small"
                   color="warning"
@@ -211,15 +212,15 @@ export default function JobsPage() {
       rowKey={(j) => j.id}
       loading={loading}
       error={error}
-      title="Download Jobs"
-      emptyMessage="No download jobs."
+      title={t("llm_jobs.title")}
+      emptyMessage={t("llm_jobs.empty")}
       onRefresh={load}
-      searchPlaceholder="Search jobs…"
+      searchPlaceholder={t("llm_jobs.search_placeholder")}
       columnFilters={[
         {
-          label: "Status",
+          label: t("common.status"),
           value: statusFilter,
-          options: STATUS_OPTIONS,
+          options: statusOptions,
           onChange: setStatusFilter,
         },
       ]}
