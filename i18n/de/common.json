@@ -482,5 +482,28 @@
     "failed_register": "Service-Klasse konnte nicht registriert werden.",
     "edit_in_settings": "In Einstellungen bearbeiten",
     "note": "Wenn das Einbetten fehlschlaegt, pruefe X-Frame-Options/CSP am Ziel-Endpunkt."
+  },
+  "help": {
+    "title": "Produkt-Tour",
+    "next": "Weiter",
+    "back": "Zurueck",
+    "slides": {
+      "containers": {
+        "title": "Container-Verwaltung",
+        "description": "Verwalte Lifecycle, Logs und Richtlinien fuer Infrastruktur- und App-Container."
+      },
+      "llm_server": {
+        "title": "LLM-Server-Verwaltung",
+        "description": "Registriere Provider, Modelle und Runtimes, um LLM-Workloads zentral zu betreiben."
+      },
+      "tracing": {
+        "title": "LLM-Tracing",
+        "description": "Visualisiere Live-LLM-Fluesse und beobachte Request-Traces fuer Debugging und Betrieb."
+      },
+      "endpoint": {
+        "title": "Zentraler API-Endpunkt",
+        "description": "Nutze ein einziges OpenAI-kompatibles Gateway mit Policy-, Routing- und Observability-Steuerung."
+      }
+    }
   }
 }

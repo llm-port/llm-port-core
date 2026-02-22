@@ -482,5 +482,28 @@
     "failed_register": "注册服务分类失败。",
     "edit_in_settings": "在设置中编辑",
     "note": "如果嵌入失败，请检查目标 docs 端点的 X-Frame-Options/CSP。"
+  },
+  "help": {
+    "title": "产品导览",
+    "next": "下一步",
+    "back": "上一步",
+    "slides": {
+      "containers": {
+        "title": "容器管理",
+        "description": "管理基础设施与应用容器的生命周期、日志和策略。"
+      },
+      "llm_server": {
+        "title": "LLM 服务管理",
+        "description": "集中注册提供商、模型和运行时，统一管理 LLM 工作负载。"
+      },
+      "tracing": {
+        "title": "LLM 追踪",
+        "description": "可视化实时 LLM 流程并观察请求追踪，用于排障与运维。"
+      },
+      "endpoint": {
+        "title": "集中式 API 端点",
+        "description": "使用单一 OpenAI 兼容网关，统一策略、路由与可观测性控制。"
+      }
+    }
   }
 }

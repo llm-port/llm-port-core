@@ -482,5 +482,28 @@
     "oops": "Oops!",
     "unexpected": "An unexpected error occurred.",
     "not_found": "The requested page could not be found."
+  },
+  "help": {
+    "title": "Product Tour",
+    "next": "Next",
+    "back": "Back",
+    "slides": {
+      "containers": {
+        "title": "Container Management",
+        "description": "Manage lifecycle, logs, and policies for infrastructure and app containers."
+      },
+      "llm_server": {
+        "title": "LLM Server Management",
+        "description": "Register providers, models, and runtimes to serve LLM workloads from one admin surface."
+      },
+      "tracing": {
+        "title": "LLM Tracing",
+        "description": "Visualize live LLM flows and observe request traces for debugging and operations."
+      },
+      "endpoint": {
+        "title": "Centralized API Endpoint",
+        "description": "Use a single OpenAI-compatible endpoint gateway with policy, routing, and observability controls."
+      }
+    }
   }
 }

@@ -482,5 +482,28 @@
     "failed_register": "No se pudo registrar la clase del servicio.",
     "edit_in_settings": "Editar en Configuracion",
     "note": "Si falla el embed, revisa X-Frame-Options/CSP en el endpoint de docs."
+  },
+  "help": {
+    "title": "Recorrido del Producto",
+    "next": "Siguiente",
+    "back": "Atras",
+    "slides": {
+      "containers": {
+        "title": "Gestion de Contenedores",
+        "description": "Administra ciclo de vida, logs y politicas para contenedores de infraestructura y aplicaciones."
+      },
+      "llm_server": {
+        "title": "Gestion de Servidor LLM",
+        "description": "Registra proveedores, modelos y runtimes para operar cargas LLM desde una sola consola."
+      },
+      "tracing": {
+        "title": "Trazado LLM",
+        "description": "Visualiza flujos LLM en vivo y observa trazas de solicitudes para depuracion y operaciones."
+      },
+      "endpoint": {
+        "title": "Endpoint API Centralizado",
+        "description": "Usa un unico gateway compatible con OpenAI con controles de politica, enrutamiento y observabilidad."
+      }
+    }
   }
 }
