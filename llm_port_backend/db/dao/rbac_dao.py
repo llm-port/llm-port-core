@@ -3,7 +3,8 @@
 import uuid
 
 from fastapi import Depends
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, tuple_
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from llm_port_backend.db.dependencies import get_db_session
@@ -170,14 +171,13 @@ class RbacDAO:
 
     async def assign_role(self, user_id: uuid.UUID, role_id: uuid.UUID) -> None:
         """Assign a role to a user (idempotent)."""
-        existing = await self.session.execute(
-            select(UserRole).where(
-                UserRole.user_id == user_id,
-                UserRole.role_id == role_id,
+        await self.session.execute(
+            pg_insert(UserRole)
+            .values(user_id=user_id, role_id=role_id)
+            .on_conflict_do_nothing(
+                index_elements=[UserRole.user_id, UserRole.role_id],
             ),
         )
-        if existing.scalar_one_or_none() is None:
-            self.session.add(UserRole(user_id=user_id, role_id=role_id))
 
     async def remove_role(self, user_id: uuid.UUID, role_id: uuid.UUID) -> None:
         """Remove a role from a user."""
@@ -234,55 +234,92 @@ class RbacDAO:
     # Seeding
     # ------------------------------------------------------------------
 
-    async def seed_defaults(self) -> None:  # noqa: C901
+    async def seed_defaults(self) -> None:
         """Create built-in roles and permissions if they don't exist."""
-        # 1. Collect all unique (resource, action) pairs
-        perm_map: dict[tuple[str, str], Permission] = {}
-        for perms in _DEFAULT_ROLES.values():
-            for resource, actions in perms.items():
-                for action in actions:
-                    key = (resource, action)
-                    if key not in perm_map:
-                        # Check if it already exists in DB
-                        result = await self.session.execute(
-                            select(Permission).where(
-                                Permission.resource == resource,
-                                Permission.action == action,
-                            ),
-                        )
-                        existing = result.scalar_one_or_none()
-                        if existing:
-                            perm_map[key] = existing
-                        else:
-                            perm = Permission(
-                                id=uuid.uuid4(),
-                                resource=resource,
-                                action=action,
-                            )
-                            self.session.add(perm)
-                            perm_map[key] = perm
+        # 1) Upsert all known permissions.
+        permission_pairs = sorted(
+            {
+                (resource, action)
+                for perms in _DEFAULT_ROLES.values()
+                for resource, actions in perms.items()
+                for action in actions
+            },
+        )
+        if permission_pairs:
+            await self.session.execute(
+                pg_insert(Permission)
+                .values(
+                    [
+                        {
+                            "id": uuid.uuid4(),
+                            "resource": resource,
+                            "action": action,
+                        }
+                        for resource, action in permission_pairs
+                    ],
+                )
+                .on_conflict_do_nothing(
+                    index_elements=[Permission.resource, Permission.action],
+                ),
+            )
 
-        await self.session.flush()
+        # Resolve DB IDs for all permissions after upsert.
+        permission_rows = await self.session.execute(
+            select(Permission).where(
+                tuple_(Permission.resource, Permission.action).in_(permission_pairs),
+            ),
+        )
+        perm_map = {
+            (perm.resource, perm.action): perm
+            for perm in permission_rows.scalars().all()
+        }
 
-        # 2. Create roles and link permissions
+        # 2) Upsert all built-in roles.
+        role_names = sorted(_DEFAULT_ROLES.keys())
+        await self.session.execute(
+            pg_insert(Role)
+            .values(
+                [
+                    {
+                        "id": uuid.uuid4(),
+                        "name": role_name,
+                        "description": f"Built-in {role_name} role",
+                    }
+                    for role_name in role_names
+                ],
+            )
+            .on_conflict_do_nothing(index_elements=[Role.name]),
+        )
+
+        # Resolve DB IDs for all roles after upsert.
+        role_rows = await self.session.execute(
+            select(Role).where(Role.name.in_(role_names)),
+        )
+        role_map = {role.name: role for role in role_rows.scalars().all()}
+
+        # 3) Upsert all role->permission links.
+        role_permission_rows = []
         for role_name, perms in _DEFAULT_ROLES.items():
-            role = await self.get_role_by_name(role_name)
+            role = role_map.get(role_name)
             if role is None:
-                role = Role(id=uuid.uuid4(), name=role_name, description=f"Built-in {role_name} role")
-                self.session.add(role)
-                await self.session.flush()
-
-            # Link permissions
+                continue
             for resource, actions in perms.items():
                 for action in actions:
-                    perm = perm_map[(resource, action)]
-                    existing = await self.session.execute(
-                        select(RolePermission).where(
-                            RolePermission.role_id == role.id,
-                            RolePermission.permission_id == perm.id,
-                        ),
+                    perm = perm_map.get((resource, action))
+                    if perm is None:
+                        continue
+                    role_permission_rows.append(
+                        {
+                            "role_id": role.id,
+                            "permission_id": perm.id,
+                        },
                     )
-                    if existing.scalar_one_or_none() is None:
-                        self.session.add(
-                            RolePermission(role_id=role.id, permission_id=perm.id),
-                        )
+
+        if role_permission_rows:
+            await self.session.execute(
+                pg_insert(RolePermission)
+                .values(role_permission_rows)
+                .on_conflict_do_nothing(
+                    index_elements=[RolePermission.role_id, RolePermission.permission_id],
+                ),
+            )
