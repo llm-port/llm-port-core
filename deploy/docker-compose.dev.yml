@@ -19,5 +19,5 @@ services:
     command:
       - taskiq
       - worker
-      - airgap_backend.tkq:broker
+      - llm_port_backend.tkq:broker
       - --reload

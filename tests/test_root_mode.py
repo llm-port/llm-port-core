@@ -9,8 +9,8 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette import status
 
-from airgap_backend.db.models.users import User, current_active_user
-from airgap_backend.web.api.admin.dependencies import get_docker
+from llm_port_backend.db.models.users import User, current_active_user
+from llm_port_backend.web.api.admin.dependencies import get_docker
 
 
 def _make_superuser() -> User:

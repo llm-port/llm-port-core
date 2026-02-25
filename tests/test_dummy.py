@@ -5,7 +5,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette import status
 
-from airgap_backend.db.dao.dummy_dao import DummyDAO
+from llm_port_backend.db.dao.dummy_dao import DummyDAO
 
 
 async def test_creation(

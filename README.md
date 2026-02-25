@@ -11,7 +11,7 @@ To run the project use this set of commands:
 
 ```bash
 uv sync --locked
-uv run -m airgap_backend
+uv run -m llm_port_backend
 ```
 
 This will start the server on the configured host.
@@ -46,8 +46,8 @@ docker-compose build
 ## Project structure
 
 ```bash
-$ tree "airgap_backend"
-airgap_backend
+$ tree "llm_port_backend"
+llm_port_backend
 ├── conftest.py  # Fixtures for all tests.
 ├── db  # module contains db configurations
 │   ├── dao  # Data Access Objects. Contains different classes to interact with database.
@@ -73,10 +73,10 @@ environment variables here.
 
 All environment variables should start with "LLM_PORT_BACKEND_" prefix.
 
-For example if you see in your "airgap_backend/settings.py" a variable named like
+For example if you see in your "llm_port_backend/settings.py" a variable named like
 `random_parameter`, you should provide the "LLM_PORT_BACKEND_RANDOM_PARAMETER" 
 variable to configure the value. This behaviour can be changed by overriding `env_prefix` property
-in `airgap_backend.settings.Settings.Config`.
+in `llm_port_backend.settings.Settings.Config`.
 
 An example of .env file:
 ```bash
@@ -95,15 +95,15 @@ LLM_PORT_BACKEND_I18N_DIR="i18n"
 
 You can read more about BaseSettings class here: https://pydantic-docs.helpmanual.io/usage/settings/
 
-## Breaking Rename Migration (`airgap` -> `llm-port`)
+## Breaking Rename Migration (`llm-port` -> `llm-port`)
 
 This release switches backend configuration names to `LLM_PORT_BACKEND_*` and removes support for the old
-`AIRGAP_*` variable namespace.
+`llm_port_*` variable namespace.
 
 Required migration actions:
-1. Rename all backend env vars from `AIRGAP_BACKEND_*` to `LLM_PORT_BACKEND_*`.
-2. Rename Grafana env vars from `AIRGAP_GRAFANA_*` to `LLM_PORT_GRAFANA_*`.
-3. Recreate containers/volumes if you rely on old docker identifiers (`airgap_backend-*`).
+1. Rename all backend env vars from `llm_port_backend_*` to `LLM_PORT_BACKEND_*`.
+2. Rename Grafana env vars from `llm_port_GRAFANA_*` to `LLM_PORT_GRAFANA_*`.
+3. Recreate containers/volumes if you rely on old docker identifiers (`llm_port_backend-*`).
 4. Redeploy backend and worker together to avoid mixed env namespace usage.
 
 ## Logs API (Loki Proxy)
@@ -168,10 +168,10 @@ The frontend loads translations at runtime from backend endpoints:
 - `GET /api/i18n/languages`
 - `GET /api/i18n/{lang}/{namespace}`
 
-By default the backend reads bundles from `airgap_backend/i18n` (configurable via `LLM_PORT_BACKEND_I18N_DIR`).
+By default the backend reads bundles from `llm_port_backend/i18n` (configurable via `LLM_PORT_BACKEND_I18N_DIR`).
 
 To add a language without frontend recompilation:
-1. Create `airgap_backend/i18n/<lang>/common.json`.
+1. Create `llm_port_backend/i18n/<lang>/common.json`.
 2. Refresh the frontend; the new language appears in the language selector.
 ## OpenTelemetry 
 

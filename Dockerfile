@@ -29,7 +29,7 @@ RUN --mount=from=uv,source=/usr/local/bin/uv,target=/bin/uv \
     --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev
 
-CMD ["/usr/local/bin/python", "-m", "airgap_backend"]
+CMD ["/usr/local/bin/python", "-m", "llm_port_backend"]
 
 # -----------------------------------
 # STAGE 3: development build

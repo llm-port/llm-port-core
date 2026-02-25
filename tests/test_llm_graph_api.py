@@ -12,9 +12,9 @@ from fastapi import FastAPI
 from httpx import AsyncClient
 from starlette import status
 
-from airgap_backend.db.models.users import User, current_active_user
-from airgap_backend.web.api.llm.dependencies import get_llm_graph_service
-from airgap_backend.web.api.llm.schema import (
+from llm_port_backend.db.models.users import User, current_active_user
+from llm_port_backend.web.api.llm.dependencies import get_llm_graph_service
+from llm_port_backend.web.api.llm.schema import (
     GraphEdgeDTO,
     GraphNodeDTO,
     TopologyResponseDTO,

@@ -2,8 +2,8 @@
 
 import pytest
 
-from airgap_backend.db.models.containers import ContainerClass, ContainerPolicy
-from airgap_backend.services.policy.enforcement import Action, PolicyEnforcer
+from llm_port_backend.db.models.containers import ContainerClass, ContainerPolicy
+from llm_port_backend.services.policy.enforcement import Action, PolicyEnforcer
 
 
 @pytest.fixture()

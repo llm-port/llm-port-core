@@ -30,7 +30,7 @@ services:
     command:
       - taskiq
       - worker
-      - airgap_backend.tkq:broker
+      - llm_port_backend.tkq:broker
 
   db:
     image: postgres:18.1-bookworm

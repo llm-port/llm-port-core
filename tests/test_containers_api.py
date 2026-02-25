@@ -14,10 +14,10 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette import status
 
-from airgap_backend.db.dao.container_registry_dao import ContainerRegistryDAO
-from airgap_backend.db.models.containers import ContainerClass, ContainerPolicy
-from airgap_backend.db.models.users import User, current_active_user
-from airgap_backend.web.api.admin.dependencies import get_docker
+from llm_port_backend.db.dao.container_registry_dao import ContainerRegistryDAO
+from llm_port_backend.db.models.containers import ContainerClass, ContainerPolicy
+from llm_port_backend.db.models.users import User, current_active_user
+from llm_port_backend.web.api.admin.dependencies import get_docker
 
 _FAKE_ID = "abc123def456" * 3  # 36-char fake container ID
 

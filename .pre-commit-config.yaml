@@ -18,7 +18,7 @@ repos:
             language: system
             pass_filenames: false
             always_run: true
-            args: ["check", "airgap_backend", "tests", "--fix"]
+            args: ["check", "llm_port_backend", "tests", "--fix"]
 
           - id: mypy
             name: Validate types with MyPy
@@ -27,5 +27,5 @@ repos:
             types: [python]
             pass_filenames: false
             args:
-              - "airgap_backend"
+              - "llm_port_backend"
               - "tests"

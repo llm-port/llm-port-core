@@ -65,7 +65,7 @@ default-groups = ["dev"]
 [tool.isort]
 profile = "black"
 multi_line_output = 3
-src_paths = ["airgap_backend",]
+src_paths = ["llm_port_backend",]
 
 [tool.mypy]
 python_version = "3.13"
@@ -141,7 +141,7 @@ lint.ignore = [
     "D106",    # Missing docstring in public nested class
 ]
 exclude = [
-    "airgap_backend/db/migrations",
+    "llm_port_backend/db/migrations",
     ".venv/"
 ]
 lint.mccabe = { max-complexity = 10 }

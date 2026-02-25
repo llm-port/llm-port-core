@@ -10,9 +10,9 @@ from fastapi import FastAPI
 from httpx import AsyncClient
 from starlette import status
 
-from airgap_backend.db.models.users import User, current_active_user
-from airgap_backend.settings import settings
-from airgap_backend.web.api.logs import views as logs_views
+from llm_port_backend.db.models.users import User, current_active_user
+from llm_port_backend.settings import settings
+from llm_port_backend.web.api.logs import views as logs_views
 
 
 def _make_superuser() -> User:
