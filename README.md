@@ -1,4 +1,4 @@
-# airgap_shared Stack Ownership
+# llm_port_shared Stack Ownership
 
 ## Config Ownership
 
@@ -11,6 +11,6 @@ Primary flow:
 
 ## Notes
 
-- `airgap_shared/.env` remains supported as bootstrap fallback.
+- `llm_port_shared/.env` remains supported as bootstrap fallback.
 - v1 execution target defaults to `local`.
 - Remote host execution is contract-ready via `/api/admin/system/agents/*`.
