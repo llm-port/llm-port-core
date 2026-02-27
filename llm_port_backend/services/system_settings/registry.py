@@ -154,6 +154,18 @@ SETTINGS_REGISTRY: tuple[SettingDefinition, ...] = (
         service_targets=("grafana",),
         protected=True,
     ),
+    SettingDefinition(
+        key="llm_backend.hf_token",
+        type="secret",
+        category="llm",
+        group="huggingface",
+        label="Hugging Face Token",
+        description="Hugging Face Hub access token for model downloads.",
+        is_secret=True,
+        default="",
+        apply_scope=SystemApplyScope.LIVE_RELOAD,
+        service_targets=("llm-port-backend",),
+    ),
 )
 
 

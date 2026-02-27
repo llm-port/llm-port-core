@@ -10,6 +10,37 @@ from llm_port_backend.tkq import broker
 
 log = logging.getLogger(__name__)
 
+HF_TOKEN_KEY = "llm_backend.hf_token"
+
+
+async def _resolve_hf_token() -> str | None:
+    """Read the HF token from DB (encrypted secret), falling back to env var.
+
+    Priority:
+      1. Encrypted secret in ``system_setting_secret`` table
+      2. ``LLM_PORT_BACKEND_HF_TOKEN`` env-var (pydantic Settings fallback)
+      3. ``None`` (anonymous Hugging Face access)
+    """
+    from llm_port_backend.db.dao.system_settings_dao import SystemSettingsDAO  # noqa: PLC0415
+    from llm_port_backend.services.system_settings.crypto import SettingsCrypto  # noqa: PLC0415
+    from llm_port_backend.settings import settings  # noqa: PLC0415
+
+    app = broker.state.fastapi_app
+    session = app.state.db_session_factory()
+    try:
+        dao = SystemSettingsDAO(session)
+        secret = await dao.get_secret(HF_TOKEN_KEY)
+        if secret and secret.ciphertext:
+            crypto = SettingsCrypto(settings.settings_master_key)
+            return crypto.decrypt(secret.ciphertext)
+    except Exception:
+        log.warning("Could not read HF token from DB, falling back to env var", exc_info=True)
+    finally:
+        await session.close()
+
+    # Fallback to env var
+    return settings.hf_token or None
+
 
 def _run_download_sync(
     hf_repo_id: str,
@@ -70,13 +101,12 @@ async def download_model_task(
     hf_repo_id: str,
     hf_revision: str | None,
     target_dir: str,
-    hf_token: str | None = None,
 ) -> dict:
     """
     Download a model from Hugging Face Hub and register its artifacts.
 
-    Uses its own fresh DB session (not the shared DI session) so errors
-    in one task never leak into the next one.
+    The HF token is resolved at runtime from the encrypted system settings
+    (or env-var fallback) -- it is never transmitted over RabbitMQ.
     """
     from llm_port_backend.db.dao.llm_dao import ArtifactDAO, DownloadJobDAO, ModelDAO  # noqa: PLC0415
     from llm_port_backend.db.models.llm import DownloadJobStatus, ModelStatus  # noqa: PLC0415
@@ -84,6 +114,8 @@ async def download_model_task(
 
     _model_id = uuid.UUID(model_id)
     _job_id = uuid.UUID(job_id)
+
+    hf_token = await _resolve_hf_token()
 
     app = broker.state.fastapi_app
     session = app.state.db_session_factory()

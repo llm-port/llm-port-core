@@ -113,7 +113,6 @@ class LLMService:
                 hf_repo_id=hf_repo_id,
                 hf_revision=hf_revision,
                 target_dir=target_dir,
-                hf_token=settings.hf_token,
             )
             log.info("Dispatched download task for %s (job=%s)", hf_repo_id, job.id)
         except Exception as exc:
