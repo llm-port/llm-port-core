@@ -81,6 +81,8 @@ class Settings(BaseSettings):
     # JWT settings (compatible with backend-issued tokens)
     jwt_secret: str = ""
     jwt_algorithm: str = "HS256"
+    jwt_audience: str = ""
+    jwt_issuer: str = ""
 
     # Gateway behavior
     http_timeout_sec: float = 30.0

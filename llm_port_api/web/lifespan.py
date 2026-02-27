@@ -22,6 +22,7 @@ from prometheus_fastapi_instrumentator.instrumentation import (
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from llm_port_api.services.gateway.observability import GatewayObservability
+from llm_port_api.services.gateway.proxy import create_shared_http_client
 from llm_port_api.services.rabbit.lifespan import init_rabbit, shutdown_rabbit
 from llm_port_api.services.redis.lifespan import init_redis, shutdown_redis
 from llm_port_api.settings import settings
@@ -153,6 +154,9 @@ async def lifespan_setup(
         await broker.startup()
     _setup_db(app)
     _setup_gateway_observability(app)
+    app.state.http_client = create_shared_http_client(
+        timeout_sec=settings.http_timeout_sec,
+    )
     setup_opentelemetry(app)
     init_redis(app)
     init_rabbit(app)
@@ -162,6 +166,7 @@ async def lifespan_setup(
     yield
     if not broker.is_worker_process:
         await broker.shutdown()
+    await app.state.http_client.aclose()
     await app.state.db_engine.dispose()
     app.state.gateway_observability.shutdown()
     await shutdown_redis(app)

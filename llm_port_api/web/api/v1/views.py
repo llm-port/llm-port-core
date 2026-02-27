@@ -33,15 +33,18 @@ def public_health_check() -> None:
 
 
 def get_gateway_service(
-    request: Request, dao: GatewayDAO = Depends(),
+    request: Request,
+    dao: GatewayDAO = Depends(),
 ) -> GatewayService:
     """Build gateway service with request-scoped dependencies."""
     redis_pool = request.app.state.redis_pool
     lease_manager = LeaseManager(redis_pool, ttl_sec=settings.lease_ttl_sec)
     router_service = RouterService(
-        dao=dao, redis_pool=redis_pool, lease_manager=lease_manager,
+        dao=dao,
+        redis_pool=redis_pool,
+        lease_manager=lease_manager,
     )
-    proxy = UpstreamProxy(timeout_sec=settings.http_timeout_sec)
+    proxy = UpstreamProxy(client=request.app.state.http_client)
     limiter = RateLimiter(redis_pool)
     audit = AuditService(dao)
     observability: GatewayObservability = request.app.state.gateway_observability
@@ -145,7 +148,8 @@ async def create_chat_completions(
             request_id=request_id,
         )
         json_response = JSONResponse(
-            status_code=non_stream.status_code, content=non_stream.payload,
+            status_code=non_stream.status_code,
+            content=non_stream.payload,
         )
         json_response.headers["x-request-id"] = request_id
         json_response.headers["x-provider-instance-id"] = (
