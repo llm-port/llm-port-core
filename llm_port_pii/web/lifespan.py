@@ -21,6 +21,7 @@ from prometheus_fastapi_instrumentator.instrumentation import (
 )
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from llm_port_pii.services.pii.service import PIIService
 from llm_port_pii.services.rabbit.lifespan import init_rabbit, shutdown_rabbit
 from llm_port_pii.services.redis.lifespan import init_redis, shutdown_redis
 from llm_port_pii.settings import settings
@@ -150,6 +151,13 @@ async def lifespan_setup(
     init_redis(app)
     init_rabbit(app)
     setup_prometheus(app)
+
+    # Initialize Presidio PII service (loads spaCy model - slow first time)
+    app.state.pii_service = PIIService.create(
+        default_language=settings.pii_default_language,
+        default_score_threshold=settings.pii_score_threshold,
+    )
+
     app.middleware_stack = app.build_middleware_stack()
 
     yield
