@@ -1,4 +1,4 @@
-"""PII scan and redact API endpoints."""
+"""PII scan, redact, and sanitize API endpoints."""
 
 from __future__ import annotations
 
@@ -7,8 +7,12 @@ from fastapi import APIRouter, Request
 from llm_port_pii.services.pii.service import PIIService
 from llm_port_pii.web.api.pii.schema import (
     DetectedEntityDTO,
+    PIIDetokenizeRequest,
+    PIIDetokenizeResponse,
     PIIRedactRequest,
     PIIRedactResponse,
+    PIISanitizeRequest,
+    PIISanitizeResponse,
     PIIScanRequest,
     PIIScanResponse,
 )
@@ -66,3 +70,49 @@ async def redact_text(
         redacted_text=result.redacted_text,
         entities_found=result.entities_found,
     )
+
+
+@router.post("/sanitize", response_model=PIISanitizeResponse)
+async def sanitize_payload(
+    body: PIISanitizeRequest,
+    request: Request,
+) -> PIISanitizeResponse:
+    """Sanitize all text fields in an OpenAI-shaped payload.
+
+    Walks ``messages[].content`` (string or multimodal array) and
+    ``input`` (embeddings).  Supports ``redact`` and ``tokenize`` modes.
+    """
+    svc = _get_pii_service(request)
+    result = await svc.sanitize_payload(
+        body.payload,
+        mode=body.mode,
+        language=body.language,
+        entities=body.entities,
+        score_threshold=body.score_threshold,
+    )
+    return PIISanitizeResponse(
+        sanitized_payload=result.payload,
+        entities_found=result.entities_found,
+        pii_report=[
+            DetectedEntityDTO(
+                entity_type=e.entity_type,
+                start=e.start,
+                end=e.end,
+                score=e.score,
+                text=e.text,
+            )
+            for e in result.pii_report
+        ],
+        token_mapping=result.token_mapping,
+    )
+
+
+@router.post("/detokenize", response_model=PIIDetokenizeResponse)
+async def detokenize_payload(
+    body: PIIDetokenizeRequest,
+    request: Request,
+) -> PIIDetokenizeResponse:
+    """Reverse tokenization on an OpenAI-shaped response payload."""
+    svc = _get_pii_service(request)
+    restored = svc.detokenize_payload(body.payload, body.token_mapping)
+    return PIIDetokenizeResponse(payload=restored)
