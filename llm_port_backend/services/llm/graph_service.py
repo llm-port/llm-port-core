@@ -164,7 +164,18 @@ class LLMGraphService:
         if self._trace_session_factory is None:
             return []
 
-        query = """
+        # Derive a timestamp lower-bound from the composite event_id so we
+        # can push the filter into SQL rather than fetching everything and
+        # discarding in Python.
+        params: dict[str, object] = {"limit": limit}
+        where_clause = ""
+        if after_event_id is not None:
+            cursor_ts = _timestamp_from_event_id(after_event_id)
+            if cursor_ts is not None:
+                where_clause = "WHERE created_at >= :cursor_ts"
+                params["cursor_ts"] = cursor_ts
+
+        query = f"""
             SELECT
                 id,
                 created_at,
@@ -182,13 +193,14 @@ class LLMGraphService:
                 total_tokens,
                 error_code
             FROM llm_gateway_request_log
+            {where_clause}
             ORDER BY created_at DESC, id DESC
             LIMIT :limit
         """
 
         try:
             async with self._trace_session_factory() as session:
-                result = await session.execute(text(query), {"limit": limit})
+                result = await session.execute(text(query), params)
                 rows = list(result.mappings().all())
         except SQLAlchemyError:
             log.exception("Failed to query llm gateway trace table.")
@@ -200,6 +212,8 @@ class LLMGraphService:
             if row["id"] is None:
                 continue
             event_id = _event_id(row["created_at"], str(row["id"]))
+            # Final exact filter – the SQL WHERE is an approximate lower
+            # bound; this ensures no duplicates across cursor boundaries.
             if after_event_id is not None and event_id <= after_event_id:
                 continue
             events.append(
@@ -233,3 +247,17 @@ def _event_id(timestamp: datetime, row_id: str) -> int:
     micros = int(timestamp.timestamp() * 1_000_000)
     suffix = int(row_id.replace("-", "")[-6:], 16)
     return micros * 1_000_000 + suffix
+
+
+def _timestamp_from_event_id(event_id: int) -> datetime | None:
+    """Extract approximate timestamp from a composite event_id.
+
+    Returns a datetime suitable for a ``WHERE created_at >= :ts`` clause.
+    The suffix portion is discarded, so results should still be
+    de-duplicated with the exact ``event_id <=`` check in Python.
+    """
+    try:
+        micros = event_id // 1_000_000
+        return datetime.fromtimestamp(micros / 1_000_000, tz=UTC)
+    except (OSError, ValueError, OverflowError):
+        return None

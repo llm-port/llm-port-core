@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from llm_port_backend.db.models.llm import (
     ArtifactFormat,
@@ -72,6 +72,14 @@ class ModelRegisterRequest(BaseModel):
     display_name: str = Field(..., min_length=1)
     path: str = Field(..., min_length=1)
     tags: list[str] | None = None
+
+    @field_validator("path")
+    @classmethod
+    def _reject_path_traversal(cls, v: str) -> str:
+        if ".." in v:
+            msg = "Path must not contain '..' segments."
+            raise ValueError(msg)
+        return v
 
 
 class ModelDTO(BaseModel):

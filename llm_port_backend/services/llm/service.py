@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from pathlib import Path
 from typing import Any
 
 from llm_port_backend.db.dao.llm_dao import (
@@ -142,6 +143,17 @@ class LLMService:
         tags: list[str] | None = None,
     ) -> LLMModel:
         """Register a model already present on disk."""
+        # Guard against path traversal — ensure the resolved path is
+        # within the configured model store root.
+        resolved = Path(path).resolve()
+        store_root = Path(settings.model_store_root).resolve()
+        if not str(resolved).startswith(str(store_root)):
+            msg = (
+                f"Path '{path}' resolves outside the model store root "
+                f"'{settings.model_store_root}'."
+            )
+            raise ValueError(msg)
+
         model = await model_dao.create(
             display_name=display_name,
             source=ModelSource.LOCAL_PATH,
