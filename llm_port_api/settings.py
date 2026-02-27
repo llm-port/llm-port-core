@@ -98,6 +98,10 @@ class Settings(BaseSettings):
     langfuse_secret_key: str | None = None
     langfuse_tracing_enabled: bool = True
     langfuse_release: str | None = None
+
+    # PII service
+    pii_service_url: str | None = None
+    pii_scan_enabled: bool = False
     langfuse_debug: bool = False
 
     @property
