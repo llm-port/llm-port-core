@@ -37,7 +37,9 @@
     "users": "Users",
     "roles": "Roles",
     "groups": "Groups",
-    "auth_providers": "Auth Providers"
+    "auth_providers": "Auth Providers",
+    "pinned": "Pinned",
+    "reset_nav_order": "Reset navigation order"
   },
   "auth": {
     "logout": "Logout",

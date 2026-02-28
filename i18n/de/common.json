@@ -31,7 +31,9 @@
     "users": "Benutzer",
     "roles": "Rollen",
     "groups": "Gruppen",
-    "auth_providers": "Auth-Anbieter"
+    "auth_providers": "Auth-Anbieter",
+    "pinned": "Fixiert",
+    "reset_nav_order": "Navigationsreihenfolge zurücksetzen"
   },
   "auth": {
     "logout": "Abmelden",

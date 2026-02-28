@@ -31,7 +31,9 @@
     "users": "Usuarios",
     "roles": "Roles",
     "groups": "Grupos",
-    "auth_providers": "Proveedores de autenticación"
+    "auth_providers": "Proveedores de autenticación",
+    "pinned": "Fijado",
+    "reset_nav_order": "Restablecer orden de navegación"
   },
   "auth": {
     "logout": "Cerrar sesion",

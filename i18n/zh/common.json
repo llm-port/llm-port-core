@@ -31,7 +31,9 @@
     "users": "用户",
     "roles": "角色",
     "groups": "组",
-    "auth_providers": "认证提供商"
+    "auth_providers": "认证提供商",
+    "pinned": "固定",
+    "reset_nav_order": "重置导航顺序"
   },
   "auth": {
     "logout": "退出登录",
