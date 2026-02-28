@@ -55,7 +55,6 @@ import DescriptionIcon from "@mui/icons-material/Description";
 import LlmIcon from "~/components/LlmIcon";
 import AppBrand from "~/components/AppBrand";
 import ModelTrainingIcon from "@mui/icons-material/ModelTraining";
-import RocketLaunchIcon from "@mui/icons-material/RocketLaunch";
 import DownloadIcon from "@mui/icons-material/Download";
 import SettingsIcon from "@mui/icons-material/Settings";
 import ManageSearchIcon from "@mui/icons-material/ManageSearch";
@@ -188,7 +187,6 @@ const NAV: NavEntry[] = [
     children: [
       { to: "/admin/llm/providers", labelKey: "nav.providers", icon: <AccountTreeIcon /> },
       { to: "/admin/llm/models", labelKey: "nav.models", icon: <ModelTrainingIcon /> },
-      { to: "/admin/llm/runtimes", labelKey: "nav.runtimes", icon: <RocketLaunchIcon /> },
       { to: "/admin/llm/jobs", labelKey: "nav.jobs", icon: <DownloadIcon /> },
     ],
   },
@@ -258,7 +256,7 @@ function adminPageTitle(pathname: string, search: string, t: (key: string) => st
   if (pathname.startsWith("/admin/llm/models/")) return t("llm_model_detail.page_title");
   if (pathname.startsWith("/admin/llm/models")) return t("llm_models.title");
   if (pathname.startsWith("/admin/llm/runtimes/")) return t("llm_runtime_detail.page_title");
-  if (pathname.startsWith("/admin/llm/runtimes")) return t("llm_runtimes.title");
+  if (pathname.startsWith("/admin/llm/runtimes")) return t("llm_providers.title");
   if (pathname.startsWith("/admin/llm/jobs")) return t("llm_jobs.title");
   if (pathname.startsWith("/admin/llm/endpoint")) return t("nav.endpoint");
   if (pathname.startsWith("/admin/rag/runtime")) return t("rag_runtime.title");

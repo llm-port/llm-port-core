@@ -107,7 +107,7 @@ export default function RuntimeDetailPage() {
     if (!id || !confirm(t("llm_runtimes.confirm_delete"))) return;
     try {
       await runtimes.delete(id);
-      navigate("/admin/llm/runtimes");
+      navigate("/admin/llm/providers");
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t("common.delete_failed"));
     }
@@ -135,9 +135,9 @@ export default function RuntimeDetailPage() {
         <Button
           size="small"
           startIcon={<ArrowBackIcon />}
-          onClick={() => navigate("/admin/llm/runtimes")}
+          onClick={() => navigate("/admin/llm/providers")}
         >
-          {t("llm_runtimes.title")}
+          {t("llm_providers.title")}
         </Button>
         <Typography variant="h5" sx={{ flexGrow: 1 }}>
           {rt.name}
