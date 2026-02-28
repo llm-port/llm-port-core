@@ -406,6 +406,10 @@
     "endpoint_url_help": "Basis-URL der Remote-Inferenz-API (z. B. https://api.example.com/v1)",
     "api_key": "API-Schluessel",
     "api_key_help": "Optionaler Authentifizierungsschluessel fuer den Remote-Endpunkt",
+    "test_connection": "Verbindung testen",
+    "test_connection_testing": "Teste…",
+    "test_connection_success": "Verbindung erfolgreich — {{count}} Modell(e) verfuegbar.",
+    "test_connection_failed": "Nicht OpenAI-API-kompatibel",
     "wizard_step_basics": "Grundlagen",
     "wizard_step_runtime": "Laufzeit",
     "no_runtime": "Keine Laufzeit"

@@ -41,6 +41,21 @@ class ProviderCreateRequest(BaseModel):
     )
 
 
+class TestEndpointRequest(BaseModel):
+    """Request body for testing a remote endpoint's OpenAI compatibility."""
+
+    endpoint_url: str = Field(..., min_length=1, max_length=1024)
+    api_key: str | None = Field(None, max_length=512)
+
+
+class TestEndpointResponse(BaseModel):
+    """Response for the test-endpoint probe."""
+
+    compatible: bool
+    models: list[str] = Field(default_factory=list)
+    error: str | None = None
+
+
 class ProviderUpdateRequest(BaseModel):
     """Request body for patching a provider."""
 

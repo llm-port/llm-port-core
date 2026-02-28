@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from starlette import status
 
@@ -18,10 +19,105 @@ from llm_port_backend.web.api.llm.schema import (
     ProviderCreateRequest,
     ProviderDTO,
     ProviderUpdateRequest,
+    TestEndpointRequest,
+    TestEndpointResponse,
 )
 from llm_port_backend.web.api.rbac import require_permission
 
 router = APIRouter()
+
+
+@router.post("/test-endpoint", response_model=TestEndpointResponse)
+async def test_endpoint(
+    body: TestEndpointRequest,
+    user: User = Depends(require_permission("llm.providers", "read")),
+) -> TestEndpointResponse:
+    """Probe a remote endpoint for OpenAI API compatibility.
+
+    Sends GET ``{endpoint_url}/models`` and checks whether the response
+    follows the ``{"data": [{"id": ...}, ...]}`` schema used by the
+    OpenAI-compatible API.
+    """
+    url = body.endpoint_url.rstrip("/")
+
+    headers: dict[str, str] = {"Accept": "application/json"}
+    if body.api_key:
+        headers["Authorization"] = f"Bearer {body.api_key}"
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(f"{url}/models", headers=headers)
+    except httpx.ConnectError:
+        return TestEndpointResponse(
+            compatible=False,
+            error="Connection refused — check the URL and make sure the service is reachable.",
+        )
+    except httpx.TimeoutException:
+        return TestEndpointResponse(
+            compatible=False,
+            error="Request timed out after 10 s.",
+        )
+    except Exception as exc:  # noqa: BLE001
+        return TestEndpointResponse(
+            compatible=False,
+            error=f"Connection failed: {exc}",
+        )
+
+    if resp.status_code == 401:
+        return TestEndpointResponse(
+            compatible=False,
+            error="Authentication failed (HTTP 401). Check your API key.",
+        )
+
+    if resp.status_code == 403:
+        return TestEndpointResponse(
+            compatible=False,
+            error="Access denied (HTTP 403). The API key may lack the required permissions.",
+        )
+
+    if resp.status_code >= 400:
+        return TestEndpointResponse(
+            compatible=False,
+            error=f"Endpoint returned HTTP {resp.status_code}.",
+        )
+
+    # Validate OpenAI-compatible /models response shape
+    try:
+        payload = resp.json()
+    except Exception:  # noqa: BLE001
+        return TestEndpointResponse(
+            compatible=False,
+            error="Response is not valid JSON — the endpoint is not OpenAI API compatible.",
+        )
+
+    if not isinstance(payload, dict) or "data" not in payload:
+        return TestEndpointResponse(
+            compatible=False,
+            error=(
+                "Response JSON does not contain a \"data\" field. "
+                "This endpoint does not appear to be OpenAI API compatible."
+            ),
+        )
+
+    data = payload["data"]
+    if not isinstance(data, list):
+        return TestEndpointResponse(
+            compatible=False,
+            error="The \"data\" field is not a list — unexpected response format.",
+        )
+
+    model_ids: list[str] = []
+    for item in data:
+        if isinstance(item, dict) and "id" in item:
+            model_ids.append(str(item["id"]))
+
+    if not model_ids:
+        return TestEndpointResponse(
+            compatible=False,
+            error="The /models endpoint returned an empty list — no models available.",
+        )
+
+    return TestEndpointResponse(compatible=True, models=model_ids)
 
 
 @router.get("/", response_model=list[ProviderDTO])

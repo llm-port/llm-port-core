@@ -407,6 +407,10 @@
     "endpoint_url_help": "Base URL of the remote inference API (e.g. https://api.example.com/v1)",
     "api_key": "API Key",
     "api_key_help": "Optional authentication key for the remote endpoint",
+    "test_connection": "Test Connection",
+    "test_connection_testing": "Testing…",
+    "test_connection_success": "Connection successful — {{count}} model(s) available.",
+    "test_connection_failed": "Not OpenAI API compatible",
     "wizard_step_basics": "Basics",
     "wizard_step_runtime": "Runtime",
     "no_runtime": "No runtime"

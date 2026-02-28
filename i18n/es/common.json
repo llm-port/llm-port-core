@@ -406,6 +406,10 @@
     "endpoint_url_help": "URL base de la API de inferencia remota (ej. https://api.example.com/v1)",
     "api_key": "Clave API",
     "api_key_help": "Clave de autenticaci\u00f3n opcional para el endpoint remoto",
+    "test_connection": "Probar conexi\u00f3n",
+    "test_connection_testing": "Probando…",
+    "test_connection_success": "Conexi\u00f3n exitosa — {{count}} modelo(s) disponible(s).",
+    "test_connection_failed": "No compatible con la API de OpenAI",
     "wizard_step_basics": "B\u00e1sicos",
     "wizard_step_runtime": "Runtime",
     "no_runtime": "Sin runtime"

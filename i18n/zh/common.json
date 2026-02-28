@@ -406,6 +406,10 @@
     "endpoint_url_help": "远程推理 API 的基础 URL（例如 https://api.example.com/v1）",
     "api_key": "API 密钥",
     "api_key_help": "远程端点的可选身份验证密钥",
+    "test_connection": "测试连接",
+    "test_connection_testing": "测试中…",
+    "test_connection_success": "连接成功 — 共有 {{count}} 个可用模型。",
+    "test_connection_failed": "不兼容 OpenAI API",
     "wizard_step_basics": "基本信息",
     "wizard_step_runtime": "运行时",
     "no_runtime": "无运行时"
