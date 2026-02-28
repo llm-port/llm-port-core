@@ -247,6 +247,11 @@ services:
       LLM_PORT_API_LANGFUSE_HOST: ${LLM_PORT_API_LANGFUSE_HOST:-http://langfuse-web:3000}
       LLM_PORT_API_LANGFUSE_PUBLIC_KEY: ${LLM_PORT_API_LANGFUSE_PUBLIC_KEY:-}
       LLM_PORT_API_LANGFUSE_SECRET_KEY: ${LLM_PORT_API_LANGFUSE_SECRET_KEY:-}
+      # Optional modules (set via .env or COMPOSE_PROFILES)
+      LLM_PORT_API_PII_ENABLED: ${LLM_PORT_API_PII_ENABLED:-false}
+      LLM_PORT_API_PII_SERVICE_URL: ${LLM_PORT_API_PII_SERVICE_URL:-}
+      LLM_PORT_API_AUTH_ENABLED: ${LLM_PORT_API_AUTH_ENABLED:-false}
+      LLM_PORT_API_AUTH_SERVICE_URL: ${LLM_PORT_API_AUTH_SERVICE_URL:-}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=3).read()"]
       interval: 5s
@@ -396,6 +401,104 @@ services:
       LLM_PORT_RAG_MINIO_SECURE: "false"
       LLM_PORT_RAG_RAW_STORE_BACKEND: minio
       LLM_PORT_RAG_COLLECTORS_CONFIG_PATH: /app/src/examples/collectors.yaml
+
+  # =====================================================================
+  # OPTIONAL MODULE: PII Protection (profile: pii)
+  #
+  # Activate with:  --profile pii  (or COMPOSE_PROFILES=pii)
+  # =====================================================================
+  llm-port-pii-migrator:
+    profiles: ["pii"]
+    build:
+      context: ../llm_port_pii
+      dockerfile: Dockerfile
+    container_name: llm-port-pii-migrator
+    restart: "no"
+    command: alembic upgrade head
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      LLM_PORT_PII_DB_HOST: postgres
+      LLM_PORT_PII_DB_PORT: 5432
+      LLM_PORT_PII_DB_USER: ${POSTGRES_USER:-postgres}
+      LLM_PORT_PII_DB_PASS: ${POSTGRES_PASSWORD:-postgres}
+      LLM_PORT_PII_DB_BASE: pii
+
+  llm-port-pii:
+    profiles: ["pii"]
+    build:
+      context: ../llm_port_pii
+      dockerfile: Dockerfile
+    container_name: llm-port-pii
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      llm-port-rmq:
+        condition: service_healthy
+      llm-port-pii-migrator:
+        condition: service_completed_successfully
+    ports:
+      - "8003:8000"
+    environment:
+      LLM_PORT_PII_HOST: 0.0.0.0
+      LLM_PORT_PII_PORT: 8000
+      LLM_PORT_PII_RELOAD: "false"
+      LLM_PORT_PII_ENVIRONMENT: dev
+      LLM_PORT_PII_DB_HOST: postgres
+      LLM_PORT_PII_DB_PORT: 5432
+      LLM_PORT_PII_DB_USER: ${POSTGRES_USER:-postgres}
+      LLM_PORT_PII_DB_PASS: ${POSTGRES_PASSWORD:-postgres}
+      LLM_PORT_PII_DB_BASE: pii
+      LLM_PORT_PII_RABBIT_HOST: llm-port-rmq
+      LLM_PORT_PII_RABBIT_PORT: 5672
+      LLM_PORT_PII_RABBIT_USER: guest
+      LLM_PORT_PII_RABBIT_PASS: guest
+      LLM_PORT_PII_RABBIT_VHOST: /
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=3).read()"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  llm-port-pii-worker:
+    profiles: ["pii"]
+    build:
+      context: ../llm_port_pii
+      dockerfile: Dockerfile
+    container_name: llm-port-pii-worker
+    restart: unless-stopped
+    command:
+      - taskiq
+      - worker
+      - llm_port_pii.tkq:broker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      llm-port-rmq:
+        condition: service_healthy
+      llm-port-pii-migrator:
+        condition: service_completed_successfully
+    environment:
+      LLM_PORT_PII_ENVIRONMENT: dev
+      LLM_PORT_PII_DB_HOST: postgres
+      LLM_PORT_PII_DB_PORT: 5432
+      LLM_PORT_PII_DB_USER: ${POSTGRES_USER:-postgres}
+      LLM_PORT_PII_DB_PASS: ${POSTGRES_PASSWORD:-postgres}
+      LLM_PORT_PII_DB_BASE: pii
+      LLM_PORT_PII_RABBIT_HOST: llm-port-rmq
+      LLM_PORT_PII_RABBIT_PORT: 5672
+      LLM_PORT_PII_RABBIT_USER: guest
+      LLM_PORT_PII_RABBIT_PASS: guest
+      LLM_PORT_PII_RABBIT_VHOST: /
+
+  # =====================================================================
+  # OPTIONAL MODULE: External Auth (profile: auth)
+  #
+  # Placeholder — activate with:  --profile auth
+  # Container definition to be added when the auth service is implemented.
+  # =====================================================================
 
   # -----------------------------
   # Logs: Loki + Grafana + Alloy

@@ -51,3 +51,33 @@ services:
       - /usr/local/bin/python
       - -m
       - llm_port_rag.workers.scheduler
+
+  # Optional: PII service dev overrides (only started with --profile pii)
+  llm-port-pii:
+    profiles: ["pii"]
+    build:
+      context: ../llm_port_pii
+      dockerfile: Dockerfile
+      target: dev
+    volumes:
+      - ../llm_port_pii:/app/src
+    environment:
+      LLM_PORT_PII_RELOAD: "true"
+    command:
+      - /usr/local/bin/python
+      - -m
+      - llm_port_pii
+
+  llm-port-pii-worker:
+    profiles: ["pii"]
+    build:
+      context: ../llm_port_pii
+      dockerfile: Dockerfile
+      target: dev
+    volumes:
+      - ../llm_port_pii:/app/src
+    command:
+      - taskiq
+      - worker
+      - llm_port_pii.tkq:broker
+      - --reload
