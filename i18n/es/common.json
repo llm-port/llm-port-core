@@ -123,6 +123,7 @@
     "open_full": "Abrir panel completo",
     "open_grafana": "Abrir en Grafana",
     "dependency_health": "Salud de dependencias",
+    "optional_modules": "Módulos opcionales",
     "top_cpu": "Contenedores con mas CPU",
     "top_memory": "Contenedores con mas memoria",
     "no_running_stats": "No hay estadisticas de contenedores en ejecucion.",
@@ -505,5 +506,9 @@
         "description": "Usa un unico gateway compatible con OpenAI con controles de politica, enrutamiento y observabilidad."
       }
     }
+  },
+  "modules": {
+    "disabled_message": "El módulo {{module}} no está habilitado en esta instalación.",
+    "disabled_hint": "Contacte a su administrador para habilitar este módulo."
   }
 }

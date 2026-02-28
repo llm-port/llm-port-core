@@ -123,6 +123,7 @@
     "open_full": "Volles Dashboard oeffnen",
     "open_grafana": "In Grafana oeffnen",
     "dependency_health": "Abhaengigkeitsstatus",
+    "optional_modules": "Optionale Module",
     "top_cpu": "Top CPU Container",
     "top_memory": "Top Speicher Container",
     "no_running_stats": "Keine laufenden Container-Statistiken verfuegbar.",
@@ -505,5 +506,9 @@
         "description": "Nutze ein einziges OpenAI-kompatibles Gateway mit Policy-, Routing- und Observability-Steuerung."
       }
     }
+  },
+  "modules": {
+    "disabled_message": "Das Modul {{module}} ist in dieser Installation nicht aktiviert.",
+    "disabled_hint": "Wenden Sie sich an Ihren Administrator, um dieses Modul zu aktivieren."
   }
 }

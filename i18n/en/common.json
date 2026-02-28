@@ -129,6 +129,7 @@
     "open_full": "Open full dashboard",
     "open_grafana": "Open in Grafana",
     "dependency_health": "Dependency Health",
+    "optional_modules": "Optional Modules",
     "top_cpu": "Top CPU Containers",
     "top_memory": "Top Memory Containers",
     "no_running_stats": "No running container stats available.",
@@ -589,5 +590,9 @@
         "description": "Use a single OpenAI-compatible endpoint gateway with policy, routing, and observability controls."
       }
     }
+  },
+  "modules": {
+    "disabled_message": "The {{module}} module is not enabled in this deployment.",
+    "disabled_hint": "Contact your administrator to enable this module."
   }
 }

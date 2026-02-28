@@ -123,6 +123,7 @@
     "open_full": "打开完整仪表盘",
     "open_grafana": "在 Grafana 中打开",
     "dependency_health": "依赖健康状态",
+    "optional_modules": "可选模块",
     "top_cpu": "CPU 占用最高容器",
     "top_memory": "内存占用最高容器",
     "no_running_stats": "暂无运行中的容器统计信息。",
@@ -505,5 +506,9 @@
         "description": "使用单一 OpenAI 兼容网关，统一策略、路由与可观测性控制。"
       }
     }
+  },
+  "modules": {
+    "disabled_message": "{{module}} 模块在此部署中未启用。",
+    "disabled_hint": "请联系管理员启用此模块。"
   }
 }
