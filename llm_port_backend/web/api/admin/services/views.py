@@ -35,6 +35,9 @@ router = APIRouter()
 #
 # ``compose_profile`` – the Docker Compose profile name used to bring
 #   containers up or tear them down.
+# ``compose_services`` – the Docker Compose *service* names to target
+#   when stopping a module. Required so that ``docker compose stop``
+#   only affects the module's own services, not the entire stack.
 # ``container_names`` – the Docker container names belonging to this
 #   module (for status queries).
 
@@ -49,6 +52,12 @@ _MODULE_DEFS: list[dict[str, Any]] = [
         "settings_flag": "rag_enabled",
         "health_url_fn": lambda: f"{settings.rag_base_url}/health",
         "compose_profile": "rag",
+        "compose_services": [
+            "llm-port-rag",
+            "llm-port-rag-worker",
+            "llm-port-rag-scheduler",
+            "llm-port-rag-migrator",
+        ],
         "container_names": [
             "llm-port-rag",
             "llm-port-rag-worker",
@@ -65,6 +74,11 @@ _MODULE_DEFS: list[dict[str, Any]] = [
         "settings_flag": "pii_enabled",
         "health_url_fn": lambda: f"{settings.pii_service_url}/health",
         "compose_profile": "pii",
+        "compose_services": [
+            "llm-port-pii",
+            "llm-port-pii-worker",
+            "llm-port-pii-migrator",
+        ],
         "container_names": [
             "llm-port-pii",
             "llm-port-pii-worker",
@@ -285,7 +299,11 @@ async def disable_module(
         )
 
     profile = mod.get("compose_profile", name)
-    rc, stdout, stderr = await _run_compose("stop", profile=profile)
+    services = mod.get("compose_services", [])
+    rc, stdout, stderr = await _run_compose(
+        "stop", *services,
+        profile=profile,
+    )
 
     if rc != 0:
         return JSONResponse(
