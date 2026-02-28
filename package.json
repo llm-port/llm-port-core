@@ -1,6 +1,7 @@
 {
   "name": "llm-port-frontend",
   "private": true,
+  "author": "Sachith Liyanagama <liyanagama@outlook.de>",
   "type": "module",
   "scripts": {
     "build": "react-router build",
