@@ -300,13 +300,29 @@ class RbacDAO:
     # ------------------------------------------------------------------
 
     async def get_user_permissions(self, user_id: uuid.UUID) -> list[Permission]:
-        """Return the union of all permissions from the user's roles."""
+        """Return the union of all permissions from the user's direct roles AND group-inherited roles."""
+        from llm_port_backend.db.models.groups import GroupRole, UserGroup  # noqa: PLC0415
+
+        # Direct role permissions
+        direct = select(Permission.id).join(
+            RolePermission, RolePermission.permission_id == Permission.id,
+        ).join(
+            UserRole, UserRole.role_id == RolePermission.role_id,
+        ).where(UserRole.user_id == user_id)
+
+        # Group-inherited role permissions
+        group = select(Permission.id).join(
+            RolePermission, RolePermission.permission_id == Permission.id,
+        ).join(
+            GroupRole, GroupRole.role_id == RolePermission.role_id,
+        ).join(
+            UserGroup, UserGroup.group_id == GroupRole.group_id,
+        ).where(UserGroup.user_id == user_id)
+
+        combined_ids = direct.union(group).subquery()
+
         result = await self.session.execute(
-            select(Permission)
-            .join(RolePermission, RolePermission.permission_id == Permission.id)
-            .join(UserRole, UserRole.role_id == RolePermission.role_id)
-            .where(UserRole.user_id == user_id)
-            .distinct(),
+            select(Permission).where(Permission.id.in_(select(combined_ids.c.id))),
         )
         return list(result.scalars().all())
 
@@ -316,8 +332,11 @@ class RbacDAO:
         resource: str,
         action: str,
     ) -> bool:
-        """Check whether any of the user's roles grants (resource, action)."""
-        result = await self.session.execute(
+        """Check whether any of the user's direct or group-inherited roles grants (resource, action)."""
+        from llm_port_backend.db.models.groups import GroupRole, UserGroup  # noqa: PLC0415
+
+        # Direct assignment check
+        direct = await self.session.execute(
             select(Permission.id)
             .join(RolePermission, RolePermission.permission_id == Permission.id)
             .join(UserRole, UserRole.role_id == RolePermission.role_id)
@@ -328,7 +347,23 @@ class RbacDAO:
             )
             .limit(1),
         )
-        return result.scalar_one_or_none() is not None
+        if direct.scalar_one_or_none() is not None:
+            return True
+
+        # Group-inherited check
+        group = await self.session.execute(
+            select(Permission.id)
+            .join(RolePermission, RolePermission.permission_id == Permission.id)
+            .join(GroupRole, GroupRole.role_id == RolePermission.role_id)
+            .join(UserGroup, UserGroup.group_id == GroupRole.group_id)
+            .where(
+                UserGroup.user_id == user_id,
+                Permission.resource == resource,
+                Permission.action == action,
+            )
+            .limit(1),
+        )
+        return group.scalar_one_or_none() is not None
 
     # ------------------------------------------------------------------
     # Seeding

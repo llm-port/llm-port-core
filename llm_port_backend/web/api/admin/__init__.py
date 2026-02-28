@@ -32,6 +32,11 @@ admin_router.include_router(users_router, prefix="/users", tags=["admin-users"])
 admin_router.include_router(system_router, prefix="/system", tags=["admin-system"])
 admin_router.include_router(services_router, tags=["admin-services"])
 
+# --- Groups management ---
+from llm_port_backend.web.api.admin.groups.views import router as groups_router  # noqa: E402
+
+admin_router.include_router(groups_router, prefix="/groups", tags=["admin-groups"])
+
 # --- PII dashboard routes (always registered) ----------------------------
 # The PII module is toggled at runtime via the services UI, so these proxy
 # routes must always be available.  They return 502 if the PII service is
