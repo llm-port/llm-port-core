@@ -6,8 +6,6 @@ import asyncio
 import contextlib
 import logging
 import os
-import subprocess
-import sys
 import time
 from collections.abc import Iterable
 from typing import Annotated
@@ -158,131 +156,21 @@ async def _tcp_health(host: str, port: int, timeout: float = 0.8) -> bool:
         return False
 
 
-_gpu_logger = logging.getLogger(__name__ + ".gpu")
-
-
 def _collect_gpu_metrics() -> dict[str, float | int | None]:
     """Collect GPU utilization and VRAM usage.
 
-    Strategy order:
-    1. **pynvml** — works for NVIDIA GPUs on any OS.
-    2. **Windows Performance Counters** — works for any GPU vendor
-       (AMD, Intel, NVIDIA) on Windows 10+.
-    3. Returns ``None`` values if no method succeeds.
+    Delegates to the centralised ``services.gpu.metrics`` module which
+    supports NVIDIA (pynvml), AMD (Linux sysfs), and Windows perf
+    counters across all GPU vendors.
     """
-    result: dict[str, float | int | None] = {
-        "util": None,
-        "vram_used": None,
-        "vram_total": None,
+    from llm_port_backend.services.gpu.metrics import collect_gpu_metrics  # noqa: PLC0415
+
+    m = collect_gpu_metrics()
+    return {
+        "util": m.util_percent,
+        "vram_used": m.vram_used_bytes,
+        "vram_total": m.vram_total_bytes,
     }
-
-    # ── Strategy 1: NVIDIA pynvml ─────────────────────────────────────
-    with contextlib.suppress(ImportError, Exception):
-        import pynvml  # noqa: PLC0415
-
-        pynvml.nvmlInit()
-        try:
-            count = pynvml.nvmlDeviceGetCount()
-            if count > 0:
-                total_util = 0.0
-                total_vram_used = 0
-                total_vram_total = 0
-                for i in range(count):
-                    handle = pynvml.nvmlDeviceGetHandleByIndex(i)
-                    util = pynvml.nvmlDeviceGetUtilizationRates(handle)
-                    mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
-                    total_util += float(util.gpu)
-                    total_vram_used += int(mem.used)
-                    total_vram_total += int(mem.total)
-                result["util"] = round(total_util / count, 1)
-                result["vram_used"] = total_vram_used
-                result["vram_total"] = total_vram_total
-                return result
-        finally:
-            pynvml.nvmlShutdown()
-
-    # ── Strategy 2: Windows Performance Counters ──────────────────────
-    if sys.platform == "win32":
-        with contextlib.suppress(Exception):
-            result = _gpu_from_win_perf_counters()
-            if result["util"] is not None:
-                return result
-
-    return result
-
-
-def _gpu_from_win_perf_counters() -> dict[str, float | int | None]:
-    """Read GPU metrics from Windows Performance Counters (PDH).
-
-    Uses ``Get-Counter`` to query:
-    - ``\\GPU Engine(*engtype_3D)\\Utilization Percentage`` — 3D engine %
-    - ``\\GPU Local Adapter Memory(*)\\Local Usage`` — dedicated VRAM used
-    - ``\\GPU Adapter Memory(*)\\Dedicated Usage`` — per-adapter dedicated
-
-    Works for AMD, Intel, and NVIDIA GPUs on Windows 10+.
-    """
-    result: dict[str, float | int | None] = {
-        "util": None,
-        "vram_used": None,
-        "vram_total": None,
-    }
-
-    ps_script = (
-        "$ErrorActionPreference='SilentlyContinue';"
-        "$u=(Get-Counter '\\GPU Engine(*engtype_3D)\\Utilization Percentage'"
-        " -ErrorAction SilentlyContinue).CounterSamples"
-        " | Measure-Object -Property CookedValue -Sum;"
-        "$m=(Get-Counter '\\GPU Local Adapter Memory(*)\\Local Usage'"
-        " -ErrorAction SilentlyContinue).CounterSamples"
-        " | Measure-Object -Property CookedValue -Sum;"
-        "Write-Output \"$($u.Sum)|$($m.Sum)\""
-    )
-
-    try:
-        proc = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", ps_script],
-            capture_output=True,
-            text=True,
-            timeout=8,
-        )
-        if proc.returncode == 0 and proc.stdout.strip():
-            parts = proc.stdout.strip().split("|")
-            if len(parts) >= 2:
-                util_str = parts[0].strip().replace(",", ".")
-                vram_str = parts[1].strip().replace(",", ".")
-                if util_str:
-                    result["util"] = round(float(util_str), 1)
-                if vram_str:
-                    result["vram_used"] = int(float(vram_str))
-    except Exception:
-        _gpu_logger.debug("Windows GPU perf counter query failed", exc_info=True)
-
-    # Total VRAM — prefer the 64-bit registry value (accurate for GPUs
-    # >4 GB) over the 32-bit WMI AdapterRAM which wraps at 4 GB.
-    if result["util"] is not None:
-        with contextlib.suppress(Exception):
-            proc = subprocess.run(
-                [
-                    "powershell", "-NoProfile", "-Command",
-                    "$r = Get-ItemProperty"
-                    " 'HKLM:\\SYSTEM\\ControlSet001\\Control\\Class"
-                    "\\{4d36e968-e325-11ce-bfc1-08002be10318}\\0*'"
-                    " -Name 'HardwareInformation.qwMemorySize'"
-                    " -ErrorAction SilentlyContinue"
-                    " | Select-Object -First 1"
-                    " -ExpandProperty 'HardwareInformation.qwMemorySize';"
-                    "if ($r) { $r } else {"
-                    " (Get-CimInstance Win32_VideoController"
-                    " | Select-Object -First 1 -ExpandProperty AdapterRAM) }",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            if proc.returncode == 0 and proc.stdout.strip():
-                result["vram_total"] = int(proc.stdout.strip())
-
-    return result
 
 
 def _collect_host_snapshot() -> dict[str, object]:

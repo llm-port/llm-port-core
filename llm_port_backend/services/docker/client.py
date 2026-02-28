@@ -117,6 +117,10 @@ class DockerService:
         network: str | None = None,
         auto_start: bool = False,
         gpu_devices: str | list[int] | None = None,
+        gpu_vendor: "GpuVendor | None" = None,
+        devices: list[str] | None = None,
+        security_opt: list[str] | None = None,
+        group_add: list[str] | None = None,
         healthcheck: dict[str, Any] | None = None,
         labels: dict[str, str] | None = None,
     ) -> dict[str, Any]:
@@ -133,8 +137,18 @@ class DockerService:
         :param network: Name/ID of network to attach on creation.
         :param auto_start: If ``True``, start the container immediately.
         :param gpu_devices: GPU passthrough — ``"all"`` for all GPUs, or a list
-            of device indices (e.g. ``[0, 1]``).  Requires NVIDIA Container
-            Toolkit on the host.
+            of device indices (e.g. ``[0, 1]``).
+        :param gpu_vendor: GPU vendor hint.  When set, the correct
+            vendor-specific Docker passthrough mechanism is used
+            (NVIDIA DeviceRequests, AMD device mounts, etc.).  Falls back
+            to auto-detection or NVIDIA-style if ``None``.
+        :param devices: Explicit raw device mounts (e.g.
+            ``["/dev/kfd", "/dev/dri"]``).  Primarily used for AMD ROCm
+            and Intel oneAPI GPU passthrough.
+        :param security_opt: Security options (e.g.
+            ``["seccomp=unconfined"]`` for ROCm).
+        :param group_add: Supplementary groups (e.g.
+            ``["video", "render"]`` for AMD/Intel GPUs).
         :param healthcheck: Docker healthcheck config dict with keys:
             ``Test`` (list[str]), ``Interval`` (int, ns), ``Timeout`` (int, ns),
             ``Retries`` (int).  Example::
@@ -144,6 +158,9 @@ class DockerService:
         :param labels: Optional container labels, e.g. ``{"app": "vllm"}``.
         :return: Container inspect dict.
         """
+        from llm_port_backend.services.gpu.passthrough import build_gpu_host_config  # noqa: PLC0415
+        from llm_port_backend.services.gpu.types import GpuVendor as _GpuVendor  # noqa: PLC0415
+
         config: dict[str, Any] = {"Image": image}
         if cmd:
             config["Cmd"] = cmd
@@ -161,19 +178,31 @@ class DockerService:
             host_config["Binds"] = volumes
         if network:
             host_config["NetworkMode"] = network
+
+        # ── GPU passthrough (vendor-aware) ────────────────────────────
         if gpu_devices is not None:
-            device_ids: list[str]
-            if gpu_devices == "all":
-                device_ids = ["all"]
-            else:
-                device_ids = [str(d) for d in gpu_devices]
-            host_config["DeviceRequests"] = [
-                {
-                    "Driver": "nvidia",
-                    "DeviceIDs": device_ids,
-                    "Capabilities": [["gpu"]],
-                },
-            ]
+            effective_vendor = gpu_vendor or _GpuVendor.NVIDIA
+            try:
+                gpu_hc = build_gpu_host_config(effective_vendor, gpu_devices)
+                host_config.update(gpu_hc)
+            except NotImplementedError:
+                # Apple Metal — no Docker GPU passthrough possible
+                pass
+
+        # ── Explicit device mounts (e.g. from ContainerSpec) ──────────
+        if devices:
+            existing_devices = host_config.get("Devices", [])
+            for d in devices:
+                existing_devices.append(
+                    {"PathOnHost": d, "PathInContainer": d, "CgroupPermissions": "rwm"}
+                )
+            host_config["Devices"] = existing_devices
+
+        if security_opt:
+            host_config["SecurityOpt"] = security_opt
+        if group_add:
+            host_config["GroupAdd"] = group_add
+
         config["HostConfig"] = host_config
 
         create_kwargs: dict[str, Any] = {"config": config}

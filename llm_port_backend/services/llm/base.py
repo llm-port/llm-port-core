@@ -7,6 +7,7 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 from llm_port_backend.db.models.llm import LLMModel, LLMProvider, LLMRuntime, ModelArtifact
+from llm_port_backend.services.gpu.types import GpuVendor
 
 
 @dataclasses.dataclass(frozen=True)
@@ -41,6 +42,10 @@ class ContainerSpec:
     volumes: list[str] | None = None
     network: str | None = None
     gpu_devices: str | list[int] | None = None
+    gpu_vendor: GpuVendor | None = None
+    devices: list[str] | None = None
+    security_opt: list[str] | None = None
+    group_add: list[str] | None = None
     healthcheck: dict[str, Any] | None = None
     labels: dict[str, str] | None = None
 

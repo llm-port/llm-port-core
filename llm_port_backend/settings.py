@@ -75,6 +75,7 @@ class Settings(BaseSettings):
     model_store_root: str = "/srv/llm-port/models"
     hf_token: str | None = None
     default_vllm_image: str = "vllm/vllm-openai:latest"
+    default_vllm_rocm_image: str = "vllm/vllm-openai:latest-rocm"
     llm_graph_db_host: str = "localhost"
     llm_graph_db_port: int = 5432
     llm_graph_db_user: str = "llm_user"

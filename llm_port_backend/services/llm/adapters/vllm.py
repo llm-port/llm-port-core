@@ -1,4 +1,4 @@
-"""vLLM provider adapter — MVP engine."""
+"""vLLM provider adapter — MVP engine with multi-vendor GPU support."""
 
 from __future__ import annotations
 
@@ -15,6 +15,8 @@ from llm_port_backend.db.models.llm import (
     ModelArtifact,
     ProviderType,
 )
+from llm_port_backend.services.gpu.detector import detect_gpus
+from llm_port_backend.services.gpu.types import GpuComputeApi, GpuVendor
 from llm_port_backend.services.llm.base import (
     CompatResult,
     ContainerSpec,
@@ -28,6 +30,15 @@ log = logging.getLogger(__name__)
 
 # Nanosecond helpers for Docker healthcheck intervals
 _SECOND_NS = 1_000_000_000
+
+# ── Image selection per GPU vendor ────────────────────────────────────
+# vLLM publishes separate container images for CUDA and ROCm.
+# The correct image is chosen based on the detected GPU vendor.
+_VLLM_IMAGES: dict[GpuVendor, str] = {
+    GpuVendor.NVIDIA: settings.default_vllm_image,
+    GpuVendor.AMD: settings.default_vllm_rocm_image,
+    # Intel and Apple are not supported by vLLM — CPU fallback
+}
 
 
 class VLLMAdapter(ProviderAdapter):
@@ -70,6 +81,9 @@ class VLLMAdapter(ProviderAdapter):
 
         The model directory is mounted read-only into the container at
         ``/models/<hf_repo_id or model_id>``.
+
+        GPU vendor auto-detection selects the correct container image
+        (CUDA vs ROCm) and Docker passthrough mechanism automatically.
         """
         gc: dict[str, Any] = runtime.generic_config or {}
         pc: dict[str, Any] = runtime.provider_config or {}
@@ -78,7 +92,23 @@ class VLLMAdapter(ProviderAdapter):
         model_dir = self._resolve_model_dir(model, artifacts, model_store_root)
         container_model_path = f"/models/{model.hf_repo_id or str(model.id)}"
 
-        image = pc.get("image", settings.default_vllm_image)
+        # ── GPU vendor detection & image selection ────────────────────
+        inventory = detect_gpus()
+        gpu_vendor = inventory.primary_vendor
+        compute_api = inventory.primary_compute_api
+
+        # Allow explicit override via provider_config
+        if vendor_override := pc.get("gpu_vendor"):
+            gpu_vendor = GpuVendor(vendor_override)
+
+        # Select the correct vLLM image for the GPU vendor
+        default_image = _VLLM_IMAGES.get(gpu_vendor, settings.default_vllm_image)
+        image = pc.get("image", default_image)
+
+        log.info(
+            "vLLM runtime %r: detected GPU vendor=%s, compute=%s, image=%s",
+            runtime.name, gpu_vendor, compute_api, image,
+        )
 
         # Build vLLM CLI args
         cmd = ["--model", container_model_path]
@@ -94,6 +124,14 @@ class VLLMAdapter(ProviderAdapter):
             cmd += ["--tensor-parallel-size", str(tp)]
         if gc.get("enable_metrics"):
             cmd += ["--enable-metrics"]
+
+        # CPU-only mode when no supported GPU is found
+        if gpu_vendor in (GpuVendor.UNKNOWN, GpuVendor.APPLE) or not inventory.has_gpu:
+            cmd += ["--device", "cpu"]
+            log.warning(
+                "No supported GPU for vLLM (vendor=%s). Running in CPU-only mode.",
+                gpu_vendor,
+            )
 
         # Provider overlay → extra args
         if extra_args := pc.get("extra_args"):
@@ -115,6 +153,13 @@ class VLLMAdapter(ProviderAdapter):
         if gc.get("log_level"):
             env.append(f"VLLM_LOG_LEVEL={gc['log_level']}")
 
+        # ROCm-specific environment variables
+        if gpu_vendor == GpuVendor.AMD:
+            env.append("HSA_OVERRIDE_GFX_VERSION=11.0.0")  # Broad gfx compatibility
+            if tp_val := gc.get("tensor_parallel_size"):
+                # ROCm needs explicit visible device ordering for TP
+                env.append(f"HIP_VISIBLE_DEVICES={','.join(str(i) for i in range(int(tp_val)))}")
+
         # Healthcheck
         healthcheck = {
             "Test": ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"],
@@ -128,6 +173,7 @@ class VLLMAdapter(ProviderAdapter):
             "llm-port.service": "llm-runtime",
             "llm-port.runtime_id": str(runtime.id),
             "llm-port.provider": "vllm",
+            "llm-port.gpu_vendor": gpu_vendor.value,
         }
 
         return ContainerSpec(
@@ -137,7 +183,8 @@ class VLLMAdapter(ProviderAdapter):
             env=env or None,
             ports=ports,
             volumes=volumes,
-            gpu_devices=gpu_devices,
+            gpu_devices=gpu_devices if inventory.has_gpu else None,
+            gpu_vendor=gpu_vendor if inventory.has_gpu else None,
             healthcheck=healthcheck,
             labels=labels,
         )
@@ -164,11 +211,18 @@ class VLLMAdapter(ProviderAdapter):
     # ------------------------------------------------------------------
 
     def default_capabilities(self) -> dict[str, Any]:
+        inventory = detect_gpus()
         return {
             "supports_gpu": True,
             "supports_openai_compat": True,
             "supports_quant": True,
             "artifact_formats": ["safetensors"],
+            "gpu_vendor": inventory.primary_vendor.value,
+            "gpu_compute_api": inventory.primary_compute_api.value,
+            "gpu_count": inventory.device_count,
+            "recommended_image": _VLLM_IMAGES.get(
+                inventory.primary_vendor, settings.default_vllm_image,
+            ),
         }
 
     # ------------------------------------------------------------------
