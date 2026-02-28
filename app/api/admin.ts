@@ -610,6 +610,96 @@ export const adminGroups = {
   },
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Auth Providers (SSO)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface AuthProviderPublic {
+  id: string;
+  name: string;
+  provider_type: string;
+}
+
+export interface AuthProviderDetail {
+  id: string;
+  name: string;
+  provider_type: string;
+  client_id: string;
+  discovery_url: string | null;
+  authorize_url: string | null;
+  token_url: string | null;
+  userinfo_url: string | null;
+  scopes: string;
+  enabled: boolean;
+  auto_register: boolean;
+  default_role_ids: string[];
+  group_mapping: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export const adminAuthProviders = {
+  /** List enabled providers for the login page (no auth required). */
+  listPublic() {
+    return request<AuthProviderPublic[]>("/auth-providers/public");
+  },
+  /** List all providers (admin only). */
+  list() {
+    return request<AuthProviderDetail[]>("/auth-providers/");
+  },
+  get(providerId: string) {
+    return request<AuthProviderDetail>(`/auth-providers/${providerId}`);
+  },
+  create(payload: {
+    name: string;
+    provider_type: string;
+    client_id: string;
+    client_secret: string;
+    discovery_url?: string;
+    authorize_url?: string;
+    token_url?: string;
+    userinfo_url?: string;
+    scopes?: string;
+    enabled?: boolean;
+    auto_register?: boolean;
+    default_role_ids?: string[];
+  }) {
+    return request<AuthProviderDetail>("/auth-providers/", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+  update(
+    providerId: string,
+    payload: Partial<{
+      name: string;
+      provider_type: string;
+      client_id: string;
+      client_secret: string;
+      discovery_url: string;
+      authorize_url: string;
+      token_url: string;
+      userinfo_url: string;
+      scopes: string;
+      enabled: boolean;
+      auto_register: boolean;
+      default_role_ids: string[];
+    }>,
+  ) {
+    return request<AuthProviderDetail>(`/auth-providers/${providerId}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+  },
+  delete(providerId: string) {
+    return request<void>(`/auth-providers/${providerId}`, { method: "DELETE" });
+  },
+  /** Returns the URL the user should be redirected to for SSO login. */
+  authorizeUrl(providerId: string) {
+    return `${BASE}/auth-providers/${providerId}/authorize`;
+  },
+};
+
 export function canExec(cls: ContainerClass, rootModeActive: boolean): boolean {
   if (cls === "TENANT_APP") return true;
   return rootModeActive;

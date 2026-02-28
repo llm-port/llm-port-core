@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Link as RouterLink, useNavigate, useSearchParams } from "react-router";
 import { auth } from "~/api/auth";
+import { adminAuthProviders, type AuthProviderPublic } from "~/api/admin";
 import { useTranslation } from "react-i18next";
 
 import Alert from "@mui/material/Alert";
@@ -9,6 +10,7 @@ import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Card from "@mui/material/Card";
 import CardContent from "@mui/material/CardContent";
+import Divider from "@mui/material/Divider";
 import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
@@ -23,6 +25,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("admin");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [ssoProviders, setSsoProviders] = useState<AuthProviderPublic[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -36,10 +39,27 @@ export default function LoginPage() {
       .catch(() => {
         // not logged in
       });
+
+    // Load available SSO providers
+    adminAuthProviders
+      .listPublic()
+      .then((providers) => {
+        if (!cancelled) setSsoProviders(providers);
+      })
+      .catch(() => {
+        // SSO not available — ignore
+      });
+
+    // Check for OAuth error in query params
+    const oauthError = params.get("error");
+    if (oauthError) {
+      setError(`SSO login failed: ${oauthError}`);
+    }
+
     return () => {
       cancelled = true;
     };
-  }, [navigate, next]);
+  }, [navigate, next, params]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -113,6 +133,24 @@ export default function LoginPage() {
             <Button variant="outlined" disabled={loading} onClick={handleDevLogin}>
               {t("auth.dev_login")}
             </Button>
+
+            {ssoProviders.length > 0 && (
+              <>
+                <Divider>{t("auth.or_sso")}</Divider>
+                {ssoProviders.map((provider) => (
+                  <Button
+                    key={provider.id}
+                    variant="outlined"
+                    disabled={loading}
+                    onClick={() => {
+                      window.location.href = adminAuthProviders.authorizeUrl(provider.id);
+                    }}
+                  >
+                    {t("auth.sign_in_with", { provider: provider.name })}
+                  </Button>
+                ))}
+              </>
+            )}
 
             <Button component={RouterLink} to="/" size="small">
               {t("auth.back_home")}
