@@ -3,11 +3,18 @@
  */
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { providers, type Provider, type ProviderType, type CreateProviderPayload } from "~/api/llm";
+import {
+  providers,
+  type Provider,
+  type ProviderType,
+  type ProviderTarget,
+  type CreateProviderPayload,
+} from "~/api/llm";
 import { DataTable, type ColumnDef } from "~/components/DataTable";
 import { EngineChip } from "~/components/Chips";
 
 import Button from "@mui/material/Button";
+import Chip from "@mui/material/Chip";
 import Dialog from "@mui/material/Dialog";
 import DialogActions from "@mui/material/DialogActions";
 import DialogContent from "@mui/material/DialogContent";
@@ -27,6 +34,7 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
 
 const PROVIDER_TYPES: ProviderType[] = ["vllm", "llamacpp", "tgi", "ollama"];
+const PROVIDER_TARGETS: ProviderTarget[] = ["local_docker", "remote_endpoint"];
 
 export default function ProvidersPage() {
   const { t } = useTranslation();
@@ -38,6 +46,9 @@ export default function ProvidersPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [createName, setCreateName] = useState("");
   const [createType, setCreateType] = useState<ProviderType>("vllm");
+  const [createTarget, setCreateTarget] = useState<ProviderTarget>("local_docker");
+  const [createEndpointUrl, setCreateEndpointUrl] = useState("");
+  const [createApiKey, setCreateApiKey] = useState("");
 
   // Edit dialog state
   const [editTarget, setEditTarget] = useState<Provider | null>(null);
@@ -61,10 +72,20 @@ export default function ProvidersPage() {
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
+    const payload: CreateProviderPayload = {
+      name: createName,
+      type: createType,
+      target: createTarget,
+      ...(createTarget === "remote_endpoint" && createEndpointUrl && { endpoint_url: createEndpointUrl }),
+      ...(createTarget === "remote_endpoint" && createApiKey && { api_key: createApiKey }),
+    };
     try {
-      await providers.create({ name: createName, type: createType });
+      await providers.create(payload);
       setShowCreate(false);
       setCreateName("");
+      setCreateTarget("local_docker");
+      setCreateEndpointUrl("");
+      setCreateApiKey("");
       await load();
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : t("common.create_failed"));
@@ -120,9 +141,20 @@ export default function ProvidersPage() {
       sortable: true,
       sortValue: (p) => p.target,
       render: (p) => (
-        <Typography variant="body2" color="text.secondary" fontSize="0.8rem">
-          {p.target}
-        </Typography>
+        <Stack direction="row" spacing={1} alignItems="center">
+          <Chip
+            label={t(`llm_providers.target_${p.target}`)}
+            size="small"
+            color={p.target === "remote_endpoint" ? "info" : "default"}
+            variant="outlined"
+            sx={{ fontSize: "0.75rem" }}
+          />
+          {p.target === "remote_endpoint" && p.endpoint_url && (
+            <Typography variant="caption" fontFamily="monospace" color="text.secondary">
+              {p.endpoint_url}
+            </Typography>
+          )}
+        </Stack>
       ),
     },
     {
@@ -199,7 +231,7 @@ export default function ProvidersPage() {
       <Dialog
         open={showCreate}
         onClose={() => setShowCreate(false)}
-        maxWidth="xs"
+        maxWidth="sm"
         fullWidth
       >
         <form onSubmit={handleCreate}>
@@ -227,6 +259,43 @@ export default function ProvidersPage() {
                 ))}
               </Select>
             </FormControl>
+            <FormControl fullWidth>
+              <InputLabel>{t("llm_providers.target")}</InputLabel>
+              <Select
+                value={createTarget}
+                label={t("llm_providers.target")}
+                onChange={(e) => setCreateTarget(e.target.value as ProviderTarget)}
+              >
+                {PROVIDER_TARGETS.map((tgt) => (
+                  <MenuItem key={tgt} value={tgt}>
+                    {t(`llm_providers.target_${tgt}`)}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
+            {/* Remote endpoint fields */}
+            {createTarget === "remote_endpoint" && (
+              <>
+                <TextField
+                  label={t("llm_providers.endpoint_url")}
+                  placeholder="https://api.example.com/v1"
+                  value={createEndpointUrl}
+                  onChange={(e) => setCreateEndpointUrl(e.target.value)}
+                  required
+                  fullWidth
+                  helperText={t("llm_providers.endpoint_url_help")}
+                />
+                <TextField
+                  label={t("llm_providers.api_key")}
+                  type="password"
+                  value={createApiKey}
+                  onChange={(e) => setCreateApiKey(e.target.value)}
+                  fullWidth
+                  helperText={t("llm_providers.api_key_help")}
+                />
+              </>
+            )}
           </DialogContent>
           <DialogActions>
             <Button onClick={() => setShowCreate(false)}>{t("common.cancel")}</Button>

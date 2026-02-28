@@ -107,6 +107,12 @@ export default function RuntimesPage() {
     [hwInfo],
   );
 
+  // Determine if the selected provider is remote (no Docker needed)
+  const selectedProviderIsRemote = useMemo(
+    () => providersList.find((p) => p.id === cProviderId)?.target === "remote_endpoint",
+    [providersList, cProviderId],
+  );
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -436,7 +442,7 @@ export default function RuntimesPage() {
           <DialogContent sx={{ display: "flex", flexDirection: "column", gap: 2, pt: "8px !important" }}>
 
             {/* ── GPU info banner ─────────────────────────────── */}
-            {hwInfo && (
+            {!selectedProviderIsRemote && hwInfo && (
               <Alert
                 severity={hwInfo.gpu.has_gpu ? "success" : "warning"}
                 variant="outlined"
@@ -491,8 +497,11 @@ export default function RuntimesPage() {
               </Select>
             </FormControl>
 
-            {/* ── Container image selector ────────────────────── */}
-            <FormControl fullWidth>
+            {/* ── Docker-only options (hidden for remote providers) ── */}
+            {!selectedProviderIsRemote && (
+              <>
+                {/* ── Container image selector ────────────────────── */}
+                <FormControl fullWidth>
               <InputLabel>{t("llm_runtimes.container_image")}</InputLabel>
               <Select
                 value={imageChoice}
@@ -620,6 +629,15 @@ export default function RuntimesPage() {
                 />
               </AccordionDetails>
             </Accordion>
+              </>
+            )}
+
+            {/* Remote provider hint */}
+            {selectedProviderIsRemote && (
+              <Alert severity="info" variant="outlined" sx={{ py: 0.5 }}>
+                {t("llm_runtimes.remote_provider_hint")}
+              </Alert>
+            )}
           </DialogContent>
           <DialogActions>
             <Button onClick={() => setShowCreate(false)}>{t("common.cancel")}</Button>
