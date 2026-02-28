@@ -29,7 +29,10 @@
     "rag_publishes": "Publishes",
     "rag_search": "Search",
     "logs": "Logs",
-    "settings": "Settings"
+    "settings": "Settings",
+    "pii_group": "Privacy (PII)",
+    "pii_dashboard": "Dashboard",
+    "pii_activity": "Activity Log"
   },
   "auth": {
     "logout": "Logout",
@@ -635,5 +638,34 @@
     "confirm_disable_body": "This will stop all containers for the {{module}} module. Any in-flight requests will be interrupted.",
     "partial_error": "Some containers had errors: {{errors}}",
     "action_success": "{{module}} {{action}}d successfully."
+  },
+  "pii_dashboard": {
+    "title": "PII Dashboard",
+    "total_scans": "Total Scans",
+    "with_pii": "With PII Detected",
+    "total_entities": "Entities Found",
+    "detection_rate": "Detection Rate",
+    "daily_volume": "Daily Scan Volume",
+    "total": "Total",
+    "pii_detected_label": "PII Detected",
+    "entity_breakdown": "Entity Type Breakdown",
+    "by_operation": "By Operation",
+    "by_source": "By Source",
+    "no_data": "No PII scan data yet. Events will appear as the gateway processes requests with PII policies enabled."
+  },
+  "pii_log": {
+    "title": "PII Activity Log",
+    "operation_filter": "Operation",
+    "source_filter": "Source",
+    "pii_only": "PII detected only",
+    "col_time": "Time",
+    "col_operation": "Operation",
+    "col_mode": "Mode",
+    "col_pii": "PII?",
+    "col_entities": "Entities",
+    "col_types": "Entity Types",
+    "col_source": "Source",
+    "col_lang": "Lang",
+    "no_events": "No PII events found."
   }
 }

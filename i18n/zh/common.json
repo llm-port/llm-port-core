@@ -23,7 +23,10 @@
     "agent_trace": "代理追踪",
     "endpoint": "端点",
     "logs": "日志",
-    "settings": "设置"
+    "settings": "设置",
+    "pii_group": "隐私 (PII)",
+    "pii_dashboard": "仪表盘",
+    "pii_activity": "活动日志"
   },
   "auth": {
     "logout": "退出登录",
@@ -551,5 +554,34 @@
     "confirm_disable_body": "将停止 {{module}} 模块的所有容器。进行中的请求将被中断。",
     "partial_error": "部分容器出错：{{errors}}",
     "action_success": "{{module}} {{action}} 成功。"
+  },
+  "pii_dashboard": {
+    "title": "PII 仪表盘",
+    "total_scans": "总扫描次数",
+    "with_pii": "检测到 PII",
+    "total_entities": "发现实体数",
+    "detection_rate": "检测率",
+    "daily_volume": "每日扫描量",
+    "total": "总计",
+    "pii_detected_label": "检测到 PII",
+    "entity_breakdown": "实体类型分布",
+    "by_operation": "按操作",
+    "by_source": "按来源",
+    "no_data": "暂无 PII 扫描数据。启用 PII 策略后，网关处理请求时将显示事件。"
+  },
+  "pii_log": {
+    "title": "PII 活动日志",
+    "operation_filter": "操作",
+    "source_filter": "来源",
+    "pii_only": "仅显示检测到 PII",
+    "col_time": "时间",
+    "col_operation": "操作",
+    "col_mode": "模式",
+    "col_pii": "PII？",
+    "col_entities": "实体数",
+    "col_types": "实体类型",
+    "col_source": "来源",
+    "col_lang": "语言",
+    "no_events": "未找到 PII 事件。"
   }
 }

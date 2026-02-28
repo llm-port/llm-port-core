@@ -23,7 +23,10 @@
     "agent_trace": "Agenten-Trace",
     "endpoint": "Endpunkt",
     "logs": "Logs",
-    "settings": "Einstellungen"
+    "settings": "Einstellungen",
+    "pii_group": "Datenschutz (PII)",
+    "pii_dashboard": "Dashboard",
+    "pii_activity": "Aktivitaetsprotokoll"
   },
   "auth": {
     "logout": "Abmelden",
@@ -551,5 +554,34 @@
     "confirm_disable_body": "Alle Container des Moduls {{module}} werden gestoppt. Laufende Anfragen werden unterbrochen.",
     "partial_error": "Einige Container hatten Fehler: {{errors}}",
     "action_success": "{{module}} erfolgreich {{action}}."
+  },
+  "pii_dashboard": {
+    "title": "PII-Dashboard",
+    "total_scans": "Gesamtscans",
+    "with_pii": "Mit PII erkannt",
+    "total_entities": "Entitaeten gefunden",
+    "detection_rate": "Erkennungsrate",
+    "daily_volume": "Taegliches Scanvolumen",
+    "total": "Gesamt",
+    "pii_detected_label": "PII erkannt",
+    "entity_breakdown": "Aufschluesselung nach Entitaetstyp",
+    "by_operation": "Nach Operation",
+    "by_source": "Nach Quelle",
+    "no_data": "Noch keine PII-Scandaten. Ereignisse erscheinen, wenn das Gateway Anfragen mit aktivierten PII-Richtlinien verarbeitet."
+  },
+  "pii_log": {
+    "title": "PII-Aktivitaetsprotokoll",
+    "operation_filter": "Operation",
+    "source_filter": "Quelle",
+    "pii_only": "Nur mit PII erkannt",
+    "col_time": "Zeit",
+    "col_operation": "Operation",
+    "col_mode": "Modus",
+    "col_pii": "PII?",
+    "col_entities": "Entitaeten",
+    "col_types": "Entitaetstypen",
+    "col_source": "Quelle",
+    "col_lang": "Sprache",
+    "no_events": "Keine PII-Ereignisse gefunden."
   }
 }

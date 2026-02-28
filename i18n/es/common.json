@@ -23,7 +23,10 @@
     "agent_trace": "Traza de Agente",
     "endpoint": "Punto de Acceso",
     "logs": "Logs",
-    "settings": "Configuracion"
+    "settings": "Configuracion",
+    "pii_group": "Privacidad (PII)",
+    "pii_dashboard": "Panel",
+    "pii_activity": "Registro de Actividad"
   },
   "auth": {
     "logout": "Cerrar sesion",
@@ -551,5 +554,34 @@
     "confirm_disable_body": "Se detendran todos los contenedores del modulo {{module}}. Las solicitudes en curso seran interrumpidas.",
     "partial_error": "Algunos contenedores tuvieron errores: {{errors}}",
     "action_success": "{{module}} {{action}} exitosamente."
+  },
+  "pii_dashboard": {
+    "title": "Panel PII",
+    "total_scans": "Escaneos Totales",
+    "with_pii": "Con PII Detectado",
+    "total_entities": "Entidades Encontradas",
+    "detection_rate": "Tasa de Deteccion",
+    "daily_volume": "Volumen Diario de Escaneo",
+    "total": "Total",
+    "pii_detected_label": "PII Detectado",
+    "entity_breakdown": "Desglose por Tipo de Entidad",
+    "by_operation": "Por Operacion",
+    "by_source": "Por Fuente",
+    "no_data": "Aun no hay datos de escaneo PII. Los eventos aparecaran cuando el gateway procese solicitudes con politicas PII habilitadas."
+  },
+  "pii_log": {
+    "title": "Registro de Actividad PII",
+    "operation_filter": "Operacion",
+    "source_filter": "Fuente",
+    "pii_only": "Solo con PII detectado",
+    "col_time": "Hora",
+    "col_operation": "Operacion",
+    "col_mode": "Modo",
+    "col_pii": "PII?",
+    "col_entities": "Entidades",
+    "col_types": "Tipos de Entidad",
+    "col_source": "Fuente",
+    "col_lang": "Idioma",
+    "no_events": "No se encontraron eventos PII."
   }
 }

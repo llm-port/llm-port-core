@@ -96,7 +96,7 @@ class Settings(BaseSettings):
     rag_enabled: bool = True
 
     # PII module settings
-    pii_enabled: bool = False
+    pii_enabled: bool = True
     pii_service_url: str = "http://localhost:8003/api"
 
     # Admin dashboard / Grafana embedding settings
