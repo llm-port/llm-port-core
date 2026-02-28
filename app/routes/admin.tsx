@@ -74,6 +74,32 @@ import PeopleIcon from "@mui/icons-material/People";
 import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
 import GroupWorkIcon from "@mui/icons-material/GroupWork";
 import VpnKeyIcon from "@mui/icons-material/VpnKey";
+import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
+import RestartAltIcon from "@mui/icons-material/RestartAlt";
+import Divider from "@mui/material/Divider";
+
+import {
+  DndContext,
+  DragOverlay,
+  closestCenter,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+  useDroppable,
+  type DragStartEvent,
+  type DragOverEvent,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+  arrayMove,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { useNavOrder } from "~/lib/useNavOrder";
 
 const DRAWER_WIDTH_OPEN = 240;
 const DRAWER_WIDTH_CLOSED = 64;
@@ -154,6 +180,7 @@ interface NavChild {
 }
 
 interface NavGroup {
+  id: string;
   kind: "group";
   labelKey: string;
   icon: React.ReactNode;
@@ -163,6 +190,7 @@ interface NavGroup {
 }
 
 interface NavLeaf {
+  id: string;
   kind: "leaf";
   to: string;
   labelKey: string;
@@ -170,13 +198,16 @@ interface NavLeaf {
   permission?: string;
   /** Optional module name — leaf is hidden when this module is disabled. */
   module?: string;
+  /** When true the entry is only shown for superusers. */
+  superuserOnly?: boolean;
 }
 
 type NavEntry = NavGroup | NavLeaf;
 
 const NAV: NavEntry[] = [
-  { kind: "leaf", to: "/admin/dashboard", labelKey: "nav.dashboard", icon: <DashboardIcon /> },
+  { id: "dashboard", kind: "leaf", to: "/admin/dashboard", labelKey: "nav.dashboard", icon: <DashboardIcon /> },
   {
+    id: "containers",
     kind: "group",
     labelKey: "nav.containers_group",
     icon: <StorageIcon />,
@@ -188,6 +219,7 @@ const NAV: NavEntry[] = [
     ],
   },
   {
+    id: "llm",
     kind: "group",
     labelKey: "nav.llm_group",
     icon: <LlmIcon />,
@@ -198,6 +230,7 @@ const NAV: NavEntry[] = [
     ],
   },
   {
+    id: "agent-trace",
     kind: "leaf",
     to: "/admin/llm/agent-trace",
     labelKey: "nav.agent_trace",
@@ -205,6 +238,7 @@ const NAV: NavEntry[] = [
     permission: "llm.graph:read",
   },
   {
+    id: "endpoint",
     kind: "leaf",
     to: "/admin/llm/endpoint",
     labelKey: "nav.endpoint",
@@ -212,6 +246,7 @@ const NAV: NavEntry[] = [
     permission: "llm.graph:read",
   },
   {
+    id: "access-control",
     kind: "group",
     labelKey: "nav.access_control_group",
     icon: <SecurityIcon />,
@@ -223,6 +258,7 @@ const NAV: NavEntry[] = [
     ],
   },
   {
+    id: "pii",
     kind: "group",
     labelKey: "nav.pii_group",
     icon: <ShieldIcon />,
@@ -241,6 +277,7 @@ const NAV: NavEntry[] = [
     ],
   },
   {
+    id: "rag",
     kind: "group",
     labelKey: "nav.rag_group",
     icon: <ManageSearchIcon />,
@@ -278,7 +315,17 @@ const NAV: NavEntry[] = [
       },
     ],
   },
+  // ── Items pinned to the bottom section by default ──
+  { id: "logs", kind: "leaf", to: "/admin/logs", labelKey: "nav.logs", icon: <ReceiptLongIcon /> },
+  { id: "settings", kind: "leaf", to: "/admin/settings?tab=general", labelKey: "nav.settings", superuserOnly: true, icon: <SettingsIcon /> },
 ];
+
+/** IDs that belong to the bottom "pinned" section by default. */
+const DEFAULT_PINNED_IDS = ["logs", "settings"];
+/** All nav entry IDs in definition order. */
+const ALL_NAV_IDS = NAV.map((e) => e.id);
+/** Quick lookup from id → static NavEntry (used by DragOverlay). */
+const NAV_BY_ID = new Map(NAV.map((e) => [e.id, e]));
 
 function adminPageTitle(pathname: string, search: string, t: (key: string) => string): string {
   if (pathname.startsWith("/admin/dashboard")) return t("dashboard.title");
@@ -333,6 +380,96 @@ const linkButtonSx = {
   },
 };
 
+/* ── DnD helper components ─────────────────────────────────────────── */
+
+/** Wraps a single nav entry so it can be sorted / dragged between sections. */
+function SortableNavItem({
+  id,
+  disabled,
+  drawerOpen,
+  children,
+}: {
+  id: string;
+  disabled?: boolean;
+  drawerOpen: boolean;
+  children: React.ReactNode;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id, disabled });
+
+  return (
+    <Box
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.35 : 1,
+      }}
+      {...attributes}
+      sx={{ position: "relative", "&:hover .nav-drag-handle": { opacity: 0.5 } }}
+    >
+      {/* Drag handle — visible only when drawer is expanded */}
+      {!disabled && drawerOpen && (
+        <Box
+          ref={setActivatorNodeRef}
+          {...listeners}
+          className="nav-drag-handle"
+          sx={{
+            position: "absolute",
+            left: -2,
+            top: 0,
+            bottom: 0,
+            width: 18,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            cursor: "grab",
+            opacity: 0,
+            transition: "opacity 0.15s",
+            zIndex: 2,
+            "&:hover": { opacity: "1 !important" },
+          }}
+        >
+          <DragIndicatorIcon sx={{ fontSize: 14, color: "text.disabled" }} />
+        </Box>
+      )}
+      {children}
+    </Box>
+  );
+}
+
+/** Droppable zone — ensures a section remains a valid drop target even when empty. */
+function DroppableZone({
+  id,
+  children,
+  sx,
+}: {
+  id: string;
+  children: React.ReactNode;
+  sx?: Record<string, unknown>;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id });
+  return (
+    <Box
+      ref={setNodeRef}
+      sx={{
+        ...sx,
+        transition: "background-color 0.2s",
+        ...(isOver ? { bgcolor: "rgba(124,77,255,0.06)", borderRadius: 1 } : {}),
+      }}
+    >
+      {children}
+    </Box>
+  );
+}
+
 export default function AdminLayout() {
   return (
     <ServicesProvider>
@@ -378,6 +515,72 @@ function AdminLayoutInner() {
 
   function toggleGroup(label: string) {
     setExpanded((prev) => ({ ...prev, [label]: !prev[label] }));
+  }
+
+  /* ── DnD: nav reordering ────────────────────────────────────────── */
+  const { order, setOrder, resetOrder } = useNavOrder(ALL_NAV_IDS, DEFAULT_PINNED_IDS);
+  const [activeId, setActiveId] = useState<string | null>(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  function findContainerForItem(itemId: string): "main" | "pinned" | null {
+    if (order.mainIds.includes(itemId)) return "main";
+    if (order.pinnedIds.includes(itemId)) return "pinned";
+    return null;
+  }
+
+  function resolveContainer(id: string): "main" | "pinned" | null {
+    return findContainerForItem(id) ?? (id === "droppable-main" ? "main" : id === "droppable-pinned" ? "pinned" : null);
+  }
+
+  function handleDragStart(event: DragStartEvent) {
+    setActiveId(event.active.id as string);
+  }
+
+  /** Cross-container move — fires continuously while hovering over a different section. */
+  function handleDragOver(event: DragOverEvent) {
+    const { active, over } = event;
+    if (!over) return;
+    const aId = active.id as string;
+    const oId = over.id as string;
+    const from = findContainerForItem(aId);
+    const to = resolveContainer(oId);
+    if (!from || !to || from === to) return;
+
+    setOrder((prev) => {
+      const fromKey = from === "main" ? "mainIds" : "pinnedIds" as const;
+      const toKey = to === "main" ? "mainIds" : "pinnedIds" as const;
+      const fromList = prev[fromKey].filter((id) => id !== aId);
+      const toList = [...prev[toKey]];
+      const overIdx = toList.indexOf(oId);
+      toList.splice(overIdx >= 0 ? overIdx : toList.length, 0, aId);
+      return {
+        mainIds: fromKey === "mainIds" ? fromList : toList,
+        pinnedIds: fromKey === "pinnedIds" ? fromList : toList,
+      };
+    });
+  }
+
+  /** Same-container reorder — fires once on drop. */
+  function handleDragEnd(event: DragEndEvent) {
+    setActiveId(null);
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const aId = active.id as string;
+    const oId = over.id as string;
+    const container = findContainerForItem(aId);
+    if (!container || container !== findContainerForItem(oId)) return;
+    const key = container === "main" ? "mainIds" : "pinnedIds" as const;
+    setOrder((prev) => {
+      const list = [...prev[key]];
+      const oldIndex = list.indexOf(aId);
+      const newIndex = list.indexOf(oId);
+      if (oldIndex === -1 || newIndex === -1) return prev;
+      return { ...prev, [key]: arrayMove(list, oldIndex, newIndex) };
+    });
   }
 
   function applyAccessState(access: {
@@ -492,16 +695,27 @@ function AdminLayoutInner() {
     return isSuperuser || permissionKeys.has(permission);
   };
   const { isModuleEnabled } = useServices();
-  const navEntries = NAV
+
+  // Filter entries by permissions / modules / superuser, then split by saved order
+  const visibleEntries = NAV
     .map((entry) => {
-      // Hide entries that belong to a disabled module
       if (entry.module && !isModuleEnabled(entry.module)) return null;
-      if (entry.kind === "leaf") return hasPermission(entry.permission) ? entry : null;
+      if (entry.kind === "leaf") {
+        if (entry.superuserOnly && !isSuperuser) return null;
+        return hasPermission(entry.permission) ? entry : null;
+      }
       const children = entry.children.filter((child) => hasPermission(child.permission));
-      return { ...entry, children };
+      return children.length > 0 ? { ...entry, children } : null;
     })
-    .filter((entry): entry is NavEntry => entry !== null)
-    .filter((entry) => entry.kind === "leaf" || entry.children.length > 0);
+    .filter((entry): entry is NavEntry => entry !== null);
+
+  const visibleById = new Map(visibleEntries.map((e) => [e.id, e]));
+  const visibleIdSet = new Set(visibleEntries.map((e) => e.id));
+  const mainVisible = order.mainIds.filter((id) => visibleIdSet.has(id)).map((id) => visibleById.get(id)!);
+  const pinnedVisible = order.pinnedIds.filter((id) => visibleIdSet.has(id)).map((id) => visibleById.get(id)!);
+  const mainVisibleIds = mainVisible.map((e) => e.id);
+  const pinnedVisibleIds = pinnedVisible.map((e) => e.id);
+
   const infoSlides = [
     {
       title: t("help.slides.containers.title"),
@@ -524,6 +738,124 @@ function AdminLayoutInner() {
       image: "/help-api-endpoint.svg",
     },
   ];
+
+  /* ── Render a single nav entry (leaf or group) ───────────────────── */
+  function renderNavEntry(entry: NavEntry) {
+    if (entry.kind === "leaf") {
+      return (
+        <ListItem disablePadding sx={{ mb: 0.5 }}>
+          <Tooltip title={drawerOpen ? "" : t(entry.labelKey)} placement="right" arrow>
+            <ListItemButton
+              component={NavLink}
+              to={entry.to}
+              sx={{ ...linkButtonSx, justifyContent: drawerOpen ? "initial" : "center" }}
+            >
+              <ListItemIcon
+                sx={{
+                  minWidth: drawerOpen ? 40 : "unset",
+                  color: "text.secondary",
+                  justifyContent: "center",
+                }}
+              >
+                {entry.icon}
+              </ListItemIcon>
+              {drawerOpen && (
+                <ListItemText
+                  primary={t(entry.labelKey)}
+                  primaryTypographyProps={{ fontSize: "0.875rem", fontWeight: 500 }}
+                />
+              )}
+            </ListItemButton>
+          </Tooltip>
+        </ListItem>
+      );
+    }
+
+    /* Group header + collapsible children */
+    const isGroupExpanded = expanded[entry.labelKey] ?? false;
+    const isGroupActive = entry.children.some((c) => location.pathname.startsWith(c.to));
+
+    return (
+      <Box>
+        <ListItem disablePadding sx={{ mb: 0.5 }}>
+          <Tooltip title={drawerOpen ? "" : t(entry.labelKey)} placement="right" arrow>
+            <ListItemButton
+              onClick={() => {
+                const defaultTo = entry.children[0]?.to;
+                if (drawerOpen) {
+                  toggleGroup(entry.labelKey);
+                  if (!isGroupExpanded && defaultTo) navigate(defaultTo);
+                } else {
+                  setDrawerOpen(true);
+                  setExpanded((prev) => ({ ...prev, [entry.labelKey]: true }));
+                  if (defaultTo) navigate(defaultTo);
+                }
+              }}
+              sx={{
+                ...linkButtonSx,
+                justifyContent: drawerOpen ? "initial" : "center",
+                ...(isGroupActive && !drawerOpen
+                  ? {
+                      bgcolor: "primary.dark",
+                      color: "primary.light",
+                      "& .MuiListItemIcon-root": { color: "primary.light" },
+                    }
+                  : {}),
+              }}
+            >
+              <ListItemIcon
+                sx={{
+                  minWidth: drawerOpen ? 40 : "unset",
+                  color: "text.secondary",
+                  justifyContent: "center",
+                }}
+              >
+                {entry.icon}
+              </ListItemIcon>
+              {drawerOpen && (
+                <>
+                  <ListItemText
+                    primary={t(entry.labelKey)}
+                    primaryTypographyProps={{ fontSize: "0.875rem", fontWeight: 600 }}
+                  />
+                  {isGroupExpanded ? (
+                    <ExpandLess fontSize="small" />
+                  ) : (
+                    <ExpandMore fontSize="small" />
+                  )}
+                </>
+              )}
+            </ListItemButton>
+          </Tooltip>
+        </ListItem>
+
+        {/* Children — shown only when drawer is open */}
+        {drawerOpen && (
+          <Collapse in={isGroupExpanded} timeout="auto" unmountOnExit>
+            <List disablePadding sx={{ pl: 2 }}>
+              {entry.children.map((child) => (
+                <ListItem key={child.to} disablePadding sx={{ mb: 0.25 }}>
+                  <ListItemButton
+                    component={NavLink}
+                    to={child.to}
+                    sx={{ ...linkButtonSx, py: 0.5 }}
+                  >
+                    <ListItemIcon sx={{ minWidth: 36, color: "text.secondary" }}>
+                      {child.icon}
+                    </ListItemIcon>
+                    <ListItemText
+                      primary={t(child.labelKey)}
+                      primaryTypographyProps={{ fontSize: "0.8rem", fontWeight: 500 }}
+                    />
+                  </ListItemButton>
+                </ListItem>
+              ))}
+            </List>
+          </Collapse>
+        )}
+      </Box>
+    );
+  }
 
   if (!authReady) {
     return (
@@ -590,203 +922,108 @@ function AdminLayoutInner() {
           {drawerOpen && <AppBrand />}
         </Box>
 
-        {/* Nav items */}
-        <List sx={{ px: drawerOpen ? 1 : 0.5, mt: 0.5, flexGrow: 1 }}>
-          {navEntries.map((entry) => {
-            if (entry.kind === "leaf") {
-              return (
-                <ListItem key={entry.to} disablePadding sx={{ mb: 0.5 }}>
-                  <Tooltip title={drawerOpen ? "" : t(entry.labelKey)} placement="right" arrow>
-                    <ListItemButton
-                      component={NavLink}
-                      to={entry.to}
-                      sx={{ ...linkButtonSx, justifyContent: drawerOpen ? "initial" : "center" }}
-                    >
-                      <ListItemIcon
-                        sx={{
-                          minWidth: drawerOpen ? 40 : "unset",
-                          color: "text.secondary",
-                          justifyContent: "center",
-                        }}
-                      >
-                        {entry.icon}
-                      </ListItemIcon>
-                      {drawerOpen && (
-                        <ListItemText
-                          primary={t(entry.labelKey)}
-                          primaryTypographyProps={{ fontSize: "0.875rem", fontWeight: 500 }}
-                        />
-                      )}
-                    </ListItemButton>
-                  </Tooltip>
-                </ListItem>
-              );
-            }
+        {/* Nav items — with drag-and-drop reordering */}
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragStart={handleDragStart}
+          onDragOver={handleDragOver}
+          onDragEnd={handleDragEnd}
+        >
+          {/* ── Main section (scrollable) ── */}
+          <DroppableZone id="droppable-main" sx={{ flexGrow: 1, overflow: "auto", px: drawerOpen ? 1 : 0.5, mt: 0.5 }}>
+            <SortableContext items={mainVisibleIds} strategy={verticalListSortingStrategy}>
+              <List disablePadding>
+                {mainVisible.map((entry) => (
+                  <SortableNavItem key={entry.id} id={entry.id} disabled={!drawerOpen} drawerOpen={drawerOpen}>
+                    {renderNavEntry(entry)}
+                  </SortableNavItem>
+                ))}
+              </List>
+            </SortableContext>
+          </DroppableZone>
 
-            /* Group header */
-            const isGroupExpanded = expanded[entry.labelKey] ?? false;
-            const isGroupActive = entry.children.some((c) => location.pathname.startsWith(c.to));
-
-            return (
-              <Box key={entry.labelKey}>
-                <ListItem disablePadding sx={{ mb: 0.5 }}>
-                  <Tooltip title={drawerOpen ? "" : t(entry.labelKey)} placement="right" arrow>
-                    <ListItemButton
-                      onClick={() => {
-                        const defaultTo = entry.children[0]?.to;
-                        if (drawerOpen) {
-                          toggleGroup(entry.labelKey);
-                          if (!isGroupExpanded && defaultTo) navigate(defaultTo);
-                        } else {
-                          setDrawerOpen(true);
-                          setExpanded((prev) => ({ ...prev, [entry.labelKey]: true }));
-                          if (defaultTo) navigate(defaultTo);
-                        }
-                      }}
-                      sx={{
-                        ...linkButtonSx,
-                        justifyContent: drawerOpen ? "initial" : "center",
-                        ...(isGroupActive && !drawerOpen
-                          ? {
-                              bgcolor: "primary.dark",
-                              color: "primary.light",
-                              "& .MuiListItemIcon-root": { color: "primary.light" },
-                            }
-                          : {}),
-                      }}
-                    >
-                      <ListItemIcon
-                        sx={{
-                          minWidth: drawerOpen ? 40 : "unset",
-                          color: "text.secondary",
-                          justifyContent: "center",
-                        }}
-                      >
-                        {entry.icon}
-                      </ListItemIcon>
-                      {drawerOpen && (
-                        <>
-                          <ListItemText
-                            primary={t(entry.labelKey)}
-                            primaryTypographyProps={{ fontSize: "0.875rem", fontWeight: 600 }}
-                          />
-                          {isGroupExpanded ? (
-                            <ExpandLess fontSize="small" />
-                          ) : (
-                            <ExpandMore fontSize="small" />
-                          )}
-                        </>
-                      )}
-                    </ListItemButton>
-                  </Tooltip>
-                </ListItem>
-
-                {/* Children — shown only when drawer is open */}
-                {drawerOpen && (
-                  <Collapse in={isGroupExpanded} timeout="auto" unmountOnExit>
-                    <List disablePadding sx={{ pl: 2 }}>
-                      {entry.children.map((child) => (
-                        <ListItem key={child.to} disablePadding sx={{ mb: 0.25 }}>
-                          <ListItemButton
-                            component={NavLink}
-                            to={child.to}
-                            sx={{ ...linkButtonSx, py: 0.5 }}
-                          >
-                            <ListItemIcon sx={{ minWidth: 36, color: "text.secondary" }}>
-                              {child.icon}
-                            </ListItemIcon>
-                            <ListItemText
-                              primary={t(child.labelKey)}
-                              primaryTypographyProps={{ fontSize: "0.8rem", fontWeight: 500 }}
-                            />
-                          </ListItemButton>
-                        </ListItem>
-                      ))}
-                    </List>
-                  </Collapse>
-                )}
-              </Box>
-            );
-          })}
-        </List>
-
-        <Box sx={{ px: drawerOpen ? 1 : 0.5, pb: 0.5, display: "flex", flexDirection: "column", gap: 0.5 }}>
-          <Tooltip title={drawerOpen ? "" : t("nav.logs")} placement="right" arrow>
-            <ListItemButton
-              component={NavLink}
-              to="/admin/logs"
-              sx={{
-                ...linkButtonSx,
-                justifyContent: "center",
-                minWidth: drawerOpen ? 120 : 40,
-                px: drawerOpen ? 1 : 0.5,
-                py: 0.5,
-              }}
-            >
-              <ListItemIcon
-                sx={{
-                  minWidth: drawerOpen ? 28 : "unset",
-                  color: "text.secondary",
-                  justifyContent: "center",
-                }}
+          {/* ── Divider between sections ── */}
+          {drawerOpen && pinnedVisible.length > 0 && (
+            <Divider sx={{ mx: 1.5, my: 0.5 }}>
+              <Typography
+                variant="caption"
+                color="text.disabled"
+                sx={{ fontSize: "0.6rem", textTransform: "uppercase", letterSpacing: 1, userSelect: "none" }}
               >
-                <ReceiptLongIcon />
-              </ListItemIcon>
-              {drawerOpen && (
-                <ListItemText
-                  primary={t("nav.logs")}
-                  primaryTypographyProps={{ fontSize: "0.875rem", fontWeight: 500 }}
-                />
-              )}
-            </ListItemButton>
-          </Tooltip>
+                {t("nav.pinned")}
+              </Typography>
+            </Divider>
+          )}
+          {!drawerOpen && pinnedVisible.length > 0 && <Divider sx={{ mx: 0.5, my: 0.5 }} />}
 
-          <Box
-            sx={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: isSuperuser && drawerOpen ? "space-between" : "flex-end",
-              gap: 0.5,
-            }}
-          >
-            {isSuperuser && (
-              <Tooltip title={drawerOpen ? "" : t("nav.settings")} placement="right" arrow>
-                <ListItemButton
-                  component={NavLink}
-                  to="/admin/settings?tab=general"
+          {/* ── Pinned (bottom) section ── */}
+          <DroppableZone id="droppable-pinned" sx={{ px: drawerOpen ? 1 : 0.5, pb: 0.5 }}>
+            <SortableContext items={pinnedVisibleIds} strategy={verticalListSortingStrategy}>
+              <List disablePadding>
+                {pinnedVisible.map((entry) => (
+                  <SortableNavItem key={entry.id} id={entry.id} disabled={!drawerOpen} drawerOpen={drawerOpen}>
+                    {renderNavEntry(entry)}
+                  </SortableNavItem>
+                ))}
+              </List>
+            </SortableContext>
+          </DroppableZone>
+
+          {/* Drag overlay — simplified preview while dragging */}
+          <DragOverlay dropAnimation={{ duration: 200, easing: "ease" }}>
+            {activeId && (() => {
+              const entry = NAV_BY_ID.get(activeId);
+              if (!entry) return null;
+              return (
+                <Box
                   sx={{
-                    ...linkButtonSx,
-                    justifyContent: "center",
-                    minWidth: drawerOpen ? 120 : 40,
-                    px: drawerOpen ? 1 : 0.5,
-                    py: 0.5,
+                    bgcolor: "background.paper",
+                    boxShadow: 4,
+                    borderRadius: 1,
+                    px: 2,
+                    py: 1,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 1,
+                    opacity: 0.92,
+                    width: DRAWER_WIDTH_OPEN - 16,
                   }}
                 >
-                  <ListItemIcon
-                    sx={{
-                      minWidth: drawerOpen ? 28 : "unset",
-                      color: "text.secondary",
-                      justifyContent: "center",
-                    }}
-                  >
-                    <SettingsIcon />
+                  <ListItemIcon sx={{ minWidth: 28, color: "text.secondary" }}>
+                    {entry.icon}
                   </ListItemIcon>
-                  {drawerOpen && (
-                    <ListItemText
-                      primary={t("nav.settings")}
-                      primaryTypographyProps={{ fontSize: "0.875rem", fontWeight: 500 }}
-                    />
-                  )}
-                </ListItemButton>
-              </Tooltip>
-            )}
+                  <Typography sx={{ fontSize: "0.875rem", fontWeight: 500 }}>
+                    {t(entry.labelKey)}
+                  </Typography>
+                </Box>
+              );
+            })()}
+          </DragOverlay>
+        </DndContext>
 
-            {drawerOpen && (
-              <IconButton size="small" onClick={() => setDrawerOpen(false)}>
-                <ChevronLeftIcon />
+        {/* ── Collapse / reset row ── */}
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: drawerOpen ? "space-between" : "center",
+            px: drawerOpen ? 1 : 0.5,
+            pb: 0.5,
+          }}
+        >
+          {drawerOpen && (
+            <Tooltip title={t("nav.reset_nav_order")} placement="right" arrow>
+              <IconButton size="small" onClick={resetOrder} sx={{ color: "text.disabled" }}>
+                <RestartAltIcon fontSize="small" />
               </IconButton>
-            )}
-          </Box>
+            </Tooltip>
+          )}
+          {drawerOpen && (
+            <IconButton size="small" onClick={() => setDrawerOpen(false)}>
+              <ChevronLeftIcon />
+            </IconButton>
+          )}
         </Box>
       </Drawer>
 
