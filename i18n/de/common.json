@@ -381,13 +381,16 @@
     "new_provider": "Neuer Provider",
     "edit_provider": "Provider bearbeiten",
     "search_placeholder": "Nach Providern suchen...",
-    "confirm_delete": "Diesen Provider loeschen? Dies schlaegt fehl, wenn Runtimes ihn noch verwenden.",
+    "confirm_delete": "Diesen Provider und seine Runtime loeschen? Dies kann nicht rueckgaengig gemacht werden.",
     "target_local_docker": "Lokaler Docker",
     "target_remote_endpoint": "Remote-Endpunkt",
     "endpoint_url": "Endpunkt-URL",
     "endpoint_url_help": "Basis-URL der Remote-Inferenz-API (z. B. https://api.example.com/v1)",
     "api_key": "API-Schluessel",
-    "api_key_help": "Optionaler Authentifizierungsschluessel fuer den Remote-Endpunkt"
+    "api_key_help": "Optionaler Authentifizierungsschluessel fuer den Remote-Endpunkt",
+    "wizard_step_basics": "Grundlagen",
+    "wizard_step_runtime": "Laufzeit",
+    "no_runtime": "Keine Laufzeit"
   },
   "llm_models": {
     "title": "LLM-Modelle",

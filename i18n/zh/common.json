@@ -381,13 +381,16 @@
     "new_provider": "新建提供商",
     "edit_provider": "编辑提供商",
     "search_placeholder": "搜索提供商...",
-    "confirm_delete": "删除该提供商？若仍被运行时引用将失败。",
+    "confirm_delete": "删除此提供商及其运行时？此操作不可撤销。",
     "target_local_docker": "本地 Docker",
     "target_remote_endpoint": "远程端点",
     "endpoint_url": "端点 URL",
     "endpoint_url_help": "远程推理 API 的基础 URL（例如 https://api.example.com/v1）",
     "api_key": "API 密钥",
-    "api_key_help": "远程端点的可选身份验证密钥"
+    "api_key_help": "远程端点的可选身份验证密钥",
+    "wizard_step_basics": "基本信息",
+    "wizard_step_runtime": "运行时",
+    "no_runtime": "无运行时"
   },
   "llm_models": {
     "title": "LLM 模型",

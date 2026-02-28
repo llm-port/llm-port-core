@@ -381,13 +381,16 @@
     "new_provider": "New Provider",
     "edit_provider": "Edit Provider",
     "search_placeholder": "Search providers...",
-    "confirm_delete": "Delete this provider? This will fail if runtimes still reference it.",
+    "confirm_delete": "\u00bfEliminar este proveedor y su runtime? Esto no se puede deshacer.",
     "target_local_docker": "Docker Local",
     "target_remote_endpoint": "Endpoint Remoto",
     "endpoint_url": "URL del Endpoint",
     "endpoint_url_help": "URL base de la API de inferencia remota (ej. https://api.example.com/v1)",
     "api_key": "Clave API",
-    "api_key_help": "Clave de autenticación opcional para el endpoint remoto"
+    "api_key_help": "Clave de autenticaci\u00f3n opcional para el endpoint remoto",
+    "wizard_step_basics": "B\u00e1sicos",
+    "wizard_step_runtime": "Runtime",
+    "no_runtime": "Sin runtime"
   },
   "llm_models": {
     "title": "LLM Models",

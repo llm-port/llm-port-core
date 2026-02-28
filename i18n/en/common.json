@@ -382,13 +382,16 @@
     "new_provider": "New Provider",
     "edit_provider": "Edit Provider",
     "search_placeholder": "Search providers...",
-    "confirm_delete": "Delete this provider? This will fail if runtimes still reference it.",
+    "confirm_delete": "Delete this provider and its runtime? This cannot be undone.",
     "target_local_docker": "Local Docker",
     "target_remote_endpoint": "Remote Endpoint",
     "endpoint_url": "Endpoint URL",
     "endpoint_url_help": "Base URL of the remote inference API (e.g. https://api.example.com/v1)",
     "api_key": "API Key",
-    "api_key_help": "Optional authentication key for the remote endpoint"
+    "api_key_help": "Optional authentication key for the remote endpoint",
+    "wizard_step_basics": "Basics",
+    "wizard_step_runtime": "Runtime",
+    "no_runtime": "No runtime"
   },
   "llm_models": {
     "title": "LLM Models",
