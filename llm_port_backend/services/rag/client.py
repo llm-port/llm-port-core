@@ -216,7 +216,18 @@ class RagServiceClient:
 
 
 def get_rag_client() -> RagServiceClient:
-    """Build a request-scoped RAG client from settings."""
+    """Build a request-scoped RAG client from settings.
+
+    Raises HTTP 503 when the RAG module is disabled so that every
+    endpoint using ``Depends(get_rag_client)`` fails fast with a
+    clear message instead of attempting network calls to a service
+    that isn't running.
+    """
+    if not settings.rag_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="RAG module is not enabled. Set LLM_PORT_BACKEND_RAG_ENABLED=true to activate.",
+        )
     return RagServiceClient(
         base_url=settings.rag_base_url,
         service_token=settings.rag_service_token,

@@ -87,6 +87,7 @@ class Settings(BaseSettings):
     rag_timeout_sec: float = 30.0
     rag_upload_max_file_mb: int = 50
     rag_upload_allowed_extensions: str = ".pdf,.docx,.txt,.md,.html,.csv,.json"
+    rag_enabled: bool = True
 
     # Admin dashboard / Grafana embedding settings
     grafana_url: str | None = Field(
