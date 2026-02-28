@@ -134,3 +134,52 @@ class PIIDetokenizeResponse(BaseModel):
     """Response body for POST /api/v1/pii/detokenize."""
 
     payload: dict[str, Any]
+
+
+# ---------------------------------------------------------------
+# Dashboard stats & event log
+# ---------------------------------------------------------------
+
+
+class DailyVolumeDTO(BaseModel):
+    """One day's scan counts."""
+
+    date: str
+    count: int
+    pii_count: int
+
+
+class PIIStatsResponse(BaseModel):
+    """Aggregate PII processing statistics for the dashboard."""
+
+    total_scans: int
+    total_with_pii: int
+    total_entities: int
+    detection_rate: float
+    entity_type_breakdown: dict[str, int]
+    operation_breakdown: dict[str, int]
+    source_breakdown: dict[str, int]
+    daily_volume: list[DailyVolumeDTO]
+
+
+class PIIEventDTO(BaseModel):
+    """One PII scan event (no raw text stored)."""
+
+    id: str
+    created_at: str
+    operation: str
+    mode: str | None = None
+    language: str
+    score_threshold: float
+    pii_detected: bool
+    entities_found: int
+    entity_type_counts: dict[str, int] | None = None
+    source: str
+    request_id: str | None = None
+
+
+class PIIEventsResponse(BaseModel):
+    """Paginated list of PII events."""
+
+    items: list[PIIEventDTO]
+    total: int
