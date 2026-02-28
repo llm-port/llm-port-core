@@ -3,8 +3,10 @@ import { Link as RouterLink } from "react-router";
 import { useTranslation } from "react-i18next";
 import {
   dashboard,
+  hardware,
   type DashboardHealth,
   type DashboardOverview,
+  type HardwareInfo,
 } from "~/api/admin";
 import { useServices } from "~/lib/ServicesContext";
 
@@ -20,6 +22,7 @@ import List from "@mui/material/List";
 import ListItem from "@mui/material/ListItem";
 import ListItemText from "@mui/material/ListItemText";
 import Stack from "@mui/material/Stack";
+import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import { useTheme } from "@mui/material/styles";
 import GaugeCard from "~/components/GaugeCard";
@@ -142,6 +145,7 @@ export default function DashboardPage() {
 
   const [overview, setOverview] = useState<DashboardOverview | null>(null);
   const [health, setHealth] = useState<DashboardHealth | null>(null);
+  const [hw, setHw] = useState<HardwareInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -149,12 +153,14 @@ export default function DashboardPage() {
     setLoading(true);
     setError(null);
     try {
-      const [o, h] = await Promise.all([
+      const [o, h, hwInfo] = await Promise.all([
         dashboard.overview(),
         dashboard.health(),
+        hardware.info().catch(() => null),
       ]);
       setOverview(o);
       setHealth(h);
+      setHw(hwInfo);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t("dashboard.failed_load"));
     } finally {
@@ -282,11 +288,24 @@ export default function DashboardPage() {
             </Grid>
             <Grid size={{ xs: 6, sm: 3 }}>
               <GaugeCard
-                label={t("dashboard.gauges.gpu")}
+                label={
+                  hw?.gpu.has_gpu
+                    ? `GPU (${hw.gpu.primary_vendor.toUpperCase()})`
+                    : t("dashboard.gauges.gpu")
+                }
                 value={overview.gpu_util_percent}
                 detail={overview.gpu_util_percent != null ? fmtRatio(overview.gpu_vram_used_bytes, overview.gpu_vram_total_bytes) : undefined}
-                secondaryDetail={overview.gpu_util_percent != null ? t("dashboard.gauges.vram") : undefined}
+                secondaryDetail={
+                  hw?.gpu.has_gpu
+                    ? `${hw.gpu.device_count}× ${hw.gpu.devices[0]?.model ?? ""} · ${hw.gpu.primary_compute_api.toUpperCase()}`
+                    : overview.gpu_util_percent != null ? t("dashboard.gauges.vram") : undefined
+                }
               />
+              {hw?.gpu.has_gpu && hw.gpu.device_count > 1 && (
+                <Tooltip title={hw.gpu.devices.map(d => `#${d.index} ${d.model} (${fmtBytes(d.vram_bytes)})`).join(", ")}>
+                  <Chip label={`${hw.gpu.device_count} GPUs`} size="small" variant="outlined" sx={{ mt: 0.5 }} />
+                </Tooltip>
+              )}
             </Grid>
           </Grid>
 

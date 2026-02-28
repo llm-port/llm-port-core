@@ -547,3 +547,43 @@ export const CLASS_COLORS: Record<ContainerClass, string> = {
   TENANT_APP: "bg-green-100 text-green-800 border-green-200",
   UNTRUSTED: "bg-gray-100 text-gray-700 border-gray-200",
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Hardware detection
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface GpuDevice {
+  index: number;
+  vendor: string;
+  model: string;
+  vram_bytes: number;
+  driver_version: string;
+  compute_api: string;
+}
+
+export interface GpuInventory {
+  devices: GpuDevice[];
+  primary_vendor: string;
+  primary_compute_api: string;
+  has_gpu: boolean;
+  device_count: number;
+  total_vram_bytes: number;
+}
+
+export interface GpuMetrics {
+  util_percent: number | null;
+  vram_used_bytes: number | null;
+  vram_total_bytes: number | null;
+}
+
+export interface HardwareInfo {
+  gpu: GpuInventory;
+  gpu_metrics: GpuMetrics;
+  recommended_vllm_image: string | null;
+}
+
+export const hardware = {
+  info() {
+    return request<HardwareInfo>("/hardware");
+  },
+};
