@@ -42,6 +42,7 @@ import PeopleIcon from "@mui/icons-material/People";
 import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
 import GroupWorkIcon from "@mui/icons-material/GroupWork";
 import VpnKeyIcon from "@mui/icons-material/VpnKey";
+import DataThresholdingIcon from '@mui/icons-material/DataThresholding';
 
 // ── Drawer sizing ────────────────────────────────────────────────
 export const DRAWER_WIDTH_OPEN = 240;
@@ -204,7 +205,7 @@ export const NAV: NavEntry[] = [
     id: "pii",
     kind: "group",
     labelKey: "nav.pii_group",
-    icon: <ShieldIcon />,
+    icon: <DataThresholdingIcon />,
     module: "pii",
     children: [
       {
