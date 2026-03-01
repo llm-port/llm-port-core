@@ -29,10 +29,11 @@ router = APIRouter()
 @router.get("/", response_model=list[RuntimeDTO])
 async def list_runtimes(
     user: User = Depends(require_permission("llm.runtimes", "read")),
+    llm_service: LLMService = Depends(get_llm_service),
     runtime_dao: RuntimeDAO = Depends(),
 ) -> list[RuntimeDTO]:
-    """List all runtimes."""
-    runtimes = await runtime_dao.list_all()
+    """List all runtimes (with container-state reconciliation)."""
+    runtimes = await llm_service.reconcile_all_runtimes(runtime_dao)
     return [RuntimeDTO.model_validate(r) for r in runtimes]
 
 
@@ -66,6 +67,11 @@ async def create_runtime(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Failed to start runtime container: {exc}",
+        ) from exc
     await audit_action(
         action="llm.runtime.create",
         target_type="llm_runtime",
@@ -82,12 +88,14 @@ async def create_runtime(
 async def get_runtime(
     runtime_id: uuid.UUID,
     user: User = Depends(require_permission("llm.runtimes", "read")),
+    llm_service: LLMService = Depends(get_llm_service),
     runtime_dao: RuntimeDAO = Depends(),
 ) -> RuntimeDTO:
-    """Get a single runtime by ID."""
+    """Get a single runtime by ID (with container-state reconciliation)."""
     runtime = await runtime_dao.get(runtime_id)
     if runtime is None:
         raise HTTPException(status_code=404, detail="Runtime not found")
+    runtime = await llm_service.reconcile_runtime_status(runtime_dao, runtime)
     return RuntimeDTO.model_validate(runtime)
 
 

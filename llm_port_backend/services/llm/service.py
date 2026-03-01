@@ -354,13 +354,93 @@ class LLMService:
                 log.warning("Could not delete container %s", runtime.container_ref)
         await runtime_dao.delete(runtime_id)
 
+    async def reconcile_runtime_status(
+        self,
+        runtime_dao: RuntimeDAO,
+        runtime: LLMRuntime,
+    ) -> LLMRuntime:
+        """Check actual Docker container state and reconcile the DB status.
+
+        Handles the following transitions:
+        - STARTING → RUNNING  when container is healthy
+        - STARTING/RUNNING → ERROR  when container is dead/exited
+        - CREATING → ERROR  when container never started
+        """
+        # Remote runtimes (no container) — nothing to reconcile
+        if not runtime.container_ref:
+            return runtime
+
+        # Only reconcile transient statuses
+        if runtime.status not in (
+            RuntimeStatus.CREATING,
+            RuntimeStatus.STARTING,
+            RuntimeStatus.RUNNING,
+        ):
+            return runtime
+
+        try:
+            info = await self.docker.inspect_container(runtime.container_ref)
+            state = info.get("State", {})
+            docker_status = state.get("Status", "").lower()
+
+            if docker_status == "running":
+                # Container is up — promote STARTING/CREATING → RUNNING
+                if runtime.status in (RuntimeStatus.CREATING, RuntimeStatus.STARTING):
+                    await runtime_dao.set_status(runtime.id, RuntimeStatus.RUNNING)
+                    log.info(
+                        "Runtime %r reconciled %s → running (container alive)",
+                        runtime.name,
+                        runtime.status.value,
+                    )
+            elif docker_status in ("exited", "dead", "removing"):
+                # Container has crashed / stopped unexpectedly
+                exit_code = state.get("ExitCode", -1)
+                await runtime_dao.set_status(runtime.id, RuntimeStatus.ERROR)
+                log.warning(
+                    "Runtime %r container %s is %s (exit=%s) — marking ERROR",
+                    runtime.name,
+                    runtime.container_ref,
+                    docker_status,
+                    exit_code,
+                )
+        except Exception:
+            # Container doesn't exist at all — mark as error
+            if runtime.status in (RuntimeStatus.CREATING, RuntimeStatus.STARTING):
+                await runtime_dao.set_status(runtime.id, RuntimeStatus.ERROR)
+                log.warning(
+                    "Runtime %r container %s not found — marking ERROR",
+                    runtime.name,
+                    runtime.container_ref,
+                )
+
+        # Re-fetch to return the updated object
+        updated = await runtime_dao.get(runtime.id)
+        return updated or runtime
+
+    async def reconcile_all_runtimes(
+        self,
+        runtime_dao: RuntimeDAO,
+    ) -> list[LLMRuntime]:
+        """Reconcile status for all runtimes and return the updated list."""
+        runtimes = await runtime_dao.list_all()
+        result: list[LLMRuntime] = []
+        for rt in runtimes:
+            reconciled = await self.reconcile_runtime_status(runtime_dao, rt)
+            result.append(reconciled)
+        return result
+
     async def get_runtime_health(
         self,
         runtime_dao: RuntimeDAO,
         provider_dao: ProviderDAO,
         runtime_id: uuid.UUID,
     ) -> dict[str, Any]:
-        """Probe runtime health via its adapter."""
+        """Probe runtime health via its adapter.
+
+        Also reconciles the DB status with actual container state:
+        promotes STARTING → RUNNING when healthy, or marks ERROR when
+        the container has died.
+        """
         runtime = await runtime_dao.get(runtime_id)
         if runtime is None:
             raise ValueError(f"Runtime {runtime_id} not found")
@@ -368,8 +448,17 @@ class LLMService:
         if provider is None:
             raise ValueError(f"Provider {runtime.provider_id} not found")
 
+        # Reconcile container state first
+        runtime = await self.reconcile_runtime_status(runtime_dao, runtime)
+
         adapter = get_adapter(provider.type)
         health = await adapter.get_health(runtime)
+
+        # Promote STARTING → RUNNING when the health probe passes
+        if health.healthy and runtime.status == RuntimeStatus.STARTING:
+            await runtime_dao.set_status(runtime_id, RuntimeStatus.RUNNING)
+            log.info("Runtime %r is healthy — promoted to RUNNING", runtime.name)
+
         return {"healthy": health.healthy, "detail": health.detail}
 
     # ------------------------------------------------------------------
