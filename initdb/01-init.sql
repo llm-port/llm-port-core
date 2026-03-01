@@ -20,11 +20,26 @@ BEGIN
 END
 $$;
 
+-- Role for llm_port_backend (local dev server)
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'llm_port_backend') THEN
+        CREATE ROLE llm_port_backend LOGIN PASSWORD 'llm_port_backend';
+    END IF;
+END
+$$;
+
 GRANT CONNECT ON DATABASE llm_api TO llm_user;
+GRANT CONNECT ON DATABASE llm_port_backend TO llm_port_backend;
+GRANT ALL PRIVILEGES ON DATABASE llm_port_backend TO llm_port_backend;
 
 -- Optional: enable pgvector in rag DB
 \connect rag
 CREATE EXTENSION IF NOT EXISTS vector;
+
+-- Grant schema privileges for llm_port_backend (needed for Alembic migrations)
+\connect llm_port_backend
+GRANT ALL ON SCHEMA public TO llm_port_backend;
 
 -- Grant least privileges for gateway tables in llm_api
 \connect llm_api
