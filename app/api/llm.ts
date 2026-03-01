@@ -134,6 +134,13 @@ export interface CreateRuntimePayload {
   openai_compat?: boolean;
 }
 
+export interface UpdateRuntimePayload {
+  name?: string;
+  generic_config?: Record<string, unknown> | null;
+  provider_config?: Record<string, unknown> | null;
+  openai_compat?: boolean;
+}
+
 export interface TestEndpointPayload {
   endpoint_url: string;
   api_key?: string;
@@ -260,6 +267,12 @@ export const runtimes = {
   },
   restart(id: string) {
     return request<Runtime>(`/runtimes/${id}/restart`, { method: "POST" });
+  },
+  update(id: string, payload: UpdateRuntimePayload) {
+    return request<Runtime>(`/runtimes/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
   },
   delete(id: string) {
     return request<void>(`/runtimes/${id}`, { method: "DELETE" });

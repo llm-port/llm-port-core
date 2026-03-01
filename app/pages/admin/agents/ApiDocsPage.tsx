@@ -21,7 +21,9 @@ import RestartAltIcon from "@mui/icons-material/RestartAlt";
 export default function ApiDocsPage() {
   const { t } = useTranslation();
   const [containerName, setContainerName] = useState("llm-port-api");
-  const [activeUrl, setActiveUrl] = useState("http://127.0.0.1:8001/api/docs");
+  const [activeUrl, setActiveUrl] = useState(
+    `${window.location.protocol}//${window.location.hostname}:8001/api/docs`,
+  );
   const [serviceContainer, setServiceContainer] = useState<ContainerSummary | null>(null);
   const [loadingService, setLoadingService] = useState(false);
   const [actionBusy, setActionBusy] = useState<"start" | "stop" | "restart" | "register" | null>(null);

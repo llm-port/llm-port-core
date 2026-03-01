@@ -114,8 +114,7 @@ export default function ProvidersPage() {
     if (!confirm(t("llm_providers.confirm_delete"))) return;
     setActionLoading(`${row.provider.id}-delete`);
     try {
-      // Delete the runtime first if one exists
-      if (row.runtime) await runtimes.delete(row.runtime.id);
+      // Backend cascade-deletes associated runtimes (stops containers too)
       await providers.delete(row.provider.id);
       await load();
     } catch (err: unknown) {

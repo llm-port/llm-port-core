@@ -1,6 +1,6 @@
 /**
  * Admin → LLM → Runtime detail page.
- * Shows runtime metadata, health status, and live logs.
+ * Shows runtime metadata, health status, live logs, and config editing.
  */
 import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router";
@@ -20,15 +20,20 @@ import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Card from "@mui/material/Card";
 import CardContent from "@mui/material/CardContent";
+import Checkbox from "@mui/material/Checkbox";
 import Chip from "@mui/material/Chip";
 import CircularProgress from "@mui/material/CircularProgress";
+import FormControlLabel from "@mui/material/FormControlLabel";
 import Alert from "@mui/material/Alert";
 import Stack from "@mui/material/Stack";
+import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import DeleteIcon from "@mui/icons-material/Delete";
+import EditIcon from "@mui/icons-material/Edit";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
+import SaveIcon from "@mui/icons-material/Save";
 import StopIcon from "@mui/icons-material/Stop";
 import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import FavoriteIcon from "@mui/icons-material/Favorite";
@@ -46,6 +51,70 @@ export default function RuntimeDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const logRef = useRef<HTMLPreElement>(null);
+
+  // ── Edit mode state ──────────────────────────────────────────────
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editMaxModelLen, setEditMaxModelLen] = useState("");
+  const [editDtype, setEditDtype] = useState("");
+  const [editGpuMemUtil, setEditGpuMemUtil] = useState("");
+  const [editTensorParallel, setEditTensorParallel] = useState("");
+  const [editSwapSpace, setEditSwapSpace] = useState("");
+  const [editExtraArgs, setEditExtraArgs] = useState("");
+  const [editEnforceEager, setEditEnforceEager] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  function openEditor() {
+    if (!rt) return;
+    const gc = rt.generic_config ?? {};
+    const pc = rt.provider_config ?? {};
+    setEditName(rt.name);
+    setEditMaxModelLen(gc.max_model_len != null ? String(gc.max_model_len) : "");
+    setEditDtype(gc.dtype ?? "");
+    setEditGpuMemUtil(gc.gpu_memory_utilization != null ? String(gc.gpu_memory_utilization) : "");
+    setEditTensorParallel(gc.tensor_parallel_size != null ? String(gc.tensor_parallel_size) : "");
+    setEditSwapSpace(gc.swap_space != null ? String(gc.swap_space) : "");
+    setEditExtraArgs(Array.isArray(pc.extra_args) ? pc.extra_args.join("\n") : "");
+    setEditEnforceEager(gc.enforce_eager !== false);
+    setEditing(true);
+  }
+
+  async function handleSaveAndRestart() {
+    if (!id || !rt) return;
+    setSaving(true);
+    try {
+      const generic_config: Record<string, unknown> = { ...(rt.generic_config ?? {}) };
+      if (editMaxModelLen) generic_config.max_model_len = parseInt(editMaxModelLen, 10);
+      else delete generic_config.max_model_len;
+      if (editDtype) generic_config.dtype = editDtype;
+      else delete generic_config.dtype;
+      if (editGpuMemUtil) generic_config.gpu_memory_utilization = parseFloat(editGpuMemUtil);
+      else delete generic_config.gpu_memory_utilization;
+      if (editTensorParallel) generic_config.tensor_parallel_size = parseInt(editTensorParallel, 10);
+      else delete generic_config.tensor_parallel_size;
+      if (editSwapSpace) generic_config.swap_space = parseInt(editSwapSpace, 10);
+      else delete generic_config.swap_space;
+      generic_config.enforce_eager = editEnforceEager;
+
+      const provider_config: Record<string, unknown> = { ...(rt.provider_config ?? {}) };
+      if (editExtraArgs.trim()) provider_config.extra_args = editExtraArgs.trim().split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+      else delete provider_config.extra_args;
+
+      const updated = await runtimes.update(id, {
+        name: editName !== rt.name ? editName : undefined,
+        generic_config,
+        provider_config,
+      });
+      setRt(updated);          // use response directly — avoids race with DB commit
+      setEditing(false);
+      setLogs("");
+      setHealth(null);
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : t("common.action_failed"));
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function load() {
     if (!id) return;
@@ -113,8 +182,10 @@ export default function RuntimeDetailPage() {
   async function handleAction(action: "start" | "stop" | "restart") {
     if (!id) return;
     try {
-      await runtimes[action](id);
-      await load();
+      const updated = await runtimes[action](id);
+      setRt(updated);           // use response directly — avoids race with DB commit
+      setLogs("");
+      setHealth(null);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t("common.action_failed"));
     }
@@ -204,8 +275,117 @@ export default function RuntimeDetailPage() {
           >
             {t("common.delete")}
           </Button>
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<EditIcon />}
+            onClick={openEditor}
+            disabled={editing}
+          >
+            {t("llm_runtime_detail.edit_config")}
+          </Button>
         </Stack>
       </Stack>
+
+      {/* Config editor card */}
+      {editing && (
+        <Card variant="outlined" sx={{ borderColor: "primary.main" }}>
+          <CardContent>
+            <Typography variant="subtitle2" sx={{ mb: 2 }}>{t("llm_runtime_detail.edit_config")}</Typography>
+            <Stack spacing={2}>
+              <TextField
+                label={t("common.name")}
+                size="small"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                fullWidth
+              />
+              <Stack direction="row" spacing={2} flexWrap="wrap">
+                <TextField
+                  label="max_model_len"
+                  size="small"
+                  type="number"
+                  value={editMaxModelLen}
+                  onChange={(e) => setEditMaxModelLen(e.target.value)}
+                  placeholder="e.g. 4096"
+                  helperText={t("llm_runtime_detail.max_model_len_help")}
+                  sx={{ minWidth: 180 }}
+                />
+                <TextField
+                  label="dtype"
+                  size="small"
+                  value={editDtype}
+                  onChange={(e) => setEditDtype(e.target.value)}
+                  placeholder="e.g. float16, auto"
+                  sx={{ minWidth: 160 }}
+                />
+                <TextField
+                  label="gpu_memory_utilization"
+                  size="small"
+                  type="number"
+                  inputProps={{ step: 0.05, min: 0.1, max: 1.0 }}
+                  value={editGpuMemUtil}
+                  onChange={(e) => setEditGpuMemUtil(e.target.value)}
+                  placeholder="e.g. 0.9"
+                  sx={{ minWidth: 200 }}
+                />
+                <TextField
+                  label="tensor_parallel_size"
+                  size="small"
+                  type="number"
+                  value={editTensorParallel}
+                  onChange={(e) => setEditTensorParallel(e.target.value)}
+                  placeholder="e.g. 1"
+                  sx={{ minWidth: 180 }}
+                />
+                <TextField
+                  label="swap_space"
+                  size="small"
+                  type="number"
+                  value={editSwapSpace}
+                  onChange={(e) => setEditSwapSpace(e.target.value)}
+                  placeholder="e.g. 4"
+                  helperText={t("llm_runtime_detail.swap_space_help")}
+                  sx={{ minWidth: 160 }}
+                />
+              </Stack>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={editEnforceEager}
+                    onChange={(e) => setEditEnforceEager(e.target.checked)}
+                    size="small"
+                  />
+                }
+                label={t("llm_runtime_detail.enforce_eager")}
+              />
+              <TextField
+                label={t("llm_runtime_detail.extra_args")}
+                size="small"
+                multiline
+                minRows={2}
+                value={editExtraArgs}
+                onChange={(e) => setEditExtraArgs(e.target.value)}
+                placeholder={"--enforce-eager\n--disable-log-stats"}
+                helperText={t("llm_runtime_detail.extra_args_help")}
+                fullWidth
+              />
+              <Stack direction="row" spacing={1} justifyContent="flex-end">
+                <Button size="small" onClick={() => setEditing(false)}>{t("common.cancel")}</Button>
+                <Button
+                  size="small"
+                  variant="contained"
+                  startIcon={saving ? <CircularProgress size={16} /> : <SaveIcon />}
+                  disabled={saving}
+                  onClick={handleSaveAndRestart}
+                >
+                  {t("llm_runtime_detail.save_and_restart")}
+                </Button>
+              </Stack>
+            </Stack>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Metadata card */}
       <Card variant="outlined">
