@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     log_level: LogLevel = LogLevel.INFO
     users_secret: str = os.getenv("USERS_SECRET", "")
     # Variables for the database
-    db_host: str = "localhost"
+    db_host: str = "127.0.0.1"
     db_port: int = 5432
     db_user: str = "llm_port_backend"
     db_pass: str = "llm_port_backend"  # noqa: S105
@@ -81,13 +81,13 @@ class Settings(BaseSettings):
     # Each entry: {"label": "...", "image": "...", "vendor": "nvidia|amd|any", "description": "..."}
     # Example: '[{"label":"DGX Spark","image":"nvcr.io/nvidia/vllm:latest","vendor":"nvidia","description":"NVIDIA-optimised build for DGX Spark"}]'
     vllm_image_presets: str = "[]"
-    llm_graph_db_host: str = "localhost"
+    llm_graph_db_host: str = "127.0.0.1"
     llm_graph_db_port: int = 5432
     llm_graph_db_user: str = "llm_user"
     llm_graph_db_pass: str = "llm_user"  # noqa: S105
     llm_graph_db_base: str = "llm_api"
     llm_graph_db_url_override: str | None = None
-    rag_base_url: str = "http://localhost:8002/api"
+    rag_base_url: str = "http://127.0.0.1:8002/api"
     rag_service_token: str = "dev-rag-service-token"  # noqa: S105
     rag_runtime_secret_header_name: str = "x-embedding-api-key"  # noqa: S105
     rag_timeout_sec: float = 30.0
@@ -97,7 +97,7 @@ class Settings(BaseSettings):
 
     # PII module settings
     pii_enabled: bool = True
-    pii_service_url: str = "http://localhost:8003/api"
+    pii_service_url: str = "http://127.0.0.1:8003/api"
 
     # Admin dashboard / Grafana embedding settings
     grafana_url: str | None = Field(
@@ -121,7 +121,7 @@ class Settings(BaseSettings):
             "LLM_PORT_GRAFANA_PANELS_OVERVIEW",
         ),
     )
-    loki_base_url: str = "http://loki:3100"
+    loki_base_url: str = "http://127.0.0.1:3100"
     logs_max_limit: int = 5000
     logs_default_limit: int = 200
     logs_allowed_labels_raw: str | None = Field(

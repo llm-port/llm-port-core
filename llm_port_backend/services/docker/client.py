@@ -9,7 +9,7 @@ from typing import Any
 
 from aiodocker import Docker
 
-_DEFAULT_DOCKER_URL = "http://localhost:2375" if sys.platform == "win32" else "unix:///var/run/docker.sock"
+_DEFAULT_DOCKER_URL = "http://127.0.0.1:2375" if sys.platform == "win32" else "unix:///var/run/docker.sock"
 
 
 class DockerService:
