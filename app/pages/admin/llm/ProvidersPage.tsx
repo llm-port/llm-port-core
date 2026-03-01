@@ -257,7 +257,7 @@ export default function ProvidersPage() {
       render: (r) => {
         const rt = r.runtime;
         const busy = !!actionLoading?.startsWith(rt?.id ?? r.provider.id);
-        const isRunning = rt?.status === "running";
+        const isRunning = rt?.status === "running" || rt?.status === "starting";
         const isStopped = rt?.status === "stopped" || rt?.status === "error";
 
         return (

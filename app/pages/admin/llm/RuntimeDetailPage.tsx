@@ -61,8 +61,8 @@ export default function RuntimeDetailPage() {
       setProvider(p);
       setModel(m);
 
-      // Health & logs only if running
-      if (r.status === "running") {
+      // Health & logs for running or starting runtimes
+      if (r.status === "running" || r.status === "starting") {
         try {
           setHealth(await runtimes.health(id));
         } catch {
@@ -85,6 +85,23 @@ export default function RuntimeDetailPage() {
   useEffect(() => {
     load();
   }, [id]);
+
+  // Poll for status updates while in a transient state (starting/creating)
+  useEffect(() => {
+    if (!rt || !id) return;
+    if (rt.status !== "starting" && rt.status !== "creating") return;
+    const interval = setInterval(async () => {
+      try {
+        const updated = await runtimes.get(id);
+        setRt(updated);
+        if (updated.status === "running" || updated.status === "error" || updated.status === "stopped") {
+          clearInterval(interval);
+          load(); // full reload to get health/logs
+        }
+      } catch { /* ignore polling errors */ }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [rt?.status, id]);
 
   // Auto-scroll logs
   useEffect(() => {
@@ -125,7 +142,7 @@ export default function RuntimeDetailPage() {
     return <Alert severity="error">{error ?? t("llm_runtime_detail.not_found")}</Alert>;
   }
 
-  const isRunning = rt.status === "running";
+  const isRunning = rt.status === "running" || rt.status === "starting";
   const isStopped = rt.status === "stopped" || rt.status === "error";
 
   return (
