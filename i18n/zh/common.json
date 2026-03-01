@@ -476,7 +476,14 @@
     "gpu_detected": "GPU: {{model}} ({{vram}} VRAM)",
     "gpu_none": "未检测到支持的 GPU — CPU 模式",
     "recommended_tag": "推荐",
-    "remote_provider_hint": "此提供商为远程端点——无需容器或 GPU 配置。"
+    "remote_provider_hint": "此提供商为远程端点——无需容器或 GPU 配置。",
+    "image_not_local": "本地未找到镜像——需要拉取。",
+    "image_available": "镜像已在本地可用。",
+    "image_checking": "正在检查镜像…",
+    "image_pull_button": "拉取镜像",
+    "image_pulling": "正在拉取镜像…这可能需要几分钟。",
+    "image_pull_success": "镜像拉取成功。",
+    "image_pull_failed": "镜像拉取失败：{{error}}"
   },
   "llm_runtime_detail": {
     "failed_load": "加载运行时失败。",

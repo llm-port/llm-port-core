@@ -20,6 +20,7 @@ from llm_port_backend.web.api.admin.dependencies import (
     require_superuser,
 )
 from llm_port_backend.web.api.admin.images.schema import (
+    ImageCheckResponse,
     ImageSummaryDTO,
     PruneImagesRequest,
     PruneReport,
@@ -46,6 +47,23 @@ async def list_images(
         )
         for img in raw_images
     ]
+
+
+@router.get("/check", response_model=ImageCheckResponse, name="check_image")
+async def check_image(
+    image: str,
+    tag: str = "latest",
+    docker: DockerService = Depends(get_docker),
+    _user: User = Depends(require_superuser),
+) -> ImageCheckResponse:
+    """Check whether an image:tag exists locally."""
+    needle = f"{image}:{tag}"
+    raw_images = await docker.list_images()
+    for img in raw_images:
+        for repo_tag in img.get("RepoTags") or []:
+            if repo_tag == needle:
+                return ImageCheckResponse(exists=True, image=image, tag=tag)
+    return ImageCheckResponse(exists=False, image=image, tag=tag)
 
 
 @router.post("/pull", status_code=status.HTTP_204_NO_CONTENT, name="pull_image")

@@ -476,7 +476,14 @@
     "gpu_detected": "GPU: {{model}} ({{vram}} VRAM)",
     "gpu_none": "Keine unterstuetzte GPU erkannt — CPU-Modus",
     "recommended_tag": "empfohlen",
-    "remote_provider_hint": "Dieser Provider ist ein Remote-Endpunkt — keine Container- oder GPU-Konfiguration erforderlich."
+    "remote_provider_hint": "Dieser Provider ist ein Remote-Endpunkt — keine Container- oder GPU-Konfiguration erforderlich.",
+    "image_not_local": "Image lokal nicht gefunden — Pull erforderlich.",
+    "image_available": "Image lokal verfügbar.",
+    "image_checking": "Image wird überprüft…",
+    "image_pull_button": "Image herunterladen",
+    "image_pulling": "Image wird heruntergeladen… dies kann einige Minuten dauern.",
+    "image_pull_success": "Image erfolgreich heruntergeladen.",
+    "image_pull_failed": "Image-Download fehlgeschlagen: {{error}}"
   },
   "llm_runtime_detail": {
     "failed_load": "Runtime konnte nicht geladen werden.",

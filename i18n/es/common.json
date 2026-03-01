@@ -476,7 +476,14 @@
     "gpu_detected": "GPU: {{model}} ({{vram}} VRAM)",
     "gpu_none": "No se detectó GPU compatible — modo CPU",
     "recommended_tag": "recommended",
-    "remote_provider_hint": "Este proveedor es un endpoint remoto — no se necesita configuraci\u00f3n de contenedor ni GPU."
+    "remote_provider_hint": "Este proveedor es un endpoint remoto — no se necesita configuración de contenedor ni GPU.",
+    "image_not_local": "Imagen no encontrada localmente — se requiere descargar.",
+    "image_available": "Imagen disponible localmente.",
+    "image_checking": "Verificando imagen…",
+    "image_pull_button": "Descargar imagen",
+    "image_pulling": "Descargando imagen… esto puede tardar varios minutos.",
+    "image_pull_success": "Imagen descargada exitosamente.",
+    "image_pull_failed": "Error al descargar imagen: {{error}}"
   },
   "llm_runtime_detail": {
     "failed_load": "Failed to load runtime.",

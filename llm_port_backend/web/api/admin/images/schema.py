@@ -22,6 +22,14 @@ class PullImageRequest(BaseModel):
     tag: str = Field(default="latest", description="Image tag")
 
 
+class ImageCheckResponse(BaseModel):
+    """Response for checking if an image exists locally."""
+
+    exists: bool
+    image: str
+    tag: str
+
+
 class PruneImagesRequest(BaseModel):
     """Optional request body to constrain prune scope."""
 

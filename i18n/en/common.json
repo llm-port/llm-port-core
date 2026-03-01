@@ -477,7 +477,14 @@
     "gpu_detected": "GPU: {{model}} ({{vram}} VRAM)",
     "gpu_none": "No supported GPU detected — CPU mode",
     "recommended_tag": "recommended",
-    "remote_provider_hint": "This provider is a remote endpoint — no container or GPU configuration needed."
+    "remote_provider_hint": "This provider is a remote endpoint — no container or GPU configuration needed.",
+    "image_not_local": "Image not found locally — pull required before creating runtime.",
+    "image_available": "Image available locally.",
+    "image_checking": "Checking image…",
+    "image_pull_button": "Pull Image",
+    "image_pulling": "Pulling image… this may take several minutes.",
+    "image_pull_success": "Image pulled successfully.",
+    "image_pull_failed": "Failed to pull image: {{error}}"
   },
   "llm_runtime_detail": {
     "failed_load": "Failed to load runtime.",
