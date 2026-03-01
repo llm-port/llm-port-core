@@ -40,6 +40,12 @@ _VLLM_IMAGES: dict[GpuVendor, str] = {
     # Intel and Apple are not supported by vLLM — CPU fallback
 }
 
+# vLLM >= 0.7 uses the V1 engine which only supports Flash Attention
+# (requires compute capability >= 8.0).  For older NVIDIA GPUs
+# (Turing CC 7.5, Volta CC 7.0) we fall back to the legacy image
+# that uses the V0 engine with XFormers.
+_VLLM_LEGACY_IMAGE = settings.default_vllm_legacy_image
+
 
 class VLLMAdapter(ProviderAdapter):
     """Maps generic runtime config to vLLM Docker container args."""
@@ -104,8 +110,14 @@ class VLLMAdapter(ProviderAdapter):
         if vendor_override := pc.get("gpu_vendor"):
             gpu_vendor = GpuVendor(vendor_override)
 
-        # Select the correct vLLM image for the GPU vendor
-        default_image = _VLLM_IMAGES.get(gpu_vendor, settings.default_vllm_image)
+        # Select the correct vLLM image for the GPU vendor.
+        # enforce_eager signals an older GPU (CC < 8.0) that needs the
+        # V0 legacy image to avoid the FA2 crash in V1 engine.
+        enforce_eager = gc.get("enforce_eager", True)
+        if enforce_eager and gpu_vendor == GpuVendor.NVIDIA:
+            default_image = _VLLM_LEGACY_IMAGE
+        else:
+            default_image = _VLLM_IMAGES.get(gpu_vendor, settings.default_vllm_image)
         image = pc.get("image", default_image)
 
         log.info(
@@ -129,6 +141,8 @@ class VLLMAdapter(ProviderAdapter):
             cmd += ["--gpu-memory-utilization", str(gpu_mem)]
         if tp := gc.get("tensor_parallel_size"):
             cmd += ["--tensor-parallel-size", str(tp)]
+        if (swap_space := gc.get("swap_space")) is not None:
+            cmd += ["--swap-space", str(swap_space)]
         if gc.get("enable_metrics"):
             cmd += ["--enable-metrics"]
 
@@ -139,6 +153,12 @@ class VLLMAdapter(ProviderAdapter):
                 "No supported GPU for vLLM (vendor=%s). Running in CPU-only mode.",
                 gpu_vendor,
             )
+
+        # ── Enforce eager mode ────────────────────────────────────────
+        # enforce_eager is resolved earlier (before image selection).
+        # Add the CLI flag here; legacy image handles the rest.
+        if enforce_eager:
+            cmd += ["--enforce-eager"]
 
         # Provider overlay → extra args
         if extra_args := pc.get("extra_args"):
@@ -151,12 +171,14 @@ class VLLMAdapter(ProviderAdapter):
         }
 
         # ── Volume mount — expose the HF cache to the container ──────
-        # The download task uses ``cache_dir=model_store_root`` which
-        # creates the standard HF cache layout directly under
-        # model_store_root (models--org--model/snapshots/...).
-        # Mount it as the container's HF hub cache directory so vLLM
-        # resolves the model by repo ID automatically.
-        volumes = [f"{model_store_root}:/root/.cache/huggingface/hub"]
+        # The download task uses ``cache_dir=model_store_root/hf``
+        # which creates the standard HF cache layout under
+        # model_store_root/hf (models--org--model/snapshots/...).
+        # We mount that directory into the container and explicitly set
+        # HF_HUB_CACHE to point to it, so vLLM's snapshot_download()
+        # resolves models there regardless of default cache paths.
+        hf_cache_mount = "/data/hf-cache"
+        volumes = [f"{model_store_root}/hf:{hf_cache_mount}"]
 
         # GPU devices
         gpu_devices = gc.get("gpu_devices", "all")
@@ -166,11 +188,18 @@ class VLLMAdapter(ProviderAdapter):
             # Prevent vLLM from attempting downloads inside the container
             "HF_HUB_OFFLINE=1",
             "TRANSFORMERS_OFFLINE=1",
+            # Point HuggingFace at our mounted cache directory
+            f"HF_HUB_CACHE={hf_cache_mount}",
         ]
         if settings.hf_token:
             env.append(f"HF_TOKEN={settings.hf_token}")
         if gc.get("log_level"):
             env.append(f"VLLM_LOG_LEVEL={gc['log_level']}")
+
+        # Keep XFORMERS hint for the V0 fallback path (if V1 is
+        # disabled externally or by a future vLLM version).
+        if enforce_eager:
+            env.append("VLLM_ATTENTION_BACKEND=XFORMERS")
 
         # ROCm-specific environment variables
         if gpu_vendor == GpuVendor.AMD:

@@ -111,10 +111,10 @@ class LLMService:
         )
         job = await job_dao.create(model.id)
 
-        # The download task uses model_store_root/hub as the HF hub
+        # The download task uses model_store_root/hf as the HF hub
         # cache_dir.  Files land in the standard HF cache layout so
         # vLLM can resolve models by repo ID.
-        target_dir = f"{settings.model_store_root}/hub"
+        target_dir = f"{settings.model_store_root}/hf"
 
         # Dispatch async task — non-fatal if RabbitMQ is temporarily
         # unreachable; the user can retry from the Jobs page.
@@ -246,6 +246,11 @@ class LLMService:
             model_store_root=settings.model_store_root,
         )
 
+        # Commit the runtime record *before* starting slow Docker
+        # operations so the DB connection is not held idle in a
+        # transaction (avoids asyncpg command_timeout).
+        await runtime_dao.session.commit()
+
         # Create and start the container
         try:
             container_info = await self.docker.create_container(
@@ -314,6 +319,7 @@ class LLMService:
             return runtime
 
         await runtime_dao.set_status(runtime_id, RuntimeStatus.STOPPING)
+        await runtime_dao.session.commit()
         await self.docker.stop(runtime.container_ref)
         await runtime_dao.set_status(runtime_id, RuntimeStatus.STOPPED)
         return runtime
@@ -333,8 +339,89 @@ class LLMService:
             await runtime_dao.set_status(runtime_id, RuntimeStatus.RUNNING)
             return runtime
 
+        await runtime_dao.session.commit()
         await self.docker.restart(runtime.container_ref)
         await runtime_dao.set_status(runtime_id, RuntimeStatus.STARTING)
+        return runtime
+
+    async def update_and_restart_runtime(
+        self,
+        runtime_dao: RuntimeDAO,
+        provider_dao: ProviderDAO,
+        model_dao: ModelDAO,
+        artifact_dao: ArtifactDAO,
+        runtime_id: uuid.UUID,
+        *,
+        name: str | None = None,
+        generic_config: dict | None = ...,
+        provider_config: dict | None = ...,
+        openai_compat: bool | None = None,
+    ) -> LLMRuntime:
+        """Update runtime config, tear down the old container, and start a new one."""
+        runtime = await runtime_dao.get(runtime_id)
+        if runtime is None:
+            raise ValueError(f"Runtime {runtime_id} not found")
+
+        # Update DB fields
+        runtime = await runtime_dao.update_config(
+            runtime_id,
+            name=name,
+            generic_config=generic_config,
+            provider_config=provider_config,
+            openai_compat=openai_compat,
+        )
+
+        # Remote runtimes — just mark running, nothing else to do
+        provider = await provider_dao.get(runtime.provider_id)
+        if provider and provider.target == ProviderTarget.REMOTE_ENDPOINT:
+            await runtime_dao.set_status(runtime_id, RuntimeStatus.RUNNING)
+            return runtime
+
+        # Prepare everything we need from the DB before Docker work
+        model = await model_dao.get(runtime.model_id)
+        if model is None:
+            raise ValueError(f"Model {runtime.model_id} not found")
+        artifacts = await artifact_dao.list_by_model(runtime.model_id)
+        adapter = get_adapter(provider.type)
+
+        spec: ContainerSpec = adapter.build_container_spec(
+            runtime=runtime,
+            provider=provider,
+            model=model,
+            artifacts=artifacts,
+            model_store_root=settings.model_store_root,
+        )
+
+        # Commit DB changes *before* starting slow Docker operations so
+        # the connection is not held idle in a transaction (which triggers
+        # asyncpg command_timeout / idle_in_transaction_session_timeout).
+        await runtime_dao.session.commit()
+
+        # Tear down old container (best-effort)
+        await self._teardown_runtime(runtime)
+
+        # Rebuild with updated config
+        container_info = await self.docker.create_container(
+            image=spec.image,
+            name=spec.name,
+            cmd=spec.cmd,
+            env=spec.env,
+            ports=spec.ports,
+            volumes=spec.volumes,
+            gpu_devices=spec.gpu_devices,
+            gpu_vendor=spec.gpu_vendor,
+            devices=spec.devices,
+            security_opt=spec.security_opt,
+            group_add=spec.group_add,
+            healthcheck=spec.healthcheck,
+            labels=spec.labels,
+            ipc_mode=spec.ipc_mode,
+            auto_start=True,
+        )
+        container_id = container_info.get("Id", "")
+        endpoint_url = self._extract_endpoint(container_info)
+        await runtime_dao.set_container_ref(runtime.id, container_id, endpoint_url)
+        await runtime_dao.set_status(runtime.id, RuntimeStatus.STARTING)
         return runtime
 
     async def delete_runtime(
@@ -346,16 +433,45 @@ class LLMService:
         runtime = await runtime_dao.get(runtime_id)
         if runtime is None:
             raise ValueError(f"Runtime {runtime_id} not found")
-        if runtime.container_ref:
-            try:
-                await self.docker.stop(runtime.container_ref)
-            except Exception:
-                log.warning("Could not stop container %s during delete", runtime.container_ref)
-            try:
-                await self.docker.delete(runtime.container_ref, force=True)
-            except Exception:
-                log.warning("Could not delete container %s", runtime.container_ref)
+        # Flush pending work and release the idle transaction before
+        # slow Docker teardown.
+        await runtime_dao.session.commit()
+        await self._teardown_runtime(runtime)
         await runtime_dao.delete(runtime_id)
+
+    async def delete_provider(
+        self,
+        provider_dao: ProviderDAO,
+        runtime_dao: RuntimeDAO,
+        provider_id: uuid.UUID,
+    ) -> None:
+        """Cascade-delete: stop & remove runtimes, then delete the provider."""
+        provider = await provider_dao.get(provider_id)
+        if provider is None:
+            raise ValueError(f"Provider {provider_id} not found")
+
+        # Tear down every runtime that belongs to this provider.
+        runtimes = await runtime_dao.list_by_provider(provider_id)
+        # Flush pending work before slow Docker teardown.
+        await runtime_dao.session.commit()
+        for rt in runtimes:
+            await self._teardown_runtime(rt)
+            await runtime_dao.delete(rt.id)
+
+        await provider_dao.delete(provider_id)
+
+    async def _teardown_runtime(self, runtime: LLMRuntime) -> None:
+        """Stop and remove the Docker container for a runtime (best-effort)."""
+        if not runtime.container_ref:
+            return
+        try:
+            await self.docker.stop(runtime.container_ref)
+        except Exception:
+            log.warning("Could not stop container %s during delete", runtime.container_ref)
+        try:
+            await self.docker.delete(runtime.container_ref, force=True)
+        except Exception:
+            log.warning("Could not delete container %s", runtime.container_ref)
 
     async def reconcile_runtime_status(
         self,

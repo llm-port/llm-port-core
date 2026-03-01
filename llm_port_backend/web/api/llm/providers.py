@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from starlette import status
 
 from llm_port_backend.db.dao.audit_dao import AuditDAO
-from llm_port_backend.db.dao.llm_dao import ProviderDAO
+from llm_port_backend.db.dao.llm_dao import ProviderDAO, RuntimeDAO
 from llm_port_backend.db.models.containers import AuditResult
 from llm_port_backend.db.models.users import User
 from llm_port_backend.services.llm.service import LLMService
@@ -207,17 +207,15 @@ async def delete_provider(
     provider_id: uuid.UUID,
     user: User = Depends(require_permission("llm.providers", "delete")),
     provider_dao: ProviderDAO = Depends(),
+    runtime_dao: RuntimeDAO = Depends(),
+    llm_service: LLMService = Depends(get_llm_service),
     audit_dao: AuditDAO = Depends(),
 ) -> None:
-    """Delete a provider (blocked if runtimes exist)."""
-    if await provider_dao.has_runtimes(provider_id):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Cannot delete provider with existing runtimes.",
-        )
-    deleted = await provider_dao.delete(provider_id)
-    if not deleted:
-        raise HTTPException(status_code=404, detail="Provider not found")
+    """Delete a provider, cascade-deleting any associated runtimes."""
+    try:
+        await llm_service.delete_provider(provider_dao, runtime_dao, provider_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     await audit_action(
         action="llm.provider.delete",
         target_type="llm_provider",

@@ -5,11 +5,26 @@ from __future__ import annotations
 import json
 import sys
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Any
 
 from aiodocker import Docker
 
 _DEFAULT_DOCKER_URL = "http://127.0.0.1:2375" if sys.platform == "win32" else "unix:///var/run/docker.sock"
+
+
+def _resolve_bind_path(host_path: str) -> str:
+    """Resolve a host-side bind-mount path to an absolute, Docker-compatible form.
+
+    On Windows the backend may specify Linux-style paths like
+    ``/srv/llm-port/models`` that Python resolves relative to the current
+    drive (``C:\\srv\\llm-port\\models``).  Docker Desktop needs the
+    full Windows path (with forward slashes) so it can translate it to
+    the correct WSL2 / Hyper-V mount.  On Linux this is a no-op.
+    """
+    resolved = str(Path(host_path).resolve())
+    # Docker Desktop for Windows accepts forward-slash paths.
+    return resolved.replace("\\", "/")
 
 
 class DockerService:
@@ -176,7 +191,24 @@ class DockerService:
             host_config["PortBindings"] = ports
             config["ExposedPorts"] = {p: {} for p in ports}
         if volumes:
-            host_config["Binds"] = volumes
+            # Resolve host-side paths to absolute OS-native form so
+            # Docker Desktop on Windows can locate them correctly.
+            resolved: list[str] = []
+            for bind in volumes:
+                # Split host:container[:mode] — but handle Windows drive
+                # letters like "C:\path" where the colon after the drive
+                # letter must NOT be treated as a separator.
+                parts = bind.split(":")
+                if len(parts) >= 3 and len(parts[0]) == 1 and parts[0].isalpha():
+                    # e.g. "C:\foo\bar:/container/path" → ["C", "\foo\bar", "/container/path"]
+                    host_part = _resolve_bind_path(f"{parts[0]}:{parts[1]}")
+                    resolved.append(":".join([host_part, *parts[2:]]))
+                elif len(parts) >= 2:
+                    host_part = _resolve_bind_path(parts[0])
+                    resolved.append(":".join([host_part, *parts[1:]]))
+                else:
+                    resolved.append(bind)
+            host_config["Binds"] = resolved
         if network:
             host_config["NetworkMode"] = network
 

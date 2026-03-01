@@ -73,7 +73,10 @@ async def run_migrations_online() -> None:
     In this scenario we need to create an Engine
     and associate a connection with the context.
     """
-    connectable = create_async_engine(str(settings.db_url))
+    connectable = create_async_engine(
+        str(settings.db_url),
+        connect_args={"ssl": False},
+    )
 
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)

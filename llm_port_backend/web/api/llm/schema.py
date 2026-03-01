@@ -167,6 +167,15 @@ class RuntimeCreateRequest(BaseModel):
     openai_compat: bool = True
 
 
+class RuntimeUpdateRequest(BaseModel):
+    """Request body for updating a runtime's config (triggers container rebuild)."""
+
+    name: str | None = Field(None, min_length=1, max_length=256)
+    generic_config: dict | None = None
+    provider_config: dict | None = None
+    openai_compat: bool | None = None
+
+
 class RuntimeDTO(BaseModel):
     """Response DTO for a runtime."""
 

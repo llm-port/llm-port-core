@@ -497,7 +497,14 @@
     "health_unavailable": "Health check unavailable.",
     "container_logs": "Container Logs (last 300 lines)",
     "no_logs": "No logs available.",
-    "page_title": "Runtime Details"
+    "page_title": "Runtime Details",
+    "edit_config": "Edit Configuration",
+    "max_model_len_help": "Maximum sequence length the model will handle (e.g. 4096). Leave blank for model default.",
+    "extra_args": "Extra Arguments",
+    "extra_args_help": "Additional command-line arguments passed to the runtime engine (one per line, e.g. --enforce-eager).",
+    "save_and_restart": "Save & Restart",
+    "enforce_eager": "Enforce eager mode (disable FlashAttention / CUDA graphs — required for GPUs older than Ampere)",
+    "swap_space_help": "CPU swap space per GPU in GiB for offloading (e.g. 4). Leave blank for vLLM default."
   },
   "llm_jobs": {
     "title": "Download Jobs",

@@ -329,6 +329,36 @@ class RuntimeDAO:
             runtime.endpoint_url = endpoint_url
         return runtime
 
+    async def list_by_provider(self, provider_id: uuid.UUID) -> list[LLMRuntime]:
+        """Return all runtimes for a given provider."""
+        result = await self.session.execute(
+            select(LLMRuntime).where(LLMRuntime.provider_id == provider_id),
+        )
+        return list(result.scalars().all())
+
+    async def update_config(
+        self,
+        runtime_id: uuid.UUID,
+        *,
+        name: str | None = None,
+        generic_config: dict | None = ...,
+        provider_config: dict | None = ...,
+        openai_compat: bool | None = None,
+    ) -> LLMRuntime | None:
+        """Update mutable runtime fields. Sentinel ``...`` means 'leave unchanged'."""
+        runtime = await self.get(runtime_id)
+        if runtime is None:
+            return None
+        if name is not None:
+            runtime.name = name
+        if generic_config is not ...:
+            runtime.generic_config = generic_config
+        if provider_config is not ...:
+            runtime.provider_config = provider_config
+        if openai_compat is not None:
+            runtime.openai_compat = openai_compat
+        return runtime
+
     async def delete(self, runtime_id: uuid.UUID) -> bool:
         """Delete a runtime. Returns False if not found."""
         runtime = await self.get(runtime_id)

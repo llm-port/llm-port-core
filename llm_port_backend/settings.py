@@ -86,6 +86,10 @@ class Settings(BaseSettings):
     hf_token: str | None = None
     default_vllm_image: str = "vllm/vllm-openai:latest"
     default_vllm_rocm_image: str = "vllm/vllm-openai:latest-rocm"
+    # Legacy image for GPUs with compute capability < 8.0 (Turing/Volta).
+    # vLLM >= 0.7 uses the V1 engine which only supports FA2 (CC >= 8.0).
+    # v0.6.6 uses the V0 engine with XFormers support (CC >= 7.0).
+    default_vllm_legacy_image: str = "vllm/vllm-openai:v0.6.6"
 
     # JSON-encoded list of additional vLLM image presets.
     # Each entry: {"label": "...", "image": "...", "vendor": "nvidia|amd|any", "description": "..."}

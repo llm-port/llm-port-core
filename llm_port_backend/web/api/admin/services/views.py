@@ -163,8 +163,17 @@ async def _container_states(
     docker: DockerService,
     container_names: list[str],
 ) -> list[dict[str, str]]:
-    """Return ``[{name, state}]`` for the requested container names."""
-    all_containers = await docker.list_containers(all_=True)
+    """Return ``[{name, state}]`` for the requested container names.
+
+    If the Docker daemon is unreachable or returns an error, every
+    container is reported as ``"unknown"`` rather than letting the
+    exception propagate and crash the services endpoint.
+    """
+    try:
+        all_containers = await docker.list_containers(all_=True)
+    except Exception:
+        logger.warning("Docker API unreachable — reporting all containers as unknown", exc_info=True)
+        return [{"name": cn, "state": "unknown"} for cn in container_names]
     # Docker container names start with "/" in the API response.
     name_map: dict[str, str] = {}
     for c in all_containers:

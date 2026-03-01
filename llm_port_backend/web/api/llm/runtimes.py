@@ -20,6 +20,7 @@ from llm_port_backend.web.api.llm.schema import (
     RuntimeCreateRequest,
     RuntimeDTO,
     RuntimeHealthDTO,
+    RuntimeUpdateRequest,
 )
 from llm_port_backend.web.api.rbac import require_permission
 
@@ -196,6 +197,50 @@ async def delete_runtime(
         severity="normal",
         audit_dao=audit_dao,
     )
+
+
+@router.patch("/{runtime_id}", response_model=RuntimeDTO)
+async def update_runtime(
+    runtime_id: uuid.UUID,
+    body: RuntimeUpdateRequest,
+    user: User = Depends(require_permission("llm.runtimes", "update")),
+    llm_service: LLMService = Depends(get_llm_service),
+    runtime_dao: RuntimeDAO = Depends(),
+    provider_dao: ProviderDAO = Depends(),
+    model_dao: ModelDAO = Depends(),
+    artifact_dao: ArtifactDAO = Depends(),
+    audit_dao: AuditDAO = Depends(),
+) -> RuntimeDTO:
+    """Update runtime config and rebuild the container."""
+    try:
+        runtime = await llm_service.update_and_restart_runtime(
+            runtime_dao,
+            provider_dao,
+            model_dao,
+            artifact_dao,
+            runtime_id,
+            name=body.name,
+            generic_config=body.generic_config,
+            provider_config=body.provider_config,
+            openai_compat=body.openai_compat,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Failed to rebuild runtime container: {exc}",
+        ) from exc
+    await audit_action(
+        action="llm.runtime.update",
+        target_type="llm_runtime",
+        target_id=str(runtime_id),
+        result=AuditResult.ALLOW,
+        actor_id=user.id,
+        severity="normal",
+        audit_dao=audit_dao,
+    )
+    return RuntimeDTO.model_validate(runtime)
 
 
 @router.get("/{runtime_id}/health", response_model=RuntimeHealthDTO)

@@ -47,14 +47,22 @@ def _setup_db(app: FastAPI) -> None:  # pragma: no cover
 
     :param app: fastAPI application.
     """
-    engine = create_async_engine(str(settings.db_url), echo=settings.db_echo)
+    engine = create_async_engine(
+        str(settings.db_url),
+        echo=settings.db_echo,
+        connect_args={"ssl": False},
+    )
     session_factory = async_sessionmaker(
         engine,
         expire_on_commit=False,
     )
     app.state.db_engine = engine
     app.state.db_session_factory = session_factory
-    graph_engine = create_async_engine(str(settings.llm_graph_db_url), echo=False)
+    graph_engine = create_async_engine(
+        str(settings.llm_graph_db_url),
+        echo=False,
+        connect_args={"ssl": False},
+    )
     app.state.llm_graph_trace_engine = graph_engine
     app.state.llm_graph_trace_session_factory = async_sessionmaker(
         graph_engine,
