@@ -52,6 +52,7 @@ def collect_gpu_metrics() -> GpuMetrics:
 
 # ── Strategy 1: NVIDIA pynvml ─────────────────────────────────────────
 
+
 def _metrics_nvidia() -> GpuMetrics:
     """Collect NVIDIA GPU metrics via pynvml."""
     import pynvml  # noqa: PLC0415
@@ -83,6 +84,7 @@ def _metrics_nvidia() -> GpuMetrics:
 
 
 # ── Strategy 2: AMD ROCm sysfs (Linux) ───────────────────────────────
+
 
 def _metrics_amd_linux() -> GpuMetrics:
     """Collect AMD GPU metrics from Linux sysfs.
@@ -149,6 +151,7 @@ def _metrics_amd_linux() -> GpuMetrics:
 
 # ── Strategy 3: Windows Performance Counters ─────────────────────────
 
+
 def _metrics_windows() -> GpuMetrics:
     """Collect GPU metrics from Windows Performance Counters.
 
@@ -166,12 +169,14 @@ def _metrics_windows() -> GpuMetrics:
         "$m=(Get-Counter '\\GPU Local Adapter Memory(*)\\Local Usage'"
         " -ErrorAction SilentlyContinue).CounterSamples"
         " | Measure-Object -Property CookedValue -Sum;"
-        "Write-Output \"$($u.Sum)|$($m.Sum)\""
+        'Write-Output "$($u.Sum)|$($m.Sum)"'
     )
 
     proc = subprocess.run(
         ["powershell", "-NoProfile", "-Command", ps_script],
-        capture_output=True, text=True, timeout=8,
+        capture_output=True,
+        text=True,
+        timeout=8,
     )
 
     util: float | None = None
@@ -195,7 +200,9 @@ def _metrics_windows() -> GpuMetrics:
         with contextlib.suppress(Exception):
             proc2 = subprocess.run(
                 [
-                    "powershell", "-NoProfile", "-Command",
+                    "powershell",
+                    "-NoProfile",
+                    "-Command",
                     "$r = Get-ItemProperty"
                     " 'HKLM:\\SYSTEM\\ControlSet001\\Control\\Class"
                     "\\{4d36e968-e325-11ce-bfc1-08002be10318}\\0*'"
@@ -207,7 +214,9 @@ def _metrics_windows() -> GpuMetrics:
                     " (Get-CimInstance Win32_VideoController"
                     " | Select-Object -First 1 -ExpandProperty AdapterRAM) }",
                 ],
-                capture_output=True, text=True, timeout=5,
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
             if proc2.returncode == 0 and proc2.stdout.strip():
                 vram_total = int(proc2.stdout.strip())

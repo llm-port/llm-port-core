@@ -30,7 +30,9 @@ def authed_app(fastapi_app: FastAPI) -> FastAPI:
     return fastapi_app
 
 
-async def test_query_range_limit_default(monkeypatch: pytest.MonkeyPatch, authed_app: FastAPI, client: AsyncClient) -> None:
+async def test_query_range_limit_default(
+    monkeypatch: pytest.MonkeyPatch, authed_app: FastAPI, client: AsyncClient
+) -> None:
     captured: dict[str, str] = {}
     monkeypatch.setattr(settings, "logs_default_limit", 123)
     monkeypatch.setattr(settings, "logs_max_limit", 5000)
@@ -49,7 +51,9 @@ async def test_query_range_limit_default(monkeypatch: pytest.MonkeyPatch, authed
     assert captured["limit"] == "123"
 
 
-async def test_query_range_limit_clamped(monkeypatch: pytest.MonkeyPatch, authed_app: FastAPI, client: AsyncClient) -> None:
+async def test_query_range_limit_clamped(
+    monkeypatch: pytest.MonkeyPatch, authed_app: FastAPI, client: AsyncClient
+) -> None:
     captured: dict[str, str] = {}
     monkeypatch.setattr(settings, "logs_default_limit", 200)
     monkeypatch.setattr(settings, "logs_max_limit", 50)
@@ -68,7 +72,9 @@ async def test_query_range_limit_clamped(monkeypatch: pytest.MonkeyPatch, authed
     assert captured["limit"] == "50"
 
 
-async def test_query_allowlist_enforced(monkeypatch: pytest.MonkeyPatch, authed_app: FastAPI, client: AsyncClient) -> None:
+async def test_query_allowlist_enforced(
+    monkeypatch: pytest.MonkeyPatch, authed_app: FastAPI, client: AsyncClient
+) -> None:
     monkeypatch.setattr(settings, "logs_allowed_labels_raw", "job,container")
 
     url = authed_app.url_path_for("logs_query_range")
@@ -90,7 +96,9 @@ async def test_label_name_allowlist_enforced(
     assert "not allowed" in resp.text
 
 
-async def test_loki_error_maps_to_502(monkeypatch: pytest.MonkeyPatch, authed_app: FastAPI, client: AsyncClient) -> None:
+async def test_loki_error_maps_to_502(
+    monkeypatch: pytest.MonkeyPatch, authed_app: FastAPI, client: AsyncClient
+) -> None:
     monkeypatch.setattr(settings, "logs_allowed_labels_raw", None)
 
     async def _fake_request(path: str, params: dict[str, str] | None = None, timeout: float = 10.0) -> dict:
@@ -105,7 +113,9 @@ async def test_loki_error_maps_to_502(monkeypatch: pytest.MonkeyPatch, authed_ap
     assert "boom" in resp.text
 
 
-async def test_query_response_normalized(monkeypatch: pytest.MonkeyPatch, authed_app: FastAPI, client: AsyncClient) -> None:
+async def test_query_response_normalized(
+    monkeypatch: pytest.MonkeyPatch, authed_app: FastAPI, client: AsyncClient
+) -> None:
     monkeypatch.setattr(settings, "logs_allowed_labels_raw", None)
 
     async def _fake_request(path: str, params: dict[str, str] | None = None, timeout: float = 10.0) -> dict:

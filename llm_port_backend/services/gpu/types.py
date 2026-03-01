@@ -23,7 +23,7 @@ class GpuComputeApi(enum.StrEnum):
     ROCM = "rocm"
     ONEAPI = "oneapi"
     METAL = "metal"
-    VULKAN = "vulkan"       # llama.cpp can use this on any GPU
+    VULKAN = "vulkan"  # llama.cpp can use this on any GPU
     CPU = "cpu"
     UNKNOWN = "unknown"
 

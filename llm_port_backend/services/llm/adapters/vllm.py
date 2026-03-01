@@ -16,7 +16,7 @@ from llm_port_backend.db.models.llm import (
     ProviderType,
 )
 from llm_port_backend.services.gpu.detector import detect_gpus
-from llm_port_backend.services.gpu.types import GpuComputeApi, GpuVendor
+from llm_port_backend.services.gpu.types import GpuVendor
 from llm_port_backend.services.llm.base import (
     CompatResult,
     ContainerSpec,
@@ -53,7 +53,7 @@ class VLLMAdapter(ProviderAdapter):
         model: LLMModel,
         artifacts: list[ModelArtifact],
     ) -> CompatResult:
-        """vLLM works best with safetensors; reject pure GGUF-only models."""
+        """VLLM works best with safetensors; reject pure GGUF-only models."""
         if not artifacts:
             return CompatResult(compatible=False, reason="No artifacts found for model.")
         formats = {a.format for a in artifacts}
@@ -107,7 +107,10 @@ class VLLMAdapter(ProviderAdapter):
 
         log.info(
             "vLLM runtime %r: detected GPU vendor=%s, compute=%s, image=%s",
-            runtime.name, gpu_vendor, compute_api, image,
+            runtime.name,
+            gpu_vendor,
+            compute_api,
+            image,
         )
 
         # Build vLLM CLI args
@@ -203,7 +206,7 @@ class VLLMAdapter(ProviderAdapter):
                 if resp.status_code == 200:
                     return HealthStatus(healthy=True)
                 return HealthStatus(healthy=False, detail=f"HTTP {resp.status_code}")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return HealthStatus(healthy=False, detail=str(exc))
 
     # ------------------------------------------------------------------
@@ -221,7 +224,8 @@ class VLLMAdapter(ProviderAdapter):
             "gpu_compute_api": inventory.primary_compute_api.value,
             "gpu_count": inventory.device_count,
             "recommended_image": _VLLM_IMAGES.get(
-                inventory.primary_vendor, settings.default_vllm_image,
+                inventory.primary_vendor,
+                settings.default_vllm_image,
             ),
         }
 

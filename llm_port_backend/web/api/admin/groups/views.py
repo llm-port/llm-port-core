@@ -37,8 +37,7 @@ def _role_to_dto(role) -> RoleDTO:
         is_builtin=role.is_builtin,
         created_at=role.created_at,
         permissions=[
-            PermissionDTO(id=perm.id, resource=perm.resource, action=perm.action)
-            for perm in permissions
+            PermissionDTO(id=perm.id, resource=perm.resource, action=perm.action) for perm in permissions
         ],
         user_count=0,
     )
@@ -56,6 +55,7 @@ def _group_to_dto(group: Group, member_count: int = 0) -> GroupDTO:
 
 
 # ── Groups CRUD ───────────────────────────────────────────────────────
+
 
 @router.get("/", response_model=list[GroupDTO], name="list_groups")
 async def list_groups(
@@ -137,6 +137,7 @@ async def delete_group(
 
 
 # ── Group members ─────────────────────────────────────────────────────
+
 
 @router.get("/{group_id}/members", response_model=list[GroupMemberDTO], name="list_group_members")
 async def list_group_members(

@@ -185,11 +185,7 @@ class Settings(BaseSettings):
         """Parse optional comma-separated allowlist for log labels."""
         if not self.logs_allowed_labels_raw:
             return None
-        labels = {
-            chunk.strip().lower()
-            for chunk in self.logs_allowed_labels_raw.split(",")
-            if chunk.strip()
-        }
+        labels = {chunk.strip().lower() for chunk in self.logs_allowed_labels_raw.split(",") if chunk.strip()}
         return labels or None
 
     @property

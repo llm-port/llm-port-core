@@ -20,11 +20,9 @@ from llm_port_backend.db.dao.llm_dao import (
 )
 from llm_port_backend.db.models.llm import (
     DownloadJob,
-    DownloadJobStatus,
     LLMModel,
     LLMProvider,
     LLMRuntime,
-    ModelArtifact,
     ModelSource,
     ModelStatus,
     ProviderTarget,
@@ -163,10 +161,7 @@ class LLMService:
         resolved = Path(path).resolve()
         store_root = Path(settings.model_store_root).resolve()
         if not str(resolved).startswith(str(store_root)):
-            msg = (
-                f"Path '{path}' resolves outside the model store root "
-                f"'{settings.model_store_root}'."
-            )
+            msg = f"Path '{path}' resolves outside the model store root '{settings.model_store_root}'."
             raise ValueError(msg)
 
         model = await model_dao.create(

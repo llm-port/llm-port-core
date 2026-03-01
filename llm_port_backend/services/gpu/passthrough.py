@@ -66,6 +66,7 @@ def build_gpu_host_config(
 
 # ── Vendor-specific builders ─────────────────────────────────────────
 
+
 def _nvidia_config(gpu_devices: str | list[int]) -> dict[str, Any]:
     """NVIDIA Container Toolkit — DeviceRequests API.
 
@@ -113,10 +114,7 @@ def _amd_config(gpu_devices: str | list[int]) -> dict[str, Any]:
             devices.append(f"/dev/dri/card{idx}")
 
     return {
-        "Devices": [
-            {"PathOnHost": d, "PathInContainer": d, "CgroupPermissions": "rwm"}
-            for d in devices
-        ],
+        "Devices": [{"PathOnHost": d, "PathInContainer": d, "CgroupPermissions": "rwm"} for d in devices],
         "GroupAdd": ["video", "render"],
         "SecurityOpt": ["seccomp=unconfined"],
     }
@@ -138,9 +136,6 @@ def _intel_config(gpu_devices: str | list[int]) -> dict[str, Any]:
             devices.append(f"/dev/dri/card{idx}")
 
     return {
-        "Devices": [
-            {"PathOnHost": d, "PathInContainer": d, "CgroupPermissions": "rwm"}
-            for d in devices
-        ],
+        "Devices": [{"PathOnHost": d, "PathInContainer": d, "CgroupPermissions": "rwm"} for d in devices],
         "GroupAdd": ["video", "render"],
     }

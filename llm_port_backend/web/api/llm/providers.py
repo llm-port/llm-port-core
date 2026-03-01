@@ -57,7 +57,7 @@ async def test_endpoint(
             compatible=False,
             error="Request timed out after 10 s.",
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return TestEndpointResponse(
             compatible=False,
             error=f"Connection failed: {exc}",
@@ -84,7 +84,7 @@ async def test_endpoint(
     # Validate OpenAI-compatible /models response shape
     try:
         payload = resp.json()
-    except Exception:  # noqa: BLE001
+    except Exception:
         return TestEndpointResponse(
             compatible=False,
             error="Response is not valid JSON — the endpoint is not OpenAI API compatible.",
@@ -94,7 +94,7 @@ async def test_endpoint(
         return TestEndpointResponse(
             compatible=False,
             error=(
-                "Response JSON does not contain a \"data\" field. "
+                'Response JSON does not contain a "data" field. '
                 "This endpoint does not appear to be OpenAI API compatible."
             ),
         )
@@ -103,7 +103,7 @@ async def test_endpoint(
     if not isinstance(data, list):
         return TestEndpointResponse(
             compatible=False,
-            error="The \"data\" field is not a list — unexpected response format.",
+            error='The "data" field is not a list — unexpected response format.',
         )
 
     model_ids: list[str] = []

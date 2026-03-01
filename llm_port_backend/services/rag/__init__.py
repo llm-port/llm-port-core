@@ -1,2 +1,1 @@
 """RAG service integration utilities."""
-

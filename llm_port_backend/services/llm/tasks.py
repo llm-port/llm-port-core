@@ -108,9 +108,8 @@ async def download_model_task(
     The HF token is resolved at runtime from the encrypted system settings
     (or env-var fallback) -- it is never transmitted over RabbitMQ.
     """
-    from llm_port_backend.db.dao.llm_dao import ArtifactDAO, DownloadJobDAO, ModelDAO  # noqa: PLC0415
-    from llm_port_backend.db.models.llm import DownloadJobStatus, ModelStatus  # noqa: PLC0415
-    from llm_port_backend.services.llm.scanner import scan_model_directory  # noqa: PLC0415
+    from llm_port_backend.db.dao.llm_dao import DownloadJobDAO, ModelDAO  # noqa: PLC0415
+    from llm_port_backend.db.models.llm import ModelStatus  # noqa: PLC0415
 
     _model_id = uuid.UUID(model_id)
     _job_id = uuid.UUID(job_id)

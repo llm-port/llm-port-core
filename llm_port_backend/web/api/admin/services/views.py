@@ -92,6 +92,7 @@ _MODULE_MAP: dict[str, dict[str, Any]] = {m["name"]: m for m in _MODULE_DEFS}
 
 # ── Helpers ───────────────────────────────────────────────────────────
 
+
 def _resolve_compose_paths() -> tuple[str, str]:
     """Return (compose_file, env_file) as absolute paths."""
     compose_file = Path(settings.system_compose_file)
@@ -112,8 +113,10 @@ async def _run_compose(
     """
     compose_file, env_file = _resolve_compose_paths()
     cmd: list[str] = [
-        "docker", "compose",
-        "-f", compose_file,
+        "docker",
+        "compose",
+        "-f",
+        compose_file,
     ]
     if os.path.isfile(env_file):
         cmd += ["--env-file", env_file]
@@ -168,13 +171,11 @@ async def _container_states(
         for n in c.get("Names", []):
             clean = n.lstrip("/")
             name_map[clean] = c.get("State", "unknown")
-    return [
-        {"name": cn, "state": name_map.get(cn, "not_found")}
-        for cn in container_names
-    ]
+    return [{"name": cn, "state": name_map.get(cn, "not_found")} for cn in container_names]
 
 
 # ── GET /services ─────────────────────────────────────────────────────
+
 
 @router.get("/services")
 async def list_services(
@@ -194,7 +195,8 @@ async def list_services(
         # Always query container states so the UI can show toggle state
         # even for modules whose settings flag is off.
         containers = await _container_states(
-            docker, mod.get("container_names", []),
+            docker,
+            mod.get("container_names", []),
         )
 
         # A module is "running" when at least one of its containers is up.
@@ -226,6 +228,7 @@ async def list_services(
 
 # ── PUT /services/{name}/enable ───────────────────────────────────────
 
+
 @router.put("/services/{name}/enable")
 async def enable_module(
     name: str,
@@ -247,7 +250,9 @@ async def enable_module(
 
     profile = mod.get("compose_profile", name)
     rc, stdout, stderr = await _run_compose(
-        "up", "-d", "--remove-orphans",
+        "up",
+        "-d",
+        "--remove-orphans",
         profile=profile,
     )
 
@@ -279,6 +284,7 @@ async def enable_module(
 
 # ── PUT /services/{name}/disable ──────────────────────────────────────
 
+
 @router.put("/services/{name}/disable")
 async def disable_module(
     name: str,
@@ -301,7 +307,8 @@ async def disable_module(
     profile = mod.get("compose_profile", name)
     services = mod.get("compose_services", [])
     rc, stdout, stderr = await _run_compose(
-        "stop", *services,
+        "stop",
+        *services,
         profile=profile,
     )
 

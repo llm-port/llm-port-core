@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import logging
 import os
 import time
 from collections.abc import Iterable
@@ -227,9 +226,7 @@ async def overview(
     raw_containers = await docker.list_containers(all_=True)
     containers_total = len(raw_containers)
     containers_running = sum(1 for c in raw_containers if str(c.get("State", "")).lower() == "running")
-    containers_restarting = sum(
-        1 for c in raw_containers if str(c.get("State", "")).lower() == "restarting"
-    )
+    containers_restarting = sum(1 for c in raw_containers if str(c.get("State", "")).lower() == "restarting")
 
     restart_counts = [_to_float(c.get("RestartCount"), default=0.0) for c in raw_containers]
     restart_total = int(sum(restart_counts))
@@ -253,7 +250,7 @@ async def overview(
         cpu_percent = round(_docker_cpu_percent(stats), 2)
         mem_bytes = _docker_memory_usage_bytes(stats)
         mem_limit = int(_to_float((stats.get("memory_stats", {}) or {}).get("limit"), default=0.0))
-        networks = (stats.get("networks", {}) or {})
+        networks = stats.get("networks", {}) or {}
         if isinstance(networks, dict):
             for iface in networks.values():
                 if isinstance(iface, dict):

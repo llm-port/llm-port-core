@@ -16,7 +16,6 @@ from __future__ import annotations
 import contextlib
 import functools
 import logging
-import os
 import platform
 import subprocess
 import sys
@@ -33,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 
 # ── Public API ────────────────────────────────────────────────────────
+
 
 @functools.lru_cache(maxsize=1)
 def detect_gpus() -> GpuInventory:
@@ -79,6 +79,7 @@ def detect_gpus() -> GpuInventory:
 
 # ── Strategy 1: NVIDIA pynvml ─────────────────────────────────────────
 
+
 def _detect_nvidia() -> list[GpuDevice]:
     """Detect NVIDIA GPUs using pynvml (works on any OS with drivers)."""
     devices: list[GpuDevice] = []
@@ -113,6 +114,7 @@ def _detect_nvidia() -> list[GpuDevice]:
 
 
 # ── Strategy 2: AMD ROCm (Linux sysfs) ───────────────────────────────
+
 
 def _detect_amd_rocm() -> list[GpuDevice]:
     """Detect AMD GPUs via ROCm sysfs and rocm-smi on Linux."""
@@ -150,7 +152,9 @@ def _detect_amd_rocm() -> list[GpuDevice]:
     with contextlib.suppress(Exception):
         proc = subprocess.run(
             ["rocm-smi", "--showdriverversion"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if proc.returncode == 0:
             for line in proc.stdout.splitlines():
@@ -203,7 +207,9 @@ def _rocm_smi_info() -> list[dict[str, object]]:
     with contextlib.suppress(FileNotFoundError, Exception):
         proc = subprocess.run(
             ["rocm-smi", "--showproductname", "--showmeminfo", "vram", "--csv"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         if proc.returncode != 0:
             return info
@@ -230,6 +236,7 @@ def _rocm_smi_info() -> list[dict[str, object]]:
 
 # ── Strategy 3: Windows WMI ──────────────────────────────────────────
 
+
 def _detect_windows_wmi() -> list[GpuDevice]:
     """Detect GPUs on Windows using WMI (Win32_VideoController).
 
@@ -249,7 +256,9 @@ def _detect_windows_wmi() -> list[GpuDevice]:
         )
         proc = subprocess.run(
             ["powershell", "-NoProfile", "-Command", ps_script],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         if proc.returncode != 0:
             logger.debug("WMI GPU query failed (rc=%d): %s", proc.returncode, proc.stderr[:200])
@@ -270,7 +279,9 @@ def _detect_windows_wmi() -> list[GpuDevice]:
             )
             reg_proc = subprocess.run(
                 ["powershell", "-NoProfile", "-Command", reg_script],
-                capture_output=True, text=True, timeout=5,
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
             if reg_proc.returncode == 0 and reg_proc.stdout.strip():
                 qw_vram = int(reg_proc.stdout.strip())
@@ -336,6 +347,7 @@ def _classify_windows_gpu(name: str, pnp_id: str) -> tuple[GpuVendor, GpuCompute
 
 # ── Strategy 4: macOS ────────────────────────────────────────────────
 
+
 def _detect_macos() -> list[GpuDevice]:
     """Detect GPUs on macOS using system_profiler.
 
@@ -348,7 +360,9 @@ def _detect_macos() -> list[GpuDevice]:
 
         proc = subprocess.run(
             ["system_profiler", "SPDisplaysDataType", "-json"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         if proc.returncode != 0:
             return devices
@@ -404,6 +418,7 @@ def _detect_macos() -> list[GpuDevice]:
 
 # ── Strategy 5: Intel on Linux (sysfs / clinfo) ──────────────────────
 
+
 def _detect_intel_linux() -> list[GpuDevice]:
     """Detect Intel GPUs on Linux via DRI sysfs (render nodes)."""
     devices: list[GpuDevice] = []
@@ -443,6 +458,7 @@ def _detect_intel_linux() -> list[GpuDevice]:
 
 
 # ── Internal helper ───────────────────────────────────────────────────
+
 
 def _build_inventory(devices: list[GpuDevice]) -> GpuInventory:
     """Build a :class:`GpuInventory` from a list of devices."""

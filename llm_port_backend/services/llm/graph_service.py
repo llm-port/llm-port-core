@@ -126,8 +126,10 @@ class LLMGraphService:
         """Return a bounded list of trace events for graph bootstrap/polling."""
         bounded = max(1, min(limit, TRACE_MAX_LIMIT))
         events = await self._fetch_traces(limit=bounded, after_event_id=after_event_id)
-        next_cursor = str(events[-1].event_id) if events else (
-            str(after_event_id) if after_event_id is not None else None
+        next_cursor = (
+            str(events[-1].event_id)
+            if events
+            else (str(after_event_id) if after_event_id is not None else None)
         )
         return TraceSnapshotResponseDTO(items=events, next_cursor=next_cursor)
 
@@ -226,9 +228,7 @@ class LLMGraphService:
                     user_id=row["user_id"],
                     model_alias=row["model_alias"],
                     provider_instance_id=(
-                        str(row["provider_instance_id"])
-                        if row["provider_instance_id"] is not None
-                        else None
+                        str(row["provider_instance_id"]) if row["provider_instance_id"] is not None else None
                     ),
                     status=row["status_code"],
                     latency_ms=row["latency_ms"],

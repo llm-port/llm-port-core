@@ -348,7 +348,7 @@ class SystemSettingsService:
         *,
         agent_id: str,
         host: str,
-            capabilities: dict[str, Any],
+        capabilities: dict[str, Any],
         version: str | None,
     ) -> dict[str, Any]:
         """Register an infra agent."""
@@ -366,7 +366,7 @@ class SystemSettingsService:
         *,
         agent_id: str,
         host: str,
-            capabilities: dict[str, Any],
+        capabilities: dict[str, Any],
         version: str | None,
         status: InfraAgentStatus,
     ) -> dict[str, Any]:

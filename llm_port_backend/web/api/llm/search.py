@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query
-
 from pydantic import BaseModel
 
 from llm_port_backend.db.models.users import User
@@ -48,5 +47,5 @@ async def search_hf_models(
             )
             for m in hits
         ]
-    except Exception:  # noqa: BLE001
+    except Exception:
         return []

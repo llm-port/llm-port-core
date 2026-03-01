@@ -68,9 +68,7 @@ class Permission(Base):
         server_default=func.now(),
     )
 
-    __table_args__ = (
-        UniqueConstraint("resource", "action", name="uq_permission_resource_action"),
-    )
+    __table_args__ = (UniqueConstraint("resource", "action", name="uq_permission_resource_action"),)
 
     # relationships
     roles: Mapped[list["Role"]] = relationship(

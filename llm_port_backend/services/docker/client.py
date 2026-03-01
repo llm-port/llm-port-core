@@ -117,7 +117,7 @@ class DockerService:
         network: str | None = None,
         auto_start: bool = False,
         gpu_devices: str | list[int] | None = None,
-        gpu_vendor: "GpuVendor | None" = None,
+        gpu_vendor: GpuVendor | None = None,
         devices: list[str] | None = None,
         security_opt: list[str] | None = None,
         group_add: list[str] | None = None,
@@ -193,9 +193,7 @@ class DockerService:
         if devices:
             existing_devices = host_config.get("Devices", [])
             for d in devices:
-                existing_devices.append(
-                    {"PathOnHost": d, "PathInContainer": d, "CgroupPermissions": "rwm"}
-                )
+                existing_devices.append({"PathOnHost": d, "PathInContainer": d, "CgroupPermissions": "rwm"})
             host_config["Devices"] = existing_devices
 
         if security_opt:

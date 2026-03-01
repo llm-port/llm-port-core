@@ -27,7 +27,7 @@ log = logging.getLogger(__name__)
 _RATE_LIMIT_PER_MINUTE = 120
 _rate_buckets: dict[str, int] = defaultdict(int)
 
-_LABEL_MATCH_RE = re.compile(r'([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:=|!=|=~|!~)')
+_LABEL_MATCH_RE = re.compile(r"([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:=|!=|=~|!~)")
 
 
 class LokiUpstreamError(Exception):
@@ -332,6 +332,6 @@ async def tail_logs(
                     await websocket.send_text(message)
     except WebSocketDisconnect:
         return
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.warning("logs.tail upstream failure: %s", exc)
         await websocket.close(code=1011, reason="Upstream Loki tail failed.")

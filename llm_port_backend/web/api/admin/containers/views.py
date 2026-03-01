@@ -144,9 +144,7 @@ async def create_container(
     if body.ports:
         port_bindings = {}
         for pb in body.ports:
-            port_bindings.setdefault(pb.container_port, []).append(
-                {"HostIp": "", "HostPort": pb.host_port}
-            )
+            port_bindings.setdefault(pb.container_port, []).append({"HostIp": "", "HostPort": pb.host_port})
 
     raw = await docker.create_container(
         image=body.image,

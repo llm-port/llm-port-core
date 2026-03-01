@@ -22,7 +22,6 @@ from llm_port_backend.db.models.llm import (
     RuntimeStatus,
 )
 
-
 # -----------------------------------------------------------------------
 # Provider DAO
 # -----------------------------------------------------------------------
@@ -105,9 +104,7 @@ class ProviderDAO:
     async def has_runtimes(self, provider_id: uuid.UUID) -> bool:
         """Check if any runtimes reference this provider."""
         result = await self.session.execute(
-            select(LLMRuntime.id)
-            .where(LLMRuntime.provider_id == provider_id)
-            .limit(1),
+            select(LLMRuntime.id).where(LLMRuntime.provider_id == provider_id).limit(1),
         )
         return result.scalar_one_or_none() is not None
 

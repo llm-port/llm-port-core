@@ -17,11 +17,11 @@ from sqlalchemy import (
 from sqlalchemy import (
     Enum as SAEnum,
 )
-from sqlalchemy.dialects.postgresql import JSON, UUID as PGUUID
+from sqlalchemy.dialects.postgresql import JSON
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from llm_port_backend.db.base import Base
-
 
 # ---------------------------------------------------------------------------
 # Enums

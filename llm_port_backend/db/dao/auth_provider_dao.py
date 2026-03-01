@@ -26,9 +26,7 @@ class AuthProviderDAO:
     async def list_enabled_providers(self) -> list[AuthProvider]:
         """Return only enabled providers (for the login page)."""
         result = await self.session.execute(
-            select(AuthProvider)
-            .where(AuthProvider.enabled.is_(True))
-            .order_by(AuthProvider.name),
+            select(AuthProvider).where(AuthProvider.enabled.is_(True)).order_by(AuthProvider.name),
         )
         return list(result.scalars().all())
 
@@ -115,9 +113,7 @@ class AuthProviderDAO:
 
             updates["updated_at"] = sa_func.now()
             await self.session.execute(
-                update(AuthProvider)
-                .where(AuthProvider.id == provider_id)
-                .values(**updates),
+                update(AuthProvider).where(AuthProvider.id == provider_id).values(**updates),
             )
             await self.session.flush()
             # Re-fetch to get updated values

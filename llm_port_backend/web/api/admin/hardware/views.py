@@ -126,7 +126,8 @@ async def hardware_info(
 ) -> HardwareDTO:
     """Return detected GPU inventory, live utilisation metrics, the
     recommended vLLM image tag for the primary GPU vendor, and a list
-    of available image presets (built-in + custom)."""
+    of available image presets (built-in + custom).
+    """
 
     inventory = detect_gpus()
     metrics = collect_gpu_metrics()

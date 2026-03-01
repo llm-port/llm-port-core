@@ -13,7 +13,7 @@ from starlette import status
 from llm_port_backend.db.dao.rbac_dao import RbacDAO
 from llm_port_backend.db.dependencies import get_db_session
 from llm_port_backend.db.models.rbac import Permission, Role
-from llm_port_backend.db.models.users import User, current_active_user, get_user_manager
+from llm_port_backend.db.models.users import User, current_active_user
 from llm_port_backend.web.api.admin.dependencies import require_superuser
 from llm_port_backend.web.api.admin.users.schema import (
     AdminUserDTO,
@@ -38,8 +38,7 @@ def _role_to_dto(role: Role, user_count: int = 0) -> RoleDTO:
         is_builtin=role.is_builtin,
         created_at=role.created_at,
         permissions=[
-            PermissionDTO(id=perm.id, resource=perm.resource, action=perm.action)
-            for perm in permissions
+            PermissionDTO(id=perm.id, resource=perm.resource, action=perm.action) for perm in permissions
         ],
         user_count=user_count,
     )
@@ -68,6 +67,7 @@ async def _build_admin_user_dto(user: User, rbac_dao: RbacDAO) -> AdminUserDTO:
 
 # ── Current user access ──────────────────────────────────────────────
 
+
 @router.get("/me/access", response_model=MeAccessDTO, name="admin_me_access")
 async def me_access(
     user: Annotated[User, Depends(current_active_user)],
@@ -86,6 +86,7 @@ async def me_access(
 
 
 # ── Roles CRUD ────────────────────────────────────────────────────────
+
 
 @router.get("/roles", response_model=list[RoleDTO], name="list_roles")
 async def list_roles(
@@ -178,6 +179,7 @@ async def delete_role(
 
 # ── Permissions ───────────────────────────────────────────────────────
 
+
 @router.get("/permissions", response_model=list[PermissionDTO], name="list_permissions")
 async def list_permissions(
     _user: Annotated[User, Depends(require_superuser)] = None,  # type: ignore[assignment]
@@ -189,6 +191,7 @@ async def list_permissions(
 
 
 # ── Users ─────────────────────────────────────────────────────────────
+
 
 @router.get("/", response_model=list[AdminUserDTO], name="list_users_with_roles")
 async def list_users_with_roles(

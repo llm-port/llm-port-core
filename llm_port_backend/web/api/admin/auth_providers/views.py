@@ -30,6 +30,7 @@ router = APIRouter()
 # Secret encryption helpers (Fernet-based symmetric encryption)
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def _get_fernet():
     """Return a Fernet instance derived from the users_secret setting."""
     import base64
@@ -59,6 +60,7 @@ def _decrypt_secret(ciphertext: str) -> str:
 # DTO helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def _provider_to_dto(provider: AuthProvider) -> AuthProviderDTO:
     return AuthProviderDTO(
         id=provider.id,
@@ -83,6 +85,7 @@ def _provider_to_dto(provider: AuthProvider) -> AuthProviderDTO:
 # Public endpoint: enabled providers (for login page)
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @router.get(
     "/public",
     response_model=list[AuthProviderPublicDTO],
@@ -106,6 +109,7 @@ async def list_enabled_providers(
 # ─────────────────────────────────────────────────────────────────────────────
 # Admin CRUD
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 @router.get("/", response_model=list[AuthProviderDTO], name="list_auth_providers")
 async def list_auth_providers(
@@ -230,6 +234,7 @@ async def delete_auth_provider(
 # ─────────────────────────────────────────────────────────────────────────────
 # OAuth flow endpoints (authorize redirect + callback)
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 @router.get(
     "/{provider_id}/authorize",

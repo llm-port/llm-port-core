@@ -1,7 +1,7 @@
 """DAO for group management."""
 
 import uuid
-from typing import Sequence
+from collections.abc import Sequence
 
 from fastapi import Depends
 from sqlalchemy import delete, select
@@ -131,9 +131,7 @@ class GroupDAO:
         from sqlalchemy import func as sa_func  # noqa: PLC0415
 
         result = await self.session.execute(
-            select(sa_func.count())
-            .select_from(UserGroup)
-            .where(UserGroup.group_id == group_id),
+            select(sa_func.count()).select_from(UserGroup).where(UserGroup.group_id == group_id),
         )
         return result.scalar_one()
 
@@ -144,9 +142,7 @@ class GroupDAO:
     async def get_user_groups(self, user_id: uuid.UUID) -> list[Group]:
         """Return all groups a user belongs to."""
         result = await self.session.execute(
-            select(Group)
-            .join(UserGroup, UserGroup.group_id == Group.id)
-            .where(UserGroup.user_id == user_id),
+            select(Group).join(UserGroup, UserGroup.group_id == Group.id).where(UserGroup.user_id == user_id),
         )
         return list(result.scalars().all())
 

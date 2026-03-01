@@ -18,8 +18,8 @@ from llm_port_backend.web.api.llm.schema import (
     ArtifactDTO,
     DownloadJobDTO,
     DownloadResponseDTO,
-    ModelDTO,
     ModelDownloadRequest,
+    ModelDTO,
     ModelRegisterRequest,
 )
 from llm_port_backend.web.api.rbac import require_permission

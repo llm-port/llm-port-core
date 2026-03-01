@@ -1,7 +1,6 @@
 """DAO for role-based access control."""
 
 import uuid
-from typing import Sequence
 
 from fastapi import Depends
 from sqlalchemy import delete, select, tuple_
@@ -263,9 +262,7 @@ class RbacDAO:
     async def get_user_roles(self, user_id: uuid.UUID) -> list[Role]:
         """Return all roles assigned to a user."""
         result = await self.session.execute(
-            select(Role)
-            .join(UserRole, UserRole.role_id == Role.id)
-            .where(UserRole.user_id == user_id),
+            select(Role).join(UserRole, UserRole.role_id == Role.id).where(UserRole.user_id == user_id),
         )
         return list(result.scalars().all())
 
@@ -304,20 +301,36 @@ class RbacDAO:
         from llm_port_backend.db.models.groups import GroupRole, UserGroup  # noqa: PLC0415
 
         # Direct role permissions
-        direct = select(Permission.id).join(
-            RolePermission, RolePermission.permission_id == Permission.id,
-        ).join(
-            UserRole, UserRole.role_id == RolePermission.role_id,
-        ).where(UserRole.user_id == user_id)
+        direct = (
+            select(Permission.id)
+            .join(
+                RolePermission,
+                RolePermission.permission_id == Permission.id,
+            )
+            .join(
+                UserRole,
+                UserRole.role_id == RolePermission.role_id,
+            )
+            .where(UserRole.user_id == user_id)
+        )
 
         # Group-inherited role permissions
-        group = select(Permission.id).join(
-            RolePermission, RolePermission.permission_id == Permission.id,
-        ).join(
-            GroupRole, GroupRole.role_id == RolePermission.role_id,
-        ).join(
-            UserGroup, UserGroup.group_id == GroupRole.group_id,
-        ).where(UserGroup.user_id == user_id)
+        group = (
+            select(Permission.id)
+            .join(
+                RolePermission,
+                RolePermission.permission_id == Permission.id,
+            )
+            .join(
+                GroupRole,
+                GroupRole.role_id == RolePermission.role_id,
+            )
+            .join(
+                UserGroup,
+                UserGroup.group_id == GroupRole.group_id,
+            )
+            .where(UserGroup.user_id == user_id)
+        )
 
         combined_ids = direct.union(group).subquery()
 
@@ -404,10 +417,7 @@ class RbacDAO:
                 tuple_(Permission.resource, Permission.action).in_(permission_pairs),
             ),
         )
-        perm_map = {
-            (perm.resource, perm.action): perm
-            for perm in permission_rows.scalars().all()
-        }
+        perm_map = {(perm.resource, perm.action): perm for perm in permission_rows.scalars().all()}
 
         # 2) Upsert all built-in roles.
         role_names = sorted(_DEFAULT_ROLES.keys())

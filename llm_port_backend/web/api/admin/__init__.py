@@ -41,7 +41,9 @@ admin_router.include_router(groups_router, prefix="/groups", tags=["admin-groups
 from llm_port_backend.web.api.admin.auth_providers.views import router as auth_providers_router  # noqa: E402
 
 admin_router.include_router(
-    auth_providers_router, prefix="/auth-providers", tags=["admin-auth-providers"],
+    auth_providers_router,
+    prefix="/auth-providers",
+    tags=["admin-auth-providers"],
 )
 
 # --- PII dashboard routes (always registered) ----------------------------
