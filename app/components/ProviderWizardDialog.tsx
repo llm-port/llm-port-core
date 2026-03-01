@@ -309,6 +309,7 @@ export function ProviderWizardDialog({ open, models, onClose, onCreated }: Provi
 
   async function handleFinish() {
     setBusy(true);
+    let newProvId: string | undefined;
     try {
       const provPayload: CreateProviderPayload = {
         name,
@@ -318,6 +319,7 @@ export function ProviderWizardDialog({ open, models, onClose, onCreated }: Provi
         ...(target === "remote_endpoint" && apiKey && { api_key: apiKey }),
       };
       const newProv = await providers.create(provPayload);
+      newProvId = newProv.id;
 
       if (target === "local_docker") {
         const generic_config: Record<string, unknown> = {};
@@ -355,6 +357,10 @@ export function ProviderWizardDialog({ open, models, onClose, onCreated }: Provi
       onClose();
       onCreated();
     } catch (err: unknown) {
+      // Rollback: delete the orphan provider if runtime creation failed
+      if (newProvId) {
+        try { await providers.delete(newProvId); } catch { /* best-effort */ }
+      }
       alert(err instanceof Error ? err.message : t("common.create_failed"));
     } finally {
       setBusy(false);
