@@ -8,6 +8,8 @@ CREATE DATABASE rag;
 CREATE DATABASE llm_port_backend;
 -- DB for llm gateway metadata/audit
 CREATE DATABASE llm_api;
+-- DB for PII service (only used when PII profile is enabled)
+CREATE DATABASE pii;
 
 -- Dedicated least-privileged role for llm_api
 DO $$
