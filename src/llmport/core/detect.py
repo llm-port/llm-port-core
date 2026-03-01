@@ -45,12 +45,13 @@ class DockerInfo:
     version: str = ""
     compose_installed: bool = False
     compose_version: str = ""
+    daemon_running: bool = False
     error: str = ""
 
     @property
     def ok(self) -> bool:
-        """Both Docker and Compose v2 are available."""
-        return self.installed and self.compose_installed
+        """Docker, Compose v2, and daemon are all available."""
+        return self.installed and self.compose_installed and self.daemon_running
 
 
 @dataclass
@@ -197,6 +198,13 @@ def detect_docker() -> DockerInfo:
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
         info.error = str(exc)
         return info
+
+    # Docker daemon reachability
+    try:
+        result = _run([docker_bin, "info"])
+        info.daemon_running = result.returncode == 0
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        info.daemon_running = False
 
     # Docker Compose v2 (docker compose subcommand)
     try:
