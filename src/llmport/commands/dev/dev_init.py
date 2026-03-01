@@ -198,7 +198,11 @@ def dev_init(
     console.print("[bold cyan]Checking prerequisites…[/bold cyan]")
     docker_info = detect_docker()
     if not docker_info.installed:
-        error("Docker is required. Install: https://docs.docker.com/desktop/")
+        error(
+            "Either Docker is not installed or Docker engine is not running.\n"
+            "  Install: https://docs.docker.com/desktop/\n"
+            "  If already installed, make sure Docker Desktop is running."
+        )
         sys.exit(1)
     if not docker_info.daemon_running:
         error("Docker daemon is not running. Start Docker Desktop.")
