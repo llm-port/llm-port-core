@@ -200,6 +200,7 @@ class Settings(BaseSettings):
         env_file=(".env", "llm_port_backend/.env"),
         env_prefix="LLM_PORT_BACKEND_",
         env_file_encoding="utf-8",
+        extra="ignore",
     )
 
 
