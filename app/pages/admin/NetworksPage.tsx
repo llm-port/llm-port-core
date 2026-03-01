@@ -3,7 +3,7 @@
  * Lists Docker networks, allows creating/deleting user networks, and
  * shows system networks as read-only (stats only). Table powered by DataTable.
  */
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   networks,
@@ -12,6 +12,7 @@ import {
   type CreateNetworkPayload,
 } from "~/api/admin";
 import { DataTable, type ColumnDef, type ColumnFilter } from "~/components/DataTable";
+import { useAsyncData } from "~/lib/useAsyncData";
 
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
@@ -42,9 +43,17 @@ import LockIcon from "@mui/icons-material/Lock";
 
 export default function NetworksPage() {
   const { t } = useTranslation();
-  const [data, setData] = useState<NetworkSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    data,
+    loading,
+    error,
+    refresh: load,
+    setError,
+  } = useAsyncData(
+    () => networks.list(),
+    [],
+    { initialValue: [] as NetworkSummary[] },
+  );
 
   // Create dialog
   const [showCreate, setShowCreate] = useState(false);
@@ -68,22 +77,6 @@ export default function NetworksPage() {
 
   // Type filter
   const [typeFilter, setTypeFilter] = useState<string[]>(["system", "user"]);
-
-  async function load() {
-    setLoading(true);
-    setError(null);
-    try {
-      setData(await networks.list());
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : t("networks.failed_load"));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    load();
-  }, []);
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();

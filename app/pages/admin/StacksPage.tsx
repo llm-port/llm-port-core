@@ -2,10 +2,11 @@
  * Admin → Stacks page.
  * Deploy, update, and roll back compose stacks. List view uses DataTable.
  */
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { stacks, type StackSummary, type StackRevision, type StackDiff } from "~/api/admin";
 import { DataTable, type ColumnDef } from "~/components/DataTable";
+import { useAsyncData } from "~/lib/useAsyncData";
 
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
@@ -32,9 +33,17 @@ type View = "list" | "deploy" | "revisions" | "diff";
 
 export default function StacksPage() {
   const { t } = useTranslation();
-  const [data, setData] = useState<StackSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    data,
+    loading,
+    error,
+    refresh: load,
+    setError,
+  } = useAsyncData(
+    () => stacks.list(),
+    [],
+    { initialValue: [] as StackSummary[] },
+  );
   const [view, setView] = useState<View>("list");
   const [selectedStack, setSelectedStack] = useState<string | null>(null);
 
@@ -84,22 +93,6 @@ export default function StacksPage() {
       ),
     },
   ];
-
-  async function load() {
-    setLoading(true);
-    setError(null);
-    try {
-      setData(await stacks.list());
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : t("stacks.failed_load"));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    load();
-  }, []);
 
   async function handleDeploy(e: React.FormEvent) {
     e.preventDefault();

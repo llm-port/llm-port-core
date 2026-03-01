@@ -468,8 +468,10 @@ export interface RbacRole {
   id: string;
   name: string;
   description: string | null;
+  is_builtin: boolean;
   created_at: string;
   permissions: RbacPermission[];
+  user_count: number;
 }
 
 export interface AdminUser {
@@ -500,17 +502,203 @@ export const adminUsers = {
   listRoles() {
     return request<RbacRole[]>("/users/roles");
   },
+  getRole(roleId: string) {
+    return request<RbacRole>(`/users/roles/${roleId}`);
+  },
+  createRole(payload: { name: string; description?: string; permission_ids: string[] }) {
+    return request<RbacRole>("/users/roles", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+  updateRole(roleId: string, payload: { name?: string; description?: string; permission_ids?: string[] }) {
+    return request<RbacRole>(`/users/roles/${roleId}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+  },
+  deleteRole(roleId: string) {
+    return request<void>(`/users/roles/${roleId}`, { method: "DELETE" });
+  },
+  listPermissions() {
+    return request<RbacPermission[]>("/users/permissions");
+  },
   setUserRoles(userId: string, roleIds: string[]) {
     return request<AdminUser>(`/users/${userId}/roles`, {
       method: "PUT",
       body: JSON.stringify({ role_ids: roleIds }),
     });
   },
+  createUser(payload: { email: string; password: string; is_superuser?: boolean; role_ids?: string[] }) {
+    return request<AdminUser>("/users/", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+  deleteUser(userId: string) {
+    return request<void>(`/users/${userId}`, { method: "DELETE" });
+  },
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Capability helpers (mirror backend policy matrix client-side for UI gating)
+// Groups
 // ─────────────────────────────────────────────────────────────────────────────
+
+export interface GroupRole {
+  id: string;
+  name: string;
+  description: string | null;
+  is_builtin: boolean;
+  created_at: string;
+  permissions: RbacPermission[];
+  user_count: number;
+}
+
+export interface Group {
+  id: string;
+  name: string;
+  description: string | null;
+  created_at: string;
+  roles: GroupRole[];
+  member_count: number;
+}
+
+export interface GroupMember {
+  id: string;
+  email: string;
+}
+
+export const adminGroups = {
+  list() {
+    return request<Group[]>("/groups/");
+  },
+  get(groupId: string) {
+    return request<Group>(`/groups/${groupId}`);
+  },
+  create(payload: { name: string; description?: string; role_ids: string[] }) {
+    return request<Group>("/groups/", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+  update(groupId: string, payload: { name?: string; description?: string; role_ids?: string[] }) {
+    return request<Group>(`/groups/${groupId}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+  },
+  delete(groupId: string) {
+    return request<void>(`/groups/${groupId}`, { method: "DELETE" });
+  },
+  listMembers(groupId: string) {
+    return request<GroupMember[]>(`/groups/${groupId}/members`);
+  },
+  setMembers(groupId: string, userIds: string[]) {
+    return request<GroupMember[]>(`/groups/${groupId}/members`, {
+      method: "PUT",
+      body: JSON.stringify({ user_ids: userIds }),
+    });
+  },
+  addMembers(groupId: string, userIds: string[]) {
+    return request<void>(`/groups/${groupId}/members`, {
+      method: "POST",
+      body: JSON.stringify({ user_ids: userIds }),
+    });
+  },
+  removeMember(groupId: string, userId: string) {
+    return request<void>(`/groups/${groupId}/members/${userId}`, { method: "DELETE" });
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Auth Providers (SSO)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface AuthProviderPublic {
+  id: string;
+  name: string;
+  provider_type: string;
+}
+
+export interface AuthProviderDetail {
+  id: string;
+  name: string;
+  provider_type: string;
+  client_id: string;
+  discovery_url: string | null;
+  authorize_url: string | null;
+  token_url: string | null;
+  userinfo_url: string | null;
+  scopes: string;
+  enabled: boolean;
+  auto_register: boolean;
+  default_role_ids: string[];
+  group_mapping: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export const adminAuthProviders = {
+  /** List enabled providers for the login page (no auth required). */
+  listPublic() {
+    return request<AuthProviderPublic[]>("/auth-providers/public");
+  },
+  /** List all providers (admin only). */
+  list() {
+    return request<AuthProviderDetail[]>("/auth-providers/");
+  },
+  get(providerId: string) {
+    return request<AuthProviderDetail>(`/auth-providers/${providerId}`);
+  },
+  create(payload: {
+    name: string;
+    provider_type: string;
+    client_id: string;
+    client_secret: string;
+    discovery_url?: string;
+    authorize_url?: string;
+    token_url?: string;
+    userinfo_url?: string;
+    scopes?: string;
+    enabled?: boolean;
+    auto_register?: boolean;
+    default_role_ids?: string[];
+  }) {
+    return request<AuthProviderDetail>("/auth-providers/", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+  update(
+    providerId: string,
+    payload: Partial<{
+      name: string;
+      provider_type: string;
+      client_id: string;
+      client_secret: string;
+      discovery_url: string;
+      authorize_url: string;
+      token_url: string;
+      userinfo_url: string;
+      scopes: string;
+      enabled: boolean;
+      auto_register: boolean;
+      default_role_ids: string[];
+    }>,
+  ) {
+    return request<AuthProviderDetail>(`/auth-providers/${providerId}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+  },
+  delete(providerId: string) {
+    return request<void>(`/auth-providers/${providerId}`, { method: "DELETE" });
+  },
+  /** Returns the URL the user should be redirected to for SSO login. */
+  authorizeUrl(providerId: string) {
+    return `${BASE}/auth-providers/${providerId}/authorize`;
+  },
+};
 
 export function canExec(cls: ContainerClass, rootModeActive: boolean): boolean {
   if (cls === "TENANT_APP") return true;
@@ -546,4 +734,54 @@ export const CLASS_COLORS: Record<ContainerClass, string> = {
   SYSTEM_AUX: "bg-amber-100 text-amber-800 border-amber-200",
   TENANT_APP: "bg-green-100 text-green-800 border-green-200",
   UNTRUSTED: "bg-gray-100 text-gray-700 border-gray-200",
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Hardware detection
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface GpuDevice {
+  index: number;
+  vendor: string;
+  model: string;
+  vram_bytes: number;
+  driver_version: string;
+  compute_api: string;
+}
+
+export interface GpuInventory {
+  devices: GpuDevice[];
+  primary_vendor: string;
+  primary_compute_api: string;
+  has_gpu: boolean;
+  device_count: number;
+  total_vram_bytes: number;
+}
+
+export interface GpuMetrics {
+  util_percent: number | null;
+  vram_used_bytes: number | null;
+  vram_total_bytes: number | null;
+}
+
+export interface VllmImagePreset {
+  label: string;
+  image: string;
+  vendor: string | null;
+  description: string | null;
+  is_default: boolean;
+  is_recommended: boolean;
+}
+
+export interface HardwareInfo {
+  gpu: GpuInventory;
+  gpu_metrics: GpuMetrics;
+  recommended_vllm_image: string | null;
+  vllm_image_presets: VllmImagePreset[];
+}
+
+export const hardware = {
+  info() {
+    return request<HardwareInfo>("/hardware");
+  },
 };

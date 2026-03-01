@@ -1,12 +1,23 @@
 /**
- * DataTable — reusable MUI data table with built-in:
+ * DataTable — reusable MUI data table powered by TanStack Table with:
  *  - global text search (matches against `searchValue()` per column)
  *  - click-to-sort on any column marked `sortable: true`
  *  - declarative column filter dropdowns rendered in the toolbar
  *  - loading, error, and empty states
  *  - sticky header + scrollable body that fits into flex containers
+ *  - optional client-side pagination
  */
 import { useState, useMemo } from "react";
+import {
+  useReactTable,
+  getCoreRowModel,
+  getSortedRowModel,
+  getFilteredRowModel,
+  getPaginationRowModel,
+  flexRender,
+  type SortingState,
+  type ColumnDef as TanColumnDef,
+} from "@tanstack/react-table";
 
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
@@ -26,6 +37,7 @@ import TableBody from "@mui/material/TableBody";
 import TableCell from "@mui/material/TableCell";
 import TableContainer from "@mui/material/TableContainer";
 import TableHead from "@mui/material/TableHead";
+import TablePagination from "@mui/material/TablePagination";
 import TableRow from "@mui/material/TableRow";
 import TableSortLabel from "@mui/material/TableSortLabel";
 import TextField from "@mui/material/TextField";
@@ -108,9 +120,14 @@ export interface DataTableProps<T> {
   searchPlaceholder?: string;
   /** Row click handler. */
   onRowClick?: (row: T) => void;
+  /**
+   * Enable client-side pagination.
+   * Pass a number to set the initial page size, or true for a default of 25.
+   */
+  pagination?: boolean | number;
+  /** Available page size options. Defaults to [10, 25, 50, 100]. */
+  pageSizeOptions?: number[];
 }
-
-type SortDir = "asc" | "desc";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Component
@@ -129,53 +146,59 @@ export function DataTable<T>({
   onRefresh,
   searchPlaceholder = "Search…",
   onRowClick,
+  pagination,
+  pageSizeOptions = [10, 25, 50, 100],
 }: DataTableProps<T>) {
   const [search, setSearch] = useState("");
-  const [sortKey, setSortKey] = useState<string | null>(null);
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [sorting, setSorting] = useState<SortingState>([]);
 
-  // ── Sorting ──────────────────────────────────────────────────────────────
-  function handleSortClick(key: string) {
-    if (sortKey === key) {
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    } else {
-      setSortKey(key);
-      setSortDir("asc");
-    }
-  }
+  const isPaginated = pagination != null && pagination !== false;
+  const initialPageSize = typeof pagination === "number" ? pagination : 25;
 
-  // ── Filtered + sorted rows ────────────────────────────────────────────────
-  const displayRows = useMemo(() => {
-    let result = rows;
+  // Map our ColumnDef<T> to TanStack column defs
+  const tanColumns = useMemo<TanColumnDef<T, unknown>[]>(
+    () =>
+      columns.map((col) => ({
+        id: col.key,
+        header: col.label,
+        accessorFn: (row: T) => col.sortValue?.(row) ?? "",
+        cell: ({ row }) => col.render(row.original),
+        enableSorting: col.sortable ?? false,
+        meta: { align: col.align, minWidth: col.minWidth },
+      })),
+    [columns],
+  );
 
-    // Global search
+  // Global text filter
+  const filteredRows = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (q) {
-      result = result.filter((row) =>
-        columns.some(
-          (col) =>
-            col.searchValue &&
-            col.searchValue(row).toLowerCase().includes(q),
-        ),
-      );
-    }
+    if (!q) return rows;
+    return rows.filter((row) =>
+      columns.some(
+        (col) => col.searchValue && col.searchValue(row).toLowerCase().includes(q),
+      ),
+    );
+  }, [rows, search, columns]);
 
-    // Sort
-    if (sortKey) {
-      const col = columns.find((c) => c.key === sortKey);
-      if (col?.sortValue) {
-        const sv = col.sortValue;
-        result = [...result].sort((a, b) => {
-          const av = sv(a);
-          const bv = sv(b);
-          const cmp = av < bv ? -1 : av > bv ? 1 : 0;
-          return sortDir === "asc" ? cmp : -cmp;
-        });
-      }
-    }
+  const table = useReactTable<T>({
+    data: filteredRows,
+    columns: tanColumns,
+    state: { sorting },
+    onSortingChange: setSorting,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    ...(isPaginated
+      ? {
+          getPaginationRowModel: getPaginationRowModel(),
+          initialState: { pagination: { pageSize: initialPageSize } },
+        }
+      : {}),
+    getRowId: (row) => rowKey(row),
+  });
 
-    return result;
-  }, [rows, search, sortKey, sortDir, columns]);
+  const visibleRows = isPaginated
+    ? table.getRowModel().rows
+    : table.getSortedRowModel().rows;
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
@@ -222,7 +245,6 @@ export function DataTable<T>({
             {/* Column filters */}
             {columnFilters.map((f) =>
               f.multi ? (
-                // ── Multi-select with checkboxes ──────────────────────────
                 <FormControl key={f.label} size="small" sx={{ minWidth: f.minWidth ?? 160 }}>
                   <InputLabel>{f.label}</InputLabel>
                   <Select
@@ -255,7 +277,6 @@ export function DataTable<T>({
                   </Select>
                 </FormControl>
               ) : (
-                // ── Single-select ─────────────────────────────────────────
                 <FormControl key={f.label} size="small" sx={{ minWidth: f.minWidth ?? 140 }}>
                   <InputLabel>{f.label}</InputLabel>
                   <Select
@@ -312,31 +333,41 @@ export function DataTable<T>({
         >
           <Table size="small" stickyHeader>
             <TableHead>
-              <TableRow>
-                {columns.map((col) => (
-                  <TableCell
-                    key={col.key}
-                    align={col.align ?? "left"}
-                    style={{ minWidth: col.minWidth }}
-                    sortDirection={sortKey === col.key ? sortDir : false}
-                  >
-                    {col.sortable ? (
-                      <TableSortLabel
-                        active={sortKey === col.key}
-                        direction={sortKey === col.key ? sortDir : "asc"}
-                        onClick={() => handleSortClick(col.key)}
+              {table.getHeaderGroups().map((headerGroup) => (
+                <TableRow key={headerGroup.id}>
+                  {headerGroup.headers.map((header) => {
+                    const meta = header.column.columnDef.meta as
+                      | { align?: string; minWidth?: number | string }
+                      | undefined;
+                    const align = (meta?.align ?? "left") as "left" | "center" | "right";
+                    const canSort = header.column.getCanSort();
+                    const sorted = header.column.getIsSorted();
+                    return (
+                      <TableCell
+                        key={header.id}
+                        align={align}
+                        style={{ minWidth: meta?.minWidth }}
+                        sortDirection={sorted || false}
                       >
-                        {col.label}
-                      </TableSortLabel>
-                    ) : (
-                      col.label
-                    )}
-                  </TableCell>
-                ))}
-              </TableRow>
+                        {canSort ? (
+                          <TableSortLabel
+                            active={!!sorted}
+                            direction={sorted || "asc"}
+                            onClick={header.column.getToggleSortingHandler()}
+                          >
+                            {flexRender(header.column.columnDef.header, header.getContext())}
+                          </TableSortLabel>
+                        ) : (
+                          flexRender(header.column.columnDef.header, header.getContext())
+                        )}
+                      </TableCell>
+                    );
+                  })}
+                </TableRow>
+              ))}
             </TableHead>
             <TableBody>
-              {displayRows.length === 0 && (
+              {visibleRows.length === 0 && (
                 <TableRow>
                   <TableCell
                     colSpan={columns.length}
@@ -347,23 +378,42 @@ export function DataTable<T>({
                   </TableCell>
                 </TableRow>
               )}
-              {displayRows.map((row) => (
+              {visibleRows.map((row) => (
                 <TableRow
-                  key={rowKey(row)}
+                  key={row.id}
                   hover
-                  onClick={onRowClick ? () => onRowClick(row) : undefined}
+                  onClick={onRowClick ? () => onRowClick(row.original) : undefined}
                   sx={onRowClick ? { cursor: "pointer" } : undefined}
                 >
-                  {columns.map((col) => (
-                    <TableCell key={col.key} align={col.align ?? "left"}>
-                      {col.render(row)}
-                    </TableCell>
-                  ))}
+                  {row.getVisibleCells().map((cell) => {
+                    const meta = cell.column.columnDef.meta as
+                      | { align?: string }
+                      | undefined;
+                    return (
+                      <TableCell key={cell.id} align={(meta?.align ?? "left") as "left" | "center" | "right"}>
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </TableCell>
+                    );
+                  })}
                 </TableRow>
               ))}
             </TableBody>
           </Table>
         </TableContainer>
+      )}
+
+      {/* ── Pagination ─────────────────────────────────────────────────────── */}
+      {!loading && isPaginated && (
+        <TablePagination
+          component="div"
+          count={table.getFilteredRowModel().rows.length}
+          page={table.getState().pagination.pageIndex}
+          onPageChange={(_, page) => table.setPageIndex(page)}
+          rowsPerPage={table.getState().pagination.pageSize}
+          onRowsPerPageChange={(e) => table.setPageSize(Number(e.target.value))}
+          rowsPerPageOptions={pageSizeOptions}
+          sx={{ flexShrink: 0, borderTop: 1, borderColor: "divider" }}
+        />
       )}
     </Box>
   );

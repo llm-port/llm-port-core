@@ -2,7 +2,7 @@
  * Admin → Containers list page.
  * Powered by the shared DataTable with search, sort, and class filtering.
  */
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Link as RouterLink, useOutletContext, useNavigate } from "react-router";
 import { useTranslation } from "react-i18next";
 import {
@@ -14,6 +14,7 @@ import {
 } from "~/api/admin";
 import { DataTable, type ColumnDef } from "~/components/DataTable";
 import { ClassChip, StateChip } from "~/components/Chips";
+import { useAsyncData } from "~/lib/useAsyncData";
 
 import Button from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
@@ -46,29 +47,20 @@ export default function ContainersPage() {
   const { t } = useTranslation();
   const { rootModeActive } = useOutletContext<AdminContext>();
   const navigate = useNavigate();
-  const [data, setData] = useState<ContainerSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    data,
+    loading,
+    error,
+    refresh: load,
+  } = useAsyncData(
+    () => containers.list(),
+    [],
+    { initialValue: [] as ContainerSummary[] },
+  );
   const [filterClasses, setFilterClasses] = useState<string[]>(
     CLASS_OPTIONS.map((o) => o.value),
   );
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-
-  async function load() {
-    setLoading(true);
-    setError(null);
-    try {
-      setData(await containers.list());
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : t("containers.failed_load"));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    load();
-  }, []);
 
   async function handleAction(
     id: string,

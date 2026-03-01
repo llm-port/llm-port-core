@@ -1,50 +1,61 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { adminUsers, type AdminUser, type RbacRole } from "~/api/admin";
 import { DataTable, type ColumnDef } from "~/components/DataTable";
+import { ConfirmDialog } from "~/components/ConfirmDialog";
+import { FormDialog } from "~/components/FormDialog";
+import { useAsyncData } from "~/lib/useAsyncData";
 
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Checkbox from "@mui/material/Checkbox";
 import Chip from "@mui/material/Chip";
-import Dialog from "@mui/material/Dialog";
-import DialogActions from "@mui/material/DialogActions";
-import DialogContent from "@mui/material/DialogContent";
-import DialogTitle from "@mui/material/DialogTitle";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import FormGroup from "@mui/material/FormGroup";
+import IconButton from "@mui/material/IconButton";
 import Stack from "@mui/material/Stack";
+import Switch from "@mui/material/Switch";
+import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
+
+import AddIcon from "@mui/icons-material/Add";
+import DeleteIcon from "@mui/icons-material/Delete";
 
 export default function UsersPage() {
   const { t } = useTranslation();
-  const [users, setUsers] = useState<AdminUser[]>([]);
-  const [roles, setRoles] = useState<RbacRole[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+
+  // ── Data loading via useAsyncData ──
+  const {
+    data: { users, roles },
+    loading,
+    error,
+    refresh: load,
+    setError,
+  } = useAsyncData(
+    async () => {
+      const [allUsers, allRoles] = await Promise.all([adminUsers.list(), adminUsers.listRoles()]);
+      return { users: allUsers, roles: allRoles };
+    },
+    [],
+    { initialValue: { users: [] as AdminUser[], roles: [] as RbacRole[] } },
+  );
 
   const [editing, setEditing] = useState<AdminUser | null>(null);
   const [selectedRoleIds, setSelectedRoleIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
 
-  async function load() {
-    setLoading(true);
-    setError(null);
-    try {
-      const [allUsers, allRoles] = await Promise.all([adminUsers.list(), adminUsers.listRoles()]);
-      setUsers(allUsers);
-      setRoles(allRoles);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t("users.failed_load"));
-    } finally {
-      setLoading(false);
-    }
-  }
+  // Create user dialog
+  const [createOpen, setCreateOpen] = useState(false);
+  const [newEmail, setNewEmail] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [newSuperuser, setNewSuperuser] = useState(false);
+  const [newRoleIds, setNewRoleIds] = useState<string[]>([]);
+  const [creating, setCreating] = useState(false);
 
-  useEffect(() => {
-    void load();
-  }, []);
+  // Delete user dialog
+  const [deleteTarget, setDeleteTarget] = useState<AdminUser | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   function openEdit(user: AdminUser) {
     setEditing(user);
@@ -61,13 +72,61 @@ export default function UsersPage() {
     if (!editing) return;
     setSaving(true);
     try {
-      const updated = await adminUsers.setUserRoles(editing.id, selectedRoleIds);
-      setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
+      await adminUsers.setUserRoles(editing.id, selectedRoleIds);
       setEditing(null);
+      await load();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t("users.failed_update_roles"));
     } finally {
       setSaving(false);
+    }
+  }
+
+  function openCreate() {
+    setNewEmail("");
+    setNewPassword("");
+    setNewSuperuser(false);
+    setNewRoleIds([]);
+    setCreateOpen(true);
+  }
+
+  function toggleNewRole(roleId: string) {
+    setNewRoleIds((prev) =>
+      prev.includes(roleId) ? prev.filter((id) => id !== roleId) : [...prev, roleId],
+    );
+  }
+
+  async function handleCreate() {
+    setCreating(true);
+    setError(null);
+    try {
+      await adminUsers.createUser({
+        email: newEmail,
+        password: newPassword,
+        is_superuser: newSuperuser,
+        role_ids: newRoleIds,
+      });
+      setCreateOpen(false);
+      await load();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t("users.failed_create"));
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      await adminUsers.deleteUser(deleteTarget.id);
+      setDeleteTarget(null);
+      await load();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t("users.failed_delete"));
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -144,18 +203,23 @@ export default function UsersPage() {
       label: t("common.actions"),
       align: "right",
       render: (u) => (
-        <Button size="small" variant="outlined" onClick={() => openEdit(u)}>
-          {t("users.edit_roles")}
-        </Button>
+        <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+          <Button size="small" variant="outlined" onClick={() => openEdit(u)}>
+            {t("users.edit_roles")}
+          </Button>
+          <IconButton size="small" color="error" onClick={() => setDeleteTarget(u)} title={t("common.delete")}>
+            <DeleteIcon fontSize="small" />
+          </IconButton>
+        </Stack>
       ),
-      minWidth: 140,
+      minWidth: 200,
     },
   ];
 
   return (
     <>
       {error && (
-        <Alert severity="error" sx={{ mb: 2 }}>
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
           {error}
         </Alert>
       )}
@@ -169,11 +233,23 @@ export default function UsersPage() {
         onRefresh={load}
         emptyMessage={t("users.empty")}
         searchPlaceholder={t("users.search_placeholder")}
+        toolbarActions={
+          <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate} size="small">
+            {t("users.create")}
+          </Button>
+        }
       />
 
-      <Dialog open={!!editing} onClose={() => (saving ? undefined : setEditing(null))} fullWidth maxWidth="sm">
-        <DialogTitle>{t("users.assign_roles")}</DialogTitle>
-        <DialogContent>
+      {/* ── Edit roles dialog ── */}
+      <FormDialog
+        open={!!editing}
+        title={t("users.assign_roles")}
+        loading={saving}
+        submitLabel={t("common.save")}
+        cancelLabel={t("common.cancel")}
+        onSubmit={saveRoles}
+        onClose={() => setEditing(null)}
+      >
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             {editing?.email}
           </Typography>
@@ -200,12 +276,80 @@ export default function UsersPage() {
               <Typography variant="body2" color="text.secondary">{t("users.no_roles_available")}</Typography>
             </Box>
           )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setEditing(null)} disabled={saving}>{t("common.cancel")}</Button>
-          <Button variant="contained" onClick={saveRoles} disabled={saving}>{t("common.save")}</Button>
-        </DialogActions>
-      </Dialog>
+      </FormDialog>
+
+      {/* ── Create user dialog ── */}
+      <FormDialog
+        open={createOpen}
+        title={t("users.create_title")}
+        loading={creating}
+        submitLabel={t("users.create")}
+        cancelLabel={t("common.cancel")}
+        submitDisabled={!newEmail.trim() || newPassword.length < 6}
+        onSubmit={handleCreate}
+        onClose={() => setCreateOpen(false)}
+      >
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField
+              label={t("auth.email")}
+              type="email"
+              value={newEmail}
+              onChange={(e) => setNewEmail(e.target.value)}
+              fullWidth
+              required
+              disabled={creating}
+            />
+            <TextField
+              label={t("auth.password")}
+              type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              fullWidth
+              required
+              disabled={creating}
+              inputProps={{ minLength: 6 }}
+            />
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={newSuperuser}
+                  onChange={(e) => setNewSuperuser(e.target.checked)}
+                  disabled={creating}
+                />
+              }
+              label={t("users.superuser")}
+            />
+            <Typography variant="subtitle2">{t("users.assign_roles")}</Typography>
+            <FormGroup>
+              {roles.map((role) => (
+                <FormControlLabel
+                  key={role.id}
+                  control={
+                    <Checkbox
+                      size="small"
+                      checked={newRoleIds.includes(role.id)}
+                      onChange={() => toggleNewRole(role.id)}
+                      disabled={creating}
+                    />
+                  }
+                  label={role.name}
+                />
+              ))}
+            </FormGroup>
+          </Stack>
+      </FormDialog>
+
+      {/* ── Delete user dialog ── */}
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title={t("users.delete_title")}
+        message={t("users.delete_confirm", { email: deleteTarget?.email ?? "" })}
+        confirmLabel={t("common.delete")}
+        cancelLabel={t("common.cancel")}
+        loading={deleting}
+        onConfirm={confirmDelete}
+        onClose={() => setDeleteTarget(null)}
+      />
     </>
   );
 }

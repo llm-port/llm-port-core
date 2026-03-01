@@ -3,9 +3,14 @@ import { Link as RouterLink } from "react-router";
 import { useTranslation } from "react-i18next";
 import {
   dashboard,
+  hardware,
   type DashboardHealth,
   type DashboardOverview,
+  type HardwareInfo,
 } from "~/api/admin";
+import { providers as providersApi, type Provider } from "~/api/llm";
+import { useServices } from "~/lib/ServicesContext";
+import DataResidencyCard from "~/components/DataResidencyCard";
 
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
@@ -19,6 +24,7 @@ import List from "@mui/material/List";
 import ListItem from "@mui/material/ListItem";
 import ListItemText from "@mui/material/ListItemText";
 import Stack from "@mui/material/Stack";
+import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import { useTheme } from "@mui/material/styles";
 import GaugeCard from "~/components/GaugeCard";
@@ -86,6 +92,41 @@ function StatCard({ label, value, detail }: StatCardProps) {
   );
 }
 
+function moduleStatusColor(status: string): "success" | "warning" | "error" | "default" {
+  if (status === "healthy") return "success";
+  if (status === "configured") return "warning";
+  if (status === "unhealthy") return "error";
+  return "default";
+}
+
+function ModuleStatusSection() {
+  const { t } = useTranslation();
+  const { services, loading: servicesLoading } = useServices();
+
+  if (servicesLoading || services.length === 0) return null;
+
+  return (
+    <Card variant="outlined">
+      <CardContent>
+        <Typography variant="h6" sx={{ mb: 1.5 }}>
+          {t("dashboard.optional_modules", { defaultValue: "Optional Modules" })}
+        </Typography>
+        <Stack direction="row" gap={1} flexWrap="wrap" useFlexGap>
+          {services.map((svc) => (
+            <Chip
+              key={svc.name}
+              label={`${svc.display_name}: ${svc.enabled ? svc.status : "disabled"}`}
+              color={svc.enabled ? moduleStatusColor(svc.status) : "default"}
+              variant="outlined"
+              size="small"
+            />
+          ))}
+        </Stack>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function DashboardPage() {
   const { t } = useTranslation();
   const theme = useTheme();
@@ -106,6 +147,8 @@ export default function DashboardPage() {
 
   const [overview, setOverview] = useState<DashboardOverview | null>(null);
   const [health, setHealth] = useState<DashboardHealth | null>(null);
+  const [hw, setHw] = useState<HardwareInfo | null>(null);
+  const [llmProviders, setLlmProviders] = useState<Provider[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -113,12 +156,16 @@ export default function DashboardPage() {
     setLoading(true);
     setError(null);
     try {
-      const [o, h] = await Promise.all([
+      const [o, h, hwInfo, prov] = await Promise.all([
         dashboard.overview(),
         dashboard.health(),
+        hardware.info().catch(() => null),
+        providersApi.list().catch(() => [] as Provider[]),
       ]);
       setOverview(o);
       setHealth(h);
+      setHw(hwInfo);
+      setLlmProviders(prov);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t("dashboard.failed_load"));
     } finally {
@@ -246,11 +293,24 @@ export default function DashboardPage() {
             </Grid>
             <Grid size={{ xs: 6, sm: 3 }}>
               <GaugeCard
-                label={t("dashboard.gauges.gpu")}
+                label={
+                  hw?.gpu.has_gpu
+                    ? `GPU (${hw.gpu.primary_vendor.toUpperCase()})`
+                    : t("dashboard.gauges.gpu")
+                }
                 value={overview.gpu_util_percent}
                 detail={overview.gpu_util_percent != null ? fmtRatio(overview.gpu_vram_used_bytes, overview.gpu_vram_total_bytes) : undefined}
-                secondaryDetail={overview.gpu_util_percent != null ? t("dashboard.gauges.vram") : undefined}
+                secondaryDetail={
+                  hw?.gpu.has_gpu
+                    ? `${hw.gpu.device_count}× ${hw.gpu.devices[0]?.model ?? ""} · ${hw.gpu.primary_compute_api.toUpperCase()}`
+                    : overview.gpu_util_percent != null ? t("dashboard.gauges.vram") : undefined
+                }
               />
+              {hw?.gpu.has_gpu && hw.gpu.device_count > 1 && (
+                <Tooltip title={hw.gpu.devices.map(d => `#${d.index} ${d.model} (${fmtBytes(d.vram_bytes)})`).join(", ")}>
+                  <Chip label={`${hw.gpu.device_count} GPUs`} size="small" variant="outlined" sx={{ mt: 0.5 }} />
+                </Tooltip>
+              )}
             </Grid>
           </Grid>
 
@@ -339,7 +399,11 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       )}
-      
+
+      <ModuleStatusSection />
+
+      <DataResidencyCard providers={llmProviders} />
+
       {overview && (
         <Grid container spacing={1.5}>
           <Grid size={{ xs: 12, md: 6 }}>

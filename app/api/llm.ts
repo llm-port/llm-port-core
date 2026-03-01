@@ -9,7 +9,7 @@ const BASE = "/api/llm";
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type ProviderType = "vllm" | "llamacpp" | "tgi" | "ollama";
-export type ProviderTarget = "local_docker";
+export type ProviderTarget = "local_docker" | "remote_endpoint";
 export type ModelSource = "huggingface" | "local_path" | "archive_import";
 export type ModelStatus = "available" | "downloading" | "failed" | "deleting";
 export type ArtifactFormat = "safetensors" | "gguf" | "other";
@@ -21,6 +21,7 @@ export interface Provider {
   name: string;
   type: ProviderType;
   target: ProviderTarget;
+  endpoint_url: string | null;
   capabilities: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
@@ -93,11 +94,15 @@ export interface CreateProviderPayload {
   name: string;
   type: ProviderType;
   target?: ProviderTarget;
+  endpoint_url?: string;
+  api_key?: string;
 }
 
 export interface UpdateProviderPayload {
   name?: string;
   capabilities?: Record<string, unknown>;
+  endpoint_url?: string;
+  api_key?: string;
 }
 
 export interface DownloadModelPayload {
@@ -127,6 +132,17 @@ export interface CreateRuntimePayload {
   generic_config?: Record<string, unknown>;
   provider_config?: Record<string, unknown>;
   openai_compat?: boolean;
+}
+
+export interface TestEndpointPayload {
+  endpoint_url: string;
+  api_key?: string;
+}
+
+export interface TestEndpointResult {
+  compatible: boolean;
+  models: string[];
+  error: string | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -179,6 +195,12 @@ export const providers = {
   },
   delete(id: string) {
     return request<void>(`/providers/${id}`, { method: "DELETE" });
+  },
+  testEndpoint(payload: TestEndpointPayload) {
+    return request<TestEndpointResult>("/providers/test-endpoint", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
   },
 };
 

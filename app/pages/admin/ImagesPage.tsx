@@ -2,11 +2,12 @@
  * Admin → Images page.
  * Pull, prune, and browse local images — table powered by DataTable.
  */
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useOutletContext } from "react-router";
 import { useTranslation } from "react-i18next";
 import { images, type ImageSummary, type PruneReport } from "~/api/admin";
 import { DataTable, type ColumnDef } from "~/components/DataTable";
+import { useAsyncData } from "~/lib/useAsyncData";
 
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
@@ -35,9 +36,16 @@ function bytes(n: number): string {
 export default function ImagesPage() {
   const { t } = useTranslation();
   const { rootModeActive } = useOutletContext<AdminContext>();
-  const [data, setData] = useState<ImageSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    data,
+    loading,
+    error,
+    refresh: load,
+  } = useAsyncData(
+    () => images.list(),
+    [],
+    { initialValue: [] as ImageSummary[] },
+  );
   const [pullImage, setPullImage] = useState("");
   const [pullTag, setPullTag] = useState("latest");
   const [pulling, setPulling] = useState(false);
@@ -101,22 +109,6 @@ export default function ImagesPage() {
       ),
     },
   ];
-
-  async function load() {
-    setLoading(true);
-    setError(null);
-    try {
-      setData(await images.list());
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : t("images.failed_load"));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    load();
-  }, []);
 
   async function handlePull(e: React.FormEvent) {
     e.preventDefault();
