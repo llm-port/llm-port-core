@@ -132,7 +132,7 @@ export default function DashboardPage() {
   const theme = useTheme();
   const grafanaDashboardBaseUrl =
     (import.meta.env.VITE_GRAFANA_DASHBOARD_URL as string | undefined) ??
-    `http://${window.location.hostname}:3001/d/llm-port-overview/llm-port-overview?orgId=1&from=now-6h&to=now&timezone=browser&refresh=30s`;
+    "http://127.0.0.1:3001/d/llm-port-overview/llm-port-overview?orgId=1&from=now-6h&to=now&timezone=browser&refresh=30s";
 
   const grafanaDashboardUrl = useMemo(() => {
     try {
