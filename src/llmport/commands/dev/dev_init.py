@@ -7,6 +7,7 @@ infrastructure, runs migrations, and generates a VS Code workspace file.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -114,7 +115,14 @@ def _install_frontend_deps(frontend_dir: Path) -> None:
 def _run_migrations(backend_dir: Path) -> None:
     """Run Alembic migrations."""
     console.print("[cyan]Running database migrations…[/cyan]")
-    result = subprocess.run(["uv", "run", "alembic", "upgrade", "head"], cwd=str(backend_dir))
+    env = os.environ.copy()
+    # Ensure backend Alembic connects with the right credentials.
+    env.setdefault("LLM_PORT_BACKEND_DB_HOST", "localhost")
+    env.setdefault("LLM_PORT_BACKEND_DB_PORT", "5432")
+    env.setdefault("LLM_PORT_BACKEND_DB_USER", "llm_port_backend")
+    env.setdefault("LLM_PORT_BACKEND_DB_PASS", "llm_port_backend")
+    env.setdefault("LLM_PORT_BACKEND_DB_BASE", "llm_port_backend")
+    result = subprocess.run(["uv", "run", "alembic", "upgrade", "head"], cwd=str(backend_dir), env=env)
     if result.returncode != 0:
         warning("Alembic migration exited with non-zero code.")
     else:
