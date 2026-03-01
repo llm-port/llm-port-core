@@ -252,7 +252,16 @@ class VLLMAdapter(ProviderAdapter):
         from pathlib import PurePosixPath  # noqa: PLC0415
 
         first_path = PurePosixPath(artifacts[0].path)
-        return str(first_path.parent)
+        parent = str(first_path.parent)
+        # Ensure the result is an absolute path.  When artifacts store
+        # only filenames (no directory), PurePosixPath("file").parent
+        # returns ".", which Docker interprets as a 1-char named volume
+        # and rejects with "volume name is too short".
+        if not parent or parent == ".":
+            return f"{model_store_root}/imports/{model.id}"
+        if not PurePosixPath(parent).is_absolute():
+            return f"{model_store_root}/{parent}"
+        return parent
 
 
 # Self-register on import

@@ -2,6 +2,7 @@ import enum
 import os
 from pathlib import Path
 from tempfile import gettempdir
+from typing import Any
 
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -41,6 +42,15 @@ class Settings(BaseSettings):
 
     log_level: LogLevel = LogLevel.INFO
     users_secret: str = os.getenv("USERS_SECRET", "")
+
+    def __init__(self, **kwargs: Any) -> None:  # type: ignore[override]
+        super().__init__(**kwargs)
+        # Auto-generate a JWT secret when none is provided so that
+        # token generation works out-of-the-box during development.
+        if not self.users_secret:
+            import secrets  # noqa: PLC0415
+
+            object.__setattr__(self, "users_secret", secrets.token_urlsafe(32))
     # Variables for the database
     db_host: str = "127.0.0.1"
     db_port: int = 5432

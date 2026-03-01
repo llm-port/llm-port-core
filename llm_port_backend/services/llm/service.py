@@ -271,7 +271,9 @@ class LLMService:
             await runtime_dao.set_status(runtime.id, RuntimeStatus.STARTING)
         except Exception as exc:
             log.exception("Failed to start runtime container: %s", exc)
-            await runtime_dao.set_status(runtime.id, RuntimeStatus.ERROR)
+            # Roll back: remove the runtime DB record so the provider
+            # can be cleaned up without a dangling reference.
+            await runtime_dao.delete(runtime.id)
             raise
 
         return runtime
