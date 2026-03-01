@@ -32,18 +32,24 @@ def clone_repo(
     target_dir: Path,
     method: str = "https",
     branch: str | None = None,
+    force: bool = False,
 ) -> CloneResult:
     """Clone a single repo into ``target_dir / local_name``.
 
-    Skips if the directory already exists.
+    Skips if the directory already exists unless *force* is True,
+    in which case the existing directory is removed first.
     """
     local_name = REPO_DIR_MAP.get(repo, repo)
     dest = target_dir / local_name
     result = CloneResult(repo=repo, local_dir=str(dest))
 
     if dest.exists():
-        result.skipped = True
-        return result
+        if force:
+            import shutil as _shutil
+            _shutil.rmtree(dest)
+        else:
+            result.skipped = True
+            return result
 
     git = shutil.which("git")
     if not git:
@@ -75,6 +81,7 @@ def clone_all_repos(
     target_dir: Path,
     method: str = "https",
     branch: str | None = None,
+    force: bool = False,
 ) -> list[CloneResult]:
     """Clone all repos into the target directory.
 
@@ -86,7 +93,7 @@ def clone_all_repos(
     with console.status("[bold cyan]Cloning repositories…") as _status:
         for repo in repos:
             _status.update(f"Cloning [bold]{repo}[/bold]…")
-            res = clone_repo(repo, target_dir=target_dir, method=method, branch=branch)
+            res = clone_repo(repo, target_dir=target_dir, method=method, branch=branch, force=force)
             results.append(res)
 
             if res.skipped:

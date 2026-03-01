@@ -155,6 +155,7 @@ def _generate_vscode_workspace(workspace: Path) -> None:
 @click.argument("workspace", type=click.Path(), default=".")
 @click.option("--ssh", is_flag=True, help="Clone using SSH instead of HTTPS.")
 @click.option("--branch", "-b", default="master", show_default=True, help="Branch to checkout after cloning.")
+@click.option("--overwrite", is_flag=True, help="Remove and re-clone existing repos.")
 @click.option("--skip-infra", is_flag=True, help="Skip starting shared infrastructure.")
 @click.option("--skip-deps", is_flag=True, help="Skip installing dependencies.")
 @click.option("--skip-migrations", is_flag=True, help="Skip running database migrations.")
@@ -163,6 +164,7 @@ def dev_init(
     *,
     ssh: bool,
     branch: str,
+    overwrite: bool,
     skip_infra: bool,
     skip_deps: bool,
     skip_migrations: bool,
@@ -212,7 +214,7 @@ def dev_init(
     # ── 1. Clone repos ────────────────────────────────────────────
     console.print("\n[bold cyan]Step 1: Cloning repositories…[/bold cyan]")
     clone_method = "ssh" if ssh else "https"
-    results = clone_all_repos(list(REPO_DIR_MAP.keys()), target_dir=workspace_path, method=clone_method, branch=branch)
+    results = clone_all_repos(list(REPO_DIR_MAP.keys()), target_dir=workspace_path, method=clone_method, branch=branch, force=overwrite)
 
     cloned = sum(1 for r in results if r.cloned)
     skipped = sum(1 for r in results if r.skipped)
