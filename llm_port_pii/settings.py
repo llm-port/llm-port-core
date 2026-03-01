@@ -76,6 +76,10 @@ class Settings(BaseSettings):
     # E.G. http://localhost:4317
     opentelemetry_endpoint: Optional[str] = None
 
+    # PII detection settings
+    pii_default_language: str = "en"
+    pii_score_threshold: float = 0.35
+
     @property
     def db_url(self) -> URL:
         """

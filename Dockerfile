@@ -16,6 +16,10 @@ WORKDIR /app/src
 
 # Installing requirements
 RUN --mount=type=cache,target=/tmp/poetry_cache poetry install --only main
+
+# Download spaCy English model for Presidio NER
+RUN python -m spacy download en_core_web_lg
+
 # Removing gcc
 RUN apt-get purge -y \
   gcc \

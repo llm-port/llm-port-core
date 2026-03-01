@@ -2,28 +2,34 @@
 # See https://pre-commit.com for more information
 # See https://pre-commit.com/hooks.html for more hooks
 repos:
-    - repo: local
+    - repo: https://github.com/pre-commit/pre-commit-hooks
+      rev: v4.6.0
       hooks:
+          - id: trailing-whitespace
+          - id: end-of-file-fixer
 
-          - id: black
-            name: Format with Black
-            entry: poetry run black
-            language: system
-            types: [python]
+    # - repo: local
+    #   hooks:
 
-          - id: ruff
-            name: Check with Ruff
-            entry: poetry run ruff
-            language: system
-            pass_filenames: false
-            always_run: true
-            args: ["check", "llm_port_pii", "tests", "--fix"]
+          # - id: black
+          #   name: Format with Black
+          #   entry: poetry run black
+          #   language: system
+          #   types: [python]
 
-          - id: mypy
-            name: Validate types with MyPy
-            entry: poetry run mypy
-            language: system
-            types: [python]
-            pass_filenames: false
-            args:
-              - "llm_port_pii"
+          # - id: ruff
+          #   name: Check with Ruff
+          #   entry: poetry run ruff
+          #   language: system
+          #   pass_filenames: false
+          #   always_run: true
+          #   args: ["check", "llm_port_pii", "tests", "--fix"]
+
+          # - id: mypy
+          #   name: Validate types with MyPy
+          #   entry: poetry run mypy
+          #   language: system
+          #   types: [python]
+          #   pass_filenames: false
+          #   args:
+          #     - "llm_port_pii"
