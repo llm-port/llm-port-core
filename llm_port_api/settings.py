@@ -81,6 +81,8 @@ class Settings(BaseSettings):
     # JWT settings (compatible with backend-issued tokens)
     jwt_secret: str = ""
     jwt_algorithm: str = "HS256"
+    jwt_audience: str = ""
+    jwt_issuer: str = ""
 
     # Gateway behavior
     http_timeout_sec: float = 30.0
@@ -96,6 +98,19 @@ class Settings(BaseSettings):
     langfuse_secret_key: str | None = None
     langfuse_tracing_enabled: bool = True
     langfuse_release: str | None = None
+
+    # Optional module: PII service
+    pii_service_url: str | None = None
+    pii_enabled: bool = False
+
+    # Optional module: External auth service
+    auth_service_url: str | None = None
+    auth_enabled: bool = False
+
+    # Optional module: RAG engine (exposed via backend, status tracked here)
+    rag_service_url: str | None = None
+    rag_enabled: bool = False
+
     langfuse_debug: bool = False
 
     @property

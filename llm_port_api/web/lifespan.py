@@ -22,8 +22,10 @@ from prometheus_fastapi_instrumentator.instrumentation import (
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from llm_port_api.services.gateway.observability import GatewayObservability
+from llm_port_api.services.gateway.proxy import create_shared_http_client
 from llm_port_api.services.rabbit.lifespan import init_rabbit, shutdown_rabbit
 from llm_port_api.services.redis.lifespan import init_redis, shutdown_redis
+from llm_port_api.services.registry import service_registry
 from llm_port_api.settings import settings
 from llm_port_api.tkq import broker
 
@@ -134,6 +136,24 @@ def _setup_gateway_observability(app: FastAPI) -> None:
     )
 
 
+def _setup_service_registry(app: FastAPI) -> None:
+    """Configure the modular service registry from env-vars.
+
+    Each optional service is "enabled" when *both* its feature flag
+    (``<name>_enabled``) is ``True`` **and** its URL is set.
+    """
+    service_registry.configure(
+        "pii", enabled=settings.pii_enabled, url=settings.pii_service_url,
+    )
+    service_registry.configure(
+        "auth", enabled=settings.auth_enabled, url=settings.auth_service_url,
+    )
+    service_registry.configure(
+        "rag", enabled=settings.rag_enabled, url=settings.rag_service_url,
+    )
+    app.state.service_registry = service_registry
+
+
 @asynccontextmanager
 async def lifespan_setup(
     app: FastAPI,
@@ -153,6 +173,10 @@ async def lifespan_setup(
         await broker.startup()
     _setup_db(app)
     _setup_gateway_observability(app)
+    _setup_service_registry(app)
+    app.state.http_client = create_shared_http_client(
+        timeout_sec=settings.http_timeout_sec,
+    )
     setup_opentelemetry(app)
     init_redis(app)
     init_rabbit(app)
@@ -162,6 +186,7 @@ async def lifespan_setup(
     yield
     if not broker.is_worker_process:
         await broker.shutdown()
+    await app.state.http_client.aclose()
     await app.state.db_engine.dispose()
     app.state.gateway_observability.shutdown()
     await shutdown_redis(app)

@@ -14,6 +14,7 @@ from llm_port_api.services.gateway.auth import AuthContext, get_auth_context
 from llm_port_api.services.gateway.errors import GatewayError, error_response
 from llm_port_api.services.gateway.lease import LeaseManager
 from llm_port_api.services.gateway.observability import GatewayObservability
+from llm_port_api.services.gateway.pii_client import PIIClient
 from llm_port_api.services.gateway.proxy import UpstreamProxy
 from llm_port_api.services.gateway.ratelimit import RateLimiter
 from llm_port_api.services.gateway.routing import RouterService
@@ -22,6 +23,7 @@ from llm_port_api.services.gateway.schemas import (
     EmbeddingsRequest,
 )
 from llm_port_api.services.gateway.service import GatewayService
+from llm_port_api.services.registry import service_registry
 from llm_port_api.settings import settings
 
 router = APIRouter()
@@ -32,19 +34,45 @@ def public_health_check() -> None:
     """Public health endpoint for L7 probes."""
 
 
+@router.get("/v1/services")
+async def list_services(request: Request) -> JSONResponse:
+    """Return the manifest of optional service modules.
+
+    The frontend uses this to discover which features (PII, Auth, RAG, ...)
+    are available and healthy so it can show/hide UI sections accordingly.
+    """
+    registry = request.app.state.service_registry
+    # Run async health checks against enabled services
+    await registry.check_health(request.app.state.http_client)
+    return JSONResponse(status_code=200, content=registry.to_dict())
+
+
 def get_gateway_service(
-    request: Request, dao: GatewayDAO = Depends(),
+    request: Request,
+    dao: GatewayDAO = Depends(),
 ) -> GatewayService:
     """Build gateway service with request-scoped dependencies."""
     redis_pool = request.app.state.redis_pool
     lease_manager = LeaseManager(redis_pool, ttl_sec=settings.lease_ttl_sec)
     router_service = RouterService(
-        dao=dao, redis_pool=redis_pool, lease_manager=lease_manager,
+        dao=dao,
+        redis_pool=redis_pool,
+        lease_manager=lease_manager,
     )
-    proxy = UpstreamProxy(timeout_sec=settings.http_timeout_sec)
+    proxy = UpstreamProxy(client=request.app.state.http_client)
     limiter = RateLimiter(redis_pool)
     audit = AuditService(dao)
     observability: GatewayObservability = request.app.state.gateway_observability
+
+    # PII client (optional - only when PII module is enabled in registry)
+    pii_client: PIIClient | None = None
+    pii_url = service_registry.get_url("pii")
+    if pii_url:
+        pii_client = PIIClient(
+            base_url=pii_url,
+            http_client=request.app.state.http_client,
+        )
+
     return GatewayService(
         dao=dao,
         router=router_service,
@@ -52,6 +80,7 @@ def get_gateway_service(
         limiter=limiter,
         audit=audit,
         observability=observability,
+        pii_client=pii_client,
     )
 
 
@@ -145,7 +174,8 @@ async def create_chat_completions(
             request_id=request_id,
         )
         json_response = JSONResponse(
-            status_code=non_stream.status_code, content=non_stream.payload,
+            status_code=non_stream.status_code,
+            content=non_stream.payload,
         )
         json_response.headers["x-request-id"] = request_id
         json_response.headers["x-provider-instance-id"] = (

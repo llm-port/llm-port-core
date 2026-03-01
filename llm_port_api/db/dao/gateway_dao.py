@@ -36,7 +36,8 @@ class GatewayDAO:
         self.session = session
 
     async def list_enabled_aliases_for_tenant(
-        self, tenant_id: str,
+        self,
+        tenant_id: str,
     ) -> list[LLMModelAlias]:
         """List aliases visible for tenant, applying tenant policy allowlist."""
         policy = await self.get_tenant_policy(tenant_id)
@@ -62,10 +63,19 @@ class GatewayDAO:
         """Resolve enabled and healthy candidates for the given alias/tenant."""
         policy = await self.get_tenant_policy(tenant_id)
 
+        # Enforce tenant alias allowlist before running the heavier join.
+        if (
+            policy
+            and policy.allowed_model_aliases
+            and alias not in policy.allowed_model_aliases
+        ):
+            return []
+
         query = (
             select(LLMModelAlias, LLMPoolMembership, LLMProviderInstance)
             .join(
-                LLMPoolMembership, LLMPoolMembership.model_alias == LLMModelAlias.alias,
+                LLMPoolMembership,
+                LLMPoolMembership.model_alias == LLMModelAlias.alias,
             )
             .join(
                 LLMProviderInstance,

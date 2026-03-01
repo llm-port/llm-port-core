@@ -52,10 +52,17 @@ def verify_token(token: str) -> dict[str, Any]:
             code="jwt_not_configured",
         )
     try:
+        decode_opts: dict[str, Any] = {
+            "algorithms": [settings.jwt_algorithm],
+        }
+        if settings.jwt_audience:
+            decode_opts["audience"] = settings.jwt_audience
+        if settings.jwt_issuer:
+            decode_opts["issuer"] = settings.jwt_issuer
         claims = jwt.decode(
             token,
             settings.jwt_secret,
-            algorithms=[settings.jwt_algorithm],
+            **decode_opts,
         )
     except jwt.PyJWTError as exc:
         raise GatewayError(
