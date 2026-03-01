@@ -90,6 +90,31 @@ def _which(name: str) -> str | None:
     return shutil.which(name)
 
 
+def _ensure_backend_env(backend_dir: Path) -> None:
+    """Create llm_port_backend/.env with localhost settings if missing."""
+    env_path = backend_dir / ".env"
+    if env_path.exists() or not backend_dir.exists():
+        return
+    from llmport.core.env_gen import write_env_file
+    env = {
+        "LLM_PORT_BACKEND_HOST": "localhost",
+        "LLM_PORT_BACKEND_PORT": "8000",
+        "LLM_PORT_BACKEND_RELOAD": "true",
+        "LLM_PORT_BACKEND_DB_HOST": "localhost",
+        "LLM_PORT_BACKEND_DB_PORT": "5432",
+        "LLM_PORT_BACKEND_DB_USER": "llm_port_backend",
+        "LLM_PORT_BACKEND_DB_PASS": "llm_port_backend",
+        "LLM_PORT_BACKEND_DB_BASE": "llm_port_backend",
+        "LLM_PORT_BACKEND_RABBIT_HOST": "localhost",
+        "LLM_PORT_BACKEND_RABBIT_PORT": "5672",
+        "LLM_PORT_BACKEND_RABBIT_USER": "guest",
+        "LLM_PORT_BACKEND_RABBIT_PASS": "guest",
+        "LLM_PORT_BACKEND_RABBIT_VHOST": "/",
+    }
+    write_env_file(env_path, env)
+    info(f"Generated backend .env at {env_path}")
+
+
 def _stop_old_workers() -> None:
     """Kill any stale taskiq worker processes."""
     if platform.system() != "Windows":
@@ -141,6 +166,9 @@ def dev_up(
 
     console.print("[bold magenta]llm.port Dev Environment[/bold magenta]\n")
 
+    # ── Ensure backend .env exists ────────────────────────────────
+    _ensure_backend_env(backend_dir)
+
     # ── Shared infra ──────────────────────────────────────────────
     if not skip_infra and not frontend_only:
         from llmport.commands.dev.dev_init import _resolve_shared_compose, _wait_for_postgres
@@ -182,39 +210,11 @@ def dev_up(
         if not backend_dir.exists():
             error(f"Backend directory not found: {backend_dir}")
         else:
-            # Env vars so the backend connects to localhost services
-            # instead of Docker-internal hostnames.
-            env_prefix = (
-                "$env:LLM_PORT_BACKEND_DB_HOST='localhost'; "
-                "$env:LLM_PORT_BACKEND_DB_PORT='5432'; "
-                "$env:LLM_PORT_BACKEND_DB_USER='llm_port_backend'; "
-                "$env:LLM_PORT_BACKEND_DB_PASS='llm_port_backend'; "
-                "$env:LLM_PORT_BACKEND_DB_BASE='llm_port_backend'; "
-                "$env:LLM_PORT_BACKEND_RABBIT_HOST='localhost'; "
-                "$env:LLM_PORT_BACKEND_RABBIT_PORT='5672'; "
-                "$env:LLM_PORT_BACKEND_RABBIT_USER='guest'; "
-                "$env:LLM_PORT_BACKEND_RABBIT_PASS='guest'; "
-                "$env:LLM_PORT_BACKEND_RABBIT_VHOST='/'; "
-            )
-            if platform.system() != "Windows":
-                env_prefix = (
-                    "export LLM_PORT_BACKEND_DB_HOST=localhost "
-                    "LLM_PORT_BACKEND_DB_PORT=5432 "
-                    "LLM_PORT_BACKEND_DB_USER=llm_port_backend "
-                    "LLM_PORT_BACKEND_DB_PASS=llm_port_backend "
-                    "LLM_PORT_BACKEND_DB_BASE=llm_port_backend "
-                    "LLM_PORT_BACKEND_RABBIT_HOST=localhost "
-                    "LLM_PORT_BACKEND_RABBIT_PORT=5672 "
-                    "LLM_PORT_BACKEND_RABBIT_USER=guest "
-                    "LLM_PORT_BACKEND_RABBIT_PASS=guest "
-                    "LLM_PORT_BACKEND_RABBIT_VHOST=/; "
-                )
-
             console.print("\n[cyan]Launching backend…[/cyan]")
             _launch_terminal(
                 "Backend – llm-port",
                 backend_dir,
-                f"{env_prefix}uv run -m llm_port_backend",
+                "uv run -m llm_port_backend",
             )
             success("Backend server → http://localhost:8000")
 
@@ -224,7 +224,7 @@ def dev_up(
             _launch_terminal(
                 "Worker – llm-port",
                 backend_dir,
-                f"{env_prefix}uv run taskiq worker llm_port_backend.tkq:broker llm_port_backend.services.llm.tasks",
+                "uv run taskiq worker llm_port_backend.tkq:broker llm_port_backend.services.llm.tasks",
             )
             success("Taskiq worker started.")
 
