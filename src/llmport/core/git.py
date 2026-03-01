@@ -6,6 +6,7 @@ organisation, with support for HTTPS (default) and SSH clone methods.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -37,7 +38,7 @@ def clone_repo(
     """Clone a single repo into ``target_dir / local_name``.
 
     Skips if the directory already exists unless *force* is True,
-    in which case the existing directory is removed first.
+    in which case it runs ``git pull`` to update instead.
     """
     local_name = REPO_DIR_MAP.get(repo, repo)
     dest = target_dir / local_name
@@ -45,8 +46,27 @@ def clone_repo(
 
     if dest.exists():
         if force:
-            import shutil as _shutil
-            _shutil.rmtree(dest)
+            git = shutil.which("git")
+            if not git:
+                result.error = "git not found on PATH"
+                return result
+            try:
+                proc = subprocess.run(
+                    [git, "pull"],
+                    cwd=str(dest),
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+                if proc.returncode == 0:
+                    result.cloned = True  # updated
+                else:
+                    result.error = proc.stderr.strip() or f"git pull exited with code {proc.returncode}"
+            except subprocess.TimeoutExpired:
+                result.error = "git pull timed out after 120s"
+            except OSError as exc:
+                result.error = str(exc)
+            return result
         else:
             result.skipped = True
             return result
