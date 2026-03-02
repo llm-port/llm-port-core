@@ -48,6 +48,8 @@ GRANT CONNECT ON DATABASE llm_port_backend TO llm_user;
 GRANT USAGE ON SCHEMA public TO llm_user;
 -- Grant SELECT on any table that llm_port_backend role creates (including post-migration tables).
 ALTER DEFAULT PRIVILEGES FOR ROLE llm_port_backend IN SCHEMA public GRANT SELECT ON TABLES TO llm_user;
+-- Also cover tables created by postgres (Alembic often runs as superuser).
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT SELECT ON TABLES TO llm_user;
 
 -- Grant least privileges for gateway tables in llm_api
 \connect llm_api
