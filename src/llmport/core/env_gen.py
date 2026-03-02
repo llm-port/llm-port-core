@@ -50,8 +50,6 @@ def dev_env_vars(
         "POSTGRES_DB": "postgres",
         "GRAFANA_ADMIN_USER": "admin",
         "GRAFANA_ADMIN_PASSWORD": pw,
-        "PGADMIN_DEFAULT_EMAIL": "admin@example.com",
-        "PGADMIN_DEFAULT_PASSWORD": pw,
         "LANGFUSE_NEXTAUTH_SECRET": "dev-langfuse-nextauth-secret",
         "LANGFUSE_SALT": "dev-langfuse-salt",
         "LANGFUSE_ENCRYPTION_KEY": "0" * 64,
@@ -65,7 +63,10 @@ def dev_env_vars(
         "MINIO_ROOT_PASSWORD": pw,
         "LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT": "http://minio:9000",
         "LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT": "http://minio:9000",
-        "LLM_PORT_API_JWT_SECRET": "dev-jwt-secret-not-for-production",
+        # Settings master key — used to encrypt/decrypt secrets stored in the DB.
+        # Must match LLM_PORT_BACKEND_SETTINGS_MASTER_KEY in the backend .env.
+        # JWT secrets are seeded automatically in the DB on first startup.
+        "LLM_PORT_BACKEND_SETTINGS_MASTER_KEY": "dev-settings-master-key-change-me",
         "LLM_PORT_API_LANGFUSE_ENABLED": "false",
     }
 
@@ -109,9 +110,6 @@ def default_env_vars(
         # Grafana
         "GRAFANA_ADMIN_USER": "admin",
         "GRAFANA_ADMIN_PASSWORD": admin_password or _random_password(16),
-        # pgAdmin
-        "PGADMIN_DEFAULT_EMAIL": admin_email,
-        "PGADMIN_DEFAULT_PASSWORD": admin_password or _random_password(16),
         # Langfuse
         "LANGFUSE_NEXTAUTH_SECRET": _random_secret(),
         "LANGFUSE_SALT": _random_secret(32),
@@ -125,8 +123,9 @@ def default_env_vars(
         # MinIO
         "MINIO_ROOT_USER": "minio",
         "MINIO_ROOT_PASSWORD": minio_password,
-        # JWT
-        "LLM_PORT_API_JWT_SECRET": _random_secret(),
+        # Settings master key — used to encrypt/decrypt secrets stored in the DB.
+        # JWT secrets are seeded automatically in the DB on first startup.
+        "LLM_PORT_BACKEND_SETTINGS_MASTER_KEY": _random_secret(),
         "LLM_PORT_API_LANGFUSE_ENABLED": "false",
     }
 
