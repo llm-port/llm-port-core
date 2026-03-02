@@ -268,6 +268,8 @@ def dev_init(
             "LLM_PORT_BACKEND_RABBIT_USER": "guest",
             "LLM_PORT_BACKEND_RABBIT_PASS": "guest",
             "LLM_PORT_BACKEND_RABBIT_VHOST": "/",
+            # Must match LLM_PORT_BACKEND_SETTINGS_MASTER_KEY in llm_port_shared/.env
+            "LLM_PORT_BACKEND_SETTINGS_MASTER_KEY": "dev-settings-master-key-change-me",
         }
         write_env_file(backend_env_path, backend_env)
         success(f"Backend .env written to {backend_env_path}")
