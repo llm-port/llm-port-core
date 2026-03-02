@@ -849,6 +849,7 @@ export interface HardwareInfo {
   gpu: GpuInventory;
   gpu_metrics: GpuMetrics;
   recommended_vllm_image: string | null;
+  legacy_vllm_image: string | null;
   vllm_image_presets: VllmImagePreset[];
 }
 

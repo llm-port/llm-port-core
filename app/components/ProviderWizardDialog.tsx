@@ -101,6 +101,7 @@ export function ProviderWizardDialog({ open, models, onClose, onCreated }: Provi
   const [tensorParallel, setTensorParallel] = useState("");
   const [extraArgs, setExtraArgs] = useState("");
   const [openaiCompat, setOpenaiCompat] = useState(true);
+  const [legacyGpu, setLegacyGpu] = useState(false);
 
   // Image availability check & pull
   const [imageStatus, setImageStatus] = useState<"idle" | "checking" | "available" | "missing" | "pulling" | "pulled" | "error">("idle");
@@ -131,6 +132,7 @@ export function ProviderWizardDialog({ open, models, onClose, onCreated }: Provi
       setImageChoice(AUTO_IMAGE_VALUE);
       setCustomImage("");
       setAdvancedOpen(false);
+      setLegacyGpu(false);
       setMaxModelLen("");
       setDtype("");
       setGpuMemUtil("");
@@ -147,6 +149,18 @@ export function ProviderWizardDialog({ open, models, onClose, onCreated }: Provi
       }
     }
   }, [open]);
+
+  // When legacyGpu is toggled, sync imageChoice to the legacy image or back to auto
+  useEffect(() => {
+    if (legacyGpu) {
+      setImageChoice(hwInfo?.legacy_vllm_image ?? AUTO_IMAGE_VALUE);
+    } else {
+      // Restore to recommended preset or auto
+      const rec = hwInfo?.vllm_image_presets.find((p) => p.is_recommended);
+      setImageChoice(rec?.image ?? AUTO_IMAGE_VALUE);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [legacyGpu]);
 
   // Fetch hardware info for step 2
   useEffect(() => {
@@ -327,6 +341,7 @@ export function ProviderWizardDialog({ open, models, onClose, onCreated }: Provi
         if (dtype) generic_config.dtype = dtype;
         if (gpuMemUtil) generic_config.gpu_memory_utilization = Number(gpuMemUtil);
         if (tensorParallel) generic_config.tensor_parallel_size = Number(tensorParallel);
+        if (legacyGpu) generic_config.enforce_eager = true;
 
         const provider_config: Record<string, unknown> = {};
         const resolvedImage =
@@ -701,6 +716,15 @@ export function ProviderWizardDialog({ open, models, onClose, onCreated }: Provi
                     />
                   }
                   label={t("llm_runtimes.openai_compat")}
+                />
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={legacyGpu}
+                      onChange={(e) => setLegacyGpu(e.target.checked)}
+                    />
+                  }
+                  label={t("llm_runtime_detail.enforce_eager")}
                 />
               </AccordionDetails>
             </Accordion>

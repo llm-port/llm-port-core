@@ -99,6 +99,10 @@ export default function RuntimeDetailPage() {
       const provider_config: Record<string, unknown> = { ...(rt.provider_config ?? {}) };
       if (editExtraArgs.trim()) provider_config.extra_args = editExtraArgs.trim().split(/\r?\n/).map(s => s.trim()).filter(Boolean);
       else delete provider_config.extra_args;
+      // When legacy GPU mode is enabled the adapter auto-selects the correct
+      // image based on enforce_eager — remove any previously stored image
+      // override so the adapter's default logic is not bypassed.
+      if (editEnforceEager) delete provider_config.image;
 
       const updated = await runtimes.update(id, {
         name: editName !== rt.name ? editName : undefined,

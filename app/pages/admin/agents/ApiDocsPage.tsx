@@ -54,6 +54,12 @@ export default function ApiDocsPage() {
         const endpoint = values.items["api.server.endpoint_url"];
         const container = values.items["api.server.container_name"];
         if (endpoint && !endpoint.is_secret && typeof endpoint.value === "string") {
+          // Replace hardcoded localhost/127.0.0.1 with the actual hostname so
+          // the Swagger page works when accessed from a remote machine.
+          const normalized = endpoint.value.replace(
+            /localhost|127\.0\.0\.1/g,
+            window.location.hostname,
+          );
           setActiveUrl(endpoint.value);
         }
         if (container && !container.is_secret && typeof container.value === "string") {

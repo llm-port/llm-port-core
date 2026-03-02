@@ -4,7 +4,6 @@ import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
-import DnsIcon from "@mui/icons-material/Dns";
 import { useTranslation } from "react-i18next";
 
 export function meta({}: Route.MetaArgs) {
@@ -28,18 +27,11 @@ export default function Home() {
     >
       <Stack alignItems="center" spacing={3} sx={{ p: 4 }}>
         <Box
-          sx={{
-            width: 72,
-            height: 72,
-            borderRadius: "50%",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            background: "linear-gradient(135deg, #7c4dff 0%, #00e5ff 100%)",
-          }}
-        >
-          <DnsIcon sx={{ fontSize: 36, color: "#fff" }} />
-        </Box>
+          component="img"
+          src="/icon_color.png"
+          alt="llm-port"
+          sx={{ width: 96, height: 96, objectFit: "contain" }}
+        />
         <Typography variant="h4" color="text.primary">
           {t("app.title")}
         </Typography>
