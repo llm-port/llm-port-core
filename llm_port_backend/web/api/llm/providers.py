@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 
 import httpx
@@ -9,9 +10,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from starlette import status
 
 from llm_port_backend.db.dao.audit_dao import AuditDAO
-from llm_port_backend.db.dao.llm_dao import ProviderDAO, RuntimeDAO
+from llm_port_backend.db.dao.llm_dao import ArtifactDAO, ModelDAO, ProviderDAO, RuntimeDAO
 from llm_port_backend.db.models.containers import AuditResult
-from llm_port_backend.db.models.llm import LLMProvider
+from llm_port_backend.db.models.llm import LLMProvider, ModelSource, ModelStatus, ProviderTarget
 from llm_port_backend.db.models.users import User
 from llm_port_backend.services.llm.service import LLMService
 from llm_port_backend.web.api.admin.dependencies import audit_action
@@ -24,6 +25,8 @@ from llm_port_backend.web.api.llm.schema import (
     TestEndpointResponse,
 )
 from llm_port_backend.web.api.rbac import require_permission
+
+log = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -43,6 +46,34 @@ def _provider_to_dto(provider: LLMProvider) -> ProviderDTO:
     """Serialize a provider including derived remote_model metadata."""
     dto = ProviderDTO.model_validate(provider)
     return dto.model_copy(update={"remote_model": _extract_remote_model(provider.capabilities)})
+
+
+async def _probe_first_model(
+    endpoint_url: str,
+    api_key: str | None,
+) -> str | None:
+    """Hit ``GET {endpoint_url}/models`` and return the first model id.
+
+    Returns ``None`` on any failure — this is best-effort.
+    """
+    url = endpoint_url.rstrip("/")
+    headers: dict[str, str] = {"Accept": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(f"{url}/models", headers=headers)
+        if resp.status_code >= 400:
+            return None
+        payload = resp.json()
+        data = payload.get("data", [])
+        if isinstance(data, list):
+            for item in data:
+                if isinstance(item, dict) and "id" in item:
+                    return str(item["id"])
+    except Exception:
+        log.debug("Could not probe remote models at %s", url, exc_info=True)
+    return None
 
 
 @router.post("/test-endpoint", response_model=TestEndpointResponse)
@@ -154,9 +185,16 @@ async def create_provider(
     user: User = Depends(require_permission("llm.providers", "create")),
     llm_service: LLMService = Depends(get_llm_service),
     provider_dao: ProviderDAO = Depends(),
+    runtime_dao: RuntimeDAO = Depends(),
+    model_dao: ModelDAO = Depends(),
+    artifact_dao: ArtifactDAO = Depends(),
     audit_dao: AuditDAO = Depends(),
 ) -> ProviderDTO:
-    """Register a new LLM provider."""
+    """Register a new LLM provider.
+
+    For remote providers a placeholder model and runtime are
+    auto-created so the API gateway can route traffic immediately.
+    """
     provider = await llm_service.create_provider(
         provider_dao,
         name=body.name,
@@ -166,6 +204,42 @@ async def create_provider(
         api_key=body.api_key,
         remote_model=body.remote_model,
     )
+
+    # ── Auto-provision remote providers ──────────────────────────
+    if body.target == ProviderTarget.REMOTE_ENDPOINT and body.endpoint_url:
+        # Determine alias name: prefer explicit remote_model, otherwise
+        # probe the remote endpoint for the first available model id.
+        alias_name = (body.remote_model or "").strip()
+        if not alias_name:
+            alias_name = await _probe_first_model(
+                body.endpoint_url, body.api_key,
+            )
+        if not alias_name:
+            alias_name = body.name.strip()
+
+        placeholder_model = await model_dao.create(
+            display_name=alias_name,
+            source=ModelSource.LOCAL_PATH,      # lightweight placeholder
+            status=ModelStatus.AVAILABLE,
+            tags=["remote", "auto-provisioned"],
+        )
+        try:
+            await llm_service.create_runtime(
+                runtime_dao,
+                provider_dao,
+                model_dao,
+                artifact_dao,
+                name=alias_name,
+                provider_id=provider.id,
+                model_id=placeholder_model.id,
+            )
+        except Exception:
+            log.warning(
+                "Auto-provisioning runtime for remote provider %s failed",
+                provider.id,
+                exc_info=True,
+            )
+
     await audit_action(
         action="llm.provider.create",
         target_type="llm_provider",

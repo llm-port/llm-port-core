@@ -303,3 +303,23 @@ class TraceSnapshotResponseDTO(BaseModel):
 
     items: list[TraceEventDTO]
     next_cursor: str | None = None
+
+
+class DataUsagePerInstanceDTO(BaseModel):
+    """Token and request usage for a single provider instance (runtime)."""
+
+    provider_instance_id: str
+    total_requests: int = 0
+    total_prompt_tokens: int = 0
+    total_completion_tokens: int = 0
+    total_tokens: int = 0
+    error_count: int = 0
+
+
+class DataUsageSummaryDTO(BaseModel):
+    """Aggregated data-usage across all provider instances."""
+
+    generated_at: datetime
+    instances: list[DataUsagePerInstanceDTO]
+    grand_total_requests: int = 0
+    grand_total_tokens: int = 0

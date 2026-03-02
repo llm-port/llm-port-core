@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from taskiq.instrumentation import TaskiqInstrumentor
 
 from llm_port_backend.services.docker.client import DockerService
+from llm_port_backend.services.llm.gateway_sync import GatewaySyncService
 from llm_port_backend.services.llm.service import LLMService
 from llm_port_backend.services.rabbit.lifespan import init_rabbit, shutdown_rabbit
 from llm_port_backend.settings import settings
@@ -273,7 +274,11 @@ async def lifespan_setup(
     init_rabbit(app)
     setup_prometheus(app)
     app.state.docker = DockerService()
-    app.state.llm_service = LLMService(app.state.docker)
+    gateway_session_factory = getattr(app.state, "llm_graph_trace_session_factory", None)
+    gateway_sync = GatewaySyncService(gateway_session_factory)
+    app.state.llm_service = LLMService(
+        app.state.docker, gateway_sync=gateway_sync,
+    )
     app.middleware_stack = app.build_middleware_stack()
 
     # Seed a default admin user in dev mode so the UI is usable immediately

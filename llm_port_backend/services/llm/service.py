@@ -31,6 +31,7 @@ from llm_port_backend.db.models.llm import (
 )
 from llm_port_backend.services.docker.client import DockerService
 from llm_port_backend.services.llm.base import ContainerSpec
+from llm_port_backend.services.llm.gateway_sync import GatewaySyncService, _normalize_base_url
 from llm_port_backend.services.llm.registry import get_adapter
 from llm_port_backend.services.llm.scanner import scan_model_directory
 from llm_port_backend.settings import settings
@@ -41,8 +42,14 @@ log = logging.getLogger(__name__)
 class LLMService:
     """Facade that ties together adapters, DAOs, and Docker."""
 
-    def __init__(self, docker: DockerService) -> None:
+    def __init__(
+        self,
+        docker: DockerService,
+        *,
+        gateway_sync: GatewaySyncService | None = None,
+    ) -> None:
         self.docker = docker
+        self.gateway_sync = gateway_sync or GatewaySyncService(None)
 
     # ------------------------------------------------------------------
     # Providers
@@ -68,6 +75,10 @@ class LLMService:
         """
         if target == ProviderTarget.REMOTE_ENDPOINT and not endpoint_url:
             raise ValueError("endpoint_url is required for remote providers")
+
+        # Normalise the URL so the gateway proxy does not duplicate /v1.
+        if endpoint_url:
+            endpoint_url = _normalize_base_url(endpoint_url)
 
         adapter = get_adapter(type_)
         capabilities = adapter.default_capabilities()
@@ -210,10 +221,12 @@ class LLMService:
         artifacts = await artifact_dao.list_by_model(model_id)
         adapter = get_adapter(provider.type)
 
-        # Validate compatibility
-        compat = adapter.validate_model(model, artifacts)
-        if not compat.compatible:
-            raise ValueError(f"Model not compatible with {provider.type}: {compat.reason}")
+        # Validate compatibility — skip for remote providers (no local
+        # artifacts, model lives on the remote endpoint).
+        if provider.target != ProviderTarget.REMOTE_ENDPOINT:
+            compat = adapter.validate_model(model, artifacts)
+            if not compat.compatible:
+                raise ValueError(f"Model not compatible with {provider.type}: {compat.reason}")
 
         # Create DB record
         runtime = await runtime_dao.create(
@@ -236,6 +249,15 @@ class LLMService:
                 "Remote runtime %r → %s (no container)",
                 runtime.name,
                 endpoint_url,
+            )
+            # Publish to gateway — remote runtimes are immediately routable
+            await self.gateway_sync.publish_runtime(
+                runtime_id=runtime.id,
+                alias=runtime.name,
+                base_url=endpoint_url,
+                backend_provider_type=provider.type.value,
+                is_remote=True,
+                health_status="healthy",
             )
             return runtime
 
@@ -278,6 +300,17 @@ class LLMService:
             endpoint_url = self._extract_endpoint(container_info)
             await runtime_dao.set_container_ref(runtime.id, container_id, endpoint_url)
             await runtime_dao.set_status(runtime.id, RuntimeStatus.STARTING)
+            # Publish to gateway with unknown health — will be promoted
+            # to healthy once reconciliation detects the container is up.
+            if endpoint_url:
+                await self.gateway_sync.publish_runtime(
+                    runtime_id=runtime.id,
+                    alias=runtime.name,
+                    base_url=endpoint_url,
+                    backend_provider_type=provider.type.value,
+                    is_remote=False,
+                    health_status="unknown",
+                )
         except Exception as exc:
             log.exception("Failed to start runtime container: %s", exc)
             # Roll back: remove the runtime DB record so the provider
@@ -300,6 +333,9 @@ class LLMService:
         # Remote runtimes have no container — just mark as running
         if not runtime.container_ref:
             await runtime_dao.set_status(runtime_id, RuntimeStatus.RUNNING)
+            await self.gateway_sync.set_instance_health(
+                runtime_id=runtime_id, health_status="healthy",
+            )
             return runtime
 
         await self.docker.start(runtime.container_ref)
@@ -319,12 +355,18 @@ class LLMService:
         # Remote runtimes have no container — just mark as stopped
         if not runtime.container_ref:
             await runtime_dao.set_status(runtime_id, RuntimeStatus.STOPPED)
+            await self.gateway_sync.set_instance_health(
+                runtime_id=runtime_id, health_status="unhealthy",
+            )
             return runtime
 
         await runtime_dao.set_status(runtime_id, RuntimeStatus.STOPPING)
         await runtime_dao.session.commit()
         await self.docker.stop(runtime.container_ref)
         await runtime_dao.set_status(runtime_id, RuntimeStatus.STOPPED)
+        await self.gateway_sync.set_instance_health(
+            runtime_id=runtime_id, health_status="unhealthy",
+        )
         return runtime
 
     async def restart_runtime(
@@ -440,6 +482,10 @@ class LLMService:
         # slow Docker teardown.
         await runtime_dao.session.commit()
         await self._teardown_runtime(runtime)
+        # Remove gateway routing records before deleting the runtime
+        await self.gateway_sync.unpublish_runtime(
+            runtime_id=runtime_id, alias=runtime.name,
+        )
         await runtime_dao.delete(runtime_id)
 
     async def delete_provider(
@@ -459,6 +505,10 @@ class LLMService:
         await runtime_dao.session.commit()
         for rt in runtimes:
             await self._teardown_runtime(rt)
+            # Remove gateway routing records
+            await self.gateway_sync.unpublish_runtime(
+                runtime_id=rt.id, alias=rt.name,
+            )
             await runtime_dao.delete(rt.id)
 
         await provider_dao.delete(provider_id)
@@ -514,6 +564,10 @@ class LLMService:
                         runtime.name,
                         runtime.status.value,
                     )
+                    # Promote gateway instance to healthy now that container is up
+                    await self.gateway_sync.set_instance_health(
+                        runtime_id=runtime.id, health_status="healthy",
+                    )
             elif docker_status in ("exited", "dead", "removing"):
                 # Container has crashed / stopped unexpectedly
                 exit_code = state.get("ExitCode", -1)
@@ -525,6 +579,9 @@ class LLMService:
                     docker_status,
                     exit_code,
                 )
+                await self.gateway_sync.set_instance_health(
+                    runtime_id=runtime.id, health_status="unhealthy",
+                )
         except Exception:
             # Container doesn't exist at all — mark as error
             if runtime.status in (RuntimeStatus.CREATING, RuntimeStatus.STARTING):
@@ -533,6 +590,9 @@ class LLMService:
                     "Runtime %r container %s not found — marking ERROR",
                     runtime.name,
                     runtime.container_ref,
+                )
+                await self.gateway_sync.set_instance_health(
+                    runtime_id=runtime.id, health_status="unhealthy",
                 )
 
         # Re-fetch to return the updated object

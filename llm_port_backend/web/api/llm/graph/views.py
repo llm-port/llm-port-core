@@ -14,7 +14,7 @@ from llm_port_backend.services.llm.graph_service import (
     LLMGraphService,
 )
 from llm_port_backend.web.api.llm.dependencies import get_llm_graph_service
-from llm_port_backend.web.api.llm.schema import TopologyResponseDTO, TraceSnapshotResponseDTO
+from llm_port_backend.web.api.llm.schema import DataUsageSummaryDTO, TopologyResponseDTO, TraceSnapshotResponseDTO
 from llm_port_backend.web.api.rbac import require_permission
 
 router = APIRouter()
@@ -38,6 +38,15 @@ async def get_recent_traces(
 ) -> TraceSnapshotResponseDTO:
     """Return initial or incremental graph trace events."""
     return await graph_service.list_recent_traces(limit=limit, after_event_id=after_event_id)
+
+
+@router.get("/data-usage", response_model=DataUsageSummaryDTO)
+async def get_data_usage(
+    user: User = Depends(require_permission("llm.graph", "read")),
+    graph_service: LLMGraphService = Depends(get_llm_graph_service),
+) -> DataUsageSummaryDTO:
+    """Aggregate token/request usage per provider instance from gateway logs."""
+    return await graph_service.get_data_usage()
 
 
 @router.get("/traces/stream")

@@ -14,6 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from llm_port_backend.db.dao.llm_dao import ModelDAO, ProviderDAO, RuntimeDAO
 from llm_port_backend.web.api.llm.schema import (
+    DataUsagePerInstanceDTO,
+    DataUsageSummaryDTO,
     GraphEdgeDTO,
     GraphNodeDTO,
     TopologyResponseDTO,
@@ -48,6 +50,10 @@ class LLMGraphService:
         providers = await self._provider_dao.list_all()
         runtimes = await self._runtime_dao.list_all()
         models = await self._model_dao.list_all()
+
+        # Build a set of model IDs referenced by runtimes so we can filter
+        # out orphan models that would create disconnected nodes.
+        referenced_model_ids = {str(rt.model_id) for rt in runtimes}
 
         nodes: list[GraphNodeDTO] = []
         edges: list[GraphEdgeDTO] = []
@@ -99,6 +105,10 @@ class LLMGraphService:
 
         for model in models:
             model_id = str(model.id)
+            # Skip models not linked to any runtime – they would appear as
+            # disconnected nodes with dangling edges.
+            if model_id not in referenced_model_ids:
+                continue
             nodes.append(
                 GraphNodeDTO(
                     id=f"model:{model_id}",
@@ -132,6 +142,60 @@ class LLMGraphService:
             else (str(after_event_id) if after_event_id is not None else None)
         )
         return TraceSnapshotResponseDTO(items=events, next_cursor=next_cursor)
+
+    async def get_data_usage(self) -> DataUsageSummaryDTO:
+        """Aggregate token/request usage per provider instance from gateway logs."""
+        if self._trace_session_factory is None:
+            return DataUsageSummaryDTO(
+                generated_at=datetime.now(tz=UTC),
+                instances=[],
+            )
+
+        query = """
+            SELECT
+                provider_instance_id,
+                COUNT(*)                    AS total_requests,
+                COALESCE(SUM(prompt_tokens), 0)     AS total_prompt_tokens,
+                COALESCE(SUM(completion_tokens), 0)  AS total_completion_tokens,
+                COALESCE(SUM(total_tokens), 0)       AS total_tokens,
+                SUM(CASE WHEN status_code >= 400 OR error_code IS NOT NULL THEN 1 ELSE 0 END) AS error_count
+            FROM llm_gateway_request_log
+            WHERE provider_instance_id IS NOT NULL
+            GROUP BY provider_instance_id
+        """
+        try:
+            async with self._trace_session_factory() as session:
+                result = await session.execute(text(query))
+                rows = list(result.mappings().all())
+        except SQLAlchemyError:
+            log.exception("Failed to query gateway data-usage.")
+            return DataUsageSummaryDTO(
+                generated_at=datetime.now(tz=UTC),
+                instances=[],
+            )
+
+        instances: list[DataUsagePerInstanceDTO] = []
+        grand_requests = 0
+        grand_tokens = 0
+        for row in rows:
+            inst = DataUsagePerInstanceDTO(
+                provider_instance_id=str(row["provider_instance_id"]),
+                total_requests=int(row["total_requests"]),
+                total_prompt_tokens=int(row["total_prompt_tokens"]),
+                total_completion_tokens=int(row["total_completion_tokens"]),
+                total_tokens=int(row["total_tokens"]),
+                error_count=int(row["error_count"]),
+            )
+            instances.append(inst)
+            grand_requests += inst.total_requests
+            grand_tokens += inst.total_tokens
+
+        return DataUsageSummaryDTO(
+            generated_at=datetime.now(tz=UTC),
+            instances=instances,
+            grand_total_requests=grand_requests,
+            grand_total_tokens=grand_tokens,
+        )
 
     async def stream_traces(
         self,
