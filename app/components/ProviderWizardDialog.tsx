@@ -319,6 +319,10 @@ export function ProviderWizardDialog({
             count: result.models.length,
           }),
         );
+        // Auto-fill the remote model name from the first available model
+        if (!remoteModel.trim() && result.models.length > 0) {
+          setRemoteModel(result.models[0]);
+        }
       } else {
         setTestStatus("error");
         setTestMessage(

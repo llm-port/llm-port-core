@@ -50,6 +50,22 @@ export interface TraceSnapshotResponse {
   next_cursor: string | null;
 }
 
+export interface DataUsagePerInstance {
+  provider_instance_id: string;
+  total_requests: number;
+  total_prompt_tokens: number;
+  total_completion_tokens: number;
+  total_tokens: number;
+  error_count: number;
+}
+
+export interface DataUsageSummary {
+  generated_at: string;
+  instances: DataUsagePerInstance[];
+  grand_total_requests: number;
+  grand_total_tokens: number;
+}
+
 async function request<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     credentials: "include",
@@ -73,6 +89,10 @@ export function getLlmGraphTraces(limit = 100, afterEventId?: number): Promise<T
     params.set("after_event_id", String(afterEventId));
   }
   return request<TraceSnapshotResponse>(`/traces?${params.toString()}`);
+}
+
+export function getLlmDataUsage(): Promise<DataUsageSummary> {
+  return request<DataUsageSummary>("/data-usage");
 }
 
 export function openLlmGraphTraceStream(

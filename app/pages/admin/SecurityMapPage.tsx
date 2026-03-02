@@ -15,10 +15,12 @@ import ListItem from "@mui/material/ListItem";
 import ListItemIcon from "@mui/material/ListItemIcon";
 import ListItemText from "@mui/material/ListItemText";
 import Stack from "@mui/material/Stack";
+import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import { alpha, useTheme } from "@mui/material/styles";
 
 import CloudIcon from "@mui/icons-material/Cloud";
+import DataUsageIcon from "@mui/icons-material/DataUsage";
 import DnsIcon from "@mui/icons-material/Dns";
 import LinkIcon from "@mui/icons-material/Link";
 import PowerIcon from "@mui/icons-material/Power";
@@ -34,6 +36,7 @@ import {
   type Runtime,
   type Model,
 } from "~/api/llm";
+import { getLlmDataUsage, type DataUsageSummary, type DataUsagePerInstance } from "~/api/llmGraph";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -60,18 +63,75 @@ function runtimeStatusColor(status: string): "success" | "warning" | "error" | "
   return "default";
 }
 
+/** Estimate byte-size from token count (~4 bytes/token). */
+function tokensToBytes(tokens: number): number {
+  return tokens * 4;
+}
+
+/** Format a byte count into a human-readable string. */
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const value = bytes / Math.pow(1024, i);
+  return `${value < 10 ? value.toFixed(2) : value < 100 ? value.toFixed(1) : Math.round(value)} ${units[i]}`;
+}
+
+/** Format a token count into a compact string. */
+function formatTokens(tokens: number): string {
+  if (tokens < 1_000) return String(tokens);
+  if (tokens < 1_000_000) return `${(tokens / 1_000).toFixed(1)}K`;
+  if (tokens < 1_000_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
+  return `${(tokens / 1_000_000_000).toFixed(2)}B`;
+}
+
+/** Aggregate usage for a set of runtime IDs. */
+interface AggregatedUsage {
+  totalRequests: number;
+  totalTokens: number;
+  totalPromptTokens: number;
+  totalCompletionTokens: number;
+  errorCount: number;
+}
+
+function aggregateUsage(
+  runtimeIds: Set<string>,
+  usageByInstance: Map<string, DataUsagePerInstance>,
+): AggregatedUsage {
+  let totalRequests = 0;
+  let totalTokens = 0;
+  let totalPromptTokens = 0;
+  let totalCompletionTokens = 0;
+  let errorCount = 0;
+  for (const rid of runtimeIds) {
+    const u = usageByInstance.get(rid);
+    if (u) {
+      totalRequests += u.total_requests;
+      totalTokens += u.total_tokens;
+      totalPromptTokens += u.total_prompt_tokens;
+      totalCompletionTokens += u.total_completion_tokens;
+      errorCount += u.error_count;
+    }
+  }
+  return { totalRequests, totalTokens, totalPromptTokens, totalCompletionTokens, errorCount };
+}
+
 // ─── Sub-components ──────────────────────────────────────────────────────────
 
 interface ProviderCardProps {
   provider: Provider;
   runtimes: Runtime[];
   modelNames: Map<string, string>;
+  usageByInstance: Map<string, DataUsagePerInstance>;
   t: (key: string, opts?: Record<string, unknown>) => string;
 }
 
-function ProviderCard({ provider, runtimes, modelNames, t }: ProviderCardProps) {
+function ProviderCard({ provider, runtimes, modelNames, usageByInstance, t }: ProviderCardProps) {
   const isLocal = provider.target === "local_docker";
   const activeRuntimes = runtimes.filter((r) => r.status === "running").length;
+  const runtimeIds = new Set(runtimes.map((r) => r.id));
+  const usage = aggregateUsage(runtimeIds, usageByInstance);
+  const estimatedBytes = tokensToBytes(usage.totalTokens);
 
   return (
     <Card variant="outlined" sx={{ mb: 1.5 }}>
@@ -137,6 +197,48 @@ function ProviderCard({ provider, runtimes, modelNames, t }: ProviderCardProps) 
             })}
           </Typography>
         </Stack>
+
+        {/* Data volume */}
+        {usage.totalRequests > 0 && (
+          <Box
+            sx={{
+              mt: 1,
+              ml: 3.5,
+              p: 1,
+              borderRadius: 1,
+              bgcolor: (theme) => alpha(theme.palette.info.main, 0.06),
+              border: (theme) => `1px solid ${alpha(theme.palette.info.main, 0.15)}`,
+            }}
+          >
+            <Stack direction="row" alignItems="center" spacing={0.5} sx={{ mb: 0.5 }}>
+              <DataUsageIcon sx={{ fontSize: 14, color: "info.main" }} />
+              <Typography variant="caption" fontWeight={600} color="info.main">
+                {t("security_map.data_volume", { defaultValue: "Data Volume" })}
+              </Typography>
+            </Stack>
+            <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
+              <Tooltip title={`${usage.totalTokens.toLocaleString()} tokens`}>
+                <Typography variant="caption" color="text.secondary">
+                  {t("security_map.est_data", {
+                    size: formatBytes(estimatedBytes),
+                    defaultValue: "≈ {{size}}",
+                  })}
+                </Typography>
+              </Tooltip>
+              <Typography variant="caption" color="text.secondary">
+                {formatTokens(usage.totalTokens)} {t("security_map.tokens", { defaultValue: "tokens" })}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                {usage.totalRequests.toLocaleString()} {t("security_map.requests", { defaultValue: "requests" })}
+              </Typography>
+              {usage.errorCount > 0 && (
+                <Typography variant="caption" color="error.main">
+                  {usage.errorCount} {t("security_map.errors", { defaultValue: "errors" })}
+                </Typography>
+              )}
+            </Stack>
+          </Box>
+        )}
       </CardContent>
     </Card>
   );
@@ -151,6 +253,7 @@ export default function SecurityMapPage() {
   const [allProviders, setAllProviders] = useState<Provider[]>([]);
   const [allRuntimes, setAllRuntimes] = useState<Runtime[]>([]);
   const [allModels, setAllModels] = useState<Model[]>([]);
+  const [dataUsage, setDataUsage] = useState<DataUsageSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -160,15 +263,17 @@ export default function SecurityMapPage() {
       setLoading(true);
       setError(null);
       try {
-        const [prov, rt, mdl] = await Promise.all([
+        const [prov, rt, mdl, usage] = await Promise.all([
           providersApi.list(),
           runtimesApi.list(),
           modelsApi.list(),
+          getLlmDataUsage().catch(() => null),
         ]);
         if (!cancelled) {
           setAllProviders(prov);
           setAllRuntimes(rt);
           setAllModels(mdl);
+          setDataUsage(usage);
         }
       } catch (err: unknown) {
         if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load data");
@@ -179,7 +284,7 @@ export default function SecurityMapPage() {
     return () => { cancelled = true; };
   }, []);
 
-  const { localProviders, remoteProviders, runtimesByProvider, modelNames, badge, localPct, localRuntimeCount, remoteRuntimeCount } =
+  const { localProviders, remoteProviders, runtimesByProvider, modelNames, badge, localPct, localRuntimeCount, remoteRuntimeCount, usageByInstance, localUsage, remoteUsage, localDataPct } =
     useMemo(() => {
       const local = allProviders.filter((p) => p.target === "local_docker");
       const remote = allProviders.filter((p) => p.target === "remote_endpoint");
@@ -193,6 +298,20 @@ export default function SecurityMapPage() {
       const total = local.length + remote.length;
       const localRt = local.reduce((n, p) => n + (runtimeMap.get(p.id)?.length ?? 0), 0);
       const remoteRt = remote.reduce((n, p) => n + (runtimeMap.get(p.id)?.length ?? 0), 0);
+
+      // Build per-instance usage map and side aggregates
+      const instMap = new Map<string, DataUsagePerInstance>();
+      if (dataUsage) {
+        for (const inst of dataUsage.instances) {
+          instMap.set(inst.provider_instance_id, inst);
+        }
+      }
+      const localRtIds = new Set(local.flatMap((p) => (runtimeMap.get(p.id) ?? []).map((r) => r.id)));
+      const remoteRtIds = new Set(remote.flatMap((p) => (runtimeMap.get(p.id) ?? []).map((r) => r.id)));
+      const localUsg = aggregateUsage(localRtIds, instMap);
+      const remoteUsg = aggregateUsage(remoteRtIds, instMap);
+      const totalTokens = localUsg.totalTokens + remoteUsg.totalTokens;
+
       return {
         localProviders: local,
         remoteProviders: remote,
@@ -202,8 +321,12 @@ export default function SecurityMapPage() {
         localPct: total > 0 ? Math.round((local.length / total) * 100) : 100,
         localRuntimeCount: localRt,
         remoteRuntimeCount: remoteRt,
+        usageByInstance: instMap,
+        localUsage: localUsg,
+        remoteUsage: remoteUsg,
+        localDataPct: totalTokens > 0 ? Math.round((localUsg.totalTokens / totalTokens) * 100) : 100,
       };
-    }, [allProviders, allRuntimes, allModels]);
+    }, [allProviders, allRuntimes, allModels, dataUsage]);
 
   const badgeMeta = BADGE_META[badge];
 
@@ -277,6 +400,74 @@ export default function SecurityMapPage() {
             </Stack>
           </Stack>
 
+          {/* Data volume stats */}
+          {(localUsage.totalTokens > 0 || remoteUsage.totalTokens > 0) && (
+            <>
+              <Divider sx={{ my: 2 }} />
+              <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+                <DataUsageIcon fontSize="small" color="info" />
+                <Typography variant="subtitle2" fontWeight={600}>
+                  {t("security_map.data_volume_title", { defaultValue: "Data Volume" })}
+                </Typography>
+              </Stack>
+              <Stack direction="row" spacing={4} flexWrap="wrap" useFlexGap>
+                <Tooltip title={`${localUsage.totalTokens.toLocaleString()} tokens (${localUsage.totalPromptTokens.toLocaleString()} prompt + ${localUsage.totalCompletionTokens.toLocaleString()} completion)`}>
+                  <Stack alignItems="center">
+                    <Typography variant="h5" fontWeight={700} color="success.main">
+                      {formatBytes(tokensToBytes(localUsage.totalTokens))}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {t("security_map.local_data", { defaultValue: "On-Premises Data" })}
+                    </Typography>
+                  </Stack>
+                </Tooltip>
+                <Tooltip title={`${remoteUsage.totalTokens.toLocaleString()} tokens (${remoteUsage.totalPromptTokens.toLocaleString()} prompt + ${remoteUsage.totalCompletionTokens.toLocaleString()} completion)`}>
+                  <Stack alignItems="center">
+                    <Typography variant="h5" fontWeight={700} color="warning.main">
+                      {formatBytes(tokensToBytes(remoteUsage.totalTokens))}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {t("security_map.cloud_data", { defaultValue: "Cloud Data" })}
+                    </Typography>
+                  </Stack>
+                </Tooltip>
+                <Stack alignItems="center">
+                  <Typography variant="h5" fontWeight={700}>
+                    {(localUsage.totalRequests + remoteUsage.totalRequests).toLocaleString()}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {t("security_map.total_requests", { defaultValue: "Total Requests" })}
+                  </Typography>
+                </Stack>
+              </Stack>
+
+              {/* Data residency bar (by actual tokens) */}
+              <Box sx={{ mt: 2 }}>
+                <Stack direction="row" justifyContent="space-between" sx={{ mb: 0.5 }}>
+                  <Typography variant="caption" fontWeight={600} color="success.main">
+                    {t("security_map.bar_local_data", { defaultValue: "On-Premises Data" })} {localDataPct}%
+                  </Typography>
+                  <Typography variant="caption" fontWeight={600} color="warning.main">
+                    {t("security_map.bar_cloud_data", { defaultValue: "Cloud Data" })} {100 - localDataPct}%
+                  </Typography>
+                </Stack>
+                <LinearProgress
+                  variant="determinate"
+                  value={localDataPct}
+                  sx={{
+                    height: 12,
+                    borderRadius: 1.5,
+                    bgcolor: "warning.light",
+                    "& .MuiLinearProgress-bar": { bgcolor: "success.main", borderRadius: 1.5 },
+                  }}
+                />
+                <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: "block" }}>
+                  {t("security_map.data_bar_note", { defaultValue: "Based on actual token throughput (≈ 4 bytes/token)" })}
+                </Typography>
+              </Box>
+            </>
+          )}
+
           {/* Progress bar */}
           <Box sx={{ mt: 2 }}>
             <Stack direction="row" justifyContent="space-between" sx={{ mb: 0.5 }}>
@@ -338,6 +529,7 @@ export default function SecurityMapPage() {
                     provider={p}
                     runtimes={runtimesByProvider.get(p.id) ?? []}
                     modelNames={modelNames}
+                    usageByInstance={usageByInstance}
                     t={t}
                   />
                 ))
@@ -381,6 +573,7 @@ export default function SecurityMapPage() {
                     provider={p}
                     runtimes={runtimesByProvider.get(p.id) ?? []}
                     modelNames={modelNames}
+                    usageByInstance={usageByInstance}
                     t={t}
                   />
                 ))
