@@ -171,8 +171,8 @@ async def wizard_steps(
             WizardStepDTO(
                 id="auth",
                 title="Auth and Secrets",
-                description="Gateway auth secret.",
-                setting_keys=["llm_port_api.jwt_secret"],
+                description="JWT signing/verification secrets.",
+                setting_keys=["llm_port_backend.users_secret", "llm_port_api.jwt_secret"],
             ),
             WizardStepDTO(
                 id="gateway",

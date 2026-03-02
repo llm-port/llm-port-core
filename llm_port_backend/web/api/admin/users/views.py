@@ -11,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette import status
 
 from llm_port_backend.db.dao.rbac_dao import RbacDAO
-from llm_port_backend.db.dao.system_settings_dao import SystemSettingsDAO
 from llm_port_backend.db.dependencies import get_db_session
 from llm_port_backend.db.models.rbac import Permission, Role
 from llm_port_backend.db.models.users import User, current_active_user
@@ -319,32 +318,23 @@ async def change_password(
 async def generate_api_token(
     payload: GenerateApiTokenRequest,
     user: Annotated[User, Depends(current_active_user)],
-    settings_dao: SystemSettingsDAO = Depends(),
 ) -> ApiTokenResponse:
-    """Generate a JWT token for the LLM API gateway."""
+    """Generate a JWT token for the LLM API gateway.
+
+    Uses ``settings.users_secret`` which is loaded from the
+    ``llm_port_backend.users_secret`` system setting at startup.
+    Both backend and llm_port_api share the same DB-stored secret.
+    """
     import time  # noqa: PLC0415
 
     import jwt as pyjwt  # noqa: PLC0415
 
-    from llm_port_backend.services.system_settings.crypto import SettingsCrypto  # noqa: PLC0415
     from llm_port_backend.settings import settings as backend_settings  # noqa: PLC0415
 
-    # Prefer the llm_port_api.jwt_secret system setting (the same secret
-    # configured in the API service env var LLM_PORT_API_JWT_SECRET).
-    # Fall back to users_secret only when the setting hasn't been saved yet.
-    jwt_secret: str | None = None
-    secret_row = await settings_dao.get_secret("llm_port_api.jwt_secret")
-    if secret_row:
-        crypto = SettingsCrypto(backend_settings.settings_master_key)
-        jwt_secret = crypto.decrypt(secret_row.ciphertext) or None
-
-    if not jwt_secret:
-        jwt_secret = backend_settings.users_secret
-
-    if not jwt_secret:
+    if not backend_settings.users_secret:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="JWT secret is not configured. Set the 'LLM API JWT Secret' in System Settings.",
+            detail="JWT secret is not configured. Set 'Backend Users JWT Secret' in System Settings.",
         )
 
     claims: dict = {
@@ -356,5 +346,5 @@ async def generate_api_token(
     if payload.expires_in is not None:
         claims["exp"] = int(time.time()) + payload.expires_in
 
-    token = pyjwt.encode(claims, jwt_secret, algorithm="HS256")
+    token = pyjwt.encode(claims, backend_settings.users_secret, algorithm="HS256")
     return ApiTokenResponse(token=token, expires_in=payload.expires_in)

@@ -72,7 +72,6 @@ _AUTO_CLASS_RULES: list[tuple[list[str], ContainerClass, str]] = [
             "grafana",
             "loki",
             "alloy",
-            "pgadmin",
             "minio",
             "langfuse",
             "rabbitmq",

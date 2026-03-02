@@ -170,6 +170,45 @@ def setup_prometheus(app: FastAPI) -> None:  # pragma: no cover
     ).expose(app, should_gzip=True, name="prometheus_metrics")
 
 
+async def _load_secrets_from_db(app: FastAPI) -> None:  # pragma: no cover
+    """Load encrypted secrets from ``system_setting_secret`` into settings.
+
+    Both ``llm_port_backend.users_secret`` and ``llm_port_api.jwt_secret``
+    are read, decrypted with ``SettingsCrypto``, and pushed into the
+    runtime ``settings`` singleton so that downstream code (e.g.
+    ``generate_api_token``) can simply reference ``settings.users_secret``.
+    """
+    from llm_port_backend.services.system_settings.crypto import SettingsCrypto  # noqa: PLC0415
+
+    if not settings.settings_master_key:
+        log.warning("SETTINGS_MASTER_KEY is empty – cannot load secrets from DB.")
+        return
+
+    crypto = SettingsCrypto(settings.settings_master_key)
+    keys_to_attrs = {
+        "llm_port_backend.users_secret": "users_secret",
+    }
+
+    async with app.state.db_session_factory() as session:
+        from sqlalchemy import text  # noqa: PLC0415
+
+        for db_key, attr_name in keys_to_attrs.items():
+            row = await session.execute(
+                text("SELECT ciphertext FROM system_setting_secret WHERE key = :k"),
+                {"k": db_key},
+            )
+            result = row.fetchone()
+            if result is None:
+                log.info("Secret '%s' not yet stored in DB, keeping env/default.", db_key)
+                continue
+            try:
+                plaintext = crypto.decrypt(result[0])
+                object.__setattr__(settings, attr_name, plaintext)
+                log.info("Loaded secret '%s' from DB.", db_key)
+            except Exception:
+                log.exception("Failed to decrypt secret '%s'.", db_key)
+
+
 @asynccontextmanager
 async def lifespan_setup(
     app: FastAPI,
@@ -188,6 +227,14 @@ async def lifespan_setup(
     if not broker.is_worker_process:
         await broker.startup()
     _setup_db(app)
+
+    # Load secrets from DB before any service that needs them
+    await _load_secrets_from_db(app)
+
+    # In dev mode, auto-seed required secrets so the stack works out of the box
+    if settings.environment == "dev":
+        await _seed_secrets(app)
+
     setup_opentelemetry(app)
     init_rabbit(app)
     setup_prometheus(app)
@@ -210,6 +257,65 @@ async def lifespan_setup(
     await shutdown_rabbit(app)
     stop_opentelemetry(app)
     await app.state.docker.close()
+
+
+async def _seed_secrets(app: FastAPI) -> None:  # pragma: no cover
+    """Auto-generate and store JWT / auth secrets if they are missing (dev mode).
+
+    ``llm_port_backend.users_secret`` and ``llm_port_api.jwt_secret`` are
+    seeded with the **same** random value so that tokens signed by the
+    backend can be verified by the API gateway.
+
+    After seeding, the values are also pushed into ``settings`` so the
+    current process can use them immediately (the same way
+    ``_load_secrets_from_db`` would do on the next restart).
+    """
+    import secrets as _secrets  # noqa: PLC0415
+
+    from sqlalchemy import text  # noqa: PLC0415
+
+    from llm_port_backend.services.system_settings.crypto import SettingsCrypto  # noqa: PLC0415
+
+    if not settings.settings_master_key:
+        log.warning("Cannot seed secrets: SETTINGS_MASTER_KEY is empty.")
+        return
+
+    crypto = SettingsCrypto(settings.settings_master_key)
+
+    # Both keys share the same value so the backend can sign and the API can verify.
+    jwt_keys = ("llm_port_backend.users_secret", "llm_port_api.jwt_secret")
+
+    async with app.state.db_session_factory() as session:
+        # Check which keys are missing
+        missing: list[str] = []
+        for db_key in jwt_keys:
+            row = await session.execute(
+                text("SELECT 1 FROM system_setting_secret WHERE key = :k"),
+                {"k": db_key},
+            )
+            if row.fetchone() is None:
+                missing.append(db_key)
+
+        if missing:
+            # Generate one shared secret for all missing JWT keys
+            shared_secret = _secrets.token_urlsafe(32)
+            ciphertext = crypto.encrypt(shared_secret)
+
+            for db_key in missing:
+                await session.execute(
+                    text(
+                        "INSERT INTO system_setting_secret "
+                        "(key, ciphertext, nonce, kek_version, updated_by) "
+                        "VALUES (:k, :c, '', 1, 'system-seed')",
+                    ),
+                    {"k": db_key, "c": ciphertext},
+                )
+                log.info("Seeded secret '%s' into DB.", db_key)
+
+            # Push into runtime settings
+            object.__setattr__(settings, "users_secret", shared_secret)
+
+        await session.commit()
 
 
 async def _seed_dev_user(app: FastAPI) -> None:

@@ -43,7 +43,6 @@ _SYSTEM_CONTAINER_WORDS = frozenset(
         "grafana",
         "loki",
         "alloy",
-        "pgadmin",
         "minio",
         "langfuse",
         "rabbitmq",
