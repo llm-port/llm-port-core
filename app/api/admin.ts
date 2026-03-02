@@ -12,7 +12,11 @@ const BASE = "/api/admin";
 // Types (mirror backend schemas)
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type ContainerClass = "SYSTEM_CORE" | "SYSTEM_AUX" | "TENANT_APP" | "UNTRUSTED";
+export type ContainerClass =
+  | "SYSTEM_CORE"
+  | "SYSTEM_AUX"
+  | "TENANT_APP"
+  | "UNTRUSTED";
 export type ContainerPolicy = "locked" | "restricted" | "free";
 
 export interface ContainerSummary {
@@ -230,10 +234,7 @@ export interface GrafanaPanels {
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function request<T>(
-  path: string,
-  init: RequestInit = {},
-): Promise<T> {
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     ...init,
     cache: "no-store",
@@ -272,7 +273,10 @@ export const containers = {
   get(id: string) {
     return request<ContainerDetail>(`/containers/${id}`);
   },
-  lifecycle(id: string, action: "start" | "stop" | "restart" | "pause" | "unpause") {
+  lifecycle(
+    id: string,
+    action: "start" | "stop" | "restart" | "pause" | "unpause",
+  ) {
     return request<void>(`/containers/${id}/${action}`, { method: "POST" });
   },
   logs(id: string, tail = 200): EventSource {
@@ -292,7 +296,9 @@ export const containers = {
     });
   },
   delete(id: string, force = false) {
-    return request<void>(`/containers/${id}?force=${force}`, { method: "DELETE" });
+    return request<void>(`/containers/${id}?force=${force}`, {
+      method: "DELETE",
+    });
   },
   register(
     id: string,
@@ -318,7 +324,9 @@ export const images = {
     return request<ImageSummary[]>("/images/");
   },
   check(image: string, tag = "latest") {
-    return request<ImageCheckResponse>(`/images/check?image=${encodeURIComponent(image)}&tag=${encodeURIComponent(tag)}`);
+    return request<ImageCheckResponse>(
+      `/images/check?image=${encodeURIComponent(image)}&tag=${encodeURIComponent(tag)}`,
+    );
   },
   pull(image: string, tag = "latest") {
     return request<PullStartedResponse>("/images/pull", {
@@ -337,11 +345,15 @@ export const images = {
       withCredentials: true,
     });
     source.addEventListener("progress", (raw) => {
-      const data = JSON.parse((raw as MessageEvent<string>).data) as PullProgressEvent;
+      const data = JSON.parse(
+        (raw as MessageEvent<string>).data,
+      ) as PullProgressEvent;
       onProgress(data);
     });
     source.addEventListener("complete", (raw) => {
-      const data = JSON.parse((raw as MessageEvent<string>).data) as PullProgressEvent;
+      const data = JSON.parse(
+        (raw as MessageEvent<string>).data,
+      ) as PullProgressEvent;
       onComplete(data);
       source.close();
     });
@@ -383,12 +395,15 @@ export const stacks = {
       body: JSON.stringify(payload),
     });
   },
-  update(stackId: string, payload: {
-    stack_id: string;
-    compose_yaml: string;
-    env_blob?: string | null;
-    image_digests?: string | null;
-  }) {
+  update(
+    stackId: string,
+    payload: {
+      stack_id: string;
+      compose_yaml: string;
+      env_blob?: string | null;
+      image_digests?: string | null;
+    },
+  ) {
     return request<StackRevision>(`/stacks/${stackId}/update`, {
       method: "POST",
       body: JSON.stringify(payload),
@@ -404,7 +419,9 @@ export const stacks = {
     return request<StackRevision[]>(`/stacks/${stackId}/revisions`);
   },
   diff(stackId: string, fromRev: number, toRev: number) {
-    return request<StackDiff>(`/stacks/${stackId}/diff?from_rev=${fromRev}&to_rev=${toRev}`);
+    return request<StackDiff>(
+      `/stacks/${stackId}/diff?from_rev=${fromRev}&to_rev=${toRev}`,
+    );
   },
 };
 
@@ -568,13 +585,20 @@ export const adminUsers = {
   getRole(roleId: string) {
     return request<RbacRole>(`/users/roles/${roleId}`);
   },
-  createRole(payload: { name: string; description?: string; permission_ids: string[] }) {
+  createRole(payload: {
+    name: string;
+    description?: string;
+    permission_ids: string[];
+  }) {
     return request<RbacRole>("/users/roles", {
       method: "POST",
       body: JSON.stringify(payload),
     });
   },
-  updateRole(roleId: string, payload: { name?: string; description?: string; permission_ids?: string[] }) {
+  updateRole(
+    roleId: string,
+    payload: { name?: string; description?: string; permission_ids?: string[] },
+  ) {
     return request<RbacRole>(`/users/roles/${roleId}`, {
       method: "PATCH",
       body: JSON.stringify(payload),
@@ -592,7 +616,12 @@ export const adminUsers = {
       body: JSON.stringify({ role_ids: roleIds }),
     });
   },
-  createUser(payload: { email: string; password: string; is_superuser?: boolean; role_ids?: string[] }) {
+  createUser(payload: {
+    email: string;
+    password: string;
+    is_superuser?: boolean;
+    role_ids?: string[];
+  }) {
     return request<AdminUser>("/users/", {
       method: "POST",
       body: JSON.stringify(payload),
@@ -604,14 +633,23 @@ export const adminUsers = {
   changePassword(currentPassword: string, newPassword: string) {
     return request<void>("/users/me/change-password", {
       method: "POST",
-      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+      body: JSON.stringify({
+        current_password: currentPassword,
+        new_password: newPassword,
+      }),
     });
   },
   generateApiToken(tenantId: string = "default", expiresIn?: number) {
-    return request<{ token: string; expires_in: number | null }>("/users/me/api-token", {
-      method: "POST",
-      body: JSON.stringify({ tenant_id: tenantId, expires_in: expiresIn ?? null }),
-    });
+    return request<{ token: string; expires_in: number | null }>(
+      "/users/me/api-token",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          tenant_id: tenantId,
+          expires_in: expiresIn ?? null,
+        }),
+      },
+    );
   },
 };
 
@@ -656,7 +694,10 @@ export const adminGroups = {
       body: JSON.stringify(payload),
     });
   },
-  update(groupId: string, payload: { name?: string; description?: string; role_ids?: string[] }) {
+  update(
+    groupId: string,
+    payload: { name?: string; description?: string; role_ids?: string[] },
+  ) {
     return request<Group>(`/groups/${groupId}`, {
       method: "PATCH",
       body: JSON.stringify(payload),
@@ -681,7 +722,9 @@ export const adminGroups = {
     });
   },
   removeMember(groupId: string, userId: string) {
-    return request<void>(`/groups/${groupId}/members/${userId}`, { method: "DELETE" });
+    return request<void>(`/groups/${groupId}/members/${userId}`, {
+      method: "DELETE",
+    });
   },
 };
 
@@ -787,19 +830,28 @@ export function canStop(cls: ContainerClass, rootModeActive: boolean): boolean {
   return false;
 }
 
-export function canDelete(cls: ContainerClass, rootModeActive: boolean): boolean {
+export function canDelete(
+  cls: ContainerClass,
+  rootModeActive: boolean,
+): boolean {
   if (cls === "UNTRUSTED") return false;
   if (cls === "TENANT_APP") return true;
   return rootModeActive;
 }
 
-export function canPause(cls: ContainerClass, rootModeActive: boolean): boolean {
+export function canPause(
+  cls: ContainerClass,
+  rootModeActive: boolean,
+): boolean {
   if (cls === "UNTRUSTED") return false;
   if (cls === "TENANT_APP") return true;
   return rootModeActive;
 }
 
-export function canLogs(cls: ContainerClass, _rootModeActive: boolean): boolean {
+export function canLogs(
+  cls: ContainerClass,
+  _rootModeActive: boolean,
+): boolean {
   // All container classes can view logs
   return true;
 }

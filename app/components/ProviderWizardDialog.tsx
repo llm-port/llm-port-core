@@ -15,7 +15,13 @@ import {
   type CreateProviderPayload,
   type CreateRuntimePayload,
 } from "~/api/llm";
-import { hardware, images, type HardwareInfo, type VllmImagePreset, type PullProgressEvent } from "~/api/admin";
+import {
+  hardware,
+  images,
+  type HardwareInfo,
+  type VllmImagePreset,
+  type PullProgressEvent,
+} from "~/api/admin";
 
 import Accordion from "@mui/material/Accordion";
 import AccordionDetails from "@mui/material/AccordionDetails";
@@ -57,7 +63,10 @@ const AUTO_IMAGE_VALUE = "__auto__";
 function formatBytes(bytes: number): string {
   if (bytes <= 0) return "0 B";
   const units = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const i = Math.min(
+    Math.floor(Math.log(bytes) / Math.log(1024)),
+    units.length - 1,
+  );
   return `${(bytes / 1024 ** i).toFixed(i > 0 ? 1 : 0)} ${units[i]}`;
 }
 
@@ -72,7 +81,12 @@ export interface ProviderWizardDialogProps {
   onCreated: () => void;
 }
 
-export function ProviderWizardDialog({ open, models, onClose, onCreated }: ProviderWizardDialogProps) {
+export function ProviderWizardDialog({
+  open,
+  models,
+  onClose,
+  onCreated,
+}: ProviderWizardDialogProps) {
   const { t } = useTranslation();
 
   // ── Wizard state ─────────────────────────────────────────────────
@@ -86,7 +100,9 @@ export function ProviderWizardDialog({ open, models, onClose, onCreated }: Provi
   const [endpointUrl, setEndpointUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [remoteModel, setRemoteModel] = useState("");
-  const [testStatus, setTestStatus] = useState<"idle" | "testing" | "success" | "error">("idle");
+  const [testStatus, setTestStatus] = useState<
+    "idle" | "testing" | "success" | "error"
+  >("idle");
   const [testMessage, setTestMessage] = useState("");
 
   // Step 2 — runtime config (local only)
@@ -105,7 +121,15 @@ export function ProviderWizardDialog({ open, models, onClose, onCreated }: Provi
   const [legacyGpu, setLegacyGpu] = useState(false);
 
   // Image availability check & pull
-  const [imageStatus, setImageStatus] = useState<"idle" | "checking" | "available" | "missing" | "pulling" | "pulled" | "error">("idle");
+  const [imageStatus, setImageStatus] = useState<
+    | "idle"
+    | "checking"
+    | "available"
+    | "missing"
+    | "pulling"
+    | "pulled"
+    | "error"
+  >("idle");
   const [imageError, setImageError] = useState("");
   const [pullPercent, setPullPercent] = useState(0);
   const [pullLayers, setPullLayers] = useState({ done: 0, total: 0 });
@@ -161,7 +185,7 @@ export function ProviderWizardDialog({ open, models, onClose, onCreated }: Provi
       const rec = hwInfo?.vllm_image_presets.find((p) => p.is_recommended);
       setImageChoice(rec?.image ?? AUTO_IMAGE_VALUE);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [legacyGpu]);
 
   // Fetch hardware info for step 2
@@ -182,7 +206,9 @@ export function ProviderWizardDialog({ open, models, onClose, onCreated }: Provi
       .finally(() => {
         if (!cancelled) setHwLoading(false);
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [open, step, target]);
 
   // ── Subscribe to pull progress via SSE ──────────────────────────
@@ -200,7 +226,10 @@ export function ProviderWizardDialog({ open, models, onClose, onCreated }: Provi
       pullId,
       (data: PullProgressEvent) => {
         setPullPercent(data.percent ?? 0);
-        setPullLayers({ done: data.layers_done ?? 0, total: data.layers_total ?? 0 });
+        setPullLayers({
+          done: data.layers_done ?? 0,
+          total: data.layers_total ?? 0,
+        });
       },
       (_data: PullProgressEvent) => {
         setImageStatus("pulled");
@@ -246,8 +275,10 @@ export function ProviderWizardDialog({ open, models, onClose, onCreated }: Provi
 
     // Parse image:tag
     const lastColon = resolvedImage.lastIndexOf(":");
-    const imageName = lastColon > 0 ? resolvedImage.slice(0, lastColon) : resolvedImage;
-    const imageTag = lastColon > 0 ? resolvedImage.slice(lastColon + 1) : "latest";
+    const imageName =
+      lastColon > 0 ? resolvedImage.slice(0, lastColon) : resolvedImage;
+    const imageTag =
+      lastColon > 0 ? resolvedImage.slice(lastColon + 1) : "latest";
 
     let cancelled = false;
     setImageStatus("checking");
@@ -267,7 +298,9 @@ export function ProviderWizardDialog({ open, models, onClose, onCreated }: Provi
       .catch(() => {
         if (!cancelled) setImageStatus("idle");
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [open, step, target, imageChoice, customImage, hwInfo, subscribeToPull]);
 
   // ── Test connection handler ──────────────────────────────────────
@@ -281,10 +314,16 @@ export function ProviderWizardDialog({ open, models, onClose, onCreated }: Provi
       });
       if (result.compatible) {
         setTestStatus("success");
-        setTestMessage(t("llm_providers.test_connection_success", { count: result.models.length }));
+        setTestMessage(
+          t("llm_providers.test_connection_success", {
+            count: result.models.length,
+          }),
+        );
       } else {
         setTestStatus("error");
-        setTestMessage(result.error ?? t("llm_providers.test_connection_failed"));
+        setTestMessage(
+          result.error ?? t("llm_providers.test_connection_failed"),
+        );
       }
     } catch {
       setTestStatus("error");
@@ -294,12 +333,17 @@ export function ProviderWizardDialog({ open, models, onClose, onCreated }: Provi
 
   const steps =
     target === "local_docker"
-      ? [t("llm_providers.wizard_step_basics"), t("llm_providers.wizard_step_runtime")]
+      ? [
+          t("llm_providers.wizard_step_basics"),
+          t("llm_providers.wizard_step_runtime"),
+        ]
       : [t("llm_providers.wizard_step_basics")];
   const isLast = step >= steps.length - 1;
-  const localImageReady = imageStatus === "available" || imageStatus === "pulled";
+  const localImageReady =
+    imageStatus === "available" || imageStatus === "pulled";
   const localCheckInProgress = hwLoading || imageStatus === "checking";
-  const localCreateBlocked = !modelId || !localImageReady || localCheckInProgress;
+  const localCreateBlocked =
+    !modelId || !localImageReady || localCheckInProgress;
 
   // ── Pull image handler ────────────────────────────────────────────
   async function handlePullImage() {
@@ -314,8 +358,10 @@ export function ProviderWizardDialog({ open, models, onClose, onCreated }: Provi
     if (!resolvedImage) return;
 
     const lastColon = resolvedImage.lastIndexOf(":");
-    const imageName = lastColon > 0 ? resolvedImage.slice(0, lastColon) : resolvedImage;
-    const imageTag = lastColon > 0 ? resolvedImage.slice(lastColon + 1) : "latest";
+    const imageName =
+      lastColon > 0 ? resolvedImage.slice(0, lastColon) : resolvedImage;
+    const imageTag =
+      lastColon > 0 ? resolvedImage.slice(lastColon + 1) : "latest";
 
     try {
       const result = await images.pull(imageName, imageTag);
@@ -334,9 +380,11 @@ export function ProviderWizardDialog({ open, models, onClose, onCreated }: Provi
         name,
         type: target === "local_docker" ? engine : "vllm",
         target,
-        ...(target === "remote_endpoint" && endpointUrl && { endpoint_url: endpointUrl }),
+        ...(target === "remote_endpoint" &&
+          endpointUrl && { endpoint_url: endpointUrl }),
         ...(target === "remote_endpoint" && apiKey && { api_key: apiKey }),
-        ...(target === "remote_endpoint" && remoteModel.trim() && { remote_model: remoteModel.trim() }),
+        ...(target === "remote_endpoint" &&
+          remoteModel.trim() && { remote_model: remoteModel.trim() }),
       };
       const newProv = await providers.create(provPayload);
       newProvId = newProv.id;
@@ -345,8 +393,10 @@ export function ProviderWizardDialog({ open, models, onClose, onCreated }: Provi
         const generic_config: Record<string, unknown> = {};
         if (maxModelLen) generic_config.max_model_len = Number(maxModelLen);
         if (dtype) generic_config.dtype = dtype;
-        if (gpuMemUtil) generic_config.gpu_memory_utilization = Number(gpuMemUtil);
-        if (tensorParallel) generic_config.tensor_parallel_size = Number(tensorParallel);
+        if (gpuMemUtil)
+          generic_config.gpu_memory_utilization = Number(gpuMemUtil);
+        if (tensorParallel)
+          generic_config.tensor_parallel_size = Number(tensorParallel);
         if (legacyGpu) generic_config.enforce_eager = true;
 
         const provider_config: Record<string, unknown> = {};
@@ -380,7 +430,11 @@ export function ProviderWizardDialog({ open, models, onClose, onCreated }: Provi
     } catch (err: unknown) {
       // Rollback: delete the orphan provider if runtime creation failed
       if (newProvId) {
-        try { await providers.delete(newProvId); } catch { /* best-effort */ }
+        try {
+          await providers.delete(newProvId);
+        } catch {
+          /* best-effort */
+        }
       }
       alert(err instanceof Error ? err.message : t("common.create_failed"));
     } finally {
@@ -391,7 +445,14 @@ export function ProviderWizardDialog({ open, models, onClose, onCreated }: Provi
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle>{t("llm_providers.new_provider")}</DialogTitle>
-      <DialogContent sx={{ display: "flex", flexDirection: "column", gap: 2, pt: "8px !important" }}>
+      <DialogContent
+        sx={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 2,
+          pt: "8px !important",
+        }}
+      >
         <Stepper activeStep={step} sx={{ mb: 1 }}>
           {steps.map((label) => (
             <Step key={label}>
@@ -449,7 +510,10 @@ export function ProviderWizardDialog({ open, models, onClose, onCreated }: Provi
                   label={t("llm_providers.endpoint_url")}
                   placeholder="https://api.example.com/v1"
                   value={endpointUrl}
-                  onChange={(e) => { setEndpointUrl(e.target.value); setTestStatus("idle"); }}
+                  onChange={(e) => {
+                    setEndpointUrl(e.target.value);
+                    setTestStatus("idle");
+                  }}
                   required
                   fullWidth
                   helperText={t("llm_providers.endpoint_url_help")}
@@ -458,7 +522,10 @@ export function ProviderWizardDialog({ open, models, onClose, onCreated }: Provi
                   label={t("llm_providers.api_key")}
                   type="password"
                   value={apiKey}
-                  onChange={(e) => { setApiKey(e.target.value); setTestStatus("idle"); }}
+                  onChange={(e) => {
+                    setApiKey(e.target.value);
+                    setTestStatus("idle");
+                  }}
                   fullWidth
                   helperText={t("llm_providers.api_key_help")}
                 />
@@ -473,9 +540,11 @@ export function ProviderWizardDialog({ open, models, onClose, onCreated }: Provi
                   variant="outlined"
                   size="small"
                   startIcon={
-                    testStatus === "testing"
-                      ? <CircularProgress size={16} color="inherit" />
-                      : <NetworkCheckIcon />
+                    testStatus === "testing" ? (
+                      <CircularProgress size={16} color="inherit" />
+                    ) : (
+                      <NetworkCheckIcon />
+                    )
                   }
                   disabled={!endpointUrl || testStatus === "testing"}
                   onClick={() => void handleTestConnection()}
@@ -512,7 +581,9 @@ export function ProviderWizardDialog({ open, models, onClose, onCreated }: Provi
               >
                 {hwInfo.gpu.has_gpu
                   ? t("llm_runtimes.gpu_detected", {
-                      model: hwInfo.gpu.devices[0]?.model ?? hwInfo.gpu.primary_vendor,
+                      model:
+                        hwInfo.gpu.devices[0]?.model ??
+                        hwInfo.gpu.primary_vendor,
                       vram: formatBytes(hwInfo.gpu.total_vram_bytes),
                     })
                   : t("llm_runtimes.gpu_none")}
@@ -547,20 +618,38 @@ export function ProviderWizardDialog({ open, models, onClose, onCreated }: Provi
                 >
                   <MenuItem value={AUTO_IMAGE_VALUE}>
                     <Stack direction="row" spacing={1} alignItems="center">
-                      <Typography variant="body2">{t("llm_runtimes.image_auto")}</Typography>
+                      <Typography variant="body2">
+                        {t("llm_runtimes.image_auto")}
+                      </Typography>
                     </Stack>
                   </MenuItem>
                   {imagePresets.map((preset) => (
                     <MenuItem key={preset.image} value={preset.image}>
-                      <Stack direction="row" spacing={1} alignItems="center" sx={{ width: "100%" }}>
+                      <Stack
+                        direction="row"
+                        spacing={1}
+                        alignItems="center"
+                        sx={{ width: "100%" }}
+                      >
                         <Box sx={{ flex: 1 }}>
-                          <Typography variant="body2">{preset.label}</Typography>
-                          <Typography variant="caption" color="text.secondary" sx={{ fontFamily: "monospace" }}>
+                          <Typography variant="body2">
+                            {preset.label}
+                          </Typography>
+                          <Typography
+                            variant="caption"
+                            color="text.secondary"
+                            sx={{ fontFamily: "monospace" }}
+                          >
                             {preset.image}
                           </Typography>
                         </Box>
                         {preset.is_recommended && (
-                          <Chip label={t("llm_runtimes.recommended_tag")} size="small" color="success" variant="outlined" />
+                          <Chip
+                            label={t("llm_runtimes.recommended_tag")}
+                            size="small"
+                            color="success"
+                            variant="outlined"
+                          />
                         )}
                       </Stack>
                     </MenuItem>
@@ -605,7 +694,12 @@ export function ProviderWizardDialog({ open, models, onClose, onCreated }: Provi
 
             {/* ── Image availability check & pull ────────────── */}
             {imageStatus === "checking" && (
-              <Alert severity="info" variant="outlined" icon={<CircularProgress size={18} />} sx={{ py: 0.5 }}>
+              <Alert
+                severity="info"
+                variant="outlined"
+                icon={<CircularProgress size={18} />}
+                sx={{ py: 0.5 }}
+              >
                 {t("llm_runtimes.image_checking")}
               </Alert>
             )}
@@ -614,7 +708,7 @@ export function ProviderWizardDialog({ open, models, onClose, onCreated }: Provi
                 {t("llm_runtimes.image_available")}
               </Alert>
             )}
-            {(imageStatus === "pulled") && (
+            {imageStatus === "pulled" && (
               <Alert severity="success" variant="outlined" sx={{ py: 0.5 }}>
                 {t("llm_runtimes.image_pull_success")}
               </Alert>
@@ -638,14 +732,26 @@ export function ProviderWizardDialog({ open, models, onClose, onCreated }: Provi
               </Alert>
             )}
             {imageStatus === "pulling" && (
-              <Alert severity="info" variant="outlined" sx={{ py: 1, "& .MuiAlert-message": { width: "100%" } }}>
+              <Alert
+                severity="info"
+                variant="outlined"
+                sx={{ py: 1, "& .MuiAlert-message": { width: "100%" } }}
+              >
                 <Stack spacing={1}>
-                  <Stack direction="row" justifyContent="space-between" alignItems="center">
+                  <Stack
+                    direction="row"
+                    justifyContent="space-between"
+                    alignItems="center"
+                  >
                     <Typography variant="body2">
                       {t("llm_runtimes.image_pulling")}
                     </Typography>
-                    <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: "nowrap", ml: 1 }}>
-                      {(pullPercent > 0 || pullLayers.total > 0)
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      sx={{ whiteSpace: "nowrap", ml: 1 }}
+                    >
+                      {pullPercent > 0 || pullLayers.total > 0
                         ? `${pullPercent}%${pullLayers.total > 0 ? ` · ${pullLayers.done}/${pullLayers.total} ${t("llm_runtimes.image_pull_layers")}` : ""}`
                         : t("llm_runtimes.image_pull_starting")}
                     </Typography>
@@ -682,12 +788,21 @@ export function ProviderWizardDialog({ open, models, onClose, onCreated }: Provi
               onChange={(_, expanded) => setAdvancedOpen(expanded)}
               disableGutters
               elevation={0}
-              sx={{ border: 1, borderColor: "divider", borderRadius: 1, "&::before": { display: "none" } }}
+              sx={{
+                border: 1,
+                borderColor: "divider",
+                borderRadius: 1,
+                "&::before": { display: "none" },
+              }}
             >
               <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                <Typography variant="subtitle2">{t("llm_runtimes.advanced_options")}</Typography>
+                <Typography variant="subtitle2">
+                  {t("llm_runtimes.advanced_options")}
+                </Typography>
               </AccordionSummary>
-              <AccordionDetails sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              <AccordionDetails
+                sx={{ display: "flex", flexDirection: "column", gap: 2 }}
+              >
                 <Stack direction="row" spacing={2}>
                   <TextField
                     label={t("llm_runtimes.max_model_len")}
@@ -775,7 +890,9 @@ export function ProviderWizardDialog({ open, models, onClose, onCreated }: Provi
         {isLast ? (
           <Button
             variant="contained"
-            disabled={busy || !name || (target === "local_docker" && localCreateBlocked)}
+            disabled={
+              busy || !name || (target === "local_docker" && localCreateBlocked)
+            }
             onClick={() => void handleFinish()}
           >
             {busy ? t("common.creating") : t("common.create")}

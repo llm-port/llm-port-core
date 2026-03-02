@@ -48,12 +48,17 @@ function fmtBytes(value: number | null | undefined): string {
   return `${n.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
-function fmtRatio(used: number | null | undefined, total: number | null | undefined): string {
+function fmtRatio(
+  used: number | null | undefined,
+  total: number | null | undefined,
+): string {
   if (used == null || total == null || total <= 0) return "N/A";
   return `${fmtBytes(used)} / ${fmtBytes(total)}`;
 }
 
-function healthColor(status: string): "success" | "warning" | "error" | "default" {
+function healthColor(
+  status: string,
+): "success" | "warning" | "error" | "default" {
   const value = status.toLowerCase();
   if (value === "up" || value === "healthy") return "success";
   if (value === "degraded" || value === "unknown") return "warning";
@@ -61,7 +66,9 @@ function healthColor(status: string): "success" | "warning" | "error" | "default
   return "default";
 }
 
-function systemBadgeColor(badge: string): "success" | "warning" | "error" | "default" {
+function systemBadgeColor(
+  badge: string,
+): "success" | "warning" | "error" | "default" {
   if (badge === "green") return "success";
   if (badge === "yellow") return "warning";
   if (badge === "red") return "error";
@@ -94,7 +101,9 @@ function StatCard({ label, value, detail }: StatCardProps) {
   );
 }
 
-function moduleStatusColor(status: string): "success" | "warning" | "error" | "default" {
+function moduleStatusColor(
+  status: string,
+): "success" | "warning" | "error" | "default" {
   if (status === "healthy") return "success";
   if (status === "configured") return "warning";
   if (status === "unhealthy") return "error";
@@ -111,7 +120,9 @@ function ModuleStatusSection() {
     <Card variant="outlined">
       <CardContent>
         <Typography variant="h6" sx={{ mb: 1.5 }}>
-          {t("dashboard.optional_modules", { defaultValue: "Optional Modules" })}
+          {t("dashboard.optional_modules", {
+            defaultValue: "Optional Modules",
+          })}
         </Typography>
         <Stack direction="row" gap={1} flexWrap="wrap" useFlexGap>
           {services.map((svc) => (
@@ -139,7 +150,10 @@ export default function DashboardPage() {
   const grafanaDashboardUrl = useMemo(() => {
     try {
       const url = new URL(grafanaDashboardBaseUrl);
-      url.searchParams.set("theme", theme.palette.mode === "dark" ? "dark" : "light");
+      url.searchParams.set(
+        "theme",
+        theme.palette.mode === "dark" ? "dark" : "light",
+      );
       return url.toString();
     } catch {
       const separator = grafanaDashboardBaseUrl.includes("?") ? "&" : "?";
@@ -184,7 +198,13 @@ export default function DashboardPage() {
       const hwInfo = await hardware.rescan();
       setHw(hwInfo);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t("dashboard.gpu_rescan_failed", { defaultValue: "GPU rescan failed" }));
+      setError(
+        err instanceof Error
+          ? err.message
+          : t("dashboard.gpu_rescan_failed", {
+              defaultValue: "GPU rescan failed",
+            }),
+      );
     } finally {
       setRescanning(false);
     }
@@ -223,7 +243,9 @@ export default function DashboardPage() {
       {
         label: t("dashboard.cards.containers"),
         value: `${overview.containers_running} / ${overview.containers_total}`,
-        detail: t("dashboard.cards.restarting", { count: overview.containers_restarting }),
+        detail: t("dashboard.cards.restarting", {
+          count: overview.containers_restarting,
+        }),
       },
       {
         label: t("dashboard.cards.restarts"),
@@ -235,18 +257,28 @@ export default function DashboardPage() {
       },
       {
         label: t("dashboard.cards.postgres_connections"),
-        value: overview.postgres_connections == null ? "N/A" : String(overview.postgres_connections),
+        value:
+          overview.postgres_connections == null
+            ? "N/A"
+            : String(overview.postgres_connections),
         detail:
           overview.postgres_max_connections == null
             ? undefined
-            : t("dashboard.cards.max", { count: overview.postgres_max_connections }),
+            : t("dashboard.cards.max", {
+                count: overview.postgres_max_connections,
+              }),
       },
     ];
   }, [overview, t]);
 
   /** RAM usage as a 0-100 percentage */
   const ramPercent = useMemo(() => {
-    if (!overview?.ram_used_bytes || !overview?.ram_total_bytes || overview.ram_total_bytes <= 0) return null;
+    if (
+      !overview?.ram_used_bytes ||
+      !overview?.ram_total_bytes ||
+      overview.ram_total_bytes <= 0
+    )
+      return null;
     return (overview.ram_used_bytes / overview.ram_total_bytes) * 100;
   }, [overview]);
 
@@ -266,11 +298,19 @@ export default function DashboardPage() {
         pr: 0.5,
       }}
     >
-      <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
+      <Stack
+        direction="row"
+        justifyContent="space-between"
+        alignItems="center"
+        flexWrap="wrap"
+        gap={1}
+      >
         <Typography variant="h5">{t("dashboard.title")}</Typography>
         <Stack direction="row" spacing={1} alignItems="center">
           {loading && <CircularProgress size={20} />}
-          <Button variant="outlined" onClick={load} disabled={loading}>{t("dashboard.refresh")}</Button>
+          <Button variant="outlined" onClick={load} disabled={loading}>
+            {t("dashboard.refresh")}
+          </Button>
         </Stack>
       </Stack>
 
@@ -286,7 +326,9 @@ export default function DashboardPage() {
             />
             {health && (
               <Chip
-                label={t("dashboard.dependencies", { status: health.overall_status })}
+                label={t("dashboard.dependencies", {
+                  status: health.overall_status,
+                })}
                 color={healthColor(health.overall_status)}
                 size="small"
               />
@@ -310,9 +352,15 @@ export default function DashboardPage() {
               <GaugeCard
                 label={t("dashboard.gauges.ram")}
                 value={ramPercent}
-                detail={fmtRatio(overview.ram_used_bytes, overview.ram_total_bytes)}
+                detail={fmtRatio(
+                  overview.ram_used_bytes,
+                  overview.ram_total_bytes,
+                )}
                 secondaryDetail={t("dashboard.gauges.swap", {
-                  value: fmtRatio(overview.swap_used_bytes, overview.swap_total_bytes),
+                  value: fmtRatio(
+                    overview.swap_used_bytes,
+                    overview.swap_total_bytes,
+                  ),
                 })}
               />
             </Grid>
@@ -335,30 +383,66 @@ export default function DashboardPage() {
                       : t("dashboard.gauges.gpu")
                   }
                   value={overview.gpu_util_percent}
-                  detail={overview.gpu_util_percent != null ? fmtRatio(overview.gpu_vram_used_bytes, overview.gpu_vram_total_bytes) : undefined}
+                  detail={
+                    overview.gpu_util_percent != null
+                      ? fmtRatio(
+                          overview.gpu_vram_used_bytes,
+                          overview.gpu_vram_total_bytes,
+                        )
+                      : undefined
+                  }
                   secondaryDetail={
                     hw?.gpu.has_gpu
-                      ? `${hw.gpu.devices.find(d => d.vendor === hw.gpu.primary_vendor)?.model ?? hw.gpu.devices[0]?.model ?? ""} · ${hw.gpu.primary_compute_api.toUpperCase()}`
-                      : overview.gpu_util_percent != null ? t("dashboard.gauges.vram") : undefined
+                      ? `${hw.gpu.devices.find((d) => d.vendor === hw.gpu.primary_vendor)?.model ?? hw.gpu.devices[0]?.model ?? ""} · ${hw.gpu.primary_compute_api.toUpperCase()}`
+                      : overview.gpu_util_percent != null
+                        ? t("dashboard.gauges.vram")
+                        : undefined
                   }
                 />
-                <Tooltip title={t("dashboard.gpu_rescan", { defaultValue: "Re-detect GPUs" })}>
+                <Tooltip
+                  title={t("dashboard.gpu_rescan", {
+                    defaultValue: "Re-detect GPUs",
+                  })}
+                >
                   <IconButton
                     size="small"
                     onClick={rescanGpu}
                     disabled={rescanning}
-                    sx={{ position: "absolute", top: 4, right: 4, opacity: 0.7, "&:hover": { opacity: 1 } }}
+                    sx={{
+                      position: "absolute",
+                      top: 4,
+                      right: 4,
+                      opacity: 0.7,
+                      "&:hover": { opacity: 1 },
+                    }}
                   >
-                    {rescanning ? <CircularProgress size={16} /> : <RefreshIcon fontSize="small" />}
+                    {rescanning ? (
+                      <CircularProgress size={16} />
+                    ) : (
+                      <RefreshIcon fontSize="small" />
+                    )}
                   </IconButton>
                 </Tooltip>
                 {hw?.gpu.has_gpu && hw.gpu.device_count > 1 && (
-                  <Tooltip title={hw.gpu.devices.map(d => `#${d.index} ${d.vendor.toUpperCase()} ${d.model} (${fmtBytes(d.vram_bytes)})`).join("\n")}>
+                  <Tooltip
+                    title={hw.gpu.devices
+                      .map(
+                        (d) =>
+                          `#${d.index} ${d.vendor.toUpperCase()} ${d.model} (${fmtBytes(d.vram_bytes)})`,
+                      )
+                      .join("\n")}
+                  >
                     <Chip
                       label={`${hw.gpu.device_count} GPUs`}
                       size="small"
                       variant="outlined"
-                      sx={{ position: "absolute", bottom: 6, right: 6, fontSize: "0.65rem", height: 20 }}
+                      sx={{
+                        position: "absolute",
+                        bottom: 6,
+                        right: 6,
+                        fontSize: "0.65rem",
+                        height: 20,
+                      }}
                     />
                   </Tooltip>
                 )}
@@ -370,7 +454,11 @@ export default function DashboardPage() {
           <Grid container spacing={1.5} columns={{ xs: 12, lg: 10 }}>
             {cards.map((card) => (
               <Grid key={card.label} size={{ xs: 12, sm: 6, md: 4, lg: 2 }}>
-                <StatCard label={card.label} value={card.value} detail={card.detail} />
+                <StatCard
+                  label={card.label}
+                  value={card.value}
+                  detail={card.detail}
+                />
               </Grid>
             ))}
           </Grid>
@@ -381,17 +469,29 @@ export default function DashboardPage() {
         </Box>
       ) : null}
 
-
       <Card variant="outlined">
         <CardContent>
-          <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.5 }}>
+          <Stack
+            direction="row"
+            justifyContent="space-between"
+            alignItems="center"
+            sx={{ mb: 1.5 }}
+          >
             <Typography variant="h6">{t("dashboard.grafana_title")}</Typography>
-            <Button component="a" href={grafanaDashboardUrl} target="_blank" rel="noreferrer">
+            <Button
+              component="a"
+              href={grafanaDashboardUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
               {t("dashboard.open_full")}
             </Button>
           </Stack>
 
-          <Box ref={grafanaMountRef} sx={{ position: "relative", borderRadius: 1, overflow: "hidden" }}>
+          <Box
+            ref={grafanaMountRef}
+            sx={{ position: "relative", borderRadius: 1, overflow: "hidden" }}
+          >
             {loadGrafana ? (
               <>
                 <Box
@@ -452,7 +552,9 @@ export default function DashboardPage() {
                   {t("dashboard.open_grafana")}
                 </Typography>
                 <Button variant="outlined" onClick={() => setLoadGrafana(true)}>
-                  {t("dashboard.open_grafana", { defaultValue: "Load Grafana" })}
+                  {t("dashboard.open_grafana", {
+                    defaultValue: "Load Grafana",
+                  })}
                 </Button>
               </Box>
             )}
@@ -463,12 +565,18 @@ export default function DashboardPage() {
       {health && (
         <Card variant="outlined">
           <CardContent>
-            <Typography variant="h6" sx={{ mb: 1.5 }}>{t("dashboard.dependency_health")}</Typography>
+            <Typography variant="h6" sx={{ mb: 1.5 }}>
+              {t("dashboard.dependency_health")}
+            </Typography>
             <Stack direction="row" gap={1} flexWrap="wrap" useFlexGap>
               {health.items.map((item) => (
                 <Chip
                   key={item.name}
-                  label={item.detail ? `${item.name}: ${item.status} (${item.detail})` : `${item.name}: ${item.status}`}
+                  label={
+                    item.detail
+                      ? `${item.name}: ${item.status} (${item.detail})`
+                      : `${item.name}: ${item.status}`
+                  }
                   color={healthColor(item.status)}
                   variant="outlined"
                   size="small"
@@ -488,9 +596,13 @@ export default function DashboardPage() {
           <Grid size={{ xs: 12, md: 6 }}>
             <Card variant="outlined">
               <CardContent>
-                <Typography variant="h6" sx={{ mb: 1 }}>{t("dashboard.top_cpu")}</Typography>
+                <Typography variant="h6" sx={{ mb: 1 }}>
+                  {t("dashboard.top_cpu")}
+                </Typography>
                 {overview.top_cpu_containers.length === 0 ? (
-                  <Typography variant="body2" color="text.secondary">{t("dashboard.no_running_stats")}</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {t("dashboard.no_running_stats")}
+                  </Typography>
                 ) : (
                   <List dense disablePadding>
                     {overview.top_cpu_containers.map((item) => (
@@ -498,7 +610,10 @@ export default function DashboardPage() {
                         <ListItemText
                           primary={item.name}
                           secondary={`${item.value.toFixed(2)} ${item.unit}`}
-                          primaryTypographyProps={{ fontFamily: "monospace", fontSize: "0.85rem" }}
+                          primaryTypographyProps={{
+                            fontFamily: "monospace",
+                            fontSize: "0.85rem",
+                          }}
                         />
                       </ListItem>
                     ))}
@@ -510,9 +625,13 @@ export default function DashboardPage() {
           <Grid size={{ xs: 12, md: 6 }}>
             <Card variant="outlined">
               <CardContent>
-                <Typography variant="h6" sx={{ mb: 1 }}>{t("dashboard.top_memory")}</Typography>
+                <Typography variant="h6" sx={{ mb: 1 }}>
+                  {t("dashboard.top_memory")}
+                </Typography>
                 {overview.top_memory_containers.length === 0 ? (
-                  <Typography variant="body2" color="text.secondary">{t("dashboard.no_running_stats")}</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {t("dashboard.no_running_stats")}
+                  </Typography>
                 ) : (
                   <List dense disablePadding>
                     {overview.top_memory_containers.map((item) => (
@@ -520,7 +639,10 @@ export default function DashboardPage() {
                         <ListItemText
                           primary={item.name}
                           secondary={fmtBytes(item.value)}
-                          primaryTypographyProps={{ fontFamily: "monospace", fontSize: "0.85rem" }}
+                          primaryTypographyProps={{
+                            fontFamily: "monospace",
+                            fontSize: "0.85rem",
+                          }}
                         />
                       </ListItem>
                     ))}
@@ -534,13 +656,41 @@ export default function DashboardPage() {
 
       <Card variant="outlined">
         <CardContent>
-          <Typography variant="h6" sx={{ mb: 1.5 }}>{t("dashboard.drill_down")}</Typography>
+          <Typography variant="h6" sx={{ mb: 1.5 }}>
+            {t("dashboard.drill_down")}
+          </Typography>
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-            <Button component={RouterLink} to="/admin/containers" variant="outlined">{t("dashboard.links.containers")}</Button>
-            <Button component={RouterLink} to="/admin/logs" variant="outlined">{t("dashboard.links.logs_audit")}</Button>
-            <Button component={RouterLink} to="/admin/stacks" variant="outlined">{t("dashboard.links.services_stacks")}</Button>
-            <Button component={RouterLink} to="/admin/settings?tab=users" variant="outlined">{t("dashboard.links.db_users")}</Button>
-            <Button component={RouterLink} to="/admin/llm/runtimes" variant="outlined">{t("dashboard.links.gpu_runtimes")}</Button>
+            <Button
+              component={RouterLink}
+              to="/admin/containers"
+              variant="outlined"
+            >
+              {t("dashboard.links.containers")}
+            </Button>
+            <Button component={RouterLink} to="/admin/logs" variant="outlined">
+              {t("dashboard.links.logs_audit")}
+            </Button>
+            <Button
+              component={RouterLink}
+              to="/admin/stacks"
+              variant="outlined"
+            >
+              {t("dashboard.links.services_stacks")}
+            </Button>
+            <Button
+              component={RouterLink}
+              to="/admin/settings?tab=users"
+              variant="outlined"
+            >
+              {t("dashboard.links.db_users")}
+            </Button>
+            <Button
+              component={RouterLink}
+              to="/admin/llm/runtimes"
+              variant="outlined"
+            >
+              {t("dashboard.links.gpu_runtimes")}
+            </Button>
           </Stack>
         </CardContent>
       </Card>
