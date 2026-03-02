@@ -82,7 +82,10 @@ export function getLlmGraphTopology(): Promise<TopologyResponse> {
   return request<TopologyResponse>("/topology");
 }
 
-export function getLlmGraphTraces(limit = 100, afterEventId?: number): Promise<TraceSnapshotResponse> {
+export function getLlmGraphTraces(
+  limit = 100,
+  afterEventId?: number,
+): Promise<TraceSnapshotResponse> {
   const params = new URLSearchParams();
   params.set("limit", String(limit));
   if (afterEventId !== undefined) {

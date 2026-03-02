@@ -144,76 +144,87 @@ export default function GraphPage() {
   /*  Topology helpers                                                 */
   /* ================================================================ */
 
-  const toFlowNodes = useCallback((nodes: GraphNode[], edges: GraphEdge[]): Node[] => {
-    const groupWidth = 340;
-    const rowHeight = 120;
-    const groupOrder: Record<string, number> = { provider: 0, runtime: 1, model: 2 };
-
-    const parentOf = new Map<string, string>();
-    for (const edge of edges) {
-      parentOf.set(edge.target, edge.source);
-    }
-
-    const groups: Record<string, GraphNode[]> = {};
-    for (const node of nodes) {
-      const g = groups[node.type] ?? [];
-      g.push(node);
-      groups[node.type] = g;
-    }
-
-    const nodeRow = new Map<string, number>();
-
-    (groups["provider"] ?? []).forEach((p, i) => nodeRow.set(p.id, i));
-
-    const rtCounters: Record<string, number> = {};
-    for (const rt of groups["runtime"] ?? []) {
-      const pid = parentOf.get(rt.id);
-      const pRow = pid !== undefined ? nodeRow.get(pid) ?? 0 : 0;
-      const key = pid ?? "__orphan__";
-      const off = rtCounters[key] ?? 0;
-      nodeRow.set(rt.id, pRow + off);
-      rtCounters[key] = off + 1;
-    }
-
-    const mCounters: Record<string, number> = {};
-    for (const m of groups["model"] ?? []) {
-      const pid = parentOf.get(m.id);
-      const pRow = pid !== undefined ? nodeRow.get(pid) ?? 0 : 0;
-      const key = pid ?? "__orphan__";
-      const off = mCounters[key] ?? 0;
-      nodeRow.set(m.id, pRow + off);
-      mCounters[key] = off + 1;
-    }
-
-    return nodes.map((node) => {
-      const col = groupOrder[node.type] ?? 3;
-      const row = nodeRow.get(node.id) ?? 0;
-      const typeLabel = node.type.charAt(0).toUpperCase() + node.type.slice(1);
-      return {
-        id: node.id,
-        type: "default",
-        position: { x: col * groupWidth, y: row * rowHeight },
-        data: {
-          label: `[${typeLabel}] ${node.label}`,
-          type: node.type,
-          status: node.status,
-          meta: node.meta ?? {},
-        },
-        draggable: false,
-        selectable: true,
-        style: nodeStyle(node.type, node.status ?? undefined),
+  const toFlowNodes = useCallback(
+    (nodes: GraphNode[], edges: GraphEdge[]): Node[] => {
+      const groupWidth = 340;
+      const rowHeight = 120;
+      const groupOrder: Record<string, number> = {
+        provider: 0,
+        runtime: 1,
+        model: 2,
       };
-    });
-  }, []);
 
-  const toFlowEdge = useCallback((edge: GraphEdge): Edge => ({
-    id: edge.id,
-    source: edge.source,
-    target: edge.target,
-    type: "smoothstep",
-    markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
-    style: { strokeWidth: 1.2 },
-  }), []);
+      const parentOf = new Map<string, string>();
+      for (const edge of edges) {
+        parentOf.set(edge.target, edge.source);
+      }
+
+      const groups: Record<string, GraphNode[]> = {};
+      for (const node of nodes) {
+        const g = groups[node.type] ?? [];
+        g.push(node);
+        groups[node.type] = g;
+      }
+
+      const nodeRow = new Map<string, number>();
+
+      (groups["provider"] ?? []).forEach((p, i) => nodeRow.set(p.id, i));
+
+      const rtCounters: Record<string, number> = {};
+      for (const rt of groups["runtime"] ?? []) {
+        const pid = parentOf.get(rt.id);
+        const pRow = pid !== undefined ? (nodeRow.get(pid) ?? 0) : 0;
+        const key = pid ?? "__orphan__";
+        const off = rtCounters[key] ?? 0;
+        nodeRow.set(rt.id, pRow + off);
+        rtCounters[key] = off + 1;
+      }
+
+      const mCounters: Record<string, number> = {};
+      for (const m of groups["model"] ?? []) {
+        const pid = parentOf.get(m.id);
+        const pRow = pid !== undefined ? (nodeRow.get(pid) ?? 0) : 0;
+        const key = pid ?? "__orphan__";
+        const off = mCounters[key] ?? 0;
+        nodeRow.set(m.id, pRow + off);
+        mCounters[key] = off + 1;
+      }
+
+      return nodes.map((node) => {
+        const col = groupOrder[node.type] ?? 3;
+        const row = nodeRow.get(node.id) ?? 0;
+        const typeLabel =
+          node.type.charAt(0).toUpperCase() + node.type.slice(1);
+        return {
+          id: node.id,
+          type: "default",
+          position: { x: col * groupWidth, y: row * rowHeight },
+          data: {
+            label: `[${typeLabel}] ${node.label}`,
+            type: node.type,
+            status: node.status,
+            meta: node.meta ?? {},
+          },
+          draggable: false,
+          selectable: true,
+          style: nodeStyle(node.type, node.status ?? undefined),
+        };
+      });
+    },
+    [],
+  );
+
+  const toFlowEdge = useCallback(
+    (edge: GraphEdge): Edge => ({
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      type: "smoothstep",
+      markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
+      style: { strokeWidth: 1.2 },
+    }),
+    [],
+  );
 
   /* ================================================================ */
   /*  Data loading                                                     */
@@ -347,18 +358,29 @@ export default function GraphPage() {
   const visibleNodes = useMemo(() => {
     const needle = search.trim().toLowerCase();
     return baseNodes.filter((node) => {
-      const label = String((node.data as { label?: string })?.label ?? "").toLowerCase();
+      const label = String(
+        (node.data as { label?: string })?.label ?? "",
+      ).toLowerCase();
       const status = String((node.data as { status?: string })?.status ?? "");
       const statusOk = statusFilter === "all" || status === statusFilter;
-      const searchOk = needle.length === 0 || label.includes(needle) || node.id.toLowerCase().includes(needle);
+      const searchOk =
+        needle.length === 0 ||
+        label.includes(needle) ||
+        node.id.toLowerCase().includes(needle);
       return statusOk && searchOk;
     });
   }, [baseNodes, search, statusFilter]);
 
-  const visibleNodeIds = useMemo(() => new Set(visibleNodes.map((n) => n.id)), [visibleNodes]);
+  const visibleNodeIds = useMemo(
+    () => new Set(visibleNodes.map((n) => n.id)),
+    [visibleNodes],
+  );
 
   const visibleEdges = useMemo(
-    () => baseEdges.filter((e) => visibleNodeIds.has(e.source) && visibleNodeIds.has(e.target)),
+    () =>
+      baseEdges.filter(
+        (e) => visibleNodeIds.has(e.source) && visibleNodeIds.has(e.target),
+      ),
     [baseEdges, visibleNodeIds],
   );
 
@@ -399,11 +421,27 @@ export default function GraphPage() {
   /* ================================================================ */
 
   return (
-    <Box sx={{ display: "grid", gridTemplateColumns: "1fr 380px", gap: 1.5, height: "100%", minHeight: 0 }}>
+    <Box
+      sx={{
+        display: "grid",
+        gridTemplateColumns: "1fr 380px",
+        gap: 1.5,
+        height: "100%",
+        minHeight: 0,
+      }}
+    >
       {/* ── Left: topology graph ─────────────────────────────────── */}
       <Stack spacing={1} sx={{ minWidth: 0, minHeight: 0, height: "100%" }}>
         {/* toolbar */}
-        <Paper sx={{ p: 1.5, display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+        <Paper
+          sx={{
+            p: 1.5,
+            display: "flex",
+            alignItems: "center",
+            gap: 1,
+            flexWrap: "wrap",
+          }}
+        >
           <TextField
             size="small"
             label={t("llm_graph.search")}
@@ -427,8 +465,14 @@ export default function GraphPage() {
           <Button size="small" onClick={() => void loadTopology()}>
             {t("dashboard.refresh")}
           </Button>
-          <Chip size="small" label={`${t("llm_graph.nodes")}: ${visibleNodes.length}`} />
-          <Chip size="small" label={`${t("llm_graph.edges")}: ${visibleEdges.length}`} />
+          <Chip
+            size="small"
+            label={`${t("llm_graph.nodes")}: ${visibleNodes.length}`}
+          />
+          <Chip
+            size="small"
+            label={`${t("llm_graph.edges")}: ${visibleEdges.length}`}
+          />
         </Paper>
 
         {error && <Alert severity="error">{error}</Alert>}
@@ -436,8 +480,17 @@ export default function GraphPage() {
         {/* graph canvas (position:relative for floating overlay) */}
         <Paper sx={{ flex: 1, minHeight: 0, position: "relative" }}>
           {loading ? (
-            <Box sx={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <Typography color="text.secondary">{t("common.loading")}</Typography>
+            <Box
+              sx={{
+                height: "100%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Typography color="text.secondary">
+                {t("common.loading")}
+              </Typography>
             </Box>
           ) : (
             <ReactFlow
@@ -475,22 +528,42 @@ export default function GraphPage() {
                 bgcolor: "background.paper",
               }}
             >
-              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-                <Typography variant="subtitle2">{t("llm_graph.node_details")}</Typography>
+              <Stack
+                direction="row"
+                justifyContent="space-between"
+                alignItems="center"
+                sx={{ mb: 1 }}
+              >
+                <Typography variant="subtitle2">
+                  {t("llm_graph.node_details")}
+                </Typography>
                 <IconButton size="small" onClick={() => setSelectedNode(null)}>
                   <CloseIcon fontSize="small" />
                 </IconButton>
               </Stack>
               <Stack spacing={0.5}>
-                <Typography variant="body2"><strong>ID:</strong> {selectedNode.id}</Typography>
-                <Typography variant="body2"><strong>{t("common.name")}:</strong> {selectedNode.label}</Typography>
-                <Typography variant="body2"><strong>{t("llm_graph.type")}:</strong> {selectedNode.type}</Typography>
+                <Typography variant="body2">
+                  <strong>ID:</strong> {selectedNode.id}
+                </Typography>
+                <Typography variant="body2">
+                  <strong>{t("common.name")}:</strong> {selectedNode.label}
+                </Typography>
+                <Typography variant="body2">
+                  <strong>{t("llm_graph.type")}:</strong> {selectedNode.type}
+                </Typography>
                 {selectedNode.status && (
-                  <Typography variant="body2"><strong>{t("common.status")}:</strong> {selectedNode.status}</Typography>
+                  <Typography variant="body2">
+                    <strong>{t("common.status")}:</strong> {selectedNode.status}
+                  </Typography>
                 )}
                 <Typography
                   variant="body2"
-                  sx={{ whiteSpace: "pre-wrap", fontFamily: "monospace", fontSize: "0.72rem", mt: 0.5 }}
+                  sx={{
+                    whiteSpace: "pre-wrap",
+                    fontFamily: "monospace",
+                    fontSize: "0.72rem",
+                    mt: 0.5,
+                  }}
                 >
                   {JSON.stringify(selectedNode.meta ?? {}, null, 2)}
                 </Typography>
@@ -506,13 +579,19 @@ export default function GraphPage() {
           <Typography variant="subtitle2" sx={{ flexGrow: 1 }}>
             {t("llm_graph.live_mode")}
           </Typography>
-          <Chip size="small" label={traceRows.length} sx={{ fontSize: "0.7rem" }} />
+          <Chip
+            size="small"
+            label={traceRows.length}
+            sx={{ fontSize: "0.7rem" }}
+          />
           <Button
             size="small"
             variant="outlined"
             onClick={() => setStreamPaused((p) => !p)}
           >
-            {streamPaused ? t("llm_graph.resume_stream") : t("llm_graph.pause_stream")}
+            {streamPaused
+              ? t("llm_graph.resume_stream")
+              : t("llm_graph.pause_stream")}
           </Button>
         </Paper>
 
@@ -521,13 +600,19 @@ export default function GraphPage() {
           onScroll={() => {
             if (!tableContainerRef.current) return;
             const el = tableContainerRef.current;
-            autoScrollRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+            autoScrollRef.current =
+              el.scrollHeight - el.scrollTop - el.clientHeight < 60;
           }}
           sx={{
             flex: 1,
             minHeight: 0,
             overflow: "auto",
-            "& thead": { position: "sticky", top: 0, zIndex: 1, bgcolor: "background.paper" },
+            "& thead": {
+              position: "sticky",
+              top: 0,
+              zIndex: 1,
+              bgcolor: "background.paper",
+            },
           }}
         >
           <table
@@ -553,7 +638,10 @@ export default function GraphPage() {
                         whiteSpace: "nowrap",
                       }}
                     >
-                      {flexRender(header.column.columnDef.header, header.getContext())}
+                      {flexRender(
+                        header.column.columnDef.header,
+                        header.getContext(),
+                      )}
                     </th>
                   ))}
                 </tr>
@@ -589,7 +677,10 @@ export default function GraphPage() {
                           whiteSpace: "nowrap",
                         }}
                       >
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        {flexRender(
+                          cell.column.columnDef.cell,
+                          cell.getContext(),
+                        )}
                       </td>
                     ))}
                   </tr>
@@ -607,7 +698,10 @@ export default function GraphPage() {
 /*  Style helpers                                                      */
 /* ================================================================== */
 
-function nodeStyle(type: string, status?: string): Record<string, string | number> {
+function nodeStyle(
+  type: string,
+  status?: string,
+): Record<string, string | number> {
   const palette: Record<string, string> = {
     provider: "#0D47A1",
     runtime: "#1B5E20",
@@ -619,7 +713,8 @@ function nodeStyle(type: string, status?: string): Record<string, string | numbe
     runtime: "#E8F5E9",
     model: "#F3E5F5",
   };
-  const border = status === "error" ? "#D32F2F" : palette[type] ?? palette.default;
+  const border =
+    status === "error" ? "#D32F2F" : (palette[type] ?? palette.default);
   return {
     border: `2px solid ${border}`,
     borderRadius: 10,
