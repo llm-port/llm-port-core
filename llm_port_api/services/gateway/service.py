@@ -116,9 +116,7 @@ class GatewayService:
         )
 
         # --- PII policy resolution ---
-        pii_policy = parse_pii_policy(
-            policy.pii_config if policy else None,
-        )
+        pii_policy = _resolve_pii_policy(policy)
         egress_payload = payload
         token_mapping: dict[str, str] | None = None
         is_cloud = decision.candidate.provider_type == ProviderType.REMOTE_OPENAI
@@ -277,9 +275,7 @@ class GatewayService:
         )
 
         # --- PII policy resolution (stream) ---
-        pii_policy = parse_pii_policy(
-            policy.pii_config if policy else None,
-        )
+        pii_policy = _resolve_pii_policy(policy)
         egress_payload = payload
         is_cloud = decision.candidate.provider_type == ProviderType.REMOTE_OPENAI
 
@@ -457,6 +453,22 @@ class GatewayService:
                 request_id,
             )
             return {"model": payload.get("model"), "_pii_mode": "fallback"}
+
+
+def _resolve_pii_policy(
+    policy: Any | None,
+) -> PIIPolicy | None:
+    """Resolve effective PII policy: tenant-specific → system default → None."""
+    from llm_port_api.settings import settings as _settings
+
+    raw = policy.pii_config if policy and getattr(policy, "pii_config", None) else None
+    if raw:
+        return parse_pii_policy(raw)
+    # Fallback to the system-wide default policy loaded from system settings DB.
+    default = getattr(_settings, "pii_default_policy", None)
+    if default:
+        return parse_pii_policy(default)
+    return None
 
 
 def _require_model(payload: dict[str, Any]) -> str:

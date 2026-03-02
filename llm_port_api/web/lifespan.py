@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from llm_port_api.services.gateway.observability import GatewayObservability
 from llm_port_api.services.gateway.proxy import create_shared_http_client
 from llm_port_api.services.gateway.jwt_secret import load_jwt_secret_from_backend_db
+from llm_port_api.services.gateway.settings_loader import load_system_settings_from_backend_db
 from llm_port_api.services.rabbit.lifespan import init_rabbit, shutdown_rabbit
 from llm_port_api.services.redis.lifespan import init_redis, shutdown_redis
 from llm_port_api.services.registry import service_registry
@@ -177,6 +178,7 @@ async def lifespan_setup(
 
     app.middleware_stack = None
     await _load_jwt_secret_from_backend_db()
+    await load_system_settings_from_backend_db()
     if not broker.is_worker_process:
         await broker.startup()
     _setup_db(app)

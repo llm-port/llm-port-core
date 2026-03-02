@@ -108,6 +108,7 @@ class Settings(BaseSettings):
     # Optional module: PII service
     pii_service_url: str | None = None
     pii_enabled: bool = False
+    pii_default_policy: dict | None = None
 
     # Optional module: External auth service
     auth_service_url: str | None = None
