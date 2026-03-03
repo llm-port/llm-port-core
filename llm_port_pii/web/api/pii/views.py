@@ -8,6 +8,8 @@ from fastapi import APIRouter, Depends, Query, Request
 
 from llm_port_pii.db.dao.pii_event_dao import PIIEventDAO
 from llm_port_pii.services.pii.service import PIIService
+from llm_port_pii.services.pii.service import DEFAULT_ENTITIES, SUPPORTED_LANGUAGES
+from llm_port_pii.settings import settings
 from llm_port_pii.web.api.pii.schema import (
     DetectedEntityDTO,
     PIIDetokenizeRequest,
@@ -18,6 +20,7 @@ from llm_port_pii.web.api.pii.schema import (
     PIIRedactResponse,
     PIISanitizeRequest,
     PIISanitizeResponse,
+    PIIPolicyOptionsResponse,
     PIIScanRequest,
     PIIScanResponse,
     PIIStatsResponse,
@@ -29,6 +32,18 @@ router = APIRouter()
 def _get_pii_service(request: Request) -> PIIService:
     """Retrieve the PIIService singleton from app state."""
     return request.app.state.pii_service  # type: ignore[no-any-return]
+
+
+@router.get("/options", response_model=PIIPolicyOptionsResponse)
+async def get_policy_options() -> PIIPolicyOptionsResponse:
+    """Return supported option values for policy configuration UIs."""
+    return PIIPolicyOptionsResponse(
+        supported_entities=list(DEFAULT_ENTITIES),
+        supported_languages=list(SUPPORTED_LANGUAGES),
+        supported_sanitize_modes=["redact", "tokenize"],
+        default_language=settings.pii_default_language,
+        default_score_threshold=settings.pii_score_threshold,
+    )
 
 
 @router.post("/scan", response_model=PIIScanResponse)

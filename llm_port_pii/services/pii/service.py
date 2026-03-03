@@ -42,6 +42,9 @@ DEFAULT_ENTITIES: list[str] = [
     "URL",
 ]
 
+# Supported language codes configured for PII detection.
+SUPPORTED_LANGUAGES: list[str] = ["en", "de", "es", "zh"]
+
 
 @dataclass
 class DetectedEntity:

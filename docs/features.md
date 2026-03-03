@@ -118,3 +118,26 @@ For privacy-heavy tenants:
 - pii.egress.enabled_for_cloud = true
 - pii.egress.fail_action = fallback_to_local (or block for strict orgs)
 - pii.egress.enabled_for_local = false (enable only if required)
+
+---
+
+## 6. Admin UX and Runtime Controls
+
+- `llm_port_api.pii_enabled` is controlled from the **Modules tab** (enable/disable PII module), not from raw settings editors.
+- Settings UI now uses a structured policy form for `llm_port_api.pii_default_policy` and hides PII controls when the PII module is disabled.
+- Policy precedence:
+  1. tenant override: `tenant_llm_policy.pii_config`
+  2. system default: `llm_port_api.pii_default_policy`
+  3. none
+- `GET /api/v1/pii/options` provides runtime-supported entities/languages/modes for admin UIs.
+
+## 7. Fallback-to-local Behavior
+
+- `egress.fail_action=fallback_to_local` is now active in gateway routing.
+- If cloud egress PII sanitization fails:
+  1. cloud lease is released,
+  2. gateway tries local provider candidates for the same alias,
+  3. gateway continues request through local provider if capacity exists.
+- If no local candidate or no local capacity exists, gateway returns deterministic `503` error codes:
+  - `pii_fallback_no_local_provider`
+  - `pii_fallback_no_local_capacity`

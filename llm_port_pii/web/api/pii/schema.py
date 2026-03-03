@@ -136,6 +136,16 @@ class PIIDetokenizeResponse(BaseModel):
     payload: dict[str, Any]
 
 
+class PIIPolicyOptionsResponse(BaseModel):
+    """Supported policy option values for admin configuration UIs."""
+
+    supported_entities: list[str]
+    supported_languages: list[str]
+    supported_sanitize_modes: list[str]
+    default_language: str
+    default_score_threshold: float
+
+
 # ---------------------------------------------------------------
 # Dashboard stats & event log
 # ---------------------------------------------------------------
