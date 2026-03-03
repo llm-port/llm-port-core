@@ -20,8 +20,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from starlette import status
 
+from llm_port_backend.db.models.users import User
+from llm_port_backend.services.system_settings import SystemSettingsService
 from llm_port_backend.services.docker.client import DockerService
 from llm_port_backend.settings import settings
+from llm_port_backend.web.api.admin.system.views import get_system_settings_service
 from llm_port_backend.web.api.admin.dependencies import get_docker
 from llm_port_backend.web.api.rbac import require_permission
 
@@ -191,6 +194,31 @@ def _container_states_from_name_map(
     return [{"name": cn, "state": name_map.get(cn, "not_found")} for cn in container_names]
 
 
+async def _sync_pii_enabled(
+    *,
+    service: SystemSettingsService,
+    enabled: bool,
+    actor_id: Any,
+) -> list[str]:
+    """Sync llm_port_api.pii_enabled and trigger gateway apply flow."""
+    try:
+        result = await service.update_value(
+            key="llm_port_api.pii_enabled",
+            value=enabled,
+            actor_id=actor_id,
+            root_mode_active=False,
+            target_host="local",
+        )
+    except Exception as exc:
+        logger.exception("Failed to sync llm_port_api.pii_enabled")
+        return [f"Failed to sync llm_port_api.pii_enabled: {exc}"]
+
+    if result.apply_status != "success":
+        details = "; ".join(result.messages) if result.messages else "unknown apply failure"
+        return [f"Failed to apply llm_port_api.pii_enabled={enabled}: {details}"]
+    return []
+
+
 # ── GET /services ─────────────────────────────────────────────────────
 
 
@@ -269,8 +297,9 @@ async def list_services(
 async def enable_module(
     name: str,
     request: Request,
-    _user=Depends(require_permission("modules", "manage")),
+    user: User = Depends(require_permission("modules", "manage")),
     docker: DockerService = Depends(get_docker),
+    system_settings: SystemSettingsService = Depends(get_system_settings_service),
 ) -> JSONResponse:
     """Bring up all containers belonging to a module.
 
@@ -303,6 +332,16 @@ async def enable_module(
             },
         )
 
+    errors: list[str] = []
+    if name == "pii":
+        errors.extend(
+            await _sync_pii_enabled(
+                service=system_settings,
+                enabled=True,
+                actor_id=user.id,
+            ),
+        )
+
     # Refresh container states for the response.
     containers = await _container_states(docker, mod.get("container_names", []))
     started = [c["name"] for c in containers if c["state"] == "running"]
@@ -313,7 +352,7 @@ async def enable_module(
             "module": name,
             "action": "enable",
             "started": started,
-            "errors": [],
+            "errors": errors,
         },
     )
 
@@ -325,8 +364,9 @@ async def enable_module(
 async def disable_module(
     name: str,
     request: Request,
-    _user=Depends(require_permission("modules", "manage")),
+    user: User = Depends(require_permission("modules", "manage")),
     docker: DockerService = Depends(get_docker),
+    system_settings: SystemSettingsService = Depends(get_system_settings_service),
 ) -> JSONResponse:
     """Stop all containers belonging to a module.
 
@@ -339,6 +379,23 @@ async def disable_module(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Unknown module: {name}",
         )
+
+    if name == "pii":
+        errors = await _sync_pii_enabled(
+            service=system_settings,
+            enabled=False,
+            actor_id=user.id,
+        )
+        if errors:
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "module": name,
+                    "action": "disable",
+                    "stopped": [],
+                    "errors": errors,
+                },
+            )
 
     profile = mod.get("compose_profile", name)
     services = mod.get("compose_services", [])

@@ -197,7 +197,6 @@ async def wizard_steps(
                 title="PII Protection",
                 description="Enable PII detection and configure redaction policy.",
                 setting_keys=[
-                    "llm_port_api.pii_enabled",
                     "llm_port_api.pii_service_url",
                     "llm_port_api.pii_default_policy",
                 ],

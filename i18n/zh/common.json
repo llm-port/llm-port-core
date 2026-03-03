@@ -27,6 +27,7 @@
     "pii_group": "隐私 (PII)",
     "pii_dashboard": "仪表盘",
     "pii_activity": "活动日志",
+    "pii_policies": "租户策略",
     "access_control_group": "访问控制",
     "users": "用户",
     "roles": "角色",
@@ -620,6 +621,23 @@
     "col_source": "来源",
     "col_lang": "语言",
     "no_events": "未找到 PII 事件。"
+  },
+  "pii_policy": {
+    "system_section": "PII 策略（系统默认）",
+    "pii_service_url": "PII 服务 URL",
+    "pii_service_url_help": "llm_port_pii 的内部地址（例如 http://llm-port-pii:8000/api）。",
+    "hidden_when_disabled": "PII 模块当前已禁用，因此 PII 设置已隐藏。",
+    "tenants_title": "租户 PII 策略",
+    "tenants_description": "为指定租户覆盖系统默认 PII 策略。",
+    "tenant_id": "租户 ID",
+    "tenant_id_placeholder": "tenant-123",
+    "load_tenant": "加载租户",
+    "override_editor": "租户覆盖策略",
+    "clear_override": "清除覆盖",
+    "effective_preview": "生效策略预览",
+    "precedence_hint": "优先级：租户覆盖 > 系统默认 > 无。",
+    "save_override_success": "租户覆盖策略已保存。",
+    "clear_override_success": "租户覆盖策略已清除。"
   },
   "roles": {
     "title": "角色管理",

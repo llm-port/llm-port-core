@@ -33,6 +33,7 @@
     "pii_group": "Privacy (PII)",
     "pii_dashboard": "Dashboard",
     "pii_activity": "Activity Log",
+    "pii_policies": "Tenant Policies",
     "access_control_group": "Access Control",
     "users": "Users",
     "roles": "Roles",
@@ -704,6 +705,23 @@
     "col_source": "Source",
     "col_lang": "Lang",
     "no_events": "No PII events found."
+  },
+  "pii_policy": {
+    "system_section": "PII Policy (System Default)",
+    "pii_service_url": "PII Service URL",
+    "pii_service_url_help": "Internal URL for llm_port_pii (for example http://llm-port-pii:8000/api).",
+    "hidden_when_disabled": "PII settings are hidden because the PII module is currently disabled.",
+    "tenants_title": "Tenant PII Policies",
+    "tenants_description": "Override the default PII policy for a specific tenant.",
+    "tenant_id": "Tenant ID",
+    "tenant_id_placeholder": "tenant-123",
+    "load_tenant": "Load Tenant",
+    "override_editor": "Tenant Override",
+    "clear_override": "Clear Override",
+    "effective_preview": "Effective Policy Preview",
+    "precedence_hint": "Precedence: tenant override > system default > none.",
+    "save_override_success": "Tenant override saved.",
+    "clear_override_success": "Tenant override cleared."
   },
   "roles": {
     "title": "Role Management",

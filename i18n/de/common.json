@@ -27,6 +27,7 @@
     "pii_group": "Datenschutz (PII)",
     "pii_dashboard": "Dashboard",
     "pii_activity": "Aktivitätsprotokoll",
+    "pii_policies": "Mandantenrichtlinien",
     "access_control_group": "Zugriffskontrolle",
     "users": "Benutzer",
     "roles": "Rollen",
@@ -620,6 +621,23 @@
     "col_source": "Quelle",
     "col_lang": "Sprache",
     "no_events": "Keine PII-Ereignisse gefunden."
+  },
+  "pii_policy": {
+    "system_section": "PII-Richtlinie (Systemstandard)",
+    "pii_service_url": "PII-Service-URL",
+    "pii_service_url_help": "Interne URL fuer llm_port_pii (z. B. http://llm-port-pii:8000/api).",
+    "hidden_when_disabled": "PII-Einstellungen sind ausgeblendet, weil das PII-Modul derzeit deaktiviert ist.",
+    "tenants_title": "Mandanten-PII-Richtlinien",
+    "tenants_description": "Ueberschreibt die Standard-PII-Richtlinie fuer einen bestimmten Mandanten.",
+    "tenant_id": "Mandanten-ID",
+    "tenant_id_placeholder": "tenant-123",
+    "load_tenant": "Mandanten laden",
+    "override_editor": "Mandanten-Override",
+    "clear_override": "Override loeschen",
+    "effective_preview": "Vorschau der effektiven Richtlinie",
+    "precedence_hint": "Prioritaet: Mandanten-Override > Systemstandard > keine.",
+    "save_override_success": "Mandanten-Override gespeichert.",
+    "clear_override_success": "Mandanten-Override geloescht."
   },
   "roles": {
     "title": "Rollenverwaltung",

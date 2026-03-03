@@ -27,6 +27,7 @@
     "pii_group": "Privacidad (PII)",
     "pii_dashboard": "Panel",
     "pii_activity": "Registro de actividad",
+    "pii_policies": "Politicas por inquilino",
     "access_control_group": "Control de acceso",
     "users": "Usuarios",
     "roles": "Roles",
@@ -620,6 +621,23 @@
     "col_source": "Fuente",
     "col_lang": "Idioma",
     "no_events": "No se encontraron eventos PII."
+  },
+  "pii_policy": {
+    "system_section": "Politica PII (Predeterminada del Sistema)",
+    "pii_service_url": "URL del Servicio PII",
+    "pii_service_url_help": "URL interna de llm_port_pii (por ejemplo http://llm-port-pii:8000/api).",
+    "hidden_when_disabled": "La configuracion PII esta oculta porque el modulo PII esta deshabilitado.",
+    "tenants_title": "Politicas PII por Inquilino",
+    "tenants_description": "Sobrescribe la politica PII predeterminada para un inquilino especifico.",
+    "tenant_id": "ID de Inquilino",
+    "tenant_id_placeholder": "tenant-123",
+    "load_tenant": "Cargar Inquilino",
+    "override_editor": "Override del Inquilino",
+    "clear_override": "Limpiar Override",
+    "effective_preview": "Vista Previa de Politica Efectiva",
+    "precedence_hint": "Precedencia: override de inquilino > predeterminado del sistema > ninguno.",
+    "save_override_success": "Override del inquilino guardado.",
+    "clear_override_success": "Override del inquilino eliminado."
   },
   "roles": {
     "title": "Gestión de roles",
