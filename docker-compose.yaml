@@ -567,6 +567,38 @@ services:
       retries: 20
 
   # =====================================================================
+  # OPTIONAL MODULE: Document Processor (profile: docling)
+  #
+  # Stateless document conversion service wrapping IBM Docling.
+  # Provides layout-aware PDF/DOCX parsing, OCR, table extraction,
+  # and hierarchical chunking for RAG pipelines.
+  # Activate with:  --profile docling  (or COMPOSE_PROFILES=docling)
+  # =====================================================================
+  llm-port-docling:
+    profiles: ["docling"]
+    build:
+      context: ../llm_port_docling
+      dockerfile: Dockerfile
+    container_name: llm-port-docling
+    restart: unless-stopped
+    ports:
+      - "8006:8000"
+    environment:
+      LLM_PORT_DOCLING_HOST: 0.0.0.0
+      LLM_PORT_DOCLING_PORT: 8000
+      LLM_PORT_DOCLING_RELOAD: "false"
+      LLM_PORT_DOCLING_ENVIRONMENT: dev
+      LLM_PORT_DOCLING_OCR_ENABLED: "true"
+      LLM_PORT_DOCLING_TABLE_MODE: fast
+      LLM_PORT_DOCLING_MAX_UPLOAD_SIZE_MB: "100"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health', timeout=3).read()"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  # =====================================================================
   # OPTIONAL MODULE: External Auth (profile: auth)
   #
   # Enterprise SSO module (OIDC / OAuth2 provider management).
