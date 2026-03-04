@@ -7,7 +7,7 @@ Abstracts over two backends:
    active and ``docling_enabled=True``.
 
 2. **Fallback extractor** — lightweight, dependency-light text
-   extraction using PyMuPDF / python-docx / etc.  No OCR, no table
+   extraction using pdfplumber / python-docx / etc.  No OCR, limited table
    structure, no heading hierarchy.  Always available.
 
 Usage::

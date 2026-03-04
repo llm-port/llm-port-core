@@ -3,8 +3,8 @@
 Used when the Docling microservice is **not enabled** or unreachable.
 Provides basic text extraction using small, dependency-light libraries:
 
-* **PDF** → ``pymupdf`` (fitz) — fast text extraction, no OCR, no
-  layout-aware table detection.
+* **PDF** → ``pdfplumber`` — text extraction with basic table
+  detection, no OCR.
 * **DOCX** → ``python-docx`` — paragraph / table text.
 * **PPTX** → ``python-pptx`` — slide text frames.
 * **XLSX / CSV** → ``openpyxl`` / stdlib ``csv`` — cell values.
@@ -65,23 +65,57 @@ class FallbackResult:
 
 
 def _extract_pdf(data: bytes) -> FallbackResult:
-    """Extract text from PDF using PyMuPDF (fitz)."""
+    """Extract text from PDF using pdfplumber."""
     try:
-        import pymupdf  # noqa: PLC0415
+        import pdfplumber  # noqa: PLC0415
     except ImportError:
-        logger.warning("pymupdf is not installed — cannot extract PDF text")
+        logger.warning("pdfplumber is not installed — cannot extract PDF text")
         return FallbackResult("", format_detected="pdf")
 
-    doc = pymupdf.open(stream=data, filetype="pdf")
     pages: list[str] = []
-    for page in doc:
-        pages.append(page.get_text())
-    doc.close()
+    tables_found = 0
+    with pdfplumber.open(io.BytesIO(data)) as pdf:
+        for page in pdf.pages:
+            parts: list[str] = []
+
+            # Extract tables first so we can include structured data
+            page_tables = page.extract_tables() or []
+            tables_found += len(page_tables)
+            table_regions: list[Any] = []
+            for tbl in page_tables:
+                rows = [
+                    " | ".join(str(c) if c else "" for c in row)
+                    for row in tbl
+                    if any(row)
+                ]
+                if rows:
+                    parts.append("\n".join(rows))
+                # Collect bounding boxes so we can exclude table text
+                # from the main text extraction (avoid duplication)
+                for t in page.find_tables():
+                    table_regions.append(t.bbox)
+
+            # Extract remaining (non-table) text
+            if table_regions:
+                # Crop out table areas to avoid duplicate text
+                cropped = page
+                for bbox in table_regions:
+                    cropped = cropped.outside_bbox(bbox)
+                text = (cropped.extract_text() or "").strip()
+            else:
+                text = (page.extract_text() or "").strip()
+
+            if text:
+                parts.insert(0, text)
+
+            if parts:
+                pages.append("\n\n".join(parts))
 
     return FallbackResult(
         "\n\n".join(pages),
         page_count=len(pages),
         format_detected="pdf",
+        tables_found=tables_found,
     )
 
 
