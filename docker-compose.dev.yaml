@@ -85,3 +85,19 @@ services:
       - worker
       - llm_port_pii.tkq:broker
       - --reload
+
+  # Optional: Mailer service dev overrides (only started with --profile mailer)
+  llm-port-mailer:
+    profiles: ["mailer"]
+    build:
+      context: ../llm_port_mailer
+      dockerfile: Dockerfile
+      target: dev
+    volumes:
+      - ../llm_port_mailer:/app/src
+    environment:
+      LLM_PORT_MAILER_RELOAD: "true"
+    command:
+      - /usr/local/bin/python
+      - -m
+      - llm_port_mailer
