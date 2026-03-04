@@ -138,6 +138,10 @@ class Settings(BaseSettings):
     auth_enabled: bool = False
     auth_service_url: str = "http://127.0.0.1:8005"
 
+    # Document Processor module settings (Docling)
+    docling_enabled: bool = False
+    docling_service_url: str = "http://127.0.0.1:8006"
+
     # Admin dashboard / Grafana embedding settings
     grafana_url: str | None = Field(
         default=None,

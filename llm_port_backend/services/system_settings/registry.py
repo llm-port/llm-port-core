@@ -426,6 +426,39 @@ SETTINGS_REGISTRY: tuple[SettingDefinition, ...] = (
         apply_scope=SystemApplyScope.SERVICE_RESTART,
         service_targets=("llm-port-mailer",),
     ),
+    # -- Docling (Document Processor) module settings ------------------
+    SettingDefinition(
+        key="llm_port_backend.docling_enabled",
+        type="bool",
+        category="modules",
+        group="docling",
+        label="Document Processor Enabled",
+        description=(
+            "Enable the Docling document processor for high-quality, "
+            "layout-aware PDF/DOCX parsing with OCR and table extraction. "
+            "When disabled, a lightweight fallback extractor is used."
+        ),
+        is_secret=False,
+        default=False,
+        apply_scope=SystemApplyScope.LIVE_RELOAD,
+        service_targets=(),
+    ),
+    SettingDefinition(
+        key="llm_port_backend.docling_service_url",
+        type="string",
+        category="modules",
+        group="docling",
+        label="Docling Service URL",
+        description=(
+            "Internal URL of the Docling micro-service "
+            "(e.g. http://llm-port-docling:8000 in Docker, "
+            "http://127.0.0.1:8006 in dev)."
+        ),
+        is_secret=False,
+        default="http://llm-port-docling:8000",
+        apply_scope=SystemApplyScope.LIVE_RELOAD,
+        service_targets=(),
+    ),
 )
 
 

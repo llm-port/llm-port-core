@@ -121,6 +121,24 @@ _MODULE_DEFS: list[dict[str, Any]] = [
             "llm-port-auth",
         ],
     },
+    {
+        "name": "docling",
+        "display_name": "Document Processor",
+        "description": (
+            "Stateless document conversion service powered by IBM Docling. "
+            "Provides layout-aware PDF/DOCX parsing, OCR, table extraction, "
+            "and hierarchical chunking for RAG pipelines."
+        ),
+        "settings_flag": "docling_enabled",
+        "health_url_fn": lambda: f"{settings.docling_service_url.rstrip('/')}/api/v1/health",
+        "compose_profile": "docling",
+        "compose_services": [
+            "llm-port-docling",
+        ],
+        "container_names": [
+            "llm-port-docling",
+        ],
+    },
 ]
 
 # Fast lookup by module name.
@@ -275,6 +293,31 @@ async def _sync_mailer_enabled(
     if result.apply_status != "success":
         details = "; ".join(result.messages) if result.messages else "unknown apply failure"
         return [f"Failed to apply llm_port_mailer.enabled={enabled}: {details}"]
+    return []
+
+
+async def _sync_docling_enabled(
+    *,
+    service: SystemSettingsService,
+    enabled: bool,
+    actor_id: Any,
+) -> list[str]:
+    """Sync llm_port_backend.docling_enabled as module lifecycle flag."""
+    try:
+        result = await service.update_value(
+            key="llm_port_backend.docling_enabled",
+            value=enabled,
+            actor_id=actor_id,
+            root_mode_active=False,
+            target_host="local",
+        )
+    except Exception as exc:
+        logger.exception("Failed to sync llm_port_backend.docling_enabled")
+        return [f"Failed to sync llm_port_backend.docling_enabled: {exc}"]
+
+    if result.apply_status != "success":
+        details = "; ".join(result.messages) if result.messages else "unknown apply failure"
+        return [f"Failed to apply llm_port_backend.docling_enabled={enabled}: {details}"]
     return []
 
 
@@ -444,6 +487,14 @@ async def enable_module(
                 actor_id=user.id,
             ),
         )
+    elif name == "docling":
+        errors.extend(
+            await _sync_docling_enabled(
+                service=system_settings,
+                enabled=True,
+                actor_id=user.id,
+            ),
+        )
 
     if errors:
         await _emit_module_lifecycle_alert(
@@ -517,6 +568,29 @@ async def disable_module(
             )
     elif name == "mailer":
         errors = await _sync_mailer_enabled(
+            service=system_settings,
+            enabled=False,
+            actor_id=user.id,
+        )
+        if errors:
+            await _emit_module_lifecycle_alert(
+                request,
+                module_name=name,
+                action="disable_sync",
+                summary=f"Failed to sync module disable for '{name}'.",
+                details="; ".join(errors),
+            )
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "module": name,
+                    "action": "disable",
+                    "stopped": [],
+                    "errors": errors,
+                },
+            )
+    elif name == "docling":
+        errors = await _sync_docling_enabled(
             service=system_settings,
             enabled=False,
             actor_id=user.id,
