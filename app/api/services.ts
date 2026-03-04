@@ -80,4 +80,21 @@ export const servicesApi = {
     await assertOk(res);
     return res.json() as Promise<ModuleActionResult>;
   },
+
+  /**
+   * Fetch the last `tail` log lines for a specific container within a
+   * module.  Returns plain text.
+   */
+  async containerLogs(
+    module: string,
+    containerName: string,
+    tail = 200,
+  ): Promise<string> {
+    const res = await fetch(
+      `${BASE}/services/${encodeURIComponent(module)}/logs/${encodeURIComponent(containerName)}?tail=${tail}`,
+      { method: "GET", credentials: "include" },
+    );
+    await assertOk(res);
+    return res.text();
+  },
 };

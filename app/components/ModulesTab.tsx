@@ -23,10 +23,12 @@ import DialogTitle from "@mui/material/DialogTitle";
 import Stack from "@mui/material/Stack";
 import Switch from "@mui/material/Switch";
 import Typography from "@mui/material/Typography";
+import ArticleIcon from "@mui/icons-material/Article";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import StopIcon from "@mui/icons-material/Stop";
 import RefreshIcon from "@mui/icons-material/Refresh";
 
+import ContainerLogsDialog from "~/components/ContainerLogsDialog";
 import { useServices } from "~/lib/ServicesContext";
 import { servicesApi, type ServiceInfo } from "~/api/services";
 
@@ -58,6 +60,7 @@ export default function ModulesTab() {
     module: ServiceInfo;
     action: "enable" | "disable";
   } | null>(null);
+  const [logsModule, setLogsModule] = useState<ServiceInfo | null>(null);
 
   async function handleToggle(svc: ServiceInfo, action: "enable" | "disable") {
     setConfirmDialog({ module: svc, action });
@@ -237,6 +240,14 @@ export default function ModulesTab() {
               >
                 {t("common.stop")}
               </Button>
+              <Button
+                size="small"
+                startIcon={<ArticleIcon />}
+                disabled={!svc.containers || svc.containers.length === 0}
+                onClick={() => setLogsModule(svc)}
+              >
+                {t("modules_tab.logs", { defaultValue: "Logs" })}
+              </Button>
             </CardActions>
           </Card>
         );
@@ -285,6 +296,15 @@ export default function ModulesTab() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Container logs overlay */}
+      <ContainerLogsDialog
+        open={logsModule !== null}
+        onClose={() => setLogsModule(null)}
+        module={logsModule?.name ?? ""}
+        moduleDisplayName={logsModule?.display_name ?? ""}
+        containers={logsModule?.containers ?? []}
+      />
     </Stack>
   );
 }
