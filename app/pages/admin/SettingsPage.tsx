@@ -26,11 +26,18 @@ import ModulesTab from "~/components/ModulesTab";
 import PiiPolicyForm from "~/components/PiiPolicyForm";
 import { useServices } from "~/lib/ServicesContext";
 import { fetchPIIPolicyOptions, normalizePIIPolicy } from "~/api/pii";
-import { systemSettingsApi, type SystemSettingSchemaItem, type WizardStep } from "~/api/systemSettings";
+import {
+  systemSettingsApi,
+  type SystemSettingSchemaItem,
+  type WizardStep,
+} from "~/api/systemSettings";
 
 type SettingsTab = "general" | "system-init" | "modules";
 
-function getCurrentTab(_pathname: string, tabQuery: string | null): SettingsTab {
+function getCurrentTab(
+  _pathname: string,
+  tabQuery: string | null,
+): SettingsTab {
   if (tabQuery === "system-init") return "system-init";
   if (tabQuery === "modules") return "modules";
   return "general";
@@ -38,7 +45,8 @@ function getCurrentTab(_pathname: string, tabQuery: string | null): SettingsTab 
 
 function asInputValue(value: unknown): string {
   if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (typeof value === "number" || typeof value === "boolean")
+    return String(value);
   if (value === null || value === undefined) return "";
   try {
     return JSON.stringify(value);
@@ -48,7 +56,8 @@ function asInputValue(value: unknown): string {
 }
 
 function generateSecureToken(length = 48): string {
-  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  const alphabet =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
   const bytes = new Uint8Array(length);
   window.crypto.getRandomValues(bytes);
   let token = "";
@@ -80,7 +89,9 @@ export default function SettingsPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const [tab, setTab] = useState<SettingsTab>(() => getCurrentTab(location.pathname, searchParams.get("tab")));
+  const [tab, setTab] = useState<SettingsTab>(() =>
+    getCurrentTab(location.pathname, searchParams.get("tab")),
+  );
 
   const [schema, setSchema] = useState<SystemSettingSchemaItem[]>([]);
   const [values, setValues] = useState<Record<string, unknown>>({});
@@ -97,7 +108,9 @@ export default function SettingsPage() {
   const [wizardSaving, setWizardSaving] = useState(false);
   const [piiOptionsLoading, setPiiOptionsLoading] = useState(false);
   const [piiOptionsError, setPiiOptionsError] = useState<string | null>(null);
-  const [piiOptions, setPiiOptions] = useState<Awaited<ReturnType<typeof fetchPIIPolicyOptions>> | null>(null);
+  const [piiOptions, setPiiOptions] = useState<Awaited<
+    ReturnType<typeof fetchPIIPolicyOptions>
+  > | null>(null);
 
   useEffect(() => {
     setTab(getCurrentTab(location.pathname, searchParams.get("tab")));
@@ -132,7 +145,9 @@ export default function SettingsPage() {
       setValues(nextValues);
       setSecretMasked(masked);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to load system settings.");
+      setError(
+        e instanceof Error ? e.message : "Failed to load system settings.",
+      );
     } finally {
       setLoading(false);
     }
@@ -161,7 +176,11 @@ export default function SettingsPage() {
       })
       .catch((error: unknown) => {
         if (!cancelled) {
-          setPiiOptionsError(error instanceof Error ? error.message : "Failed to load PII options.");
+          setPiiOptionsError(
+            error instanceof Error
+              ? error.message
+              : "Failed to load PII options.",
+          );
         }
       })
       .finally(() => {
@@ -173,15 +192,27 @@ export default function SettingsPage() {
   }, [modulesLoading, piiModuleEnabled]);
 
   const piiPolicyValue = useMemo(
-    () => normalizePIIPolicy(values["llm_port_api.pii_default_policy"], piiOptions ?? undefined),
+    () =>
+      normalizePIIPolicy(
+        values["llm_port_api.pii_default_policy"],
+        piiOptions ?? undefined,
+      ),
     [values, piiOptions],
   );
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const visibleSchema = schema.filter((item) => !isPiiSettingKey(item.key) && !(isMailerSettingKey(item.key) && !mailerModuleEnabled));
+    const visibleSchema = schema.filter(
+      (item) =>
+        !isPiiSettingKey(item.key) &&
+        !(isMailerSettingKey(item.key) && !mailerModuleEnabled),
+    );
     const items = q
-      ? visibleSchema.filter((s) => `${s.label} ${s.description} ${s.key} ${s.category} ${s.group}`.toLowerCase().includes(q))
+      ? visibleSchema.filter((s) =>
+          `${s.label} ${s.description} ${s.key} ${s.category} ${s.group}`
+            .toLowerCase()
+            .includes(q),
+        )
       : visibleSchema;
     const groups = new Map<string, SystemSettingSchemaItem[]>();
     for (const item of items) {
@@ -196,7 +227,11 @@ export default function SettingsPage() {
     navigate(`/admin/settings?tab=${nextTab}`, { replace: true });
   }
 
-  function setLocalValue(key: string, raw: string, type: SystemSettingSchemaItem["type"]) {
+  function setLocalValue(
+    key: string,
+    raw: string,
+    type: SystemSettingSchemaItem["type"],
+  ) {
     let parsed: unknown = raw;
     if (type === "int") parsed = Number(raw);
     if (type === "bool") parsed = raw === "true";
@@ -217,7 +252,9 @@ export default function SettingsPage() {
       setStatusMessage(t("settings.secret_generated"));
       setError(null);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : t("settings.secret_generate_failed"));
+      setError(
+        e instanceof Error ? e.message : t("settings.secret_generate_failed"),
+      );
     }
   }
 
@@ -232,7 +269,9 @@ export default function SettingsPage() {
       setStatusMessage(t("settings.secret_copied"));
       setError(null);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : t("settings.secret_copy_failed"));
+      setError(
+        e instanceof Error ? e.message : t("settings.secret_copy_failed"),
+      );
     }
   }
 
@@ -243,7 +282,9 @@ export default function SettingsPage() {
     try {
       const value = values[item.key];
       const result = await systemSettingsApi.update(item.key, value, "local");
-      setStatusMessage(`${item.label}: ${result.apply_status} (${result.apply_scope})`);
+      setStatusMessage(
+        `${item.label}: ${result.apply_status} (${result.apply_scope})`,
+      );
       if (item.is_secret) {
         setValues((prev) => ({ ...prev, [item.key]: "" }));
       }
@@ -262,11 +303,23 @@ export default function SettingsPage() {
     setStatusMessage(null);
     setError(null);
     try {
-      await systemSettingsApi.update(piiServiceUrlKey, values[piiServiceUrlKey] ?? "", "local");
-      const result = await systemSettingsApi.update(piiPolicyKey, piiPolicyValue, "local");
-      setStatusMessage(`PII policy: ${result.apply_status} (${result.apply_scope})`);
+      await systemSettingsApi.update(
+        piiServiceUrlKey,
+        values[piiServiceUrlKey] ?? "",
+        "local",
+      );
+      const result = await systemSettingsApi.update(
+        piiPolicyKey,
+        piiPolicyValue,
+        "local",
+      );
+      setStatusMessage(
+        `PII policy: ${result.apply_status} (${result.apply_scope})`,
+      );
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to update PII settings.");
+      setError(
+        e instanceof Error ? e.message : "Failed to update PII settings.",
+      );
     } finally {
       setBusyKey(null);
       await loadSettings();
@@ -281,11 +334,18 @@ export default function SettingsPage() {
     setError(null);
     try {
       const payload: Record<string, unknown> = {};
-      const keysForStep = step.setting_keys.filter((key) => !(isPiiSettingKey(key) && !piiModuleEnabled) && !(isMailerSettingKey(key) && !mailerModuleEnabled));
+      const keysForStep = step.setting_keys.filter(
+        (key) =>
+          !(isPiiSettingKey(key) && !piiModuleEnabled) &&
+          !(isMailerSettingKey(key) && !mailerModuleEnabled),
+      );
       for (const key of keysForStep) {
         if (values[key] !== undefined) payload[key] = values[key];
       }
-      const result = await systemSettingsApi.wizardApply(payload, wizardTargetHost);
+      const result = await systemSettingsApi.wizardApply(
+        payload,
+        wizardTargetHost,
+      );
       const failed = result.results.filter((r) => r.apply_status !== "success");
       if (failed.length > 0) {
         setError(`Wizard apply failed for ${failed.length} setting(s).`);
@@ -301,7 +361,14 @@ export default function SettingsPage() {
   }
 
   return (
-    <Box sx={{ display: "flex", flexDirection: "column", minHeight: 0, height: "100%" }}>
+    <Box
+      sx={{
+        display: "flex",
+        flexDirection: "column",
+        minHeight: 0,
+        height: "100%",
+      }}
+    >
       <Box sx={{ mb: 2 }}>
         <Typography variant="h5" sx={{ mb: 1 }}>
           {t("settings.title")}
@@ -309,14 +376,33 @@ export default function SettingsPage() {
         <Tabs value={tab} onChange={handleTabChange}>
           <Tab label={t("settings.general.title")} value="general" />
           <Tab label={t("settings.system_init.title")} value="system-init" />
-          <Tab label={t("settings.modules.title", { defaultValue: "Modules" })} value="modules" />
+          <Tab
+            label={t("settings.modules.title", { defaultValue: "Modules" })}
+            value="modules"
+          />
         </Tabs>
       </Box>
 
-      {error && <Alert severity="error" sx={{ mb: 1 }}>{error}</Alert>}
-      {statusMessage && <Alert severity="success" sx={{ mb: 1 }}>{statusMessage}</Alert>}
+      {error && (
+        <Alert severity="error" sx={{ mb: 1 }}>
+          {error}
+        </Alert>
+      )}
+      {statusMessage && (
+        <Alert severity="success" sx={{ mb: 1 }}>
+          {statusMessage}
+        </Alert>
+      )}
 
-      <Box sx={{ minHeight: 0, flexGrow: 1, display: "flex", flexDirection: "column", overflow: "auto" }}>
+      <Box
+        sx={{
+          minHeight: 0,
+          flexGrow: 1,
+          display: "flex",
+          flexDirection: "column",
+          overflow: "auto",
+        }}
+      >
         {tab === "general" && (
           <Stack spacing={2}>
             <TextField
@@ -336,7 +422,9 @@ export default function SettingsPage() {
 
             {loading && <CircularProgress size={20} />}
             {!loading && filtered.size === 0 && (
-              <Typography color="text.secondary">{t("settings.no_results")}</Typography>
+              <Typography color="text.secondary">
+                {t("settings.no_results")}
+              </Typography>
             )}
 
             {[...filtered.entries()].map(([groupKey, items]) => {
@@ -344,25 +432,42 @@ export default function SettingsPage() {
               return (
                 <Paper key={groupKey} sx={{ p: 2 }}>
                   <Typography variant="subtitle1">
-                    {toTitleCase(category.replaceAll("_", " "))} / {toTitleCase(group.replaceAll("_", " "))}
+                    {toTitleCase(category.replaceAll("_", " "))} /{" "}
+                    {toTitleCase(group.replaceAll("_", " "))}
                   </Typography>
                   <Divider sx={{ my: 1 }} />
                   <Stack spacing={1.5}>
                     {items.map((item) => (
                       <Box key={item.key}>
-                        <Stack direction={{ xs: "column", md: "row" }} spacing={1} alignItems={{ xs: "stretch", md: "center" }}>
+                        <Stack
+                          direction={{ xs: "column", md: "row" }}
+                          spacing={1}
+                          alignItems={{ xs: "stretch", md: "center" }}
+                        >
                           <TextField
                             size="small"
                             fullWidth
                             type={item.type === "secret" ? "password" : "text"}
                             label={item.label}
                             value={asInputValue(values[item.key])}
-                            onChange={(event) => setLocalValue(item.key, event.target.value, item.type)}
+                            onChange={(event) =>
+                              setLocalValue(
+                                item.key,
+                                event.target.value,
+                                item.type,
+                              )
+                            }
                             helperText={`${item.description}${item.is_secret && secretMasked[item.key] ? ` (current: ${secretMasked[item.key]})` : ""}`}
                           />
                           <Chip
                             size="small"
-                            color={item.apply_scope === "live_reload" ? "success" : item.apply_scope === "service_restart" ? "warning" : "error"}
+                            color={
+                              item.apply_scope === "live_reload"
+                                ? "success"
+                                : item.apply_scope === "service_restart"
+                                  ? "warning"
+                                  : "error"
+                            }
                             label={item.apply_scope}
                           />
                           {item.type === "secret" && (
@@ -380,7 +485,9 @@ export default function SettingsPage() {
                                 <IconButton
                                   size="small"
                                   color="primary"
-                                  onClick={() => void copySecretForKey(item.key)}
+                                  onClick={() =>
+                                    void copySecretForKey(item.key)
+                                  }
                                 >
                                   <ContentCopyIcon fontSize="small" />
                                 </IconButton>
@@ -393,7 +500,9 @@ export default function SettingsPage() {
                             disabled={busyKey === item.key}
                             onClick={() => void saveKey(item)}
                           >
-                            {busyKey === item.key ? t("common.loading") : t("common.save")}
+                            {busyKey === item.key
+                              ? t("common.loading")
+                              : t("common.save")}
                           </Button>
                         </Stack>
                       </Box>
@@ -406,34 +515,56 @@ export default function SettingsPage() {
             {!modulesLoading && piiModuleEnabled && (
               <Paper sx={{ p: 2 }}>
                 <Typography variant="subtitle1" sx={{ mb: 1 }}>
-                  {t("pii_policy.system_section", { defaultValue: "PII Policy (System Default)" })}
+                  {t("pii_policy.system_section", {
+                    defaultValue: "PII Policy (System Default)",
+                  })}
                 </Typography>
                 <Stack spacing={1.5}>
                   <TextField
                     size="small"
                     fullWidth
-                    label={t("pii_policy.pii_service_url", { defaultValue: "PII Service URL" })}
+                    label={t("pii_policy.pii_service_url", {
+                      defaultValue: "PII Service URL",
+                    })}
                     value={asInputValue(values["llm_port_api.pii_service_url"])}
-                    onChange={(event) => setLocalValue("llm_port_api.pii_service_url", event.target.value, "string")}
+                    onChange={(event) =>
+                      setLocalValue(
+                        "llm_port_api.pii_service_url",
+                        event.target.value,
+                        "string",
+                      )
+                    }
                     helperText={t("pii_policy.pii_service_url_help", {
-                      defaultValue: "Internal URL for llm_port_pii (for example http://llm-port-pii:8000/api).",
+                      defaultValue:
+                        "Internal URL for llm_port_pii (for example http://llm-port-pii:8000/api).",
                     })}
                   />
-                  {piiOptionsError && <Alert severity="warning">{piiOptionsError}</Alert>}
+                  {piiOptionsError && (
+                    <Alert severity="warning">{piiOptionsError}</Alert>
+                  )}
                   <PiiPolicyForm
                     value={piiPolicyValue}
                     options={piiOptions}
                     disabled={piiOptionsLoading}
-                    onChange={(next) => setValues((prev) => ({ ...prev, ["llm_port_api.pii_default_policy"]: next }))}
+                    onChange={(next) =>
+                      setValues((prev) => ({
+                        ...prev,
+                        ["llm_port_api.pii_default_policy"]: next,
+                      }))
+                    }
                   />
                   <Stack direction="row" justifyContent="flex-end">
                     <Button
                       variant="contained"
                       size="small"
-                      disabled={busyKey === "__pii_policy__" || piiOptionsLoading}
+                      disabled={
+                        busyKey === "__pii_policy__" || piiOptionsLoading
+                      }
                       onClick={() => void savePiiSettings()}
                     >
-                      {busyKey === "__pii_policy__" ? t("common.loading") : t("common.save")}
+                      {busyKey === "__pii_policy__"
+                        ? t("common.loading")
+                        : t("common.save")}
                     </Button>
                   </Stack>
                 </Stack>
@@ -445,11 +576,17 @@ export default function SettingsPage() {
         {tab === "system-init" && (
           <Stack spacing={2}>
             <Paper sx={{ p: 2 }}>
-              <Typography variant="h6">{t("settings.system_init.title")}</Typography>
+              <Typography variant="h6">
+                {t("settings.system_init.title")}
+              </Typography>
               <Typography variant="body2" color="text.secondary">
                 {t("settings.system_init.description")}
               </Typography>
-              <Stack direction={{ xs: "column", md: "row" }} spacing={1} sx={{ mt: 1 }}>
+              <Stack
+                direction={{ xs: "column", md: "row" }}
+                spacing={1}
+                sx={{ mt: 1 }}
+              >
                 <TextField
                   size="small"
                   label={t("settings.system_init.target_host")}
@@ -476,83 +613,124 @@ export default function SettingsPage() {
               </Stack>
               {wizardSteps[wizardStepIndex] && (
                 <Box sx={{ mt: 2 }}>
-                  <Typography variant="subtitle1">{wizardSteps[wizardStepIndex].title}</Typography>
+                  <Typography variant="subtitle1">
+                    {wizardSteps[wizardStepIndex].title}
+                  </Typography>
                   <Typography variant="body2" color="text.secondary">
                     {wizardSteps[wizardStepIndex].description}
                   </Typography>
-                  {wizardSteps[wizardStepIndex].id === "pii" && !piiModuleEnabled && (
-                    <Alert severity="info" sx={{ mt: 1.5 }}>
-                      {t("pii_policy.hidden_when_disabled", {
-                        defaultValue: "PII settings are hidden because the PII module is currently disabled.",
-                      })}
-                    </Alert>
-                  )}
-                  {wizardSteps[wizardStepIndex].id === "mailer" && !mailerModuleEnabled && (
-                    <Alert severity="info" sx={{ mt: 1.5 }}>
-                      {t("mailer.hidden_when_disabled", {
-                        defaultValue: "Mailer settings are hidden because the Mailer module is currently disabled.",
-                      })}
-                    </Alert>
-                  )}
-                  {wizardSteps[wizardStepIndex].setting_keys.filter((key) => !(isPiiSettingKey(key) && !piiModuleEnabled) && !(isMailerSettingKey(key) && !mailerModuleEnabled)).length > 0 ? (
+                  {wizardSteps[wizardStepIndex].id === "pii" &&
+                    !piiModuleEnabled && (
+                      <Alert severity="info" sx={{ mt: 1.5 }}>
+                        {t("pii_policy.hidden_when_disabled", {
+                          defaultValue:
+                            "PII settings are hidden because the PII module is currently disabled.",
+                        })}
+                      </Alert>
+                    )}
+                  {wizardSteps[wizardStepIndex].id === "mailer" &&
+                    !mailerModuleEnabled && (
+                      <Alert severity="info" sx={{ mt: 1.5 }}>
+                        {t("mailer.hidden_when_disabled", {
+                          defaultValue:
+                            "Mailer settings are hidden because the Mailer module is currently disabled.",
+                        })}
+                      </Alert>
+                    )}
+                  {wizardSteps[wizardStepIndex].setting_keys.filter(
+                    (key) =>
+                      !(isPiiSettingKey(key) && !piiModuleEnabled) &&
+                      !(isMailerSettingKey(key) && !mailerModuleEnabled),
+                  ).length > 0 ? (
                     <Stack spacing={1.5} sx={{ mt: 1.5 }}>
                       {wizardSteps[wizardStepIndex].setting_keys
-                        .filter((key) => !(isPiiSettingKey(key) && !piiModuleEnabled) && !(isMailerSettingKey(key) && !mailerModuleEnabled))
+                        .filter(
+                          (key) =>
+                            !(isPiiSettingKey(key) && !piiModuleEnabled) &&
+                            !(isMailerSettingKey(key) && !mailerModuleEnabled),
+                        )
                         .map((key) => {
-                        const item = schema.find((s) => s.key === key);
-                        if (!item) return null;
-                        if (item.key === "llm_port_api.pii_default_policy") {
+                          const item = schema.find((s) => s.key === key);
+                          if (!item) return null;
+                          if (item.key === "llm_port_api.pii_default_policy") {
+                            return (
+                              <Box key={item.key}>
+                                <Typography variant="body2" sx={{ mb: 1 }}>
+                                  {item.label}
+                                </Typography>
+                                {piiOptionsError && (
+                                  <Alert severity="warning" sx={{ mb: 1 }}>
+                                    {piiOptionsError}
+                                  </Alert>
+                                )}
+                                <PiiPolicyForm
+                                  value={piiPolicyValue}
+                                  options={piiOptions}
+                                  disabled={piiOptionsLoading}
+                                  onChange={(next) =>
+                                    setValues((prev) => ({
+                                      ...prev,
+                                      [item.key]: next,
+                                    }))
+                                  }
+                                />
+                              </Box>
+                            );
+                          }
                           return (
-                            <Box key={item.key}>
-                              <Typography variant="body2" sx={{ mb: 1 }}>
-                                {item.label}
-                              </Typography>
-                              {piiOptionsError && <Alert severity="warning" sx={{ mb: 1 }}>{piiOptionsError}</Alert>}
-                              <PiiPolicyForm
-                                value={piiPolicyValue}
-                                options={piiOptions}
-                                disabled={piiOptionsLoading}
-                                onChange={(next) => setValues((prev) => ({ ...prev, [item.key]: next }))}
+                            <Stack
+                              key={item.key}
+                              direction={{ xs: "column", md: "row" }}
+                              spacing={1}
+                            >
+                              <TextField
+                                size="small"
+                                fullWidth
+                                type={
+                                  item.type === "secret" ? "password" : "text"
+                                }
+                                label={item.label}
+                                value={asInputValue(values[item.key])}
+                                onChange={(event) =>
+                                  setLocalValue(
+                                    item.key,
+                                    event.target.value,
+                                    item.type,
+                                  )
+                                }
+                                helperText={item.description}
                               />
-                            </Box>
+                              {item.type === "secret" && (
+                                <>
+                                  <Tooltip
+                                    title={t("settings.generate_secret")}
+                                  >
+                                    <IconButton
+                                      size="small"
+                                      color="primary"
+                                      onClick={() =>
+                                        generateSecretForKey(item.key)
+                                      }
+                                    >
+                                      <AutoFixHighIcon fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                                  <Tooltip title={t("common.copy")}>
+                                    <IconButton
+                                      size="small"
+                                      color="primary"
+                                      onClick={() =>
+                                        void copySecretForKey(item.key)
+                                      }
+                                    >
+                                      <ContentCopyIcon fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                                </>
+                              )}
+                            </Stack>
                           );
-                        }
-                        return (
-                          <Stack key={item.key} direction={{ xs: "column", md: "row" }} spacing={1}>
-                            <TextField
-                              size="small"
-                              fullWidth
-                              type={item.type === "secret" ? "password" : "text"}
-                              label={item.label}
-                              value={asInputValue(values[item.key])}
-                              onChange={(event) => setLocalValue(item.key, event.target.value, item.type)}
-                              helperText={item.description}
-                            />
-                            {item.type === "secret" && (
-                              <>
-                                <Tooltip title={t("settings.generate_secret")}>
-                                  <IconButton
-                                    size="small"
-                                    color="primary"
-                                    onClick={() => generateSecretForKey(item.key)}
-                                  >
-                                    <AutoFixHighIcon fontSize="small" />
-                                  </IconButton>
-                                </Tooltip>
-                                <Tooltip title={t("common.copy")}>
-                                  <IconButton
-                                    size="small"
-                                    color="primary"
-                                    onClick={() => void copySecretForKey(item.key)}
-                                  >
-                                    <ContentCopyIcon fontSize="small" />
-                                  </IconButton>
-                                </Tooltip>
-                              </>
-                            )}
-                          </Stack>
-                        );
-                      })}
+                        })}
                     </Stack>
                   ) : (
                     <Typography variant="body2" sx={{ mt: 1.5 }}>
@@ -563,7 +741,9 @@ export default function SettingsPage() {
                     <Button
                       variant="outlined"
                       disabled={wizardStepIndex === 0}
-                      onClick={() => setWizardStepIndex((idx) => Math.max(0, idx - 1))}
+                      onClick={() =>
+                        setWizardStepIndex((idx) => Math.max(0, idx - 1))
+                      }
                     >
                       {t("common.back")}
                     </Button>
@@ -572,12 +752,18 @@ export default function SettingsPage() {
                       disabled={wizardSaving}
                       onClick={() => void applyWizardStep()}
                     >
-                      {wizardSaving ? t("common.loading") : t("settings.system_init.apply_step")}
+                      {wizardSaving
+                        ? t("common.loading")
+                        : t("settings.system_init.apply_step")}
                     </Button>
                     <Button
                       variant="outlined"
                       disabled={wizardStepIndex >= wizardSteps.length - 1}
-                      onClick={() => setWizardStepIndex((idx) => Math.min(wizardSteps.length - 1, idx + 1))}
+                      onClick={() =>
+                        setWizardStepIndex((idx) =>
+                          Math.min(wizardSteps.length - 1, idx + 1),
+                        )
+                      }
                     >
                       {t("settings.system_init.next_step")}
                     </Button>
