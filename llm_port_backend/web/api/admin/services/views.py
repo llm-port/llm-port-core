@@ -16,8 +16,8 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import JSONResponse, StreamingResponse
 from starlette import status
 
 from llm_port_backend.db.models.users import User
@@ -561,3 +561,60 @@ async def disable_module(
             "errors": [],
         },
     )
+
+
+# ── Container logs for a module ───────────────────────────────────────
+
+
+@router.get("/services/{name}/logs/{container_name}", name="module_container_logs")
+async def module_container_logs(
+    name: str,
+    container_name: str,
+    tail: int = Query(default=200, ge=1, le=10000),
+    user: User = Depends(require_permission("modules", "manage")),
+    docker: DockerService = Depends(get_docker),
+) -> StreamingResponse:
+    """Stream logs for a specific container belonging to a module.
+
+    The *container_name* must be one of the containers declared in the
+    module definition.  This prevents arbitrary container access through
+    this simplified endpoint.
+    """
+    mod = _MODULE_MAP.get(name)
+    if not mod:
+        raise HTTPException(status_code=404, detail=f"Unknown module: {name}")
+
+    allowed_containers: list[str] = mod.get("container_names", [])
+    if container_name not in allowed_containers:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Container '{container_name}' is not part of module '{name}'.",
+        )
+
+    # Resolve the Docker container ID from the name.
+    try:
+        all_containers = await docker.list_containers(all_=True)
+    except Exception:
+        raise HTTPException(
+            status_code=503,
+            detail="Docker API is unreachable.",
+        )
+
+    container_id: str | None = None
+    for c in all_containers:
+        names = [n.lstrip("/") for n in c.get("Names", [])]
+        if container_name in names:
+            container_id = c.get("Id")
+            break
+
+    if not container_id:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Container '{container_name}' is not running or does not exist.",
+        )
+
+    async def _stream() -> Any:
+        async for line in docker.logs(container_id, tail=tail, follow=False):
+            yield line
+
+    return StreamingResponse(_stream(), media_type="text/plain")
