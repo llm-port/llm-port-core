@@ -115,6 +115,25 @@ class Settings(BaseSettings):
     pii_enabled: bool = True
     pii_service_url: str = "http://127.0.0.1:8003/api"
 
+    # Mailer module settings
+    mailer_enabled: bool = False
+    mailer_service_url: str = "http://127.0.0.1:8004"
+    mailer_api_token: str = ""
+    mailer_frontend_base_url: str = "http://localhost:5173"
+    mailer_admin_recipients: list[str] | str = []
+    mailer_alert_5xx_threshold_percent: int = 5
+    mailer_alert_5xx_window_minutes: int = 5
+    mailer_alert_cooldown_minutes: int = 30
+    mailer_grafana_webhook_token: str = ""
+    mailer_smtp_host: str = ""
+    mailer_smtp_port: int = 587
+    mailer_smtp_username: str = ""
+    mailer_smtp_password: str = ""
+    mailer_smtp_starttls: bool = True
+    mailer_smtp_ssl: bool = False
+    mailer_from_email: str = "noreply@llm-port.local"
+    mailer_from_name: str = "LLM Port"
+
     # Admin dashboard / Grafana embedding settings
     grafana_url: str | None = Field(
         default=None,

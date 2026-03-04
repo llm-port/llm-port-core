@@ -2,6 +2,7 @@ import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
+import httpx
 from fastapi import FastAPI
 from opentelemetry import metrics, trace
 from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
@@ -31,11 +32,41 @@ from taskiq.instrumentation import TaskiqInstrumentor
 from llm_port_backend.services.docker.client import DockerService
 from llm_port_backend.services.llm.gateway_sync import GatewaySyncService
 from llm_port_backend.services.llm.service import LLMService
+from llm_port_backend.services.notifications import (
+    GatewayAlertMonitor,
+    MailerClient,
+    NotificationDispatcher,
+)
 from llm_port_backend.services.rabbit.lifespan import init_rabbit, shutdown_rabbit
 from llm_port_backend.settings import settings
 from llm_port_backend.tkq import broker
 
 log = logging.getLogger(__name__)
+
+_RUNTIME_VALUE_KEYS: dict[str, str] = {
+    "llm_port_api.pii_enabled": "pii_enabled",
+    "llm_port_api.pii_service_url": "pii_service_url",
+    "llm_port_mailer.enabled": "mailer_enabled",
+    "llm_port_mailer.service_url": "mailer_service_url",
+    "llm_port_mailer.frontend_base_url": "mailer_frontend_base_url",
+    "llm_port_mailer.admin_recipients": "mailer_admin_recipients",
+    "llm_port_mailer.alert_5xx_threshold_percent": "mailer_alert_5xx_threshold_percent",
+    "llm_port_mailer.alert_5xx_window_minutes": "mailer_alert_5xx_window_minutes",
+    "llm_port_mailer.alert_cooldown_minutes": "mailer_alert_cooldown_minutes",
+    "llm_port_mailer.smtp.host": "mailer_smtp_host",
+    "llm_port_mailer.smtp.port": "mailer_smtp_port",
+    "llm_port_mailer.smtp.starttls": "mailer_smtp_starttls",
+    "llm_port_mailer.smtp.ssl": "mailer_smtp_ssl",
+    "llm_port_mailer.from_email": "mailer_from_email",
+    "llm_port_mailer.from_name": "mailer_from_name",
+}
+_RUNTIME_SECRET_KEYS: dict[str, str] = {
+    "llm_port_backend.users_secret": "users_secret",
+    "llm_port_mailer.api_token": "mailer_api_token",
+    "llm_port_mailer.smtp.username": "mailer_smtp_username",
+    "llm_port_mailer.smtp.password": "mailer_smtp_password",
+    "llm_port_mailer.grafana_webhook_token": "mailer_grafana_webhook_token",
+}
 
 
 def _setup_db(app: FastAPI) -> None:  # pragma: no cover
@@ -204,43 +235,98 @@ def setup_prometheus(app: FastAPI) -> None:  # pragma: no cover
     ).expose(app, should_gzip=True, name="prometheus_metrics")
 
 
-async def _load_secrets_from_db(app: FastAPI) -> None:  # pragma: no cover
-    """Load encrypted secrets from ``system_setting_secret`` into settings.
-
-    Both ``llm_port_backend.users_secret`` and ``llm_port_api.jwt_secret``
-    are read, decrypted with ``SettingsCrypto``, and pushed into the
-    runtime ``settings`` singleton so that downstream code (e.g.
-    ``generate_api_token``) can simply reference ``settings.users_secret``.
-    """
+async def _load_runtime_settings_from_db(app: FastAPI) -> None:  # pragma: no cover
+    """Load runtime settings from DB-backed system_setting tables."""
     from llm_port_backend.services.system_settings.crypto import SettingsCrypto  # noqa: PLC0415
-
-    if not settings.settings_master_key:
-        log.warning("SETTINGS_MASTER_KEY is empty – cannot load secrets from DB.")
-        return
-
-    crypto = SettingsCrypto(settings.settings_master_key)
-    keys_to_attrs = {
-        "llm_port_backend.users_secret": "users_secret",
-    }
 
     async with app.state.db_session_factory() as session:
         from sqlalchemy import text  # noqa: PLC0415
 
-        for db_key, attr_name in keys_to_attrs.items():
-            row = await session.execute(
-                text("SELECT ciphertext FROM system_setting_secret WHERE key = :k"),
-                {"k": db_key},
+        try:
+            rows = await session.execute(
+                text("SELECT key, value_json FROM system_setting_value"),
             )
-            result = row.fetchone()
-            if result is None:
-                log.info("Secret '%s' not yet stored in DB, keeping env/default.", db_key)
-                continue
-            try:
-                plaintext = crypto.decrypt(result[0])
+            for row in rows.mappings():
+                db_key = str(row["key"])
+                attr_name = _RUNTIME_VALUE_KEYS.get(db_key)
+                if attr_name is None:
+                    continue
+                value = _extract_setting_value(row["value_json"])
+                object.__setattr__(settings, attr_name, value)
+        except Exception:
+            log.exception("Failed to load runtime value settings from DB.")
+
+        if not settings.settings_master_key:
+            log.warning("SETTINGS_MASTER_KEY is empty – cannot load secret runtime settings from DB.")
+            return
+
+        crypto = SettingsCrypto(settings.settings_master_key)
+        try:
+            rows = await session.execute(
+                text("SELECT key, ciphertext FROM system_setting_secret"),
+            )
+            for row in rows.mappings():
+                db_key = str(row["key"])
+                attr_name = _RUNTIME_SECRET_KEYS.get(db_key)
+                if attr_name is None:
+                    continue
+                try:
+                    plaintext = crypto.decrypt(str(row["ciphertext"]))
+                except Exception:
+                    log.exception("Failed to decrypt secret '%s'.", db_key)
+                    continue
                 object.__setattr__(settings, attr_name, plaintext)
-                log.info("Loaded secret '%s' from DB.", db_key)
-            except Exception:
-                log.exception("Failed to decrypt secret '%s'.", db_key)
+        except Exception:
+            log.exception("Failed to load runtime secret settings from DB.")
+
+
+def _extract_setting_value(value_json: object) -> object:
+    """Unwrap {'value': ...} payloads stored in system_setting_value."""
+    if isinstance(value_json, dict):
+        return value_json.get("value", value_json)
+    return value_json
+
+
+async def _start_notification_runtime(app: FastAPI) -> None:
+    """Start background notification dispatcher and gateway alert monitor."""
+    http_client = httpx.AsyncClient()
+    try:
+        mailer_client = MailerClient(http_client=http_client)
+        dispatcher = NotificationDispatcher(
+            session_factory=app.state.db_session_factory,
+            mailer_client=mailer_client,
+        )
+        dispatcher.start()
+        app.state.notification_http_client = http_client
+        app.state.notification_dispatcher = dispatcher
+
+        gateway_session_factory = getattr(app.state, "llm_graph_trace_session_factory", None)
+        if gateway_session_factory is None:
+            return
+        monitor = GatewayAlertMonitor(
+            backend_session_factory=app.state.db_session_factory,
+            gateway_session_factory=gateway_session_factory,
+        )
+        monitor.start()
+        app.state.gateway_alert_monitor = monitor
+    except Exception:
+        log.exception("Failed to start notification runtime.")
+        await http_client.aclose()
+
+
+async def _stop_notification_runtime(app: FastAPI) -> None:
+    """Stop notification background workers and close shared HTTP client."""
+    monitor: GatewayAlertMonitor | None = getattr(app.state, "gateway_alert_monitor", None)
+    if monitor is not None:
+        await monitor.stop()
+
+    dispatcher: NotificationDispatcher | None = getattr(app.state, "notification_dispatcher", None)
+    if dispatcher is not None:
+        await dispatcher.stop()
+
+    http_client: httpx.AsyncClient | None = getattr(app.state, "notification_http_client", None)
+    if http_client is not None:
+        await http_client.aclose()
 
 
 @asynccontextmanager
@@ -263,8 +349,8 @@ async def lifespan_setup(
     _setup_db(app)
     await _ensure_api_secret_read_grants(app)
 
-    # Load secrets from DB before any service that needs them
-    await _load_secrets_from_db(app)
+    # Load DB-backed runtime settings before services that need them
+    await _load_runtime_settings_from_db(app)
 
     # In dev mode, auto-seed required secrets so the stack works out of the box
     if settings.environment == "dev":
@@ -279,6 +365,8 @@ async def lifespan_setup(
     app.state.llm_service = LLMService(
         app.state.docker, gateway_sync=gateway_sync,
     )
+    if not broker.is_worker_process:
+        await _start_notification_runtime(app)
     app.middleware_stack = app.build_middleware_stack()
 
     # Seed a default admin user in dev mode so the UI is usable immediately
@@ -287,6 +375,9 @@ async def lifespan_setup(
         await _seed_rbac(app)
 
     yield
+
+    await _stop_notification_runtime(app)
+
     if not broker.is_worker_process:
         await broker.shutdown()
     await app.state.db_engine.dispose()

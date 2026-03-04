@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 import uuid
 from typing import Annotated, Any
 
@@ -14,6 +15,7 @@ from llm_port_backend.db.models.containers import AuditResult
 from llm_port_backend.db.models.system_settings import InfraAgentStatus
 from llm_port_backend.db.models.users import User
 from llm_port_backend.services.docker.client import DockerService
+from llm_port_backend.services.notifications import NotificationService, normalize_grafana_alert
 from llm_port_backend.services.system_settings import SettingsCrypto, SystemSettingsService
 from llm_port_backend.services.system_settings.executors import AgentApplyExecutor, LocalApplyExecutor
 from llm_port_backend.settings import settings
@@ -25,6 +27,8 @@ from llm_port_backend.web.api.admin.system.schema import (
     AgentHeartbeatRequest,
     AgentRegisterRequest,
     ApplyJobResponse,
+    GrafanaWebhookPayloadDTO,
+    GrafanaWebhookResponseDTO,
     SettingsSchemaItemDTO,
     SettingsValuesResponse,
     SettingUpdateRequest,
@@ -260,6 +264,22 @@ def _require_agent_token(request: Request) -> None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid agent token.")
 
 
+def _require_grafana_webhook_token(request: Request) -> None:
+    token = settings.mailer_grafana_webhook_token
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Grafana webhook token is not configured.",
+        )
+    header = request.headers.get("Authorization", "")
+    if header.startswith("Bearer "):
+        candidate = header.removeprefix("Bearer ").strip()
+    else:
+        candidate = request.headers.get("X-Webhook-Token", "").strip()
+    if not candidate or not secrets.compare_digest(candidate, token):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid webhook token.")
+
+
 @router.post("/agents/register", response_model=AgentDTO, name="system_agent_register")
 async def system_agent_register(
     body: AgentRegisterRequest,
@@ -351,3 +371,42 @@ async def system_agent_job_status(
     if payload is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Apply job not found.")
     return payload
+
+
+@router.post(
+    "/alerts/grafana/webhook",
+    response_model=GrafanaWebhookResponseDTO,
+    name="system_grafana_webhook",
+)
+async def system_grafana_webhook(
+    body: GrafanaWebhookPayloadDTO,
+    request: Request,
+) -> GrafanaWebhookResponseDTO:
+    """Ingest optional Grafana alert webhooks and enqueue admin alerts."""
+    _require_grafana_webhook_token(request)
+    session_factory = getattr(request.app.state, "db_session_factory", None)
+    if session_factory is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database session factory is not initialized.",
+        )
+
+    normalized = normalize_grafana_alert(body.model_dump(exclude_none=True))
+    async with session_factory() as session:
+        service = NotificationService(session)
+        queued = await service.maybe_enqueue_admin_alert(
+            subject=normalized.subject,
+            severity=normalized.severity,
+            fingerprint=normalized.fingerprint,
+            summary=normalized.summary,
+            details=normalized.details,
+            source=normalized.source,
+            occurred_at=normalized.occurred_at,
+        )
+        if queued:
+            await session.commit()
+
+    return GrafanaWebhookResponseDTO(
+        accepted=queued,
+        fingerprint=normalized.fingerprint if queued else None,
+    )

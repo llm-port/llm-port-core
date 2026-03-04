@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class SettingUpdateRequest(BaseModel):
@@ -131,3 +131,39 @@ class AgentApplyResponse(BaseModel):
     accepted: bool
     job_id: str
     agent_id: str
+
+
+class GrafanaAlertItemDTO(BaseModel):
+    """Subset of Grafana alert item payload fields."""
+
+    status: str | None = None
+    labels: dict[str, Any] = Field(default_factory=dict)
+    annotations: dict[str, Any] = Field(default_factory=dict)
+    startsAt: str | None = None
+    endsAt: str | None = None
+    fingerprint: str | None = None
+    generatorURL: str | None = None
+
+    model_config = ConfigDict(extra="allow")
+
+
+class GrafanaWebhookPayloadDTO(BaseModel):
+    """Generic Grafana webhook payload contract."""
+
+    status: str | None = None
+    title: str | None = None
+    message: str | None = None
+    groupKey: str | None = None
+    startsAt: str | None = None
+    commonLabels: dict[str, Any] = Field(default_factory=dict)
+    commonAnnotations: dict[str, Any] = Field(default_factory=dict)
+    alerts: list[GrafanaAlertItemDTO] = Field(default_factory=list)
+
+    model_config = ConfigDict(extra="allow")
+
+
+class GrafanaWebhookResponseDTO(BaseModel):
+    """Grafana webhook ingestion result."""
+
+    accepted: bool
+    fingerprint: str | None = None

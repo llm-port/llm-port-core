@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 from llm_port_backend.db.dao.system_settings_dao import SystemSettingsDAO
@@ -21,6 +23,34 @@ from llm_port_backend.services.system_settings.registry import (
     registry_by_key,
     validate_value,
 )
+from llm_port_backend.settings import settings
+
+log = logging.getLogger(__name__)
+
+_RUNTIME_VALUE_KEY_MAP: dict[str, str] = {
+    "llm_port_api.pii_enabled": "pii_enabled",
+    "llm_port_api.pii_service_url": "pii_service_url",
+    "llm_port_mailer.enabled": "mailer_enabled",
+    "llm_port_mailer.service_url": "mailer_service_url",
+    "llm_port_mailer.frontend_base_url": "mailer_frontend_base_url",
+    "llm_port_mailer.admin_recipients": "mailer_admin_recipients",
+    "llm_port_mailer.alert_5xx_threshold_percent": "mailer_alert_5xx_threshold_percent",
+    "llm_port_mailer.alert_5xx_window_minutes": "mailer_alert_5xx_window_minutes",
+    "llm_port_mailer.alert_cooldown_minutes": "mailer_alert_cooldown_minutes",
+    "llm_port_mailer.smtp.host": "mailer_smtp_host",
+    "llm_port_mailer.smtp.port": "mailer_smtp_port",
+    "llm_port_mailer.smtp.starttls": "mailer_smtp_starttls",
+    "llm_port_mailer.smtp.ssl": "mailer_smtp_ssl",
+    "llm_port_mailer.from_email": "mailer_from_email",
+    "llm_port_mailer.from_name": "mailer_from_name",
+}
+_RUNTIME_SECRET_KEY_MAP: dict[str, str] = {
+    "llm_port_backend.users_secret": "users_secret",
+    "llm_port_mailer.api_token": "mailer_api_token",
+    "llm_port_mailer.smtp.username": "mailer_smtp_username",
+    "llm_port_mailer.smtp.password": "mailer_smtp_password",
+    "llm_port_mailer.grafana_webhook_token": "mailer_grafana_webhook_token",
+}
 
 
 @dataclass(frozen=True)
@@ -126,12 +156,14 @@ class SystemSettingsService:
                 kek_version="v1",
                 updated_by=actor_id,
             )
+            self._apply_runtime_override(key, validated)
         else:
             await self._dao.upsert_value(
                 key=key,
                 value_json={"value": validated},
                 updated_by=actor_id,
             )
+            self._apply_runtime_override(key, validated)
 
         if defn.apply_scope == SystemApplyScope.LIVE_RELOAD:
             return ApplySummary(
@@ -238,6 +270,12 @@ class SystemSettingsService:
                 status=SystemApplyStatus.FAILED if rollback_ok else SystemApplyStatus.ROLLBACK_FAILED,
                 error=str(exc),
                 ended=True,
+            )
+            await self._emit_apply_failure_alert(
+                action=action,
+                scope=scope,
+                reason=str(exc),
+                rollback_ok=rollback_ok,
             )
             return ApplySummary(
                 job_id=str(job.id),
@@ -420,3 +458,51 @@ class SystemSettingsService:
             "version": agent.version,
             "last_seen": agent.last_seen.isoformat() if agent.last_seen else None,
         }
+
+    @staticmethod
+    def _apply_runtime_override(key: str, value: object) -> None:
+        attr_name = _RUNTIME_VALUE_KEY_MAP.get(key) or _RUNTIME_SECRET_KEY_MAP.get(key)
+        if not attr_name:
+            return
+        object.__setattr__(settings, attr_name, value)
+
+    async def _emit_apply_failure_alert(
+        self,
+        *,
+        action: ApplyAction,
+        scope: SystemApplyScope,
+        reason: str,
+        rollback_ok: bool,
+    ) -> None:
+        try:
+            from llm_port_backend.services.notifications import NotificationService  # noqa: PLC0415
+
+            services = ",".join(action.services) if action.services else "none"
+            keys = ",".join(action.changed_keys)
+            service = NotificationService(self._dao.session)
+            queued = await service.maybe_enqueue_admin_alert(
+                subject="System apply failure",
+                severity="critical",
+                fingerprint=f"system_apply_failed:{scope.value}:{keys}",
+                summary=f"System apply failed for services={services}.",
+                details=reason,
+                source="llm_port_backend.system_settings.apply",
+                occurred_at=datetime.now(tz=UTC),
+            )
+            if not rollback_ok:
+                queued = (
+                    await service.maybe_enqueue_admin_alert(
+                        subject="System rollback failure",
+                        severity="critical",
+                        fingerprint=f"system_apply_rollback_failed:{scope.value}:{keys}",
+                        summary=f"Rollback failed for services={services}.",
+                        details=reason,
+                        source="llm_port_backend.system_settings.rollback",
+                        occurred_at=datetime.now(tz=UTC),
+                    )
+                    or queued
+                )
+            if queued:
+                await self._dao.session.flush()
+        except Exception:
+            log.exception("Failed to enqueue system apply failure alert.")

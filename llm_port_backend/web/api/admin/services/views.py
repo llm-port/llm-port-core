@@ -21,6 +21,7 @@ from fastapi.responses import JSONResponse
 from starlette import status
 
 from llm_port_backend.db.models.users import User
+from llm_port_backend.services.notifications import NotificationService
 from llm_port_backend.services.system_settings import SystemSettingsService
 from llm_port_backend.services.docker.client import DockerService
 from llm_port_backend.settings import settings
@@ -85,6 +86,22 @@ _MODULE_DEFS: list[dict[str, Any]] = [
         "container_names": [
             "llm-port-pii",
             "llm-port-pii-worker",
+        ],
+    },
+    {
+        "name": "mailer",
+        "display_name": "Mailer",
+        "description": (
+            "SMTP mail adapter used for password reset and system admin alerts."
+        ),
+        "settings_flag": "mailer_enabled",
+        "health_url_fn": lambda: f"{settings.mailer_service_url.rstrip('/')}/api/health",
+        "compose_profile": "mailer",
+        "compose_services": [
+            "llm-port-mailer",
+        ],
+        "container_names": [
+            "llm-port-mailer",
         ],
     },
 ]
@@ -219,6 +236,59 @@ async def _sync_pii_enabled(
     return []
 
 
+async def _sync_mailer_enabled(
+    *,
+    service: SystemSettingsService,
+    enabled: bool,
+    actor_id: Any,
+) -> list[str]:
+    """Sync llm_port_mailer.enabled as module lifecycle flag."""
+    try:
+        result = await service.update_value(
+            key="llm_port_mailer.enabled",
+            value=enabled,
+            actor_id=actor_id,
+            root_mode_active=False,
+            target_host="local",
+        )
+    except Exception as exc:
+        logger.exception("Failed to sync llm_port_mailer.enabled")
+        return [f"Failed to sync llm_port_mailer.enabled: {exc}"]
+
+    if result.apply_status != "success":
+        details = "; ".join(result.messages) if result.messages else "unknown apply failure"
+        return [f"Failed to apply llm_port_mailer.enabled={enabled}: {details}"]
+    return []
+
+
+async def _emit_module_lifecycle_alert(
+    request: Request,
+    *,
+    module_name: str,
+    action: str,
+    summary: str,
+    details: str,
+) -> None:
+    session_factory = getattr(request.app.state, "db_session_factory", None)
+    if session_factory is None:
+        return
+    try:
+        async with session_factory() as session:
+            service = NotificationService(session)
+            queued = await service.maybe_enqueue_admin_alert(
+                subject=f"Module lifecycle error: {module_name}",
+                severity="critical",
+                fingerprint=f"module_lifecycle_error:{module_name}:{action}",
+                summary=summary,
+                details=details,
+                source="llm_port_backend.admin.services",
+            )
+            if queued:
+                await session.commit()
+    except Exception:
+        logger.exception("Failed to enqueue module lifecycle alert for %s.", module_name)
+
+
 # ── GET /services ─────────────────────────────────────────────────────
 
 
@@ -322,13 +392,21 @@ async def enable_module(
     )
 
     if rc != 0:
+        detail = stderr or stdout or f"docker compose exited {rc}"
+        await _emit_module_lifecycle_alert(
+            request,
+            module_name=name,
+            action="enable",
+            summary=f"Failed to enable module '{name}'.",
+            details=detail,
+        )
         return JSONResponse(
             status_code=200,
             content={
                 "module": name,
                 "action": "enable",
                 "started": [],
-                "errors": [stderr or stdout or f"docker compose exited {rc}"],
+                "errors": [detail],
             },
         )
 
@@ -340,6 +418,23 @@ async def enable_module(
                 enabled=True,
                 actor_id=user.id,
             ),
+        )
+    elif name == "mailer":
+        errors.extend(
+            await _sync_mailer_enabled(
+                service=system_settings,
+                enabled=True,
+                actor_id=user.id,
+            ),
+        )
+
+    if errors:
+        await _emit_module_lifecycle_alert(
+            request,
+            module_name=name,
+            action="enable_sync",
+            summary=f"Failed to finalize module enable for '{name}'.",
+            details="; ".join(errors),
         )
 
     # Refresh container states for the response.
@@ -387,6 +482,36 @@ async def disable_module(
             actor_id=user.id,
         )
         if errors:
+            await _emit_module_lifecycle_alert(
+                request,
+                module_name=name,
+                action="disable_sync",
+                summary=f"Failed to sync module disable for '{name}'.",
+                details="; ".join(errors),
+            )
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "module": name,
+                    "action": "disable",
+                    "stopped": [],
+                    "errors": errors,
+                },
+            )
+    elif name == "mailer":
+        errors = await _sync_mailer_enabled(
+            service=system_settings,
+            enabled=False,
+            actor_id=user.id,
+        )
+        if errors:
+            await _emit_module_lifecycle_alert(
+                request,
+                module_name=name,
+                action="disable_sync",
+                summary=f"Failed to sync module disable for '{name}'.",
+                details="; ".join(errors),
+            )
             return JSONResponse(
                 status_code=200,
                 content={
@@ -406,13 +531,21 @@ async def disable_module(
     )
 
     if rc != 0:
+        detail = stderr or stdout or f"docker compose exited {rc}"
+        await _emit_module_lifecycle_alert(
+            request,
+            module_name=name,
+            action="disable",
+            summary=f"Failed to disable module '{name}'.",
+            details=detail,
+        )
         return JSONResponse(
             status_code=200,
             content={
                 "module": name,
                 "action": "disable",
                 "stopped": [],
-                "errors": [stderr or stdout or f"docker compose exited {rc}"],
+                "errors": [detail],
             },
         )
 
