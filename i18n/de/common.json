@@ -20,8 +20,17 @@
     "models": "Modelle",
     "runtimes": "Runtimes",
     "jobs": "Jobs",
-    "agent_trace": "Agenten-Trace",
+    "agent_trace": "LLM-Aufrufe",
     "endpoint": "Endpunkt",
+    "observability_group": "Observability",
+    "data_residency": "Datenresidenz",
+    "llm_calls": "LLM-Aufrufe",
+    "rag_group": "RAG",
+    "rag_runtime": "Laufzeitkonfiguration",
+    "rag_collectors": "Kollektoren",
+    "rag_explorer": "Explorer",
+    "rag_publishes": "Veröffentlichungen",
+    "rag_search": "Suche",
     "logs": "Logs",
     "settings": "Einstellungen",
     "pii_group": "Datenschutz (PII)",
@@ -35,7 +44,7 @@
     "auth_providers": "Auth-Anbieter",
     "pinned": "Fixiert",
     "reset_nav_order": "Navigationsreihenfolge zurücksetzen",
-    "security_map": "Sicherheitskarte"
+    "security_map": "Datenresidenz"
   },
   "auth": {
     "logout": "Abmelden",
@@ -331,6 +340,21 @@
     },
     "modules": {
       "title": "Module"
+    },
+    "categories": {
+      "auth": "Authentifizierung",
+      "infrastructure": "Infrastruktur",
+      "modules": "Module",
+      "notifications": "Benachrichtigungen"
+    },
+    "groups": {
+      "auth": "Auth",
+      "infrastructure": "Infrastruktur",
+      "pii": "PII",
+      "mailer": "Mailer",
+      "smtp": "SMTP",
+      "alerts": "Alarme",
+      "docling": "Docling"
     }
   },
   "users": {
@@ -594,7 +618,33 @@
   },
   "modules": {
     "disabled_message": "Das Modul {{module}} ist in dieser Installation nicht aktiviert.",
-    "disabled_hint": "Wenden Sie sich an Ihren Administrator, um dieses Modul zu aktivieren."
+    "disabled_hint": "Wenden Sie sich an Ihren Administrator, um dieses Modul zu aktivieren.",
+    "rag": {
+      "name": "RAG",
+      "description": "Retrieval-Augmented Generation — Dokumentenaufnahme, Vektorsuche und Wissensdatenbank."
+    },
+    "pii": {
+      "name": "PII / Datenschutz",
+      "description": "PII-Erkennung und -Redaktion mit Presidio und spaCy-NLP-Modellen."
+    },
+    "mailer": {
+      "name": "Mailer",
+      "description": "E-Mail-Benachrichtigungsdienst fuer Alarme, Berichte und Benutzerkommunikation."
+    },
+    "auth": {
+      "name": "Auth-Anbieter",
+      "description": "Externer Authentifizierungsanbieter (Keycloak) fuer SSO und Identitaetsverwaltung."
+    },
+    "docling": {
+      "name": "Docling",
+      "description": "Erweiterter Dokumentenkonvertierungsdienst fuer PDF, DOCX, PPTX und Tabellenkalkulation."
+    },
+    "status": {
+      "healthy": "funktionsfähig",
+      "unhealthy": "fehlerhaft",
+      "disabled": "deaktiviert",
+      "configured": "konfiguriert"
+    }
   },
   "modules_tab": {
     "title": "Optionale Module",
@@ -607,7 +657,8 @@
     "confirm_enable_body": "Alle Container des Moduls {{module}} werden gestartet.",
     "confirm_disable_body": "Alle Container des Moduls {{module}} werden gestoppt. Laufende Anfragen werden unterbrochen.",
     "partial_error": "Einige Container hatten Fehler: {{errors}}",
-    "action_success": "{{module}} erfolgreich {{action}}."
+    "action_success": "{{module}} erfolgreich {{action}}.",
+    "logs": "Logs"
   },
   "pii_dashboard": {
     "title": "PII-Dashboard",

@@ -20,8 +20,11 @@
     "models": "Models",
     "runtimes": "Runtimes",
     "jobs": "Jobs",
-    "agent_trace": "Agent Trace",
+    "agent_trace": "LLM Calls",
     "endpoint": "Endpoint",
+    "observability_group": "Observability",
+    "data_residency": "Data Residency",
+    "llm_calls": "LLM Calls",
     "rag_group": "RAG",
     "rag_runtime": "Runtime Config",
     "rag_collectors": "Collectors",
@@ -41,7 +44,7 @@
     "auth_providers": "Auth Providers",
     "pinned": "Pinned",
     "reset_nav_order": "Reset navigation order",
-    "security_map": "Security Map"
+    "security_map": "Data Residency"
   },
   "auth": {
     "logout": "Logout",
@@ -332,6 +335,21 @@
     },
     "modules": {
       "title": "Modules"
+    },
+    "categories": {
+      "auth": "Authentication",
+      "infrastructure": "Infrastructure",
+      "modules": "Modules",
+      "notifications": "Notifications"
+    },
+    "groups": {
+      "auth": "Auth",
+      "infrastructure": "Infrastructure",
+      "pii": "PII",
+      "mailer": "Mailer",
+      "smtp": "SMTP",
+      "alerts": "Alerts",
+      "docling": "Docling"
     }
   },
   "users": {
@@ -678,7 +696,33 @@
   },
   "modules": {
     "disabled_message": "The {{module}} module is not enabled in this deployment.",
-    "disabled_hint": "Contact your administrator to enable this module."
+    "disabled_hint": "Contact your administrator to enable this module.",
+    "rag": {
+      "name": "RAG",
+      "description": "Retrieval-Augmented Generation — document ingestion, vector search and knowledge base."
+    },
+    "pii": {
+      "name": "PII / Privacy",
+      "description": "PII detection and redaction using Presidio and spaCy NLP models."
+    },
+    "mailer": {
+      "name": "Mailer",
+      "description": "Email notification service for alerts, reports and user communication."
+    },
+    "auth": {
+      "name": "Auth Provider",
+      "description": "External authentication provider (Keycloak) for SSO and identity management."
+    },
+    "docling": {
+      "name": "Docling",
+      "description": "Advanced document conversion service for PDF, DOCX, PPTX and spreadsheet parsing."
+    },
+    "status": {
+      "healthy": "healthy",
+      "unhealthy": "unhealthy",
+      "disabled": "disabled",
+      "configured": "configured"
+    }
   },
   "modules_tab": {
     "title": "Optional Modules",
@@ -691,7 +735,8 @@
     "confirm_enable_body": "This will start all containers for the {{module}} module.",
     "confirm_disable_body": "This will stop all containers for the {{module}} module. Any in-flight requests will be interrupted.",
     "partial_error": "Some containers had errors: {{errors}}",
-    "action_success": "{{module}} {{action}}d successfully."
+    "action_success": "{{module}} {{action}}d successfully.",
+    "logs": "Logs"
   },
   "pii_dashboard": {
     "title": "PII Dashboard",

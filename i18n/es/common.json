@@ -20,8 +20,17 @@
     "models": "Modelos",
     "runtimes": "Runtimes",
     "jobs": "Trabajos",
-    "agent_trace": "Traza de Agente",
+    "agent_trace": "Llamadas LLM",
     "endpoint": "Punto de Acceso",
+    "observability_group": "Observabilidad",
+    "data_residency": "Residencia de Datos",
+    "llm_calls": "Llamadas LLM",
+    "rag_group": "RAG",
+    "rag_runtime": "Config. de Runtime",
+    "rag_collectors": "Recolectores",
+    "rag_explorer": "Explorador",
+    "rag_publishes": "Publicaciones",
+    "rag_search": "Búsqueda",
     "logs": "Logs",
     "settings": "Configuracion",
     "pii_group": "Privacidad (PII)",
@@ -35,7 +44,7 @@
     "auth_providers": "Proveedores de autenticación",
     "pinned": "Fijado",
     "reset_nav_order": "Restablecer orden de navegación",
-    "security_map": "Mapa de Seguridad"
+    "security_map": "Residencia de Datos"
   },
   "auth": {
     "logout": "Cerrar sesion",
@@ -331,6 +340,21 @@
     },
     "modules": {
       "title": "Modulos"
+    },
+    "categories": {
+      "auth": "Autenticación",
+      "infrastructure": "Infraestructura",
+      "modules": "Módulos",
+      "notifications": "Notificaciones"
+    },
+    "groups": {
+      "auth": "Auth",
+      "infrastructure": "Infraestructura",
+      "pii": "PII",
+      "mailer": "Mailer",
+      "smtp": "SMTP",
+      "alerts": "Alertas",
+      "docling": "Docling"
     }
   },
   "users": {
@@ -594,7 +618,33 @@
   },
   "modules": {
     "disabled_message": "El módulo {{module}} no está habilitado en esta instalación.",
-    "disabled_hint": "Contacte a su administrador para habilitar este módulo."
+    "disabled_hint": "Contacte a su administrador para habilitar este módulo.",
+    "rag": {
+      "name": "RAG",
+      "description": "Generación Aumentada por Recuperación — ingesta de documentos, búsqueda vectorial y base de conocimiento."
+    },
+    "pii": {
+      "name": "PII / Privacidad",
+      "description": "Detección y redacción de PII con Presidio y modelos NLP de spaCy."
+    },
+    "mailer": {
+      "name": "Mailer",
+      "description": "Servicio de notificaciones por correo para alertas, informes y comunicación."
+    },
+    "auth": {
+      "name": "Proveedor de Auth",
+      "description": "Proveedor de autenticación externo (Keycloak) para SSO y gestión de identidades."
+    },
+    "docling": {
+      "name": "Docling",
+      "description": "Servicio avanzado de conversión de documentos para PDF, DOCX, PPTX y hojas de cálculo."
+    },
+    "status": {
+      "healthy": "saludable",
+      "unhealthy": "en fallo",
+      "disabled": "deshabilitado",
+      "configured": "configurado"
+    }
   },
   "modules_tab": {
     "title": "Modulos Opcionales",
@@ -607,7 +657,8 @@
     "confirm_enable_body": "Se iniciaran todos los contenedores del modulo {{module}}.",
     "confirm_disable_body": "Se detendran todos los contenedores del modulo {{module}}. Las solicitudes en curso seran interrumpidas.",
     "partial_error": "Algunos contenedores tuvieron errores: {{errors}}",
-    "action_success": "{{module}} {{action}} exitosamente."
+    "action_success": "{{module}} {{action}} exitosamente.",
+    "logs": "Logs"
   },
   "pii_dashboard": {
     "title": "Panel PII",
