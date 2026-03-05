@@ -13,6 +13,8 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+from llmport.core.registry import module_env_vars
+
 
 def _random_password(length: int = 32) -> str:
     """Generate a URL-safe random password."""
@@ -71,16 +73,8 @@ def dev_env_vars(
     }
 
     profs = profiles or []
-    if "rag" in profs:
-        env["LLM_PORT_BACKEND_RAG_ENABLED"] = "true"
-        env["LLM_PORT_API_RAG_ENABLED"] = "true"
-        env["LLM_PORT_API_RAG_SERVICE_URL"] = "http://llm-port-rag:8000"
-    if "pii" in profs:
-        env["LLM_PORT_API_PII_ENABLED"] = "true"
-        env["LLM_PORT_API_PII_SERVICE_URL"] = "http://llm-port-pii:8000"
-    if "auth" in profs:
-        env["LLM_PORT_API_AUTH_ENABLED"] = "true"
-        env["LLM_PORT_API_AUTH_SERVICE_URL"] = "http://llm-port-auth:8000"
+    for prof in profs:
+        env.update(module_env_vars(prof))
 
     return env
 
@@ -131,16 +125,8 @@ def default_env_vars(
 
     # Module activation
     profs = profiles or []
-    if "rag" in profs:
-        env["LLM_PORT_BACKEND_RAG_ENABLED"] = "true"
-        env["LLM_PORT_API_RAG_ENABLED"] = "true"
-        env["LLM_PORT_API_RAG_SERVICE_URL"] = "http://llm-port-rag:8000"
-    if "pii" in profs:
-        env["LLM_PORT_API_PII_ENABLED"] = "true"
-        env["LLM_PORT_API_PII_SERVICE_URL"] = "http://llm-port-pii:8000"
-    if "auth" in profs:
-        env["LLM_PORT_API_AUTH_ENABLED"] = "true"
-        env["LLM_PORT_API_AUTH_SERVICE_URL"] = "http://llm-port-auth:8000"
+    for prof in profs:
+        env.update(module_env_vars(prof))
 
     return env
 

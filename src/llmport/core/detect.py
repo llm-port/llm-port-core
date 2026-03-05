@@ -312,24 +312,7 @@ def detect_disk(path: str = "/") -> DiskInfo:
 
 # ── Port map (all ports used by llm.port) ─────────────────────────
 
-KNOWN_PORTS: list[tuple[int, str]] = [
-    (3001, "Grafana"),
-    (3002, "Langfuse"),
-    (3100, "Loki"),
-    (5050, "pgAdmin"),
-    (5173, "Frontend (dev)"),
-    (5432, "PostgreSQL"),
-    (5672, "RabbitMQ AMQP"),
-    (6379, "Redis"),
-    (8000, "Backend"),
-    (8001, "API Gateway"),
-    (8002, "RAG Service"),
-    (8003, "PII Service"),
-    (8123, "ClickHouse HTTP"),
-    (9090, "MinIO API"),
-    (9091, "MinIO Console"),
-    (15672, "RabbitMQ Management"),
-]
+from llmport.core.registry import KNOWN_PORTS
 
 
 def check_port(port: int, label: str = "") -> PortCheck:

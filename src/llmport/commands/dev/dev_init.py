@@ -19,6 +19,12 @@ from llmport.core.console import console, success, warning, error, info
 from llmport.core.detect import detect_docker, check_tool
 from llmport.core.env_gen import dev_env_vars, write_env_file
 from llmport.core.git import clone_all_repos
+from llmport.core.registry import (
+    BACKEND_DEV_ENV,
+    DATABASES,
+    MODULES_COMPAT,
+    POSTGRES_CONTAINER,
+)
 from llmport.core.settings import (
     DevConfig,
     LlmportConfig,
@@ -43,7 +49,7 @@ def _resolve_shared_compose(workspace: Path) -> Path | None:
     return None
 
 
-def _wait_for_postgres(container: str = "llm-port-postgres", timeout: int = 60) -> bool:
+def _wait_for_postgres(container: str = POSTGRES_CONTAINER, timeout: int = 60) -> bool:
     """Block until the Postgres container reports healthy or running."""
     import time
 
@@ -118,7 +124,7 @@ def _ensure_backend_role(backend_dir: Path, pg_user: str = "postgres") -> None:
         [
             "docker",
             "exec",
-            "llm-port-postgres",
+            POSTGRES_CONTAINER,
             "psql",
             "-U",
             pg_user,
@@ -147,7 +153,7 @@ def _ensure_backend_role(backend_dir: Path, pg_user: str = "postgres") -> None:
         [
             "docker",
             "exec",
-            "llm-port-postgres",
+            POSTGRES_CONTAINER,
             "psql",
             "-U",
             pg_user,
@@ -165,7 +171,7 @@ def _ensure_backend_role(backend_dir: Path, pg_user: str = "postgres") -> None:
         [
             "docker",
             "exec",
-            "llm-port-postgres",
+            POSTGRES_CONTAINER,
             "psql",
             "-U",
             pg_user,
@@ -183,7 +189,7 @@ def _ensure_backend_role(backend_dir: Path, pg_user: str = "postgres") -> None:
         [
             "docker",
             "exec",
-            "llm-port-postgres",
+            POSTGRES_CONTAINER,
             "psql",
             "-U",
             pg_user,
@@ -210,7 +216,7 @@ def _ensure_database(db_name: str, pg_user: str = "postgres") -> None:
     """Ensure a database exists inside the shared Postgres container."""
     check_sql = f"SELECT 1 FROM pg_database WHERE datname='{db_name}'"
     result = subprocess.run(
-        ["docker", "exec", "llm-port-postgres", "psql", "-U", pg_user, "-tAc", check_sql],
+        ["docker", "exec", POSTGRES_CONTAINER, "psql", "-U", pg_user, "-tAc", check_sql],
         capture_output=True,
         text=True,
     )
@@ -219,7 +225,7 @@ def _ensure_database(db_name: str, pg_user: str = "postgres") -> None:
         return
 
     subprocess.run(
-        ["docker", "exec", "llm-port-postgres", "psql", "-U", pg_user, "-c", f"CREATE DATABASE {db_name};"],
+        ["docker", "exec", POSTGRES_CONTAINER, "psql", "-U", pg_user, "-c", f"CREATE DATABASE {db_name};"],
         capture_output=True,
         text=True,
     )
@@ -347,13 +353,12 @@ def dev_init(
     # Parse --modules into profile list
     profiles: list[str] = []
     if modules:
-        from llmport.commands.module import MODULES
         for m in modules.split(","):
             m = m.strip().lower()
-            if m in MODULES:
-                profiles.append(MODULES[m]["profile"])
+            if m in MODULES_COMPAT:
+                profiles.append(MODULES_COMPAT[m]["profile"])
             else:
-                warning(f"Unknown module '{m}'. Available: {', '.join(MODULES)}")
+                warning(f"Unknown module '{m}'. Available: {', '.join(MODULES_COMPAT)}")
 
     console.print(f"\n[bold magenta]llm.port Developer Workspace Setup[/bold magenta]")
     console.print(f"[dim]Workspace: {workspace_path}[/dim]")
@@ -385,7 +390,12 @@ def dev_init(
     # ── 1. Clone repos ────────────────────────────────────────────
     console.print("\n[bold cyan]Step 1: Cloning repositories…[/bold cyan]")
     clone_method = "ssh" if ssh else "https"
-    results = clone_all_repos(list(REPO_DIR_MAP.keys()), target_dir=workspace_path, method=clone_method, branch=branch, force=overwrite)
+
+    # Resolve GitHub token for cloning private repos (if configured)
+    existing_cfg = load_config()
+    github_token = existing_cfg.dev.github_token if existing_cfg.dev else ""
+
+    results = clone_all_repos(list(REPO_DIR_MAP.keys()), target_dir=workspace_path, method=clone_method, branch=branch, force=overwrite, token=github_token)
 
     cloned = sum(1 for r in results if r.cloned)
     skipped = sum(1 for r in results if r.skipped)
@@ -413,24 +423,7 @@ def dev_init(
     if backend_env_path.exists():
         warning(f"Backend .env already exists at {backend_env_path} — skipping.")
     elif backend_dir.exists():
-        backend_env = {
-            "LLM_PORT_BACKEND_HOST": "localhost",
-            "LLM_PORT_BACKEND_PORT": "8000",
-            "LLM_PORT_BACKEND_RELOAD": "true",
-            "LLM_PORT_BACKEND_DB_HOST": "localhost",
-            "LLM_PORT_BACKEND_DB_PORT": "5432",
-            "LLM_PORT_BACKEND_DB_USER": "llm_port_backend",
-            "LLM_PORT_BACKEND_DB_PASS": "llm_port_backend",
-            "LLM_PORT_BACKEND_DB_BASE": "llm_port_backend",
-            "LLM_PORT_BACKEND_RABBIT_HOST": "localhost",
-            "LLM_PORT_BACKEND_RABBIT_PORT": "5672",
-            "LLM_PORT_BACKEND_RABBIT_USER": "guest",
-            "LLM_PORT_BACKEND_RABBIT_PASS": "guest",
-            "LLM_PORT_BACKEND_RABBIT_VHOST": "/",
-            # Must match LLM_PORT_BACKEND_SETTINGS_MASTER_KEY in llm_port_shared/.env
-            "LLM_PORT_BACKEND_SETTINGS_MASTER_KEY": "dev-settings-master-key-change-me",
-        }
-        write_env_file(backend_env_path, backend_env)
+        write_env_file(backend_env_path, dict(BACKEND_DEV_ENV))
         success(f"Backend .env written to {backend_env_path}")
 
     # ── 3. Start shared infrastructure ────────────────────────────
@@ -460,7 +453,7 @@ def dev_init(
     # ── 4. Ensure databases ───────────────────────────────────────
     if not skip_infra:
         console.print("\n[bold cyan]Step 4: Ensuring databases…[/bold cyan]")
-        for db_name in ("llm_port_backend", "llm_api", "rag", "pii", "langfuse"):
+        for db_name in DATABASES:
             _ensure_database(db_name)
         if backend_dir.exists():
             _ensure_backend_role(backend_dir)

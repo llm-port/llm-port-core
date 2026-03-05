@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from llmport.core.console import console, error, info, success, warning
-from llmport.core.settings import REPO_DIR_MAP, repo_clone_url
+from llmport.core.registry import REPO_DIR_MAP, repo_clone_url
 
 
 @dataclass
@@ -34,6 +34,7 @@ def clone_repo(
     method: str = "https",
     branch: str | None = None,
     force: bool = False,
+    token: str = "",
 ) -> CloneResult:
     """Clone a single repo into ``target_dir / local_name``.
 
@@ -76,7 +77,7 @@ def clone_repo(
         result.error = "git not found on PATH"
         return result
 
-    url = repo_clone_url(repo, method=method)
+    url = repo_clone_url(repo, method=method, token=token)
     cmd: list[str] = [git, "clone", url, str(dest)]
     if branch:
         cmd.extend(["--branch", branch])
@@ -102,6 +103,7 @@ def clone_all_repos(
     method: str = "https",
     branch: str | None = None,
     force: bool = False,
+    token: str = "",
 ) -> list[CloneResult]:
     """Clone all repos into the target directory.
 
@@ -113,7 +115,7 @@ def clone_all_repos(
     with console.status("[bold cyan]Cloning repositories…") as _status:
         for repo in repos:
             _status.update(f"Cloning [bold]{repo}[/bold]…")
-            res = clone_repo(repo, target_dir=target_dir, method=method, branch=branch, force=force)
+            res = clone_repo(repo, target_dir=target_dir, method=method, branch=branch, force=force, token=token)
             results.append(res)
 
             if res.skipped:

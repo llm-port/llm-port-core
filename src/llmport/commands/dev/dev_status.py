@@ -11,6 +11,7 @@ from rich.table import Table
 from llmport.core.compose import ComposeContext, ps as compose_ps
 from llmport.core.console import console, info
 from llmport.core.git import current_branch
+from llmport.core.registry import DEV_PROCESSES
 from llmport.core.settings import REPO_DIR_MAP, load_config
 
 from .dev_group import dev_group
@@ -137,15 +138,9 @@ def dev_status() -> None:
     proc_table.add_column("Status")
     proc_table.add_column("URL")
 
-    processes = [
-        ("Backend", "llm_port_backend", "http://localhost:8000"),
-        ("Worker", "taskiq worker", "—"),
-        ("Frontend", "npm run dev", "http://localhost:5173"),
-    ]
-
-    for name, pattern, url in processes:
-        running = _check_process(pattern)
+    for proc in DEV_PROCESSES:
+        running = _check_process(proc.pattern)
         status = "[green]running[/green]" if running else "[dim]stopped[/dim]"
-        proc_table.add_row(name, status, url)
+        proc_table.add_row(proc.name, status, proc.url)
 
     console.print(proc_table)

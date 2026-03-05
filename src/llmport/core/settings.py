@@ -18,37 +18,20 @@ from typing import Any
 
 import yaml
 
+from llmport.core.registry import (
+    REPO_DIR_MAP,
+    REPO_NAMES,
+    repo_clone_url,
+)
+
+# Re-export for backward compatibility
+__all__ = ["REPO_DIR_MAP", "repo_clone_url"]
+
 
 # ── Default paths ─────────────────────────────────────────────────
 
 _DEFAULT_CONFIG_DIR = Path.home() / ".config" / "llmport"
 _DEFAULT_CONFIG_FILE = _DEFAULT_CONFIG_DIR / "llmport.yaml"
-
-_GITHUB_ORG = "llm-port"
-_REPOS = [
-    "llm-port-backend",
-    "llm-port-frontend",
-    "llm-port-api",
-    "llm-port-rag",
-    "llm-port-pii",
-    "llm-port-shared",
-    "llm-port-dev",
-    "llm-port-cli",
-    ".github",
-]
-
-# Map GitHub repo name → local directory name (underscore convention)
-REPO_DIR_MAP: dict[str, str] = {
-    "llm-port-backend": "llm_port_backend",
-    "llm-port-frontend": "llm_port_frontend",
-    "llm-port-api": "llm_port_api",
-    "llm-port-rag": "llm_port_rag",
-    "llm-port-pii": "llm_port_pii",
-    "llm-port-shared": "llm_port_shared",
-    "llm-port-dev": "llm_port_dev",
-    "llm-port-cli": "llm_port_cli",
-    ".github": ".github",
-}
 
 
 @dataclass
@@ -58,7 +41,8 @@ class DevConfig:
     workspace_dir: str = ""
     clone_method: str = "https"  # "https" or "ssh"
     branch: str = "master"
-    repos: list[str] = field(default_factory=lambda: list(_REPOS))
+    repos: list[str] = field(default_factory=lambda: list(REPO_NAMES))
+    github_token: str = ""  # GitHub PAT or OAuth token for private repos
 
 
 @dataclass
@@ -152,10 +136,3 @@ def _to_dict(cfg: LlmportConfig) -> dict[str, Any]:
     from dataclasses import asdict
 
     return asdict(cfg)
-
-
-def repo_clone_url(repo: str, *, method: str = "https") -> str:
-    """Return the git clone URL for a repo in the llm-port org."""
-    if method == "ssh":
-        return f"git@github.com:{_GITHUB_ORG}/{repo}.git"
-    return f"https://github.com/{_GITHUB_ORG}/{repo}"

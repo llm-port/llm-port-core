@@ -48,8 +48,14 @@ def cli(ctx: click.Context, *, verbose: bool, quiet: bool) -> None:
 
 # ── Register subcommands ──────────────────────────────────────────
 
-def _register_commands() -> None:
-    """Import and register all subcommand groups and commands."""
+def register_core_commands(group: click.Group | None = None) -> None:
+    """Import and register all core subcommand groups and commands.
+
+    Accepts an optional *group* parameter so the EE CLI can call this
+    with its own root group.  Defaults to ``cli`` when called internally.
+    """
+    target = group or cli
+
     from llmport.commands.version import version_cmd
     from llmport.commands.doctor import doctor_cmd
     from llmport.commands.status import status_cmd
@@ -60,18 +66,18 @@ def _register_commands() -> None:
     from llmport.commands.module import module_group
     from llmport.commands.dev.dev_group import dev_group
 
-    cli.add_command(version_cmd, "version")
-    cli.add_command(doctor_cmd, "doctor")
-    cli.add_command(status_cmd, "status")
-    cli.add_command(up_cmd, "up")
-    cli.add_command(down_cmd, "down")
-    cli.add_command(logs_cmd, "logs")
-    cli.add_command(config_group, "config")
-    cli.add_command(module_group, "module")
-    cli.add_command(dev_group, "dev")
+    target.add_command(version_cmd, "version")
+    target.add_command(doctor_cmd, "doctor")
+    target.add_command(status_cmd, "status")
+    target.add_command(up_cmd, "up")
+    target.add_command(down_cmd, "down")
+    target.add_command(logs_cmd, "logs")
+    target.add_command(config_group, "config")
+    target.add_command(module_group, "module")
+    target.add_command(dev_group, "dev")
 
 
-_register_commands()
+register_core_commands()
 
 
 def main() -> None:

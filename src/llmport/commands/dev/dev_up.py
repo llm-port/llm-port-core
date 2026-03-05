@@ -19,6 +19,7 @@ from pathlib import Path
 import click
 
 from llmport.core.console import console, success, warning, error, info
+from llmport.core.registry import BACKEND_DEV_ENV, DEV_ENDPOINTS
 from llmport.core.settings import load_config
 
 from .dev_group import dev_group
@@ -96,22 +97,7 @@ def _ensure_backend_env(backend_dir: Path) -> None:
     if env_path.exists() or not backend_dir.exists():
         return
     from llmport.core.env_gen import write_env_file
-    env = {
-        "LLM_PORT_BACKEND_HOST": "localhost",
-        "LLM_PORT_BACKEND_PORT": "8000",
-        "LLM_PORT_BACKEND_RELOAD": "true",
-        "LLM_PORT_BACKEND_DB_HOST": "localhost",
-        "LLM_PORT_BACKEND_DB_PORT": "5432",
-        "LLM_PORT_BACKEND_DB_USER": "llm_port_backend",
-        "LLM_PORT_BACKEND_DB_PASS": "llm_port_backend",
-        "LLM_PORT_BACKEND_DB_BASE": "llm_port_backend",
-        "LLM_PORT_BACKEND_RABBIT_HOST": "localhost",
-        "LLM_PORT_BACKEND_RABBIT_PORT": "5672",
-        "LLM_PORT_BACKEND_RABBIT_USER": "guest",
-        "LLM_PORT_BACKEND_RABBIT_PASS": "guest",
-        "LLM_PORT_BACKEND_RABBIT_VHOST": "/",
-    }
-    write_env_file(env_path, env)
+    write_env_file(env_path, dict(BACKEND_DEV_ENV))
     info(f"Generated backend .env at {env_path}")
 
 
@@ -247,21 +233,12 @@ def dev_up(
     console.print("[dim]Close windows or Ctrl+C to stop.[/dim]")
 
     endpoints = []
-    if not frontend_only:
-        endpoints += [
-            ("Backend", "http://localhost:8000"),
-            ("API Docs", "http://localhost:8000/api/docs"),
-            ("Worker", "Taskiq (RabbitMQ)"),
-        ]
-    if not backend_only:
-        endpoints += [("Frontend", "http://localhost:5173")]
-    endpoints += [
-        ("Grafana", "http://localhost:3001"),
-        ("pgAdmin", "http://localhost:5050"),
-        ("RabbitMQ", "http://localhost:15672"),
-        ("LLM API", "http://localhost:8001"),
-        ("RAG API", "http://localhost:8002"),
-    ]
+    for name, url in DEV_ENDPOINTS:
+        if frontend_only and name in ("Backend", "API Docs", "Worker"):
+            continue
+        if backend_only and name == "Frontend":
+            continue
+        endpoints.append((name, url))
 
     console.print()
     for name, url in endpoints:

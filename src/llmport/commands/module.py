@@ -6,24 +6,8 @@ import click
 from rich.table import Table
 
 from llmport.core.console import console, success, warning
+from llmport.core.registry import MODULES_COMPAT as MODULES
 from llmport.core.settings import load_config, save_config
-
-
-# Available modules with descriptions and their compose profile names
-MODULES: dict[str, dict[str, str]] = {
-    "rag": {
-        "description": "Retrieval-Augmented Generation — document ingestion, vector search",
-        "profile": "rag",
-    },
-    "pii": {
-        "description": "PII detection and redaction (Presidio + spaCy)",
-        "profile": "pii",
-    },
-    "auth": {
-        "description": "External authentication provider (Keycloak)",
-        "profile": "auth",
-    },
-}
 
 
 @click.group("module")
