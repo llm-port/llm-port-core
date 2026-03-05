@@ -115,6 +115,10 @@ class Settings(BaseSettings):
     pii_enabled: bool = True
     pii_service_url: str = "http://127.0.0.1:8003/api"
 
+    # PII Pro (Enterprise sidecar) module settings
+    pii_pro_enabled: bool = False
+    pii_pro_service_url: str = "http://127.0.0.1:8013"
+
     # Mailer module settings
     mailer_enabled: bool = False
     mailer_service_url: str = "http://127.0.0.1:8004"

@@ -89,6 +89,24 @@ _MODULE_DEFS: list[dict[str, Any]] = [
         ],
     },
     {
+        "name": "pii-pro",
+        "display_name": "PII Pro",
+        "description": (
+            "Enterprise PII sidecar — adds reversible tokenization, "
+            "per-tenant policies, audit logging, and detokenization. "
+            "Requires a valid Enterprise license and the PII module."
+        ),
+        "settings_flag": "pii_pro_enabled",
+        "health_url_fn": lambda: f"{settings.pii_pro_service_url.rstrip('/')}/api/health",
+        "compose_profile": "pii-pro",
+        "compose_services": [
+            "llm-port-pii-pro",
+        ],
+        "container_names": [
+            "llm-port-pii-pro",
+        ],
+    },
+    {
         "name": "mailer",
         "display_name": "Mailer",
         "description": (
