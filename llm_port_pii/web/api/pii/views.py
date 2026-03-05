@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import JSONResponse
 
 from llm_port_pii.db.dao.pii_event_dao import PIIEventDAO
 from llm_port_pii.services.pii.service import PIIService
@@ -12,8 +13,6 @@ from llm_port_pii.services.pii.service import DEFAULT_ENTITIES, SUPPORTED_LANGUA
 from llm_port_pii.settings import settings
 from llm_port_pii.web.api.pii.schema import (
     DetectedEntityDTO,
-    PIIDetokenizeRequest,
-    PIIDetokenizeResponse,
     PIIEventDTO,
     PIIEventsResponse,
     PIIRedactRequest,
@@ -40,7 +39,7 @@ async def get_policy_options() -> PIIPolicyOptionsResponse:
     return PIIPolicyOptionsResponse(
         supported_entities=list(DEFAULT_ENTITIES),
         supported_languages=list(SUPPORTED_LANGUAGES),
-        supported_sanitize_modes=["redact", "tokenize"],
+        supported_sanitize_modes=["redact"],
         default_language=settings.pii_default_language,
         default_score_threshold=settings.pii_score_threshold,
     )
@@ -125,12 +124,26 @@ async def sanitize_payload(
     body: PIISanitizeRequest,
     request: Request,
     dao: PIIEventDAO = Depends(),
-) -> PIISanitizeResponse:
+) -> PIISanitizeResponse | JSONResponse:
     """Sanitize all text fields in an OpenAI-shaped payload.
 
     Walks ``messages[].content`` (string or multimodal array) and
-    ``input`` (embeddings).  Supports ``redact`` and ``tokenize`` modes.
+    ``input`` (embeddings).  Supports ``redact`` mode only.
+
+    The ``tokenize`` mode and ``/detokenize`` endpoint are available
+    in the **PII Pro** enterprise module.
     """
+    if body.mode != "redact":
+        return JSONResponse(
+            status_code=400,
+            content={
+                "detail": (
+                    f"Unsupported sanitize mode '{body.mode}'. "
+                    "Core PII supports 'redact' only. "
+                    "Use the PII Pro module for tokenize/detokenize."
+                ),
+            },
+        )
     svc = _get_pii_service(request)
     result = await svc.sanitize_payload(
         body.payload,
@@ -168,17 +181,6 @@ async def sanitize_payload(
         ],
         token_mapping=result.token_mapping,
     )
-
-
-@router.post("/detokenize", response_model=PIIDetokenizeResponse)
-async def detokenize_payload(
-    body: PIIDetokenizeRequest,
-    request: Request,
-) -> PIIDetokenizeResponse:
-    """Reverse tokenization on an OpenAI-shaped response payload."""
-    svc = _get_pii_service(request)
-    restored = svc.detokenize_payload(body.payload, body.token_mapping)
-    return PIIDetokenizeResponse(payload=restored)
 
 
 # ---------------------------------------------------------------

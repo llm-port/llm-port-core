@@ -4,25 +4,21 @@ Wraps ``presidio-analyzer`` and ``presidio-anonymizer`` with a thin async
 interface.  The heavy NLP model loading happens once at startup (via
 ``PIIService.create()``) so individual requests are fast.
 
-Supports two PII modes:
-  * **redact** -- replace detected entities with placeholder tags
-    (e.g. ``<PERSON>``)
-  * **tokenize** -- replace with reversible opaque tokens
-    (e.g. ``<PII_1>``) and return a mapping so responses can be
-    de-tokenized.
+Supports PII **redaction** — replacing detected entities with
+placeholder tags (e.g. ``<PERSON>``).  Reversible tokenization
+and response de-tokenization are available in the **PII Pro** module.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
 from presidio_analyzer import AnalyzerEngine, RecognizerResult
 from presidio_anonymizer import AnonymizerEngine
-from presidio_anonymizer.entities import EngineResult, OperatorConfig
+from presidio_anonymizer.entities import EngineResult
 
 log = logging.getLogger(__name__)
 
@@ -210,27 +206,32 @@ class PIIService:
     ) -> SanitizeResult:
         """Sanitize all text-bearing fields in an OpenAI-shaped payload.
 
-        *mode* is one of:
-          - ``"redact"``   -- replace PII with entity-type tags (``<PERSON>``)
-          - ``"tokenize"`` -- replace PII with reversible tokens
-            (``<PII_1>``) and return a mapping so responses can be
-            de-tokenized later.
+        Replaces detected PII with entity-type tags (e.g. ``<PERSON>``).
 
         Walks ``messages[].content`` (string or multimodal array) and the
         ``input`` field (for embeddings).  All other fields are forwarded
         unchanged.
+
+        .. note::
+
+           Reversible tokenization (``mode="tokenize"``) and response
+           de-tokenization are available in the **PII Pro** module.
         """
+        if mode != "redact":
+            raise ValueError(
+                f"Unsupported sanitize mode '{mode}'. "
+                "Core PII supports 'redact' only. "
+                "Use the PII Pro module for tokenize/detokenize."
+            )
+
         lang = language or self._default_language
         ents = entities or DEFAULT_ENTITIES
         threshold = score_threshold or self._default_score_threshold
 
         all_entities: list[DetectedEntity] = []
-        token_mapping: dict[str, str] = {} if mode == "tokenize" else {}
-        counter = 0
 
         async def _sanitize_text(text: str) -> str:
-            """Analyze + transform a single text string."""
-            nonlocal counter
+            """Analyze + redact a single text string."""
             results: list[RecognizerResult] = await asyncio.to_thread(
                 self._analyzer.analyze,
                 text=text,
@@ -251,28 +252,11 @@ class PIIService:
             if not results:
                 return text
 
-            if mode == "tokenize":
-                operators: dict[str, OperatorConfig] = {}
-                for r in results:
-                    counter += 1
-                    token = f"<PII_{counter}>"
-                    original_text = text[r.start : r.end]
-                    token_mapping[token] = original_text
-                    operators[r.entity_type] = OperatorConfig(
-                        "replace", {"new_value": token},
-                    )
-                engine_result: EngineResult = await asyncio.to_thread(
-                    self._anonymizer.anonymize,
-                    text=text,
-                    analyzer_results=results,
-                    operators=operators,
-                )
-            else:
-                engine_result = await asyncio.to_thread(
-                    self._anonymizer.anonymize,
-                    text=text,
-                    analyzer_results=results,
-                )
+            engine_result: EngineResult = await asyncio.to_thread(
+                self._anonymizer.anonymize,
+                text=text,
+                analyzer_results=results,
+            )
             return engine_result.text
 
         # Deep-copy and walk the payload
@@ -293,48 +277,9 @@ class PIIService:
         return SanitizeResult(
             payload=sanitized,
             pii_report=all_entities,
-            token_mapping=token_mapping if mode == "tokenize" else None,
+            token_mapping=None,
             entities_found=len(all_entities),
         )
-
-    def detokenize_text(
-        self,
-        text: str,
-        token_mapping: dict[str, str],
-    ) -> str:
-        """Reverse tokenization on a response string using the mapping."""
-        result = text
-        for token, original in token_mapping.items():
-            result = result.replace(token, original)
-        return result
-
-    def detokenize_payload(
-        self,
-        payload: dict[str, Any],
-        token_mapping: dict[str, str],
-    ) -> dict[str, Any]:
-        """Reverse tokenization on an OpenAI-shaped response payload."""
-        output = dict(payload)
-        choices = output.get("choices")
-        if isinstance(choices, list):
-            for choice in choices:
-                if not isinstance(choice, dict):
-                    continue
-                message = choice.get("message")
-                if isinstance(message, dict):
-                    content = message.get("content")
-                    if isinstance(content, str):
-                        message["content"] = self.detokenize_text(
-                            content, token_mapping,
-                        )
-                delta = choice.get("delta")
-                if isinstance(delta, dict):
-                    content = delta.get("content")
-                    if isinstance(content, str):
-                        delta["content"] = self.detokenize_text(
-                            content, token_mapping,
-                        )
-        return output
 
     # ------------------------------------------------------------------
     # Private helpers -- OpenAI schema walkers
