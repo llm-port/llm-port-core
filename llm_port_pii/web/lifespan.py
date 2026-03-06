@@ -27,6 +27,18 @@ from llm_port_pii.services.redis.lifespan import init_redis, shutdown_redis
 from llm_port_pii.settings import settings
 from llm_port_pii.tkq import broker
 
+log = logging.getLogger(__name__)
+
+# ── Optional EE plugin ────────────────────────────────────────────
+try:
+    from llm_port_ee import setup_ee, teardown_ee  # type: ignore[import-untyped]
+    from llm_port_ee.plugins.pii import pii_plugin  # type: ignore[import-untyped]
+
+    _EE_AVAILABLE = True
+except ImportError:  # pragma: no cover
+    _EE_AVAILABLE = False
+# ──────────────────────────────────────────────────────────────────
+
 
 def _setup_db(app: FastAPI) -> None:  # pragma: no cover
     """
@@ -158,9 +170,39 @@ async def lifespan_setup(
         default_score_threshold=settings.pii_score_threshold,
     )
 
+    # ── Optional EE plugin bootstrap ─────────────────────────
+    if _EE_AVAILABLE:
+        try:
+            await setup_ee(
+                app,
+                module_name="pii-pro",
+                mount_health=False,
+                mount_middleware=False,
+            )
+            await pii_plugin.startup(app)
+            log.info("PII Enterprise plugin loaded successfully.")
+        except SystemExit:
+            log.warning(
+                "EE license validation failed for pii-pro; "
+                "running in Core-only mode.",
+            )
+        except Exception:
+            log.exception("Failed to load PII Enterprise plugin.")
+    # ──────────────────────────────────────────────────────────
+
     app.middleware_stack = app.build_middleware_stack()
 
     yield
+
+    # ── EE teardown ──────────────────────────────────────────
+    if _EE_AVAILABLE and getattr(app.state, "license", None) is not None:
+        try:
+            await pii_plugin.shutdown(app)
+            await teardown_ee(app)
+        except Exception:
+            log.exception("Error during PII Enterprise plugin teardown.")
+    # ──────────────────────────────────────────────────────────
+
     if not broker.is_worker_process:
         await broker.shutdown()
     await app.state.db_engine.dispose()
