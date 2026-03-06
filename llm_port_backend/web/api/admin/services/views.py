@@ -157,6 +157,25 @@ _MODULE_DEFS: list[dict[str, Any]] = [
             "llm-port-docling",
         ],
     },
+    {
+        "name": "observability-pro",
+        "display_name": "Observability Pro",
+        "description": (
+            "Enterprise observability sidecar — adds cost attribution, "
+            "SSE trace streaming, alerting rules, Grafana webhook receiver, "
+            "and full-content Langfuse tracing. "
+            "Requires a valid Enterprise license."
+        ),
+        "settings_flag": "observability_pro_enabled",
+        "health_url_fn": lambda: f"{settings.observability_pro_service_url.rstrip('/')}/api/health",
+        "compose_profile": "observability-pro",
+        "compose_services": [
+            "llm-port-observability-pro",
+        ],
+        "container_names": [
+            "llm-port-observability-pro",
+        ],
+    },
 ]
 
 # Fast lookup by module name.

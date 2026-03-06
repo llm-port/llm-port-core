@@ -382,7 +382,20 @@ async def system_grafana_webhook(
     body: GrafanaWebhookPayloadDTO,
     request: Request,
 ) -> GrafanaWebhookResponseDTO:
-    """Ingest optional Grafana alert webhooks and enqueue admin alerts."""
+    """Ingest optional Grafana alert webhooks and enqueue admin alerts.
+
+    This is an Enterprise-only endpoint.  When the Observability Pro
+    module is not enabled, returns ``402 Payment Required``.  Use the
+    Observability Pro sidecar for alerting features.
+    """
+    if not settings.observability_pro_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail=(
+                "Grafana webhook alerting requires the Observability Pro module. "
+                "Enable the observability-pro service to use this endpoint."
+            ),
+        )
     _require_grafana_webhook_token(request)
     session_factory = getattr(request.app.state, "db_session_factory", None)
     if session_factory is None:
