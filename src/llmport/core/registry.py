@@ -319,3 +319,14 @@ def extend_dev_processes(extra: list[DevProcess]) -> None:
         if proc.name not in existing:
             DEV_PROCESSES.append(proc)
             existing.add(proc.name)
+
+
+def extend_backend_dev_env(extra: dict[str, str]) -> None:
+    """Merge extra env vars into ``BACKEND_DEV_ENV`` (idempotent).
+
+    Existing keys are **not** overwritten.  This allows the EE CLI
+    overlay to inject ``LLM_PORT_EE_*`` variables that will be written
+    to the backend ``.env`` file by ``dev init`` and ``dev up``.
+    """
+    for key, value in extra.items():
+        BACKEND_DEV_ENV.setdefault(key, value)
