@@ -357,6 +357,12 @@ async def lifespan_setup(
     """
 
     app.middleware_stack = None
+
+    # Register built-in optional modules before any request is served.
+    from llm_port_backend.services.core_modules import register_core_modules  # noqa: PLC0415
+
+    register_core_modules()
+
     if not broker.is_worker_process:
         await broker.startup()
     _setup_db(app)

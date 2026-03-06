@@ -21,6 +21,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from starlette import status
 
 from llm_port_backend.db.models.users import User
+from llm_port_backend.services.module_registry import ModuleDef, module_registry
 from llm_port_backend.services.notifications import NotificationService
 from llm_port_backend.services.system_settings import SystemSettingsService
 from llm_port_backend.services.docker.client import DockerService
@@ -32,154 +33,6 @@ from llm_port_backend.web.api.rbac import require_permission
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-# ── Module definitions ────────────────────────────────────────────────
-# Each entry describes an optional module the backend knows about.
-# Adding a new module = append one dict here + add a settings flag.
-#
-# ``compose_profile`` – the Docker Compose profile name used to bring
-#   containers up or tear them down.
-# ``compose_services`` – the Docker Compose *service* names to target
-#   when stopping a module. Required so that ``docker compose stop``
-#   only affects the module's own services, not the entire stack.
-# ``container_names`` – the Docker container names belonging to this
-#   module (for status queries).
-
-_MODULE_DEFS: list[dict[str, Any]] = [
-    {
-        "name": "rag",
-        "display_name": "RAG Engine",
-        "description": (
-            "Retrieval-Augmented Generation pipeline with document ingestion, "
-            "chunking, embedding, and vector search."
-        ),
-        "settings_flag": "rag_enabled",
-        "health_url_fn": lambda: f"{settings.rag_base_url}/health",
-        "compose_profile": "rag",
-        "compose_services": [
-            "llm-port-rag",
-            "llm-port-rag-worker",
-            "llm-port-rag-scheduler",
-            "llm-port-rag-migrator",
-        ],
-        "container_names": [
-            "llm-port-rag",
-            "llm-port-rag-worker",
-            "llm-port-rag-scheduler",
-        ],
-    },
-    {
-        "name": "pii",
-        "display_name": "PII Guard",
-        "description": (
-            "Personally Identifiable Information detection and redaction "
-            "service for request / response payloads."
-        ),
-        "settings_flag": "pii_enabled",
-        "health_url_fn": lambda: f"{settings.pii_service_url}/health",
-        "compose_profile": "pii",
-        "compose_services": [
-            "llm-port-pii",
-            "llm-port-pii-worker",
-            "llm-port-pii-migrator",
-        ],
-        "container_names": [
-            "llm-port-pii",
-            "llm-port-pii-worker",
-        ],
-    },
-    {
-        "name": "pii-pro",
-        "display_name": "PII Pro",
-        "description": (
-            "Enterprise PII sidecar — adds reversible tokenization, "
-            "per-tenant policies, audit logging, and detokenization. "
-            "Requires a valid Enterprise license and the PII module."
-        ),
-        "settings_flag": "pii_pro_enabled",
-        "health_url_fn": lambda: f"{settings.pii_pro_service_url.rstrip('/')}/api/health",
-        "compose_profile": "pii-pro",
-        "compose_services": [
-            "llm-port-pii-pro",
-        ],
-        "container_names": [
-            "llm-port-pii-pro",
-        ],
-    },
-    {
-        "name": "mailer",
-        "display_name": "Mailer",
-        "description": (
-            "SMTP mail adapter used for password reset and system admin alerts."
-        ),
-        "settings_flag": "mailer_enabled",
-        "health_url_fn": lambda: f"{settings.mailer_service_url.rstrip('/')}/api/health",
-        "compose_profile": "mailer",
-        "compose_services": [
-            "llm-port-mailer",
-        ],
-        "container_names": [
-            "llm-port-mailer",
-        ],
-    },
-    {
-        "name": "auth",
-        "display_name": "External Auth",
-        "description": (
-            "Enterprise SSO module providing OIDC and OAuth2 external "
-            "authentication provider management."
-        ),
-        "settings_flag": "auth_enabled",
-        "health_url_fn": lambda: f"{settings.auth_service_url.rstrip('/')}/api/providers/health",
-        "compose_profile": "auth",
-        "compose_services": [
-            "llm-port-auth",
-        ],
-        "container_names": [
-            "llm-port-auth",
-        ],
-    },
-    {
-        "name": "docling",
-        "display_name": "Document Processor",
-        "description": (
-            "Stateless document conversion service powered by IBM Docling. "
-            "Provides layout-aware PDF/DOCX parsing, OCR, table extraction, "
-            "and hierarchical chunking for RAG pipelines."
-        ),
-        "settings_flag": "docling_enabled",
-        "health_url_fn": lambda: f"{settings.docling_service_url.rstrip('/')}/api/v1/health",
-        "compose_profile": "docling",
-        "compose_services": [
-            "llm-port-docling",
-        ],
-        "container_names": [
-            "llm-port-docling",
-        ],
-    },
-    {
-        "name": "observability-pro",
-        "display_name": "Observability Pro",
-        "description": (
-            "Enterprise observability sidecar — adds cost attribution, "
-            "SSE trace streaming, alerting rules, Grafana webhook receiver, "
-            "and full-content Langfuse tracing. "
-            "Requires a valid Enterprise license."
-        ),
-        "settings_flag": "observability_pro_enabled",
-        "health_url_fn": lambda: f"{settings.observability_pro_service_url.rstrip('/')}/api/health",
-        "compose_profile": "observability-pro",
-        "compose_services": [
-            "llm-port-observability-pro",
-        ],
-        "container_names": [
-            "llm-port-observability-pro",
-        ],
-    },
-]
-
-# Fast lookup by module name.
-_MODULE_MAP: dict[str, dict[str, Any]] = {m["name"]: m for m in _MODULE_DEFS}
 
 
 # ── Helpers ───────────────────────────────────────────────────────────
@@ -283,79 +136,33 @@ def _container_states_from_name_map(
     return [{"name": cn, "state": name_map.get(cn, "not_found")} for cn in container_names]
 
 
-async def _sync_pii_enabled(
-    *,
-    service: SystemSettingsService,
-    enabled: bool,
-    actor_id: Any,
-) -> list[str]:
-    """Sync llm_port_api.pii_enabled and trigger gateway apply flow."""
-    try:
-        result = await service.update_value(
-            key="llm_port_api.pii_enabled",
-            value=enabled,
-            actor_id=actor_id,
-            root_mode_active=False,
-            target_host="local",
-        )
-    except Exception as exc:
-        logger.exception("Failed to sync llm_port_api.pii_enabled")
-        return [f"Failed to sync llm_port_api.pii_enabled: {exc}"]
+def _resolve_container_status(
+    mod: ModuleDef,
+    name_map: dict[str, str],
+    docker_reachable: bool,
+) -> tuple[bool, list[dict[str, str]]]:
+    """Determine configured/enabled and container states for a container-type module.
 
-    if result.apply_status != "success":
-        details = "; ".join(result.messages) if result.messages else "unknown apply failure"
-        return [f"Failed to apply llm_port_api.pii_enabled={enabled}: {details}"]
-    return []
+    Returns ``(configured, containers)``.
+    """
+    configured: bool = getattr(settings, mod.settings_flag, False) if mod.settings_flag else False
+    containers = (
+        _container_states_from_name_map(name_map, mod.container_names)
+        if docker_reachable
+        else [{"name": cn, "state": "unknown"} for cn in mod.container_names]
+    )
+    return configured, containers
 
 
-async def _sync_mailer_enabled(
-    *,
-    service: SystemSettingsService,
-    enabled: bool,
-    actor_id: Any,
-) -> list[str]:
-    """Sync llm_port_mailer.enabled as module lifecycle flag."""
-    try:
-        result = await service.update_value(
-            key="llm_port_mailer.enabled",
-            value=enabled,
-            actor_id=actor_id,
-            root_mode_active=False,
-            target_host="local",
-        )
-    except Exception as exc:
-        logger.exception("Failed to sync llm_port_mailer.enabled")
-        return [f"Failed to sync llm_port_mailer.enabled: {exc}"]
+def _resolve_plugin_status(
+    mod: ModuleDef,
+) -> tuple[bool, bool]:
+    """Determine configured/enabled for a plugin-type module.
 
-    if result.apply_status != "success":
-        details = "; ".join(result.messages) if result.messages else "unknown apply failure"
-        return [f"Failed to apply llm_port_mailer.enabled={enabled}: {details}"]
-    return []
-
-
-async def _sync_docling_enabled(
-    *,
-    service: SystemSettingsService,
-    enabled: bool,
-    actor_id: Any,
-) -> list[str]:
-    """Sync llm_port_backend.docling_enabled as module lifecycle flag."""
-    try:
-        result = await service.update_value(
-            key="llm_port_backend.docling_enabled",
-            value=enabled,
-            actor_id=actor_id,
-            root_mode_active=False,
-            target_host="local",
-        )
-    except Exception as exc:
-        logger.exception("Failed to sync llm_port_backend.docling_enabled")
-        return [f"Failed to sync llm_port_backend.docling_enabled: {exc}"]
-
-    if result.apply_status != "success":
-        details = "; ".join(result.messages) if result.messages else "unknown apply failure"
-        return [f"Failed to apply llm_port_backend.docling_enabled={enabled}: {details}"]
-    return []
+    Returns ``(configured, enabled)``.
+    """
+    available = mod.is_available_fn() if mod.is_available_fn else False
+    return available, available
 
 
 async def _emit_module_lifecycle_alert(
@@ -398,59 +205,71 @@ async def list_services(
 
     The frontend uses this to discover which features are available so
     it can show / hide navigation items and page sections dynamically.
+
+    The module list is populated dynamically from the
+    :data:`module_registry` singleton — no module names are hardcoded.
     """
     result: list[dict[str, Any]] = []
     health_checks: list[tuple[int, asyncio.Task[str]]] = []
 
+    # Pre-fetch all Docker container states in a single API call.
     docker_reachable = True
+    name_map: dict[str, str] = {}
     try:
         all_containers = await docker.list_containers(all_=True)
-        name_map: dict[str, str] = {}
         for container in all_containers:
             for raw_name in container.get("Names", []):
                 name_map[raw_name.lstrip("/")] = container.get("State", "unknown")
     except Exception:
         docker_reachable = False
         logger.warning("Docker API unreachable — reporting all containers as unknown", exc_info=True)
-        name_map = {}
 
-    for mod in _MODULE_DEFS:
-        configured: bool = getattr(settings, mod["settings_flag"], False)
-        container_names = mod.get("container_names", [])
-        containers = _container_states_from_name_map(name_map, container_names) if docker_reachable else [
-            {"name": cn, "state": "unknown"} for cn in container_names
-        ]
+    for mod in module_registry.list_modules():
+        entry: dict[str, Any] = {
+            "name": mod.name,
+            "display_name": mod.display_name,
+            "description": mod.description,
+            "module_type": mod.module_type,
+            "enterprise": mod.enterprise,
+        }
 
-        any_running = any(c["state"] == "running" for c in containers)
-        if any_running:
-            result.append(
-                {
-                    "name": mod["name"],
-                    "display_name": mod["display_name"],
-                    "description": mod["description"],
-                    "configured": configured,
-                    "enabled": True,
-                    "status": "unknown",
-                    "containers": containers,
-                }
+        if mod.module_type == "plugin":
+            # ── Plugin modules — status via callable ──────────
+            configured, enabled = _resolve_plugin_status(mod)
+            entry["configured"] = configured
+            entry["enabled"] = enabled
+            entry["containers"] = []
+            if enabled and mod.health_fn:
+                entry["status"] = "unknown"
+                health_checks.append(
+                    (len(result), asyncio.create_task(mod.health_fn())),
+                )
+            else:
+                entry["status"] = "configured" if configured else "disabled"
+        else:
+            # ── Container modules — Docker inspection ─────────
+            configured, containers = _resolve_container_status(
+                mod, name_map, docker_reachable,
             )
-            health_checks.append((len(result) - 1, asyncio.create_task(_probe_health(mod["health_url_fn"]()))))
-            continue
+            entry["configured"] = configured
+            entry["containers"] = containers
+            any_running = any(c["state"] == "running" for c in containers)
+            entry["enabled"] = any_running
+            if any_running and mod.health_url_fn:
+                entry["status"] = "unknown"
+                health_checks.append(
+                    (len(result), asyncio.create_task(_probe_health(mod.health_url_fn()))),
+                )
+            else:
+                entry["status"] = "configured" if configured else "disabled"
 
-        result.append(
-            {
-                "name": mod["name"],
-                "display_name": mod["display_name"],
-                "description": mod["description"],
-                "configured": configured,
-                "enabled": False,
-                "status": "configured" if configured else "disabled",
-                "containers": containers,
-            }
-        )
+        result.append(entry)
 
+    # Resolve pending health checks in parallel.
     if health_checks:
-        statuses = await asyncio.gather(*(task for _, task in health_checks), return_exceptions=False)
+        statuses = await asyncio.gather(
+            *(task for _, task in health_checks), return_exceptions=False,
+        )
         for (idx, _), status_val in zip(health_checks, statuses):
             result[idx]["status"] = status_val
 
@@ -468,69 +287,51 @@ async def enable_module(
     docker: DockerService = Depends(get_docker),
     system_settings: SystemSettingsService = Depends(get_system_settings_service),
 ) -> JSONResponse:
-    """Bring up all containers belonging to a module.
-
-    Uses ``docker compose --profile <profile> up -d`` so that containers
-    are *created* if they don't exist yet, or *started* if already present.
+    """Bring up all containers belonging to a module (container-type)
+    or invoke its ``on_enable`` callback (plugin-type).
     """
-    mod = _MODULE_MAP.get(name)
+    mod = module_registry.get_module(name)
     if mod is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Unknown module: {name}",
         )
 
-    profile = mod.get("compose_profile", name)
-    rc, stdout, stderr = await _run_compose(
-        "up",
-        "-d",
-        "--remove-orphans",
-        profile=profile,
-    )
-
-    if rc != 0:
-        detail = stderr or stdout or f"docker compose exited {rc}"
-        await _emit_module_lifecycle_alert(
-            request,
-            module_name=name,
-            action="enable",
-            summary=f"Failed to enable module '{name}'.",
-            details=detail,
-        )
-        return JSONResponse(
-            status_code=200,
-            content={
-                "module": name,
-                "action": "enable",
-                "started": [],
-                "errors": [detail],
-            },
-        )
-
     errors: list[str] = []
-    if name == "pii":
-        errors.extend(
-            await _sync_pii_enabled(
-                service=system_settings,
-                enabled=True,
-                actor_id=user.id,
-            ),
+
+    # ── Container modules: docker compose up ──────────────────
+    if mod.module_type == "container":
+        profile = mod.compose_profile or name
+        rc, stdout, stderr = await _run_compose(
+            "up",
+            "-d",
+            "--remove-orphans",
+            profile=profile,
         )
-    elif name == "mailer":
+
+        if rc != 0:
+            detail = stderr or stdout or f"docker compose exited {rc}"
+            await _emit_module_lifecycle_alert(
+                request,
+                module_name=name,
+                action="enable",
+                summary=f"Failed to enable module '{name}'.",
+                details=detail,
+            )
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "module": name,
+                    "action": "enable",
+                    "started": [],
+                    "errors": [detail],
+                },
+            )
+
+    # ── Lifecycle callback (both types) ───────────────────────
+    if mod.on_enable:
         errors.extend(
-            await _sync_mailer_enabled(
-                service=system_settings,
-                enabled=True,
-                actor_id=user.id,
-            ),
-        )
-    elif name == "docling":
-        errors.extend(
-            await _sync_docling_enabled(
-                service=system_settings,
-                enabled=True,
-                actor_id=user.id,
-            ),
+            await mod.on_enable(system_settings, True, user.id),
         )
 
     if errors:
@@ -543,8 +344,11 @@ async def enable_module(
         )
 
     # Refresh container states for the response.
-    containers = await _container_states(docker, mod.get("container_names", []))
-    started = [c["name"] for c in containers if c["state"] == "running"]
+    if mod.module_type == "container":
+        containers = await _container_states(docker, mod.container_names)
+        started = [c["name"] for c in containers if c["state"] == "running"]
+    else:
+        started = []
 
     return JSONResponse(
         status_code=200,
@@ -568,70 +372,20 @@ async def disable_module(
     docker: DockerService = Depends(get_docker),
     system_settings: SystemSettingsService = Depends(get_system_settings_service),
 ) -> JSONResponse:
-    """Stop all containers belonging to a module.
-
-    Uses ``docker compose --profile <profile> stop`` to gracefully
-    stop the containers without removing them.
+    """Stop all containers belonging to a module (container-type)
+    or invoke its ``on_disable`` callback (plugin-type).
     """
-    mod = _MODULE_MAP.get(name)
+    mod = module_registry.get_module(name)
     if mod is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Unknown module: {name}",
         )
 
-    if name == "pii":
-        errors = await _sync_pii_enabled(
-            service=system_settings,
-            enabled=False,
-            actor_id=user.id,
-        )
-        if errors:
-            await _emit_module_lifecycle_alert(
-                request,
-                module_name=name,
-                action="disable_sync",
-                summary=f"Failed to sync module disable for '{name}'.",
-                details="; ".join(errors),
-            )
-            return JSONResponse(
-                status_code=200,
-                content={
-                    "module": name,
-                    "action": "disable",
-                    "stopped": [],
-                    "errors": errors,
-                },
-            )
-    elif name == "mailer":
-        errors = await _sync_mailer_enabled(
-            service=system_settings,
-            enabled=False,
-            actor_id=user.id,
-        )
-        if errors:
-            await _emit_module_lifecycle_alert(
-                request,
-                module_name=name,
-                action="disable_sync",
-                summary=f"Failed to sync module disable for '{name}'.",
-                details="; ".join(errors),
-            )
-            return JSONResponse(
-                status_code=200,
-                content={
-                    "module": name,
-                    "action": "disable",
-                    "stopped": [],
-                    "errors": errors,
-                },
-            )
-    elif name == "docling":
-        errors = await _sync_docling_enabled(
-            service=system_settings,
-            enabled=False,
-            actor_id=user.id,
-        )
+    # ── Lifecycle callback (run *before* stopping containers) ─
+    errors: list[str] = []
+    if mod.on_disable:
+        errors = await mod.on_disable(system_settings, False, user.id)
         if errors:
             await _emit_module_lifecycle_alert(
                 request,
@@ -650,35 +404,38 @@ async def disable_module(
                 },
             )
 
-    profile = mod.get("compose_profile", name)
-    services = mod.get("compose_services", [])
-    rc, stdout, stderr = await _run_compose(
-        "stop",
-        *services,
-        profile=profile,
-    )
-
-    if rc != 0:
-        detail = stderr or stdout or f"docker compose exited {rc}"
-        await _emit_module_lifecycle_alert(
-            request,
-            module_name=name,
-            action="disable",
-            summary=f"Failed to disable module '{name}'.",
-            details=detail,
-        )
-        return JSONResponse(
-            status_code=200,
-            content={
-                "module": name,
-                "action": "disable",
-                "stopped": [],
-                "errors": [detail],
-            },
+    # ── Container modules: docker compose stop ────────────────
+    if mod.module_type == "container":
+        profile = mod.compose_profile or name
+        rc, stdout, stderr = await _run_compose(
+            "stop",
+            *mod.compose_services,
+            profile=profile,
         )
 
-    containers = await _container_states(docker, mod.get("container_names", []))
-    stopped = [c["name"] for c in containers if c["state"] != "running"]
+        if rc != 0:
+            detail = stderr or stdout or f"docker compose exited {rc}"
+            await _emit_module_lifecycle_alert(
+                request,
+                module_name=name,
+                action="disable",
+                summary=f"Failed to disable module '{name}'.",
+                details=detail,
+            )
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "module": name,
+                    "action": "disable",
+                    "stopped": [],
+                    "errors": [detail],
+                },
+            )
+
+        containers = await _container_states(docker, mod.container_names)
+        stopped = [c["name"] for c in containers if c["state"] != "running"]
+    else:
+        stopped = []
 
     return JSONResponse(
         status_code=200,
@@ -708,11 +465,17 @@ async def module_container_logs(
     module definition.  This prevents arbitrary container access through
     this simplified endpoint.
     """
-    mod = _MODULE_MAP.get(name)
+    mod = module_registry.get_module(name)
     if not mod:
         raise HTTPException(status_code=404, detail=f"Unknown module: {name}")
 
-    allowed_containers: list[str] = mod.get("container_names", [])
+    if mod.module_type == "plugin":
+        raise HTTPException(
+            status_code=400,
+            detail="Plugin modules do not have containers.",
+        )
+
+    allowed_containers: list[str] = mod.container_names
     if container_name not in allowed_containers:
         raise HTTPException(
             status_code=404,
