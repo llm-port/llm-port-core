@@ -523,43 +523,6 @@ services:
       LLM_PORT_PII_RABBIT_PASS: guest
       LLM_PORT_PII_RABBIT_VHOST: /
 
-  # =====================================================================
-  # OPTIONAL MODULE: PII Pro — Enterprise PII sidecar (profile: pii-pro)
-  #
-  # Activate with:  --profile pii-pro  (or COMPOSE_PROFILES=pii,pii-pro)
-  # Requires the pii profile to be active as well.
-  # When active, point LLM_PORT_API_PII_SERVICE_URL to this container
-  # instead of llm-port-pii so the gateway gets tokenize + detokenize.
-  # =====================================================================
-  llm-port-pii-pro:
-    profiles: ["pii-pro"]
-    build:
-      context: ../llm_port_pii_pro
-      dockerfile: Dockerfile
-    container_name: llm-port-pii-pro
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-      llm-port-pii:
-        condition: service_healthy
-    ports:
-      - "8013:8000"
-    environment:
-      LLM_PORT_PII_PRO_HOST: 0.0.0.0
-      LLM_PORT_PII_PRO_PORT: 8000
-      LLM_PORT_PII_PRO_CORE_URL: http://llm-port-pii:8000
-      LLM_PORT_PII_PRO_CORE_TIMEOUT: 30
-      # EE license + database
-      LLM_PORT_EE_LICENSE_KEY: ${LLM_PORT_EE_LICENSE_KEY:-}
-      LLM_PORT_EE_DB_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-postgres}
-      LLM_PORT_EE_DB_SCHEMA: ee
-      LLM_PORT_EE_AUTO_MIGRATE: "true"
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=3).read()"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
 
   # =====================================================================
   # OPTIONAL MODULE: Mailer (profile: mailer)
