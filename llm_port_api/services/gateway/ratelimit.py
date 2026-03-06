@@ -3,8 +3,10 @@ from __future__ import annotations
 import math
 import time
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-from redis.asyncio import ConnectionPool, Redis
+if TYPE_CHECKING:
+    from llm_port_api.services.cache.protocol import CacheBackend
 
 
 @dataclass(slots=True, frozen=True)
@@ -20,8 +22,8 @@ class RateLimitResult:
 class RateLimiter:
     """Simple fixed-window rate limiter."""
 
-    def __init__(self, pool: ConnectionPool) -> None:
-        self.pool = pool
+    def __init__(self, cache: CacheBackend) -> None:
+        self.cache = cache
 
     async def _check(
         self,
@@ -38,10 +40,7 @@ class RateLimiter:
         bucket = now // window_sec
         ttl = max(window_sec - (now % window_sec), 1)
         key = f"{key_prefix}:{subject}:{bucket}"
-        async with Redis(connection_pool=self.pool) as redis:
-            current = int(await redis.incrby(key, amount))
-            if current == amount:
-                await redis.expire(key, ttl)
+        current = await self.cache.incr(key, amount, ttl_sec=ttl)
         allowed = current <= limit
         retry_after = ttl if not allowed else 0
         return RateLimitResult(

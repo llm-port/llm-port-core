@@ -52,15 +52,15 @@ def get_gateway_service(
     dao: GatewayDAO = Depends(),
 ) -> GatewayService:
     """Build gateway service with request-scoped dependencies."""
-    redis_pool = request.app.state.redis_pool
-    lease_manager = LeaseManager(redis_pool, ttl_sec=settings.lease_ttl_sec)
+    cache = request.app.state.cache_backend
+    lease_manager = LeaseManager(cache, ttl_sec=settings.lease_ttl_sec)
     router_service = RouterService(
         dao=dao,
-        redis_pool=redis_pool,
+        cache=cache,
         lease_manager=lease_manager,
     )
     proxy = UpstreamProxy(client=request.app.state.http_client)
-    limiter = RateLimiter(redis_pool)
+    limiter = RateLimiter(cache)
     audit = AuditService(dao)
     observability: GatewayObservability = request.app.state.gateway_observability
 

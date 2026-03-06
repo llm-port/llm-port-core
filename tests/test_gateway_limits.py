@@ -3,13 +3,15 @@ import uuid
 import pytest
 from redis.asyncio import ConnectionPool
 
+from llm_port_api.services.cache.redis import RedisCache
 from llm_port_api.services.gateway.lease import LeaseManager
 from llm_port_api.services.gateway.ratelimit import RateLimiter
 
 
 @pytest.mark.anyio
 async def test_lease_respects_max_concurrency(fake_redis_pool: ConnectionPool) -> None:
-    lease = LeaseManager(fake_redis_pool, ttl_sec=30)
+    cache = RedisCache(fake_redis_pool)
+    lease = LeaseManager(cache, ttl_sec=30)
     instance_id = uuid.uuid4()
     acquired_first = await lease.try_acquire(
         instance_id=instance_id,
@@ -34,7 +36,8 @@ async def test_lease_respects_max_concurrency(fake_redis_pool: ConnectionPool) -
 
 @pytest.mark.anyio
 async def test_rate_limiter_rpm_and_tpm(fake_redis_pool: ConnectionPool) -> None:
-    limiter = RateLimiter(fake_redis_pool)
+    cache = RedisCache(fake_redis_pool)
+    limiter = RateLimiter(cache)
     rpm_1 = await limiter.check_rpm(tenant_id="tenant-x", limit=1)
     rpm_2 = await limiter.check_rpm(tenant_id="tenant-x", limit=1)
     assert rpm_1 is not None and rpm_1.allowed

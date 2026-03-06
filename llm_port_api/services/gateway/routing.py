@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-
-from redis.asyncio import ConnectionPool, Redis
+from typing import TYPE_CHECKING
 
 from llm_port_api.db.dao.gateway_dao import GatewayDAO, RoutedInstance
 from llm_port_api.services.gateway.errors import GatewayError
 from llm_port_api.services.gateway.lease import LeaseManager
+
+if TYPE_CHECKING:
+    from llm_port_api.services.cache.protocol import CacheBackend
 
 
 @dataclass(slots=True, frozen=True)
@@ -24,11 +26,11 @@ class RouterService:
         self,
         *,
         dao: GatewayDAO,
-        redis_pool: ConnectionPool,
+        cache: CacheBackend,
         lease_manager: LeaseManager,
     ) -> None:
         self.dao = dao
-        self.redis_pool = redis_pool
+        self.cache = cache
         self.lease_manager = lease_manager
 
     async def resolve_alias(
@@ -91,8 +93,7 @@ class RouterService:
         keys = [self.lease_manager.active_key(c.instance_id) for c in candidates]
         if not keys:
             return {}
-        async with Redis(connection_pool=self.redis_pool) as redis:
-            raw = await redis.mget(keys)
+        raw = await self.cache.mget(keys)
         result: dict[str, int] = {}
         for candidate, value in zip(candidates, raw):
             try:

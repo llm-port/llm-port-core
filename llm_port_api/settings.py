@@ -49,8 +49,8 @@ class Settings(BaseSettings):
     db_echo: bool = False
     db_url_override: str | None = None
 
-    # Variables for Redis
-    redis_host: str = "llm_port_api-redis"
+    # Variables for Redis (optional — empty host disables Redis)
+    redis_host: str = ""
     redis_port: int = 6379
     redis_user: Optional[str] = None
     redis_pass: Optional[str] = None
@@ -137,6 +137,11 @@ class Settings(BaseSettings):
             password=self.db_pass,
             path=f"/{self.db_base}",
         )
+
+    @property
+    def redis_enabled(self) -> bool:
+        """Return True when a Redis host is configured."""
+        return bool(self.redis_host)
 
     @property
     def redis_url(self) -> URL:

@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Any, cast
+from typing import TYPE_CHECKING
 
-from redis.asyncio import ConnectionPool, Redis
-from redis.exceptions import ResponseError
+if TYPE_CHECKING:
+    from llm_port_api.services.cache.protocol import CacheBackend
 
 log = logging.getLogger(__name__)
 
@@ -45,8 +45,8 @@ return 0
 class LeaseManager:
     """Distributed lease manager for per-instance concurrency caps."""
 
-    def __init__(self, pool: ConnectionPool, ttl_sec: int) -> None:
-        self.pool = pool
+    def __init__(self, cache: CacheBackend, ttl_sec: int) -> None:
+        self.cache = cache
         self.ttl_sec = ttl_sec
 
     @staticmethod
@@ -66,50 +66,25 @@ class LeaseManager:
     ) -> bool:
         """Attempt to acquire a lease for an instance.
 
-        Uses an atomic Lua script.  If Redis scripting is unavailable the
-        lease is **refused** rather than falling back to non-atomic
-        commands, which would allow over-allocation under concurrency.
+        Uses an atomic Lua script via ``CacheBackend.eval_lua``.
+        With ``NoOpCache`` the lease always succeeds (fail-open).
         """
-        async with Redis(connection_pool=self.pool) as redis:
-            try:
-                eval_result = redis.eval(
-                    _ACQUIRE_LUA,
-                    2,
-                    self.active_key(instance_id),
-                    self.lease_key(request_id),
-                    request_id,
-                    str(max(max_concurrency, 1)),
-                    str(self.ttl_sec),
-                )
-                result = await cast(Any, eval_result)
-                return str(result) == "1"
-            except ResponseError:
-                log.error(
-                    "Redis Lua scripting unavailable - lease refused for "
-                    "instance %s (request %s). Ensure Redis EVAL is enabled.",
-                    instance_id,
-                    request_id,
-                )
-                return False
+        result = await self.cache.eval_lua(
+            _ACQUIRE_LUA,
+            2,
+            self.active_key(instance_id),
+            self.lease_key(request_id),
+            request_id,
+            str(max(max_concurrency, 1)),
+            str(self.ttl_sec),
+        )
+        return result == "1"
 
     async def release(self, *, instance_id: uuid.UUID | str, request_id: str) -> None:
-        """Release a previously-acquired lease.
-
-        If the Lua script fails the lease key will auto-expire via TTL.
-        """
-        async with Redis(connection_pool=self.pool) as redis:
-            try:
-                eval_result = redis.eval(
-                    _RELEASE_LUA,
-                    2,
-                    self.active_key(instance_id),
-                    self.lease_key(request_id),
-                )
-                await cast(Any, eval_result)
-            except ResponseError:
-                log.warning(
-                    "Redis Lua scripting unavailable - lease for request %s "
-                    "will auto-expire via TTL (%ds).",
-                    request_id,
-                    self.ttl_sec,
-                )
+        """Release a previously-acquired lease."""
+        await self.cache.eval_lua(
+            _RELEASE_LUA,
+            2,
+            self.active_key(instance_id),
+            self.lease_key(request_id),
+        )

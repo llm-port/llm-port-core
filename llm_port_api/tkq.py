@@ -1,21 +1,25 @@
 from typing import Any
 
 import taskiq_fastapi
-from taskiq import AsyncBroker, AsyncResultBackend, InMemoryBroker
+from taskiq import AsyncBroker, InMemoryBroker
 from taskiq_aio_pika import AioPikaBroker
-from taskiq_redis import RedisAsyncResultBackend
 
 from llm_port_api.settings import settings
 
-result_backend: AsyncResultBackend[Any] = RedisAsyncResultBackend(
-    redis_url=str(settings.redis_url.with_path("/1")),
-)
-broker: AsyncBroker = AioPikaBroker(
-    str(settings.rabbit_url),
-).with_result_backend(result_backend)
+broker: AsyncBroker
 
 if settings.environment.lower() == "pytest":
     broker = InMemoryBroker()
+else:
+    _broker = AioPikaBroker(str(settings.rabbit_url))
+    if settings.redis_enabled:
+        from taskiq_redis import RedisAsyncResultBackend
+
+        _result_backend = RedisAsyncResultBackend(
+            redis_url=str(settings.redis_url.with_path("/1")),
+        )
+        _broker = _broker.with_result_backend(_result_backend)
+    broker = _broker
 
 taskiq_fastapi.init(
     broker,

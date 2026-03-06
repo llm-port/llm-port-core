@@ -16,10 +16,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from llm_port_api.db.dependencies import get_db_session
 from llm_port_api.db.meta import meta
 from llm_port_api.db.models import load_all_models
+from llm_port_api.services.cache.redis import RedisCache
 from llm_port_api.services.gateway.observability import GatewayObservability
 from llm_port_api.services.rabbit.dependencies import get_rmq_channel_pool
 from llm_port_api.services.rabbit.lifespan import init_rabbit, shutdown_rabbit
-from llm_port_api.services.redis.dependency import get_redis_pool
 from llm_port_api.web.application import get_app
 
 
@@ -178,11 +178,10 @@ def fastapi_app(
     :return: fastapi app with mocked dependencies.
     """
     application = get_app()
-    application.state.redis_pool = fake_redis_pool
+    application.state.cache_backend = RedisCache(fake_redis_pool)
     application.state.rmq_channel_pool = test_rmq_pool
     application.state.gateway_observability = GatewayObservability(enabled=False)
     application.dependency_overrides[get_db_session] = lambda: db_session
-    application.dependency_overrides[get_redis_pool] = lambda: fake_redis_pool
     application.dependency_overrides[get_rmq_channel_pool] = lambda: test_rmq_pool
     return application
 

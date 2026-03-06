@@ -27,7 +27,7 @@ from llm_port_api.services.gateway.proxy import create_shared_http_client
 from llm_port_api.services.gateway.jwt_secret import load_jwt_secret_from_backend_db
 from llm_port_api.services.gateway.settings_loader import load_system_settings_from_backend_db
 from llm_port_api.services.rabbit.lifespan import init_rabbit, shutdown_rabbit
-from llm_port_api.services.redis.lifespan import init_redis, shutdown_redis
+from llm_port_api.services.cache import NoOpCache, RedisCache
 from llm_port_api.services.registry import service_registry
 from llm_port_api.settings import settings
 from llm_port_api.tkq import broker
@@ -82,9 +82,10 @@ def setup_opentelemetry(app: FastAPI) -> None:  # pragma: no cover
         tracer_provider=tracer_provider,
         excluded_urls=",".join(excluded_endpoints),
     )
-    RedisInstrumentor().instrument(
-        tracer_provider=tracer_provider,
-    )
+    if settings.redis_enabled:
+        RedisInstrumentor().instrument(
+            tracer_provider=tracer_provider,
+        )
     SQLAlchemyInstrumentor().instrument(
         tracer_provider=tracer_provider,
         engine=app.state.db_engine.sync_engine,
@@ -106,7 +107,8 @@ def stop_opentelemetry(app: FastAPI) -> None:  # pragma: no cover
         return
 
     FastAPIInstrumentor().uninstrument_app(app)
-    RedisInstrumentor().uninstrument()
+    if settings.redis_enabled:
+        RedisInstrumentor().uninstrument()
     SQLAlchemyInstrumentor().uninstrument()
     AioPikaInstrumentor().uninstrument()
 
@@ -125,6 +127,19 @@ def setup_prometheus(app: FastAPI) -> None:  # pragma: no cover
     PrometheusFastApiInstrumentator(should_group_status_codes=False).instrument(
         app,
     ).expose(app, should_gzip=True, name="prometheus_metrics")
+
+
+def _init_cache(app: FastAPI) -> None:  # pragma: no cover
+    """Initialise the ``CacheBackend`` — ``RedisCache`` when a Redis URL is
+    configured, ``NoOpCache`` otherwise (fail-open for Core deployments).
+    """
+    if settings.redis_enabled:
+        from redis.asyncio import ConnectionPool
+
+        pool = ConnectionPool.from_url(str(settings.redis_url))
+        app.state.cache_backend = RedisCache(pool)
+    else:
+        app.state.cache_backend = NoOpCache()
 
 
 def _setup_db(app: FastAPI) -> None:  # pragma: no cover
@@ -208,7 +223,7 @@ async def lifespan_setup(
         timeout_sec=settings.http_timeout_sec,
     )
     setup_opentelemetry(app)
-    init_redis(app)
+    _init_cache(app)
     init_rabbit(app)
     setup_prometheus(app)
     app.middleware_stack = app.build_middleware_stack()
@@ -219,6 +234,6 @@ async def lifespan_setup(
     await app.state.http_client.aclose()
     await app.state.db_engine.dispose()
     app.state.gateway_observability.shutdown()
-    await shutdown_redis(app)
+    await app.state.cache_backend.close()
     await shutdown_rabbit(app)
     stop_opentelemetry(app)
