@@ -15,7 +15,6 @@ from llm_port_backend.db.models.containers import AuditResult
 from llm_port_backend.db.models.system_settings import InfraAgentStatus
 from llm_port_backend.db.models.users import User
 from llm_port_backend.services.docker.client import DockerService
-from llm_port_backend.services.notifications import NotificationService, normalize_grafana_alert
 from llm_port_backend.services.system_settings import SettingsCrypto, SystemSettingsService
 from llm_port_backend.services.system_settings.executors import AgentApplyExecutor, LocalApplyExecutor
 from llm_port_backend.settings import settings
@@ -264,22 +263,6 @@ def _require_agent_token(request: Request) -> None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid agent token.")
 
 
-def _require_grafana_webhook_token(request: Request) -> None:
-    token = settings.mailer_grafana_webhook_token
-    if not token:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Grafana webhook token is not configured.",
-        )
-    header = request.headers.get("Authorization", "")
-    if header.startswith("Bearer "):
-        candidate = header.removeprefix("Bearer ").strip()
-    else:
-        candidate = request.headers.get("X-Webhook-Token", "").strip()
-    if not candidate or not secrets.compare_digest(candidate, token):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid webhook token.")
-
-
 @router.post("/agents/register", response_model=AgentDTO, name="system_agent_register")
 async def system_agent_register(
     body: AgentRegisterRequest,
@@ -384,42 +367,13 @@ async def system_grafana_webhook(
 ) -> GrafanaWebhookResponseDTO:
     """Ingest optional Grafana alert webhooks and enqueue admin alerts.
 
-    This is an Enterprise-only endpoint.  When the Observability Pro
-    module is not enabled, returns ``402 Payment Required``.  Use the
-    Observability Pro sidecar for alerting features.
+    This is an Enterprise-only endpoint.  Returns ``402 Payment Required``
+    unless the Observability Pro plugin is loaded (which shadows this route).
     """
-    if not settings.observability_pro_enabled:
-        raise HTTPException(
-            status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail=(
-                "Grafana webhook alerting requires the Observability Pro module. "
-                "Enable the observability-pro service to use this endpoint."
-            ),
-        )
-    _require_grafana_webhook_token(request)
-    session_factory = getattr(request.app.state, "db_session_factory", None)
-    if session_factory is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Database session factory is not initialized.",
-        )
-
-    normalized = normalize_grafana_alert(body.model_dump(exclude_none=True))
-    async with session_factory() as session:
-        service = NotificationService(session)
-        queued = await service.maybe_enqueue_admin_alert(
-            subject=normalized.subject,
-            severity=normalized.severity,
-            fingerprint=normalized.fingerprint,
-            summary=normalized.summary,
-            details=normalized.details,
-            source=normalized.source,
-            occurred_at=normalized.occurred_at,
-        )
-        if queued:
-            await session.commit()
-
-    return GrafanaWebhookResponseDTO(
-        accepted=queued,
-        fingerprint=normalized.fingerprint if queued else None,
+    raise HTTPException(
+        status_code=status.HTTP_402_PAYMENT_REQUIRED,
+        detail=(
+            "Grafana webhook alerting requires the Observability Pro plugin. "
+            "Install llm-port-ee to enable this endpoint."
+        ),
     )

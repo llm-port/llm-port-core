@@ -153,26 +153,6 @@ def register_core_modules() -> None:
             on_disable=_sync_pii_enabled,
         ),
         ModuleDef(
-            name="pii-pro",
-            display_name="PII Pro",
-            description=(
-                "Enterprise PII sidecar — adds reversible tokenization, "
-                "per-tenant policies, audit logging, and detokenization. "
-                "Requires a valid Enterprise license and the PII module."
-            ),
-            module_type="container",
-            enterprise=True,
-            settings_flag="pii_pro_enabled",
-            health_url_fn=lambda: f"{settings.pii_pro_service_url.rstrip('/')}/api/health",
-            compose_profile="pii-pro",
-            compose_services=[
-                "llm-port-pii-pro",
-            ],
-            container_names=[
-                "llm-port-pii-pro",
-            ],
-        ),
-        ModuleDef(
             name="mailer",
             display_name="Mailer",
             description=(
@@ -229,27 +209,6 @@ def register_core_modules() -> None:
             ],
             on_enable=_sync_docling_enabled,
             on_disable=_sync_docling_enabled,
-        ),
-        ModuleDef(
-            name="observability-pro",
-            display_name="Observability Pro",
-            description=(
-                "Enterprise observability sidecar — adds cost attribution, "
-                "SSE trace streaming, alerting rules, Grafana webhook receiver, "
-                "and full-content Langfuse tracing. "
-                "Requires a valid Enterprise license."
-            ),
-            module_type="container",
-            enterprise=True,
-            settings_flag="observability_pro_enabled",
-            health_url_fn=lambda: f"{settings.observability_pro_service_url.rstrip('/')}/api/health",
-            compose_profile="observability-pro",
-            compose_services=[
-                "llm-port-observability-pro",
-            ],
-            container_names=[
-                "llm-port-observability-pro",
-            ],
         ),
     ]
 

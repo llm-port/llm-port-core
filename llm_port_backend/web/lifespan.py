@@ -43,6 +43,16 @@ from llm_port_backend.tkq import broker
 
 log = logging.getLogger(__name__)
 
+# ── Optional EE plugin ────────────────────────────────────────────
+try:
+    from llm_port_ee import setup_ee, teardown_ee  # type: ignore[import-untyped]
+    from llm_port_ee.plugins.backend import backend_plugin  # type: ignore[import-untyped]
+
+    _EE_AVAILABLE = True
+except ImportError:  # pragma: no cover
+    _EE_AVAILABLE = False
+# ──────────────────────────────────────────────────────────────────
+
 _RUNTIME_VALUE_KEYS: dict[str, str] = {
     "llm_port_api.pii_enabled": "pii_enabled",
     "llm_port_api.pii_service_url": "pii_service_url",
@@ -386,6 +396,27 @@ async def lifespan_setup(
     )
     if not broker.is_worker_process:
         await _start_notification_runtime(app)
+
+    # ── Optional EE plugin bootstrap ─────────────────────────
+    if _EE_AVAILABLE:
+        try:
+            await setup_ee(
+                app,
+                module_name="observability-pro",
+                mount_health=False,
+                mount_middleware=False,
+            )
+            await backend_plugin.startup(app)
+            log.info("Backend Enterprise plugin loaded successfully.")
+        except SystemExit:
+            log.warning(
+                "EE license validation failed for observability-pro; "
+                "running in Core-only mode.",
+            )
+        except Exception:
+            log.exception("Failed to load Backend Enterprise plugin.")
+    # ──────────────────────────────────────────────────────────
+
     app.middleware_stack = app.build_middleware_stack()
 
     # Seed a default admin user in dev mode so the UI is usable immediately
@@ -394,6 +425,15 @@ async def lifespan_setup(
         await _seed_rbac(app)
 
     yield
+
+    # ── EE teardown ──────────────────────────────────────────
+    if _EE_AVAILABLE and getattr(app.state, "license", None) is not None:
+        try:
+            await backend_plugin.shutdown(app)
+            await teardown_ee(app)
+        except Exception:
+            log.exception("Error during Backend Enterprise plugin teardown.")
+    # ──────────────────────────────────────────────────────────
 
     await _stop_notification_runtime(app)
 

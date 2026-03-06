@@ -16,6 +16,13 @@ from llm_port_backend.web.lifespan import lifespan_setup
 
 APP_ROOT = Path(__file__).parent.parent
 
+# ── Optional EE plugin ────────────────────────────────────────────
+try:
+    from llm_port_ee.plugins.backend import backend_plugin  # type: ignore[import-untyped]
+except ImportError:  # pragma: no cover
+    backend_plugin = None
+# ──────────────────────────────────────────────────────────────────
+
 
 def get_app() -> FastAPI:
     """
@@ -51,6 +58,11 @@ def get_app() -> FastAPI:
         openapi_url="/api/openapi.json",
         default_response_class=UJSONResponse,
     )
+
+    # EE plugin routes are included FIRST so they shadow Core 402-gated
+    # endpoints with enterprise implementations.
+    if backend_plugin is not None:
+        app.include_router(router=backend_plugin.router())
 
     # Main router for the API.
     app.include_router(router=api_router, prefix="/api")

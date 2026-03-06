@@ -115,10 +115,6 @@ class Settings(BaseSettings):
     pii_enabled: bool = True
     pii_service_url: str = "http://127.0.0.1:8003/api"
 
-    # PII Pro (Enterprise sidecar) module settings
-    pii_pro_enabled: bool = False
-    pii_pro_service_url: str = "http://127.0.0.1:8013"
-
     # Mailer module settings
     mailer_enabled: bool = False
     mailer_service_url: str = "http://127.0.0.1:8004"
@@ -141,10 +137,6 @@ class Settings(BaseSettings):
     # External Auth module settings (enterprise SSO)
     auth_enabled: bool = False
     auth_service_url: str = "http://127.0.0.1:8005"
-
-    # Observability Pro (Enterprise sidecar) module settings
-    observability_pro_enabled: bool = False
-    observability_pro_service_url: str = "http://127.0.0.1:8015"
 
     # Document Processor module settings (Docling)
     docling_enabled: bool = False
