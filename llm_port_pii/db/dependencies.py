@@ -2,11 +2,10 @@ from typing import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
-from taskiq import TaskiqDepends
 
 
 async def get_db_session(
-    request: Request = TaskiqDepends(),
+    request: Request,
 ) -> AsyncGenerator[AsyncSession, None]:
     """
     Create and get database session.

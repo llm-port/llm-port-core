@@ -3,7 +3,6 @@ from typing import AsyncGenerator
 
 from fastapi import FastAPI
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-from opentelemetry.instrumentation.aio_pika import AioPikaInstrumentor
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.redis import RedisInstrumentor
 from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
@@ -22,10 +21,7 @@ from prometheus_fastapi_instrumentator.instrumentation import (
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from llm_port_pii.services.pii.service import PIIService
-from llm_port_pii.services.rabbit.lifespan import init_rabbit, shutdown_rabbit
-from llm_port_pii.services.redis.lifespan import init_redis, shutdown_redis
 from llm_port_pii.settings import settings
-from llm_port_pii.tkq import broker
 
 log = logging.getLogger(__name__)
 
@@ -101,15 +97,13 @@ def setup_opentelemetry(app: FastAPI) -> None:  # pragma: no cover
         tracer_provider=tracer_provider,
         excluded_urls=",".join(excluded_endpoints),
     )
-    RedisInstrumentor().instrument(
-        tracer_provider=tracer_provider,
-    )
+    if settings.redis_enabled:
+        RedisInstrumentor().instrument(
+            tracer_provider=tracer_provider,
+        )
     SQLAlchemyInstrumentor().instrument(
         tracer_provider=tracer_provider,
         engine=app.state.db_engine.sync_engine,
-    )
-    AioPikaInstrumentor().instrument(
-        tracer_provider=tracer_provider,
     )
 
     set_tracer_provider(tracer_provider=tracer_provider)
@@ -125,9 +119,9 @@ def stop_opentelemetry(app: FastAPI) -> None:  # pragma: no cover
         return
 
     FastAPIInstrumentor().uninstrument_app(app)
-    RedisInstrumentor().uninstrument()
+    if settings.redis_enabled:
+        RedisInstrumentor().uninstrument()
     SQLAlchemyInstrumentor().uninstrument()
-    AioPikaInstrumentor().uninstrument()
 
 
 def setup_prometheus(app: FastAPI) -> None:  # pragma: no cover
@@ -156,12 +150,8 @@ async def lifespan_setup(
     """
 
     app.middleware_stack = None
-    if not broker.is_worker_process:
-        await broker.startup()
     _setup_db(app)
     setup_opentelemetry(app)
-    init_redis(app)
-    init_rabbit(app)
     setup_prometheus(app)
 
     # Initialize Presidio PII service (loads spaCy model - slow first time)
@@ -203,10 +193,5 @@ async def lifespan_setup(
             log.exception("Error during PII Enterprise plugin teardown.")
     # ──────────────────────────────────────────────────────────
 
-    if not broker.is_worker_process:
-        await broker.shutdown()
     await app.state.db_engine.dispose()
-
-    await shutdown_redis(app)
-    await shutdown_rabbit(app)
     stop_opentelemetry(app)
