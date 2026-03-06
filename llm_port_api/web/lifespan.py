@@ -132,7 +132,29 @@ def _setup_db(app: FastAPI) -> None:  # pragma: no cover
     app.state.db_session_factory = session_factory
 
 
-def _setup_gateway_observability(app: FastAPI) -> None:
+async def _probe_observability_pro() -> bool:
+    """Check whether the Observability Pro sidecar is reachable.
+
+    Same fallback pattern as ``PIIClient``: try reaching the sidecar
+    and degrade gracefully when it is absent.  If the sidecar is up,
+    its ``setup_ee()`` has already validated the EE license, so a
+    successful health check implies a valid enterprise deployment.
+    """
+    url = settings.observability_pro_service_url
+    if not url:
+        return False
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.get(f"{url.rstrip('/')}/api/health")
+            return resp.status_code == 200
+    except Exception:
+        return False
+
+
+async def _setup_gateway_observability(app: FastAPI) -> None:
+    observability_pro_available = await _probe_observability_pro()
+
     app.state.gateway_observability = GatewayObservability(
         enabled=settings.langfuse_enabled,
         host=settings.langfuse_host,
@@ -141,6 +163,7 @@ def _setup_gateway_observability(app: FastAPI) -> None:
         tracing_enabled=settings.langfuse_tracing_enabled,
         release=settings.langfuse_release,
         debug=settings.langfuse_debug,
+        observability_pro_available=observability_pro_available,
     )
 
 
@@ -182,7 +205,7 @@ async def lifespan_setup(
     if not broker.is_worker_process:
         await broker.startup()
     _setup_db(app)
-    _setup_gateway_observability(app)
+    await _setup_gateway_observability(app)
     _setup_service_registry(app)
     app.state.http_client = create_shared_http_client(
         timeout_sec=settings.http_timeout_sec,

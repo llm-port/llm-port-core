@@ -36,8 +36,10 @@ class GatewayObservability:
         release: str | None = None,
         debug: bool = False,
         client: Any | None = None,
+        observability_pro_available: bool = False,
     ) -> None:
         self.enabled = enabled
+        self._observability_pro_available = observability_pro_available
         if not enabled:
             self._client: Any | None = None
             return
@@ -74,6 +76,11 @@ class GatewayObservability:
     ) -> GatewayTraceContext:
         """Create one gateway trace and root observation."""
         mode = privacy_mode or PrivacyMode.METADATA_ONLY
+        # Enterprise gate: FULL and REDACTED privacy modes require the
+        # Observability Pro sidecar.  When it is not reachable, gracefully
+        # degrade to METADATA_ONLY — same fallback pattern as PII client.
+        if mode in (PrivacyMode.FULL, PrivacyMode.REDACTED) and not self._observability_pro_available:
+            mode = PrivacyMode.METADATA_ONLY
         if not self.enabled or self._client is None:
             return GatewayTraceContext(
                 trace_id=None, observation=None, endpoint=endpoint, privacy_mode=mode,
