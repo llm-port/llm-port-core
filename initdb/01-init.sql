@@ -39,6 +39,7 @@ CREATE EXTENSION IF NOT EXISTS vector;
 
 -- Grant schema privileges for llm_port_backend (needed for Alembic migrations)
 \connect llm_port_backend
+CREATE EXTENSION IF NOT EXISTS vector;
 GRANT ALL ON SCHEMA public TO llm_port_backend;
 
 -- Allow llm_user (used by llm-port-api) to read the JWT secret from the backend DB at startup.

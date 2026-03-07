@@ -210,7 +210,7 @@ services:
       dockerfile: Dockerfile
     container_name: llm-port-api-migrator
     restart: "no"
-    command: alembic upgrade head
+    command: ["sh", "-c", "sleep 3 && alembic upgrade head"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -294,7 +294,7 @@ services:
       dockerfile: Dockerfile
     container_name: llm-port-rag-migrator
     restart: "no"
-    command: alembic upgrade head
+    command: ["sh", "-c", "sleep 3 && alembic upgrade head"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -444,7 +444,7 @@ services:
       dockerfile: Dockerfile
     container_name: llm-port-pii-migrator
     restart: "no"
-    command: alembic upgrade head
+    command: ["sh", "-c", "sleep 3 && alembic upgrade head"]
     depends_on:
       postgres:
         condition: service_healthy
