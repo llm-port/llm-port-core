@@ -210,7 +210,7 @@ def dev_up(
             _launch_terminal(
                 "Worker – llm-port",
                 backend_dir,
-                "uv run taskiq worker llm_port_backend.tkq:broker llm_port_backend.services.llm.tasks",
+                "uv run taskiq worker llm_port_backend.tkq:broker llm_port_backend.services.llm.tasks llm_port_backend.services.rag_lite.tasks",
             )
             success("Taskiq worker started.")
 
