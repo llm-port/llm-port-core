@@ -15,15 +15,14 @@ import {
   type Model,
 } from "~/api/llm";
 import { RuntimeStatusChip, EngineChip } from "~/components/Chips";
+import { VllmEngineArgsPanel } from "~/components/VllmEngineArgsPanel";
 
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Card from "@mui/material/Card";
 import CardContent from "@mui/material/CardContent";
-import Checkbox from "@mui/material/Checkbox";
 import Chip from "@mui/material/Chip";
 import CircularProgress from "@mui/material/CircularProgress";
-import FormControlLabel from "@mui/material/FormControlLabel";
 import Alert from "@mui/material/Alert";
 import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
@@ -55,27 +54,38 @@ export default function RuntimeDetailPage() {
   // ── Edit mode state ──────────────────────────────────────────────
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState("");
-  const [editMaxModelLen, setEditMaxModelLen] = useState("");
-  const [editDtype, setEditDtype] = useState("");
-  const [editGpuMemUtil, setEditGpuMemUtil] = useState("");
-  const [editTensorParallel, setEditTensorParallel] = useState("");
-  const [editSwapSpace, setEditSwapSpace] = useState("");
-  const [editExtraArgs, setEditExtraArgs] = useState("");
-  const [editEnforceEager, setEditEnforceEager] = useState(true);
+  const [engineArgs, setEngineArgs] = useState<
+    Record<string, string | number | boolean>
+  >({});
   const [saving, setSaving] = useState(false);
+
+  // Map from generic_config snake_case keys to CLI kebab-case flags
+  const GC_TO_FLAG: Record<string, string> = {
+    max_model_len: "max-model-len",
+    dtype: "dtype",
+    gpu_memory_utilization: "gpu-memory-utilization",
+    tensor_parallel_size: "tensor-parallel-size",
+    swap_space: "swap-space",
+    enforce_eager: "enforce-eager",
+  };
 
   function openEditor() {
     if (!rt) return;
     const gc = rt.generic_config ?? {};
     const pc = rt.provider_config ?? {};
     setEditName(rt.name);
-    setEditMaxModelLen(gc.max_model_len != null ? String(gc.max_model_len) : "");
-    setEditDtype(gc.dtype ?? "");
-    setEditGpuMemUtil(gc.gpu_memory_utilization != null ? String(gc.gpu_memory_utilization) : "");
-    setEditTensorParallel(gc.tensor_parallel_size != null ? String(gc.tensor_parallel_size) : "");
-    setEditSwapSpace(gc.swap_space != null ? String(gc.swap_space) : "");
-    setEditExtraArgs(Array.isArray(pc.extra_args) ? pc.extra_args.join("\n") : "");
-    setEditEnforceEager(gc.enforce_eager !== false);
+
+    // Seed engine args from provider_config.engine_args first
+    const args: Record<string, string | number | boolean> = {
+      ...((pc.engine_args as Record<string, string | number | boolean>) ?? {}),
+    };
+    // Overlay values from legacy generic_config (lower priority than engine_args)
+    for (const [gcKey, flag] of Object.entries(GC_TO_FLAG)) {
+      if (gc[gcKey] != null && args[flag] === undefined) {
+        args[flag] = gc[gcKey] as string | number | boolean;
+      }
+    }
+    setEngineArgs(args);
     setEditing(true);
   }
 
@@ -83,33 +93,46 @@ export default function RuntimeDetailPage() {
     if (!id || !rt) return;
     setSaving(true);
     try {
-      const generic_config: Record<string, unknown> = { ...(rt.generic_config ?? {}) };
-      if (editMaxModelLen) generic_config.max_model_len = parseInt(editMaxModelLen, 10);
-      else delete generic_config.max_model_len;
-      if (editDtype) generic_config.dtype = editDtype;
-      else delete generic_config.dtype;
-      if (editGpuMemUtil) generic_config.gpu_memory_utilization = parseFloat(editGpuMemUtil);
-      else delete generic_config.gpu_memory_utilization;
-      if (editTensorParallel) generic_config.tensor_parallel_size = parseInt(editTensorParallel, 10);
-      else delete generic_config.tensor_parallel_size;
-      if (editSwapSpace) generic_config.swap_space = parseInt(editSwapSpace, 10);
-      else delete generic_config.swap_space;
-      generic_config.enforce_eager = editEnforceEager;
+      // Backward-compat: populate generic_config with commonly-used fields
+      const generic_config: Record<string, unknown> = {
+        ...(rt.generic_config ?? {}),
+      };
+      const FLAG_TO_GC: Record<string, string> = {
+        "max-model-len": "max_model_len",
+        dtype: "dtype",
+        "gpu-memory-utilization": "gpu_memory_utilization",
+        "tensor-parallel-size": "tensor_parallel_size",
+        "swap-space": "swap_space",
+        "enforce-eager": "enforce_eager",
+      };
+      // Clear legacy gc keys, then repopulate from engine args
+      for (const gcKey of Object.values(FLAG_TO_GC))
+        delete generic_config[gcKey];
+      for (const [flag, gcKey] of Object.entries(FLAG_TO_GC)) {
+        if (engineArgs[flag] != null) generic_config[gcKey] = engineArgs[flag];
+      }
 
-      const provider_config: Record<string, unknown> = { ...(rt.provider_config ?? {}) };
-      if (editExtraArgs.trim()) provider_config.extra_args = editExtraArgs.trim().split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-      else delete provider_config.extra_args;
-      // When legacy GPU mode is enabled the adapter auto-selects the correct
-      // image based on enforce_eager — remove any previously stored image
-      // override so the adapter's default logic is not bypassed.
-      if (editEnforceEager) delete provider_config.image;
+      const provider_config: Record<string, unknown> = {
+        ...(rt.provider_config ?? {}),
+      };
+      // Store full engine_args dict
+      if (Object.keys(engineArgs).length > 0) {
+        provider_config.engine_args = engineArgs;
+      } else {
+        delete provider_config.engine_args;
+      }
+      // Remove legacy extra_args — everything is in engine_args now
+      delete provider_config.extra_args;
+      // When enforce-eager is enabled the adapter auto-selects the correct
+      // image — remove any previously stored image override.
+      if (engineArgs["enforce-eager"]) delete provider_config.image;
 
       const updated = await runtimes.update(id, {
         name: editName !== rt.name ? editName : undefined,
         generic_config,
         provider_config,
       });
-      setRt(updated);          // use response directly — avoids race with DB commit
+      setRt(updated); // use response directly — avoids race with DB commit
       setEditing(false);
       setLogs("");
       setHealth(null);
@@ -134,12 +157,18 @@ export default function RuntimeDetailPage() {
       setProvider(p);
       setModel(m);
 
-      // Health & logs for running or starting runtimes
-      if (r.status === "running" || r.status === "starting") {
-        try {
-          setHealth(await runtimes.health(id));
-        } catch {
-          setHealth(null);
+      // Health & logs for running/starting/error runtimes
+      if (
+        r.status === "running" ||
+        r.status === "starting" ||
+        r.status === "error"
+      ) {
+        if (r.status !== "error") {
+          try {
+            setHealth(await runtimes.health(id));
+          } catch {
+            setHealth(null);
+          }
         }
         try {
           const logRes = await runtimes.fetchLogs(id, 300);
@@ -149,7 +178,9 @@ export default function RuntimeDetailPage() {
         }
       }
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : t("llm_runtime_detail.failed_load"));
+      setError(
+        e instanceof Error ? e.message : t("llm_runtime_detail.failed_load"),
+      );
     } finally {
       setLoading(false);
     }
@@ -159,22 +190,52 @@ export default function RuntimeDetailPage() {
     load();
   }, [id]);
 
-  // Poll for status updates while in a transient state (starting/creating)
+  // Poll while in a transient state OR while running until health confirmed.
+  // This catches containers that crash shortly after start (e.g. bad args).
   useEffect(() => {
     if (!rt || !id) return;
-    if (rt.status !== "starting" && rt.status !== "creating") return;
+    const isPending = rt.status === "starting" || rt.status === "creating";
+    const isRunning = rt.status === "running";
+    if (!isPending && !isRunning) return;
+    // Stop polling once health is confirmed healthy
+    if (isRunning && health?.healthy) return;
+
     const interval = setInterval(async () => {
       try {
-        const updated = await runtimes.get(id);
+        const updated = await runtimes.get(id); // triggers reconcile on backend
         setRt(updated);
-        if (updated.status === "running" || updated.status === "error" || updated.status === "stopped") {
-          clearInterval(interval);
-          load(); // full reload to get health/logs
+
+        if (updated.status === "error" || updated.status === "stopped") {
+          load(); // full reload for logs; deps change stops this poller
+          return;
         }
-      } catch { /* ignore polling errors */ }
+
+        if (updated.status === "running") {
+          // Check health — stop polling once healthy
+          try {
+            const h = await runtimes.health(id);
+            setHealth(h);
+            if (h.healthy) {
+              load(); // final full reload; health?.healthy change stops poller
+              return;
+            }
+          } catch {
+            setHealth(null);
+          }
+          // Keep fetching logs so user sees model-loading progress
+          try {
+            const logRes = await runtimes.fetchLogs(id, 300);
+            setLogs(await logRes.text());
+          } catch {
+            /* ignore */
+          }
+        }
+      } catch {
+        /* ignore polling errors */
+      }
     }, 5000);
     return () => clearInterval(interval);
-  }, [rt?.status, id]);
+  }, [rt?.status, id, health?.healthy]);
 
   // Auto-scroll logs
   useEffect(() => {
@@ -187,7 +248,7 @@ export default function RuntimeDetailPage() {
     if (!id) return;
     try {
       const updated = await runtimes[action](id);
-      setRt(updated);           // use response directly — avoids race with DB commit
+      setRt(updated); // use response directly — avoids race with DB commit
       setLogs("");
       setHealth(null);
     } catch (e: unknown) {
@@ -214,14 +275,27 @@ export default function RuntimeDetailPage() {
   }
 
   if (error || !rt) {
-    return <Alert severity="error">{error ?? t("llm_runtime_detail.not_found")}</Alert>;
+    return (
+      <Alert severity="error">
+        {error ?? t("llm_runtime_detail.not_found")}
+      </Alert>
+    );
   }
 
   const isRunning = rt.status === "running" || rt.status === "starting";
   const isStopped = rt.status === "stopped" || rt.status === "error";
+  const showLogs = !editing && (isRunning || (rt.status === "error" && !!logs));
 
   return (
-    <Box sx={{ display: "flex", flexDirection: "column", gap: 3, height: "100%", overflow: "auto" }}>
+    <Box
+      sx={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 3,
+        height: "100%",
+        overflow: "auto",
+      }}
+    >
       {/* Header */}
       <Stack direction="row" alignItems="center" spacing={2} flexWrap="wrap">
         <Button
@@ -243,6 +317,7 @@ export default function RuntimeDetailPage() {
               color="success"
               startIcon={<PlayArrowIcon />}
               onClick={() => handleAction("start")}
+              disabled={editing}
             >
               {t("common.start")}
             </Button>
@@ -255,6 +330,7 @@ export default function RuntimeDetailPage() {
                 color="warning"
                 startIcon={<StopIcon />}
                 onClick={() => handleAction("stop")}
+                disabled={editing}
               >
                 {t("common.stop")}
               </Button>
@@ -264,6 +340,7 @@ export default function RuntimeDetailPage() {
                 color="info"
                 startIcon={<RestartAltIcon />}
                 onClick={() => handleAction("restart")}
+                disabled={editing}
               >
                 {t("common.restart")}
               </Button>
@@ -274,7 +351,7 @@ export default function RuntimeDetailPage() {
             variant="outlined"
             color="error"
             startIcon={<DeleteIcon />}
-            disabled={isRunning}
+            disabled={isRunning || editing}
             onClick={handleDelete}
           >
             {t("common.delete")}
@@ -293,9 +370,19 @@ export default function RuntimeDetailPage() {
 
       {/* Config editor card */}
       {editing && (
-        <Card variant="outlined" sx={{ borderColor: "primary.main" }}>
-          <CardContent>
-            <Typography variant="subtitle2" sx={{ mb: 2 }}>{t("llm_runtime_detail.edit_config")}</Typography>
+        <Card
+          variant="outlined"
+          sx={{
+            borderColor: "primary.main",
+            display: "flex",
+            flexDirection: "column",
+            maxHeight: "70vh",
+          }}
+        >
+          <CardContent sx={{ overflow: "auto", flex: 1 }}>
+            <Typography variant="subtitle2" sx={{ mb: 2 }}>
+              {t("llm_runtime_detail.edit_config")}
+            </Typography>
             <Stack spacing={2}>
               <TextField
                 label={t("common.name")}
@@ -304,90 +391,33 @@ export default function RuntimeDetailPage() {
                 onChange={(e) => setEditName(e.target.value)}
                 fullWidth
               />
-              <Stack direction="row" spacing={2} flexWrap="wrap">
-                <TextField
-                  label="max_model_len"
-                  size="small"
-                  type="number"
-                  value={editMaxModelLen}
-                  onChange={(e) => setEditMaxModelLen(e.target.value)}
-                  placeholder="e.g. 4096"
-                  helperText={t("llm_runtime_detail.max_model_len_help")}
-                  sx={{ minWidth: 180 }}
-                />
-                <TextField
-                  label="dtype"
-                  size="small"
-                  value={editDtype}
-                  onChange={(e) => setEditDtype(e.target.value)}
-                  placeholder="e.g. float16, auto"
-                  sx={{ minWidth: 160 }}
-                />
-                <TextField
-                  label="gpu_memory_utilization"
-                  size="small"
-                  type="number"
-                  inputProps={{ step: 0.05, min: 0.1, max: 1.0 }}
-                  value={editGpuMemUtil}
-                  onChange={(e) => setEditGpuMemUtil(e.target.value)}
-                  placeholder="e.g. 0.9"
-                  sx={{ minWidth: 200 }}
-                />
-                <TextField
-                  label="tensor_parallel_size"
-                  size="small"
-                  type="number"
-                  value={editTensorParallel}
-                  onChange={(e) => setEditTensorParallel(e.target.value)}
-                  placeholder="e.g. 1"
-                  sx={{ minWidth: 180 }}
-                />
-                <TextField
-                  label="swap_space"
-                  size="small"
-                  type="number"
-                  value={editSwapSpace}
-                  onChange={(e) => setEditSwapSpace(e.target.value)}
-                  placeholder="e.g. 4"
-                  helperText={t("llm_runtime_detail.swap_space_help")}
-                  sx={{ minWidth: 160 }}
-                />
-              </Stack>
-              <FormControlLabel
-                control={
-                  <Checkbox
-                    checked={editEnforceEager}
-                    onChange={(e) => setEditEnforceEager(e.target.checked)}
-                    size="small"
-                  />
-                }
-                label={t("llm_runtime_detail.enforce_eager")}
+              <VllmEngineArgsPanel
+                values={engineArgs}
+                onChange={setEngineArgs}
+                version={engineArgs["enforce-eager"] ? "0.6.6" : "0.7.3"}
+                modelName={model?.display_name}
               />
-              <TextField
-                label={t("llm_runtime_detail.extra_args")}
-                size="small"
-                multiline
-                minRows={2}
-                value={editExtraArgs}
-                onChange={(e) => setEditExtraArgs(e.target.value)}
-                placeholder={"--enforce-eager\n--disable-log-stats"}
-                helperText={t("llm_runtime_detail.extra_args_help")}
-                fullWidth
-              />
-              <Stack direction="row" spacing={1} justifyContent="flex-end">
-                <Button size="small" onClick={() => setEditing(false)}>{t("common.cancel")}</Button>
-                <Button
-                  size="small"
-                  variant="contained"
-                  startIcon={saving ? <CircularProgress size={16} /> : <SaveIcon />}
-                  disabled={saving}
-                  onClick={handleSaveAndRestart}
-                >
-                  {t("llm_runtime_detail.save_and_restart")}
-                </Button>
-              </Stack>
             </Stack>
           </CardContent>
+          <Stack
+            direction="row"
+            spacing={1}
+            justifyContent="flex-end"
+            sx={{ p: 2, borderTop: 1, borderColor: "divider" }}
+          >
+            <Button size="small" onClick={() => setEditing(false)}>
+              {t("common.cancel")}
+            </Button>
+            <Button
+              size="small"
+              variant="contained"
+              startIcon={saving ? <CircularProgress size={16} /> : <SaveIcon />}
+              disabled={saving}
+              onClick={handleSaveAndRestart}
+            >
+              {t("llm_runtime_detail.save_and_restart")}
+            </Button>
+          </Stack>
         </Card>
       )}
 
@@ -395,33 +425,71 @@ export default function RuntimeDetailPage() {
       <Card variant="outlined">
         <CardContent>
           <Stack direction="row" flexWrap="wrap" gap={4}>
-            <MetaField label={t("llm_common.provider")} value={provider?.name ?? rt.provider_id.slice(0, 8)} />
+            <MetaField
+              label={t("llm_common.provider")}
+              value={provider?.name ?? rt.provider_id.slice(0, 8)}
+            />
             {provider && (
               <Box>
-                <Typography variant="caption" color="text.secondary">{t("llm_common.engine")}</Typography>
-                <Box mt={0.5}><EngineChip value={provider.type} /></Box>
+                <Typography variant="caption" color="text.secondary">
+                  {t("llm_common.engine")}
+                </Typography>
+                <Box mt={0.5}>
+                  <EngineChip value={provider.type} />
+                </Box>
               </Box>
             )}
-            <MetaField label={t("llm_common.model")} value={model?.display_name ?? rt.model_id.slice(0, 8)} />
-            <MetaField label={t("llm_runtime_detail.openai_compat")} value={rt.openai_compat ? t("common.yes") : t("common.no")} />
-            {rt.endpoint_url && <MetaField label={t("llm_runtimes.endpoint")} value={rt.endpoint_url} mono />}
-            {rt.container_ref && <MetaField label={t("containers.title")} value={rt.container_ref.slice(0, 12)} mono />}
-            <MetaField label={t("common.created")} value={new Date(rt.created_at).toLocaleString()} />
+            <MetaField
+              label={t("llm_common.model")}
+              value={model?.display_name ?? rt.model_id.slice(0, 8)}
+            />
+            <MetaField
+              label={t("llm_runtime_detail.openai_compat")}
+              value={rt.openai_compat ? t("common.yes") : t("common.no")}
+            />
+            {rt.endpoint_url && (
+              <MetaField
+                label={t("llm_runtimes.endpoint")}
+                value={rt.endpoint_url}
+                mono
+              />
+            )}
+            {rt.container_ref && (
+              <MetaField
+                label={t("containers.title")}
+                value={rt.container_ref.slice(0, 12)}
+                mono
+              />
+            )}
+            <MetaField
+              label={t("common.created")}
+              value={new Date(rt.created_at).toLocaleString()}
+            />
           </Stack>
         </CardContent>
       </Card>
 
       {/* Health card */}
-      {isRunning && (
+      {!editing && (isRunning || rt.status === "error") && (
         <Card variant="outlined">
           <CardContent>
             <Stack direction="row" alignItems="center" spacing={2}>
               {health ? (
                 <>
                   {health.healthy ? (
-                    <Chip icon={<FavoriteIcon />} label={t("llm_runtime_detail.healthy")} color="success" size="small" />
+                    <Chip
+                      icon={<FavoriteIcon />}
+                      label={t("llm_runtime_detail.healthy")}
+                      color="success"
+                      size="small"
+                    />
                   ) : (
-                    <Chip icon={<HeartBrokenIcon />} label={t("llm_runtime_detail.unhealthy")} color="error" size="small" />
+                    <Chip
+                      icon={<HeartBrokenIcon />}
+                      label={t("llm_runtime_detail.unhealthy")}
+                      color="error"
+                      size="small"
+                    />
                   )}
                   <Typography variant="body2" color="text.secondary">
                     {health.detail}
@@ -438,7 +506,7 @@ export default function RuntimeDetailPage() {
       )}
 
       {/* Logs */}
-      {isRunning && (
+      {showLogs && (
         <Box sx={{ flexGrow: 1, minHeight: 200 }}>
           <Typography variant="subtitle2" sx={{ mb: 1 }}>
             {t("llm_runtime_detail.container_logs")}
@@ -468,10 +536,20 @@ export default function RuntimeDetailPage() {
   );
 }
 
-function MetaField({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+function MetaField({
+  label,
+  value,
+  mono,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
   return (
     <Box>
-      <Typography variant="caption" color="text.secondary">{label}</Typography>
+      <Typography variant="caption" color="text.secondary">
+        {label}
+      </Typography>
       <Typography
         variant="body2"
         fontWeight={500}

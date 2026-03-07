@@ -1,4 +1,9 @@
-import { type RouteConfig, index, layout, route } from "@react-router/dev/routes";
+import {
+  type RouteConfig,
+  index,
+  layout,
+  route,
+} from "@react-router/dev/routes";
 
 export default [
   index("routes/home.tsx"),
@@ -26,7 +31,7 @@ export default [
     route("/admin/llm/models/:id", "pages/admin/llm/ModelDetailPage.tsx"),
     route("/admin/llm/runtimes", "pages/admin/llm/RuntimesPage.tsx"),
     route("/admin/llm/runtimes/:id", "pages/admin/llm/RuntimeDetailPage.tsx"),
-    route("/admin/llm/jobs", "pages/admin/llm/JobsPage.tsx"),
+    route("/admin/scheduler", "pages/admin/SchedulerPage.tsx"),
     route("/admin/llm/agent-trace", "pages/admin/llm/GraphPage.tsx"),
     route("/admin/llm/endpoint", "pages/admin/agents/ApiDocsPage.tsx"),
     // PII routes — guarded by module status
@@ -46,6 +51,12 @@ export default [
       route("/admin/rag/explorer", "pages/admin/rag/RagExplorerPage.tsx"),
       route("/admin/rag/publishes", "pages/admin/rag/RagPublishesPage.tsx"),
       route("/admin/rag/search", "pages/admin/rag/RagSearchPage.tsx"),
+      // RAG Lite
+      route("/admin/rag/documents", "pages/admin/rag/RagLiteDocumentsPage.tsx"),
+      route(
+        "/admin/rag/collections",
+        "pages/admin/rag/RagLiteCollectionsPage.tsx",
+      ),
     ]),
   ]),
 ] satisfies RouteConfig;

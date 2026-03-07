@@ -13,8 +13,19 @@ export type ProviderTarget = "local_docker" | "remote_endpoint";
 export type ModelSource = "huggingface" | "local_path" | "archive_import";
 export type ModelStatus = "available" | "downloading" | "failed" | "deleting";
 export type ArtifactFormat = "safetensors" | "gguf" | "other";
-export type RuntimeStatus = "creating" | "starting" | "running" | "stopping" | "stopped" | "error";
-export type DownloadJobStatus = "queued" | "running" | "success" | "failed" | "canceled";
+export type RuntimeStatus =
+  | "creating"
+  | "starting"
+  | "running"
+  | "stopping"
+  | "stopped"
+  | "error";
+export type DownloadJobStatus =
+  | "queued"
+  | "running"
+  | "success"
+  | "failed"
+  | "canceled";
 
 export interface Provider {
   id: string;
@@ -121,6 +132,11 @@ export interface RegisterModelPayload {
   tags?: string[];
 }
 
+export interface ScanLocalResult {
+  imported_count: number;
+  imported: Model[];
+}
+
 export interface DownloadResponse {
   model: Model;
   job: DownloadJob;
@@ -159,10 +175,7 @@ export interface TestEndpointResult {
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function request<T>(
-  path: string,
-  init: RequestInit = {},
-): Promise<T> {
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     ...init,
     headers: {
@@ -242,6 +255,11 @@ export const models = {
   },
   artifacts(id: string) {
     return request<Artifact[]>(`/models/${id}/artifacts`);
+  },
+  scanLocal() {
+    return request<ScanLocalResult>("/models/scan-local", {
+      method: "POST",
+    });
   },
 };
 

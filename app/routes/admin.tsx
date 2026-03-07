@@ -9,6 +9,7 @@ import { auth } from "~/api/auth";
 import { useThemeMode } from "~/theme-mode";
 import { listLanguages, type UiLanguage } from "~/api/i18n";
 import { ServicesProvider, useServices } from "~/lib/ServicesContext";
+import { useRagMode } from "~/lib/useRagMode";
 import { useTranslation } from "react-i18next";
 import i18n from "~/i18n";
 
@@ -204,6 +205,9 @@ function AdminLayoutInner() {
   };
   const { isModuleEnabled } = useServices();
 
+  // Determine RAG mode for nav filtering
+  const { mode: ragMode } = useRagMode();
+
   // Filter entries by permissions / modules / superuser, then split by saved order
   const visibleEntries = NAV.map((entry) => {
     if (entry.module && !isModuleEnabled(entry.module)) return null;
@@ -213,7 +217,9 @@ function AdminLayoutInner() {
     }
     const children = entry.children.filter((child) => {
       if (child.module && !isModuleEnabled(child.module)) return false;
-      return hasPermission(child.permission);
+      if (!hasPermission(child.permission)) return false;
+      if (child.ragMode && ragMode && child.ragMode !== ragMode) return false;
+      return true;
     });
     return children.length > 0 ? { ...entry, children } : null;
   }).filter((entry): entry is NavEntry => entry !== null);

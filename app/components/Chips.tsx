@@ -27,7 +27,10 @@ const CLASS_CONFIG: Record<
 };
 
 export function ClassChip({ value }: { value: ContainerClass }) {
-  const cfg = CLASS_CONFIG[value] ?? { color: "default" as const, label: value };
+  const cfg = CLASS_CONFIG[value] ?? {
+    color: "default" as const,
+    label: value,
+  };
   return <Chip label={cfg.label} size="small" color={cfg.color} />;
 }
 
@@ -44,7 +47,14 @@ function stateColor(state: string): "success" | "default" | "warning" | "info" {
 }
 
 export function StateChip({ value }: { value: string }) {
-  return <Chip label={value} size="small" color={stateColor(value)} variant="outlined" />;
+  return (
+    <Chip
+      label={value}
+      size="small"
+      color={stateColor(value)}
+      variant="outlined"
+    />
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -89,7 +99,12 @@ const POLICY_COLOR: Record<ContainerPolicy, "error" | "warning" | "success"> = {
 
 export function PolicyChip({ value }: { value: ContainerPolicy }) {
   return (
-    <Chip label={value} size="small" color={POLICY_COLOR[value] ?? "default"} variant="outlined" />
+    <Chip
+      label={value}
+      size="small"
+      color={POLICY_COLOR[value] ?? "default"}
+      variant="outlined"
+    />
   );
 }
 
@@ -97,22 +112,42 @@ export function PolicyChip({ value }: { value: ContainerPolicy }) {
 // LLM — Model status chip
 // ─────────────────────────────────────────────────────────────────────────────
 
-const MODEL_STATUS_COLOR: Record<ModelStatus, "success" | "info" | "error" | "warning"> = {
+const MODEL_STATUS_COLOR: Record<
+  ModelStatus,
+  "success" | "info" | "error" | "warning"
+> = {
   available: "success",
   downloading: "info",
   failed: "error",
   deleting: "warning",
 };
 
-export function ModelStatusChip({ value }: { value: ModelStatus }) {
-  return <Chip label={value} size="small" color={MODEL_STATUS_COLOR[value] ?? "default"} />;
+export function ModelStatusChip({
+  value,
+  onClick,
+}: {
+  value: ModelStatus;
+  onClick?: () => void;
+}) {
+  return (
+    <Chip
+      label={value}
+      size="small"
+      color={MODEL_STATUS_COLOR[value] ?? "default"}
+      onClick={onClick}
+      sx={onClick ? { cursor: "pointer" } : undefined}
+    />
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LLM — Runtime status chip
 // ─────────────────────────────────────────────────────────────────────────────
 
-const RUNTIME_STATUS_COLOR: Record<RuntimeStatus, "success" | "info" | "error" | "warning" | "default"> = {
+const RUNTIME_STATUS_COLOR: Record<
+  RuntimeStatus,
+  "success" | "info" | "error" | "warning" | "default"
+> = {
   creating: "info",
   starting: "info",
   running: "success",
@@ -122,14 +157,23 @@ const RUNTIME_STATUS_COLOR: Record<RuntimeStatus, "success" | "info" | "error" |
 };
 
 export function RuntimeStatusChip({ value }: { value: RuntimeStatus }) {
-  return <Chip label={value} size="small" color={RUNTIME_STATUS_COLOR[value] ?? "default"} />;
+  return (
+    <Chip
+      label={value}
+      size="small"
+      color={RUNTIME_STATUS_COLOR[value] ?? "default"}
+    />
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LLM — Download job status chip
 // ─────────────────────────────────────────────────────────────────────────────
 
-const JOB_STATUS_COLOR: Record<DownloadJobStatus, "success" | "info" | "error" | "warning" | "default"> = {
+const JOB_STATUS_COLOR: Record<
+  DownloadJobStatus,
+  "success" | "info" | "error" | "warning" | "default"
+> = {
   queued: "default",
   running: "info",
   success: "success",
@@ -138,28 +182,48 @@ const JOB_STATUS_COLOR: Record<DownloadJobStatus, "success" | "info" | "error" |
 };
 
 export function JobStatusChip({ value }: { value: DownloadJobStatus }) {
-  return <Chip label={value} size="small" color={JOB_STATUS_COLOR[value] ?? "default"} variant="outlined" />;
+  return (
+    <Chip
+      label={value}
+      size="small"
+      color={JOB_STATUS_COLOR[value] ?? "default"}
+      variant="outlined"
+    />
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LLM — Artifact format chip
 // ─────────────────────────────────────────────────────────────────────────────
 
-const FORMAT_COLOR: Record<ArtifactFormat, "primary" | "secondary" | "default"> = {
+const FORMAT_COLOR: Record<
+  ArtifactFormat,
+  "primary" | "secondary" | "default"
+> = {
   safetensors: "primary",
   gguf: "secondary",
   other: "default",
 };
 
 export function FormatChip({ value }: { value: ArtifactFormat }) {
-  return <Chip label={value} size="small" color={FORMAT_COLOR[value] ?? "default"} variant="outlined" />;
+  return (
+    <Chip
+      label={value}
+      size="small"
+      color={FORMAT_COLOR[value] ?? "default"}
+      variant="outlined"
+    />
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LLM — Provider type chip
 // ─────────────────────────────────────────────────────────────────────────────
 
-const ENGINE_COLOR: Record<ProviderType, "primary" | "secondary" | "info" | "warning"> = {
+const ENGINE_COLOR: Record<
+  ProviderType,
+  "primary" | "secondary" | "info" | "warning"
+> = {
   vllm: "primary",
   llamacpp: "secondary",
   tgi: "info",
@@ -167,5 +231,12 @@ const ENGINE_COLOR: Record<ProviderType, "primary" | "secondary" | "info" | "war
 };
 
 export function EngineChip({ value }: { value: ProviderType }) {
-  return <Chip label={value} size="small" color={ENGINE_COLOR[value] ?? "default"} variant="filled" />;
+  return (
+    <Chip
+      label={value}
+      size="small"
+      color={ENGINE_COLOR[value] ?? "default"}
+      variant="filled"
+    />
+  );
 }

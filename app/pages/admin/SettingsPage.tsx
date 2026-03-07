@@ -8,6 +8,8 @@ import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
 import CircularProgress from "@mui/material/CircularProgress";
 import Divider from "@mui/material/Divider";
+import FormControlLabel from "@mui/material/FormControlLabel";
+import Switch from "@mui/material/Switch";
 import IconButton from "@mui/material/IconButton";
 import InputAdornment from "@mui/material/InputAdornment";
 import MenuItem from "@mui/material/MenuItem";
@@ -449,21 +451,94 @@ export default function SettingsPage() {
                           spacing={1}
                           alignItems={{ xs: "stretch", md: "center" }}
                         >
-                          <TextField
-                            size="small"
-                            fullWidth
-                            type={item.type === "secret" ? "password" : "text"}
-                            label={item.label}
-                            value={asInputValue(values[item.key])}
-                            onChange={(event) =>
-                              setLocalValue(
-                                item.key,
-                                event.target.value,
-                                item.type,
-                              )
-                            }
-                            helperText={`${item.description}${item.is_secret && secretMasked[item.key] ? ` (current: ${secretMasked[item.key]})` : ""}`}
-                          />
+                          {item.type === "bool" ? (
+                            <FormControlLabel
+                              control={
+                                <Switch
+                                  checked={
+                                    values[item.key] === true ||
+                                    values[item.key] === "true"
+                                  }
+                                  onChange={(event) =>
+                                    setValues((prev) => ({
+                                      ...prev,
+                                      [item.key]: event.target.checked,
+                                    }))
+                                  }
+                                />
+                              }
+                              label={
+                                <Box>
+                                  <Typography variant="body2">
+                                    {item.label}
+                                  </Typography>
+                                  <Typography
+                                    variant="caption"
+                                    color="text.secondary"
+                                  >
+                                    {item.description}
+                                  </Typography>
+                                </Box>
+                              }
+                              sx={{ flexGrow: 1 }}
+                            />
+                          ) : item.type === "int" ? (
+                            <TextField
+                              size="small"
+                              fullWidth
+                              type="number"
+                              label={item.label}
+                              value={asInputValue(values[item.key])}
+                              onChange={(event) =>
+                                setLocalValue(
+                                  item.key,
+                                  event.target.value,
+                                  item.type,
+                                )
+                              }
+                              helperText={item.description}
+                            />
+                          ) : item.type === "enum" ? (
+                            <TextField
+                              size="small"
+                              fullWidth
+                              select
+                              label={item.label}
+                              value={asInputValue(values[item.key])}
+                              onChange={(event) =>
+                                setLocalValue(
+                                  item.key,
+                                  event.target.value,
+                                  item.type,
+                                )
+                              }
+                              helperText={item.description}
+                            >
+                              {(item.enum_values ?? []).map((v) => (
+                                <MenuItem key={v} value={v}>
+                                  {v}
+                                </MenuItem>
+                              ))}
+                            </TextField>
+                          ) : (
+                            <TextField
+                              size="small"
+                              fullWidth
+                              type={
+                                item.type === "secret" ? "password" : "text"
+                              }
+                              label={item.label}
+                              value={asInputValue(values[item.key])}
+                              onChange={(event) =>
+                                setLocalValue(
+                                  item.key,
+                                  event.target.value,
+                                  item.type,
+                                )
+                              }
+                              helperText={`${item.description}${item.is_secret && secretMasked[item.key] ? ` (current: ${secretMasked[item.key]})` : ""}`}
+                            />
+                          )}
                           <Chip
                             size="small"
                             color={
@@ -474,6 +549,21 @@ export default function SettingsPage() {
                                   : "error"
                             }
                             label={item.apply_scope}
+                            onClick={
+                              item.apply_scope === "service_restart" &&
+                              item.service_targets?.length
+                                ? () =>
+                                    navigate(
+                                      `/admin/containers?highlight=${encodeURIComponent(item.service_targets[0])}`,
+                                    )
+                                : undefined
+                            }
+                            sx={
+                              item.apply_scope === "service_restart" &&
+                              item.service_targets?.length
+                                ? { cursor: "pointer" }
+                                : undefined
+                            }
                           />
                           {item.type === "secret" && (
                             <>
@@ -688,23 +778,94 @@ export default function SettingsPage() {
                               direction={{ xs: "column", md: "row" }}
                               spacing={1}
                             >
-                              <TextField
-                                size="small"
-                                fullWidth
-                                type={
-                                  item.type === "secret" ? "password" : "text"
-                                }
-                                label={item.label}
-                                value={asInputValue(values[item.key])}
-                                onChange={(event) =>
-                                  setLocalValue(
-                                    item.key,
-                                    event.target.value,
-                                    item.type,
-                                  )
-                                }
-                                helperText={item.description}
-                              />
+                              {item.type === "bool" ? (
+                                <FormControlLabel
+                                  control={
+                                    <Switch
+                                      checked={
+                                        values[item.key] === true ||
+                                        values[item.key] === "true"
+                                      }
+                                      onChange={(event) =>
+                                        setValues((prev) => ({
+                                          ...prev,
+                                          [item.key]: event.target.checked,
+                                        }))
+                                      }
+                                    />
+                                  }
+                                  label={
+                                    <Box>
+                                      <Typography variant="body2">
+                                        {item.label}
+                                      </Typography>
+                                      <Typography
+                                        variant="caption"
+                                        color="text.secondary"
+                                      >
+                                        {item.description}
+                                      </Typography>
+                                    </Box>
+                                  }
+                                  sx={{ flexGrow: 1 }}
+                                />
+                              ) : item.type === "int" ? (
+                                <TextField
+                                  size="small"
+                                  fullWidth
+                                  type="number"
+                                  label={item.label}
+                                  value={asInputValue(values[item.key])}
+                                  onChange={(event) =>
+                                    setLocalValue(
+                                      item.key,
+                                      event.target.value,
+                                      item.type,
+                                    )
+                                  }
+                                  helperText={item.description}
+                                />
+                              ) : item.type === "enum" ? (
+                                <TextField
+                                  size="small"
+                                  fullWidth
+                                  select
+                                  label={item.label}
+                                  value={asInputValue(values[item.key])}
+                                  onChange={(event) =>
+                                    setLocalValue(
+                                      item.key,
+                                      event.target.value,
+                                      item.type,
+                                    )
+                                  }
+                                  helperText={item.description}
+                                >
+                                  {(item.enum_values ?? []).map((v) => (
+                                    <MenuItem key={v} value={v}>
+                                      {v}
+                                    </MenuItem>
+                                  ))}
+                                </TextField>
+                              ) : (
+                                <TextField
+                                  size="small"
+                                  fullWidth
+                                  type={
+                                    item.type === "secret" ? "password" : "text"
+                                  }
+                                  label={item.label}
+                                  value={asInputValue(values[item.key])}
+                                  onChange={(event) =>
+                                    setLocalValue(
+                                      item.key,
+                                      event.target.value,
+                                      item.type,
+                                    )
+                                  }
+                                  helperText={item.description}
+                                />
+                              )}
                               {item.type === "secret" && (
                                 <>
                                   <Tooltip

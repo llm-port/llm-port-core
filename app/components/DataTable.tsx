@@ -7,7 +7,7 @@
  *  - sticky header + scrollable body that fits into flex containers
  *  - optional client-side pagination
  */
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import {
   useReactTable,
   getCoreRowModel,
@@ -127,6 +127,11 @@ export interface DataTableProps<T> {
   pagination?: boolean | number;
   /** Available page size options. Defaults to [10, 25, 50, 100]. */
   pageSizeOptions?: number[];
+  /**
+   * When set, the row whose `rowKey` matches this value receives a
+   * highlighted background and is scrolled into view on mount.
+   */
+  highlightId?: string | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -148,9 +153,21 @@ export function DataTable<T>({
   onRowClick,
   pagination,
   pageSizeOptions = [10, 25, 50, 100],
+  highlightId,
 }: DataTableProps<T>) {
   const [search, setSearch] = useState("");
   const [sorting, setSorting] = useState<SortingState>([]);
+  const highlightRef = useRef<HTMLTableRowElement>(null);
+
+  // Scroll highlighted row into view on first render
+  useEffect(() => {
+    if (highlightId && highlightRef.current) {
+      highlightRef.current.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    }
+  }, [highlightId, loading]);
 
   const isPaginated = pagination != null && pagination !== false;
   const initialPageSize = typeof pagination === "number" ? pagination : 25;
@@ -175,7 +192,8 @@ export function DataTable<T>({
     if (!q) return rows;
     return rows.filter((row) =>
       columns.some(
-        (col) => col.searchValue && col.searchValue(row).toLowerCase().includes(q),
+        (col) =>
+          col.searchValue && col.searchValue(row).toLowerCase().includes(q),
       ),
     );
   }, [rows, search, columns]);
@@ -202,10 +220,23 @@ export function DataTable<T>({
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
-    <Box sx={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+    <Box
+      sx={{
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
+      }}
+    >
       {/* ── Toolbar ────────────────────────────────────────────────────────── */}
       <Box sx={{ flexShrink: 0, mb: 2 }}>
-        <Stack direction="row" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={1}>
+        <Stack
+          direction="row"
+          alignItems="center"
+          justifyContent="space-between"
+          flexWrap="wrap"
+          gap={1}
+        >
           {/* Left: title */}
           <Box sx={{ flexShrink: 0 }}>
             {typeof title === "string" ? (
@@ -216,7 +247,13 @@ export function DataTable<T>({
           </Box>
 
           {/* Right: search + filters + actions + refresh */}
-          <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" sx={{ pt: "6px" }}>
+          <Stack
+            direction="row"
+            spacing={1}
+            alignItems="center"
+            flexWrap="wrap"
+            sx={{ pt: "6px" }}
+          >
             {/* Global search */}
             <TextField
               size="small"
@@ -228,12 +265,19 @@ export function DataTable<T>({
                 input: {
                   startAdornment: (
                     <InputAdornment position="start">
-                      <SearchIcon fontSize="small" sx={{ color: "text.disabled" }} />
+                      <SearchIcon
+                        fontSize="small"
+                        sx={{ color: "text.disabled" }}
+                      />
                     </InputAdornment>
                   ),
                   endAdornment: search ? (
                     <InputAdornment position="end">
-                      <IconButton size="small" onClick={() => setSearch("")} edge="end">
+                      <IconButton
+                        size="small"
+                        onClick={() => setSearch("")}
+                        edge="end"
+                      >
                         <ClearIcon fontSize="small" />
                       </IconButton>
                     </InputAdornment>
@@ -245,7 +289,11 @@ export function DataTable<T>({
             {/* Column filters */}
             {columnFilters.map((f) =>
               f.multi ? (
-                <FormControl key={f.label} size="small" sx={{ minWidth: f.minWidth ?? 160 }}>
+                <FormControl
+                  key={f.label}
+                  size="small"
+                  sx={{ minWidth: f.minWidth ?? 160 }}
+                >
                   <InputLabel>{f.label}</InputLabel>
                   <Select
                     multiple
@@ -256,7 +304,11 @@ export function DataTable<T>({
                       f.onMultiChange?.(val);
                     }}
                     renderValue={(selected) => {
-                      if (!selected.length || selected.length === f.options.length) return "All";
+                      if (
+                        !selected.length ||
+                        selected.length === f.options.length
+                      )
+                        return "All";
                       if (selected.length <= 2) return selected.join(", ");
                       return `${selected.length} selected`;
                     }}
@@ -277,7 +329,11 @@ export function DataTable<T>({
                   </Select>
                 </FormControl>
               ) : (
-                <FormControl key={f.label} size="small" sx={{ minWidth: f.minWidth ?? 140 }}>
+                <FormControl
+                  key={f.label}
+                  size="small"
+                  sx={{ minWidth: f.minWidth ?? 140 }}
+                >
                   <InputLabel>{f.label}</InputLabel>
                   <Select
                     value={f.value}
@@ -339,7 +395,10 @@ export function DataTable<T>({
                     const meta = header.column.columnDef.meta as
                       | { align?: string; minWidth?: number | string }
                       | undefined;
-                    const align = (meta?.align ?? "left") as "left" | "center" | "right";
+                    const align = (meta?.align ?? "left") as
+                      | "left"
+                      | "center"
+                      | "right";
                     const canSort = header.column.getCanSort();
                     const sorted = header.column.getIsSorted();
                     return (
@@ -348,6 +407,7 @@ export function DataTable<T>({
                         align={align}
                         style={{ minWidth: meta?.minWidth }}
                         sortDirection={sorted || false}
+                        sx={{ bgcolor: "background.paper" }}
                       >
                         {canSort ? (
                           <TableSortLabel
@@ -355,10 +415,16 @@ export function DataTable<T>({
                             direction={sorted || "asc"}
                             onClick={header.column.getToggleSortingHandler()}
                           >
-                            {flexRender(header.column.columnDef.header, header.getContext())}
+                            {flexRender(
+                              header.column.columnDef.header,
+                              header.getContext(),
+                            )}
                           </TableSortLabel>
                         ) : (
-                          flexRender(header.column.columnDef.header, header.getContext())
+                          flexRender(
+                            header.column.columnDef.header,
+                            header.getContext(),
+                          )
                         )}
                       </TableCell>
                     );
@@ -378,25 +444,55 @@ export function DataTable<T>({
                   </TableCell>
                 </TableRow>
               )}
-              {visibleRows.map((row) => (
-                <TableRow
-                  key={row.id}
-                  hover
-                  onClick={onRowClick ? () => onRowClick(row.original) : undefined}
-                  sx={onRowClick ? { cursor: "pointer" } : undefined}
-                >
-                  {row.getVisibleCells().map((cell) => {
-                    const meta = cell.column.columnDef.meta as
-                      | { align?: string }
-                      | undefined;
-                    return (
-                      <TableCell key={cell.id} align={(meta?.align ?? "left") as "left" | "center" | "right"}>
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </TableCell>
-                    );
-                  })}
-                </TableRow>
-              ))}
+              {visibleRows.map((row) => {
+                const isHighlighted =
+                  highlightId != null && row.id === highlightId;
+                return (
+                  <TableRow
+                    key={row.id}
+                    ref={isHighlighted ? highlightRef : undefined}
+                    hover
+                    onClick={
+                      onRowClick ? () => onRowClick(row.original) : undefined
+                    }
+                    sx={{
+                      ...(onRowClick ? { cursor: "pointer" } : {}),
+                      ...(isHighlighted
+                        ? {
+                            bgcolor: "action.selected",
+                            animation: "highlight-fade 3s ease-out",
+                            "@keyframes highlight-fade": {
+                              "0%": { bgcolor: "primary.dark" },
+                              "100%": { bgcolor: "transparent" },
+                            },
+                          }
+                        : {}),
+                    }}
+                  >
+                    {row.getVisibleCells().map((cell) => {
+                      const meta = cell.column.columnDef.meta as
+                        | { align?: string }
+                        | undefined;
+                      return (
+                        <TableCell
+                          key={cell.id}
+                          align={
+                            (meta?.align ?? "left") as
+                              | "left"
+                              | "center"
+                              | "right"
+                          }
+                        >
+                          {flexRender(
+                            cell.column.columnDef.cell,
+                            cell.getContext(),
+                          )}
+                        </TableCell>
+                      );
+                    })}
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </TableContainer>

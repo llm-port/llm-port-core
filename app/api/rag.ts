@@ -197,7 +197,14 @@ export interface RagDraftCreateRequest {
 }
 
 export interface RagDraftOperationPayload {
-  op_type: "upload" | "replace" | "delete" | "move" | "retag" | "set_acl" | "rename";
+  op_type:
+    | "upload"
+    | "replace"
+    | "delete"
+    | "move"
+    | "retag"
+    | "set_acl"
+    | "rename";
   asset_id: string | null;
   target_container_id: string | null;
   payload: Record<string, unknown>;
@@ -282,7 +289,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export const ragRuntime = {
   health() {
-    return request<{ status: string }>("/health");
+    return request<{ status: string; mode?: "lite" | "pro" }>("/health");
   },
   getConfig() {
     return request<RagRuntimeConfigResponse>("/runtime-config");
@@ -396,5 +403,127 @@ export const ragJobs = {
   },
   get(jobId: string) {
     return request<RagIngestJob>(`/jobs/${jobId}`);
+  },
+};
+
+// ── RAG Lite types & API ─────────────────────────────────────────────
+
+export interface RagLiteConfigDTO {
+  embedding_provider_id: string;
+  embedding_model: string;
+  embedding_dim: number;
+  chunk_max_tokens: number;
+  chunk_overlap_tokens: number;
+  file_store_root: string;
+  upload_max_file_mb: number;
+}
+
+export interface RagLiteDocumentDTO {
+  id: string;
+  filename: string;
+  doc_type: string;
+  collection_id: string | null;
+  size_bytes: number;
+  chunk_count: number;
+  status: string;
+  created_at: string;
+}
+
+export interface RagLiteSearchRequest {
+  query: string;
+  top_k?: number;
+  collection_ids?: string[] | null;
+}
+
+export interface RagLiteSearchResult {
+  chunk_text: string;
+  document_id: string;
+  filename: string;
+  chunk_index: number;
+  score: number;
+}
+
+export interface RagLiteSearchResponse {
+  results: RagLiteSearchResult[];
+  query: string;
+}
+
+export interface RagLiteCollectionDTO {
+  id: string;
+  name: string;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RagLiteUploadResponse {
+  document_id: string;
+  job_id: string;
+  filename: string;
+  doc_type: string;
+  status: string;
+  message: string;
+}
+
+export interface RagLiteJobDTO {
+  id: string;
+  document_id: string;
+  status: string;
+  error_message: string | null;
+  stats_json: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+  events: {
+    id: string;
+    event_type: string;
+    message: string;
+    created_at: string;
+  }[];
+}
+
+export const ragLite = {
+  config() {
+    return request<RagLiteConfigDTO>("/config");
+  },
+  listDocuments(collectionId?: string, limit = 100, offset = 0) {
+    const params = new URLSearchParams({
+      limit: String(limit),
+      offset: String(offset),
+    });
+    if (collectionId) params.set("collection_id", collectionId);
+    return request<RagLiteDocumentDTO[]>(`/documents?${params}`);
+  },
+  deleteDocument(documentId: string) {
+    return request<void>(`/documents/${documentId}`, { method: "DELETE" });
+  },
+  upload(file: File, collectionId?: string) {
+    const form = new FormData();
+    form.append("file", file);
+    const params = collectionId ? `?collection_id=${collectionId}` : "";
+    return request<RagLiteUploadResponse>(`/upload${params}`, {
+      method: "POST",
+      body: form,
+    });
+  },
+  search(body: RagLiteSearchRequest) {
+    return request<RagLiteSearchResponse>("/search", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  },
+  listCollections() {
+    return request<RagLiteCollectionDTO[]>("/collections");
+  },
+  createCollection(name: string, description?: string | null) {
+    return request<RagLiteCollectionDTO>("/collections", {
+      method: "POST",
+      body: JSON.stringify({ name, description }),
+    });
+  },
+  deleteCollection(collectionId: string) {
+    return request<void>(`/collections/${collectionId}`, { method: "DELETE" });
+  },
+  listJobs(limit = 50) {
+    return request<RagLiteJobDTO[]>(`/jobs?limit=${limit}`);
   },
 };

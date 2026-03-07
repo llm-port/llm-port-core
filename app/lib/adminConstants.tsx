@@ -27,12 +27,15 @@ import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import DashboardIcon from "@mui/icons-material/Dashboard";
 import SecurityIcon from "@mui/icons-material/Security";
 import LanIcon from "@mui/icons-material/Lan";
+import MenuBookIcon from "@mui/icons-material/MenuBook";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import HubIcon from "@mui/icons-material/Hub";
 import DescriptionIcon from "@mui/icons-material/Description";
 import LlmIcon from "~/components/LlmIcon";
 import ModelTrainingIcon from "@mui/icons-material/ModelTraining";
 import DownloadIcon from "@mui/icons-material/Download";
+import ScheduleIcon from "@mui/icons-material/Schedule";
+import LibraryBooksIcon from "@mui/icons-material/LibraryBooks";
 import SettingsIcon from "@mui/icons-material/Settings";
 import ManageSearchIcon from "@mui/icons-material/ManageSearch";
 import SettingsInputAntennaIcon from "@mui/icons-material/SettingsInputAntenna";
@@ -45,6 +48,7 @@ import PeopleIcon from "@mui/icons-material/People";
 import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
 import GroupWorkIcon from "@mui/icons-material/GroupWork";
 import VpnKeyIcon from "@mui/icons-material/VpnKey";
+import ApiIcon from "@mui/icons-material/Api";
 import DataThresholdingIcon from "@mui/icons-material/DataThresholding";
 import InsightsIcon from "@mui/icons-material/Insights";
 import MapIcon from "@mui/icons-material/Map";
@@ -150,6 +154,8 @@ export interface NavChild {
   icon: React.ReactNode;
   permission?: string;
   module?: string;
+  /** When set, only show this item when RAG is in the specified mode. */
+  ragMode?: "lite" | "pro";
 }
 
 export interface NavGroup {
@@ -233,8 +239,14 @@ export const NAV: NavEntry[] = [
         labelKey: "nav.models",
         icon: <ModelTrainingIcon />,
       },
-      { to: "/admin/llm/jobs", labelKey: "nav.jobs", icon: <DownloadIcon /> },
     ],
+  },
+  {
+    id: "scheduler",
+    kind: "leaf",
+    to: "/admin/scheduler",
+    labelKey: "nav.scheduler",
+    icon: <ScheduleIcon />,
   },
 
   {
@@ -242,7 +254,7 @@ export const NAV: NavEntry[] = [
     kind: "leaf",
     to: "/admin/llm/endpoint",
     labelKey: "nav.endpoint",
-    icon: <DescriptionIcon />,
+    icon: <ApiIcon />,
     permission: "llm.graph:read",
   },
   {
@@ -294,7 +306,7 @@ export const NAV: NavEntry[] = [
     id: "rag",
     kind: "group",
     labelKey: "nav.rag_group",
-    icon: <ManageSearchIcon />,
+    icon: <MenuBookIcon />,
     module: "rag",
     children: [
       {
@@ -304,22 +316,39 @@ export const NAV: NavEntry[] = [
         permission: "rag.runtime:read",
       },
       {
+        to: "/admin/rag/documents",
+        labelKey: "nav.rag_documents",
+        icon: <StorageIcon />,
+        permission: "rag.search:read",
+        ragMode: "lite",
+      },
+      {
+        to: "/admin/rag/collections",
+        labelKey: "nav.rag_collections",
+        icon: <LibraryBooksIcon />,
+        permission: "rag.search:read",
+        ragMode: "lite",
+      },
+      {
         to: "/admin/rag/collectors",
         labelKey: "nav.rag_collectors",
         icon: <SourceIcon />,
         permission: "rag.jobs:read",
+        ragMode: "pro",
       },
       {
         to: "/admin/rag/explorer",
         labelKey: "nav.rag_explorer",
         icon: <StorageIcon />,
         permission: "rag.containers:read",
+        ragMode: "pro",
       },
       {
         to: "/admin/rag/publishes",
         labelKey: "nav.rag_publishes",
         icon: <DownloadIcon />,
         permission: "rag.publish:read",
+        ragMode: "pro",
       },
       {
         to: "/admin/rag/search",
@@ -380,7 +409,8 @@ export function adminPageTitle(
     return t("llm_runtime_detail.page_title");
   if (pathname.startsWith("/admin/llm/runtimes"))
     return t("llm_providers.title");
-  if (pathname.startsWith("/admin/llm/jobs")) return t("llm_jobs.title");
+  if (pathname.startsWith("/admin/llm/jobs")) return t("scheduler.title");
+  if (pathname.startsWith("/admin/scheduler")) return t("scheduler.title");
   if (pathname.startsWith("/admin/llm/endpoint")) return t("nav.endpoint");
   if (pathname.startsWith("/admin/pii/dashboard"))
     return t("pii_dashboard.title");
@@ -400,6 +430,10 @@ export function adminPageTitle(
   if (pathname.startsWith("/admin/rag/publishes"))
     return t("rag_publishes.title");
   if (pathname.startsWith("/admin/rag/search")) return t("rag_search.title");
+  if (pathname.startsWith("/admin/rag/documents"))
+    return t("rag_lite.documents_title");
+  if (pathname.startsWith("/admin/rag/collections"))
+    return t("rag_lite.collections_title");
   if (pathname.startsWith("/admin/llm/agent-trace")) return t("nav.llm_calls");
   if (pathname.startsWith("/admin/agents/api-docs")) return t("nav.endpoint");
   if (pathname.startsWith("/admin/agents/graph")) return t("nav.llm_calls");

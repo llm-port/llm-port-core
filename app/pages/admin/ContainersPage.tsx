@@ -2,8 +2,13 @@
  * Admin → Containers list page.
  * Powered by the shared DataTable with search, sort, and class filtering.
  */
-import { useState } from "react";
-import { Link as RouterLink, useOutletContext, useNavigate } from "react-router";
+import { useMemo, useState } from "react";
+import {
+  Link as RouterLink,
+  useOutletContext,
+  useNavigate,
+  useSearchParams,
+} from "react-router";
 import { useTranslation } from "react-i18next";
 import {
   containers,
@@ -47,16 +52,16 @@ export default function ContainersPage() {
   const { t } = useTranslation();
   const { rootModeActive } = useOutletContext<AdminContext>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const highlightName = searchParams.get("highlight");
   const {
     data,
     loading,
     error,
     refresh: load,
-  } = useAsyncData(
-    () => containers.list(),
-    [],
-    { initialValue: [] as ContainerSummary[] },
-  );
+  } = useAsyncData(() => containers.list(), [], {
+    initialValue: [] as ContainerSummary[],
+  });
   const [filterClasses, setFilterClasses] = useState<string[]>(
     CLASS_OPTIONS.map((o) => o.value),
   );
@@ -192,21 +197,22 @@ export default function ContainersPage() {
                 </IconButton>
               </Tooltip>
             )}
-            {(isRunning || isPaused) && canStop(c.container_class, rootModeActive) && (
-              <Tooltip title={t("common.stop")}>
-                <IconButton
-                  size="small"
-                  color="warning"
-                  disabled={busy}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void handleAction(c.id, "stop");
-                  }}
-                >
-                  <StopIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-            )}
+            {(isRunning || isPaused) &&
+              canStop(c.container_class, rootModeActive) && (
+                <Tooltip title={t("common.stop")}>
+                  <IconButton
+                    size="small"
+                    color="warning"
+                    disabled={busy}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void handleAction(c.id, "stop");
+                    }}
+                  >
+                    <StopIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
             {isRunning && canPause(c.container_class, rootModeActive) && (
               <Tooltip title={t("common.pause")}>
                 <IconButton
@@ -282,6 +288,15 @@ export default function ContainersPage() {
     },
   ];
 
+  // Resolve highlight query param to a container ID by matching name
+  const highlightId = useMemo(() => {
+    if (!highlightName) return null;
+    const match = data.find((c) =>
+      c.name.toLowerCase().includes(highlightName.toLowerCase()),
+    );
+    return match?.id ?? null;
+  }, [data, highlightName]);
+
   return (
     <DataTable
       title={t("containers.title")}
@@ -293,6 +308,7 @@ export default function ContainersPage() {
       emptyMessage={t("containers.empty")}
       onRefresh={load}
       searchPlaceholder={t("containers.search_placeholder")}
+      highlightId={highlightId}
       toolbarActions={
         <Button
           variant="contained"

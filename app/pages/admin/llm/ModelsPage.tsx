@@ -3,7 +3,7 @@
  * Shows all registered/downloaded models with status, source, and actions.
  */
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Link as RouterLink } from "react-router";
+import { Link as RouterLink, useNavigate } from "react-router";
 import { useTranslation } from "react-i18next";
 import {
   models,
@@ -38,6 +38,7 @@ import DeleteIcon from "@mui/icons-material/Delete";
 
 export default function ModelsPage() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [data, setData] = useState<Model[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -89,10 +90,13 @@ export default function ModelsPage() {
       setError(null);
     }
     try {
+      // Auto-import any new models from the local HF cache first
+      await models.scanLocal().catch(() => {});
       setData(await models.list());
       setError(null);
     } catch (e: unknown) {
-      if (!silent) setError(e instanceof Error ? e.message : t("llm_models.failed_load"));
+      if (!silent)
+        setError(e instanceof Error ? e.message : t("llm_models.failed_load"));
     } finally {
       if (!silent) setLoading(false);
       loadingRef.current = false;
@@ -132,7 +136,11 @@ export default function ModelsPage() {
         );
       }
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : t("llm_models.download_request_failed"));
+      alert(
+        err instanceof Error
+          ? err.message
+          : t("llm_models.download_request_failed"),
+      );
       // Still refresh in case the model was partially created
       await load(true);
     }
@@ -150,7 +158,9 @@ export default function ModelsPage() {
       resetForm();
       await load(true);
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : t("llm_models.register_failed"));
+      alert(
+        err instanceof Error ? err.message : t("llm_models.register_failed"),
+      );
     }
   }
 
@@ -195,7 +205,12 @@ export default function ModelsPage() {
             {m.display_name}
           </Link>
           {m.hf_repo_id && (
-            <Typography variant="caption" display="block" color="text.secondary" fontFamily="monospace">
+            <Typography
+              variant="caption"
+              display="block"
+              color="text.secondary"
+              fontFamily="monospace"
+            >
               {m.hf_repo_id}
             </Typography>
           )}
@@ -219,7 +234,19 @@ export default function ModelsPage() {
       label: t("common.status"),
       sortable: true,
       sortValue: (m) => m.status,
-      render: (m) => <ModelStatusChip value={m.status} />,
+      render: (m) => (
+        <ModelStatusChip
+          value={m.status}
+          onClick={
+            m.status === "downloading"
+              ? () =>
+                  navigate(
+                    `/admin/scheduler?highlight=${encodeURIComponent(m.display_name)}`,
+                  )
+              : undefined
+          }
+        />
+      ),
     },
     {
       key: "created_at",
@@ -292,7 +319,10 @@ export default function ModelsPage() {
       {/* Add model dialog */}
       <Dialog
         open={showAdd}
-        onClose={() => { setShowAdd(false); resetForm(); }}
+        onClose={() => {
+          setShowAdd(false);
+          resetForm();
+        }}
         maxWidth="sm"
         fullWidth
       >
@@ -304,7 +334,14 @@ export default function ModelsPage() {
 
         {addTab === 0 && (
           <form onSubmit={handleDownload}>
-            <DialogContent sx={{ display: "flex", flexDirection: "column", gap: 2, pt: "16px !important" }}>
+            <DialogContent
+              sx={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 2,
+                pt: "16px !important",
+              }}
+            >
               <Autocomplete
                 freeSolo
                 options={hfOptions}
@@ -320,7 +357,8 @@ export default function ModelsPage() {
                   if (v && typeof v !== "string") {
                     setHfRepo(v.id);
                     setHfInputValue(v.id);
-                    if (!dlDisplayName) setDlDisplayName(v.id.split("/").pop() ?? "");
+                    if (!dlDisplayName)
+                      setDlDisplayName(v.id.split("/").pop() ?? "");
                   }
                 }}
                 loading={hfSearching}
@@ -329,15 +367,25 @@ export default function ModelsPage() {
                   return (
                     <li key={key} {...rest}>
                       <Stack sx={{ width: "100%" }}>
-                        <Typography variant="body2" fontWeight={600} fontFamily="monospace" fontSize="0.85rem">
+                        <Typography
+                          variant="body2"
+                          fontWeight={600}
+                          fontFamily="monospace"
+                          fontSize="0.85rem"
+                        >
                           {(opt as HFModelHit).id}
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
-                          {(opt as HFModelHit).pipeline_tag ?? t("llm_models.model")}
+                          {(opt as HFModelHit).pipeline_tag ??
+                            t("llm_models.model")}
                           {" \u00b7 "}
-                          {t("llm_models.downloads", { count: (opt as HFModelHit).downloads ?? 0 })}
+                          {t("llm_models.downloads", {
+                            count: (opt as HFModelHit).downloads ?? 0,
+                          })}
                           {" \u00b7 "}
-                          {t("llm_models.likes", { count: (opt as HFModelHit).likes ?? 0 })}
+                          {t("llm_models.likes", {
+                            count: (opt as HFModelHit).likes ?? 0,
+                          })}
                         </Typography>
                       </Stack>
                     </li>
@@ -355,7 +403,9 @@ export default function ModelsPage() {
                         ...params.InputProps,
                         endAdornment: (
                           <>
-                            {hfSearching ? <CircularProgress size={18} /> : null}
+                            {hfSearching ? (
+                              <CircularProgress size={18} />
+                            ) : null}
                             {params.InputProps.endAdornment}
                           </>
                         ),
@@ -379,7 +429,14 @@ export default function ModelsPage() {
               />
             </DialogContent>
             <DialogActions>
-              <Button onClick={() => { setShowAdd(false); resetForm(); }}>{t("common.cancel")}</Button>
+              <Button
+                onClick={() => {
+                  setShowAdd(false);
+                  resetForm();
+                }}
+              >
+                {t("common.cancel")}
+              </Button>
               <Button type="submit" variant="contained">
                 {t("llm_models.start_download")}
               </Button>
@@ -389,7 +446,14 @@ export default function ModelsPage() {
 
         {addTab === 1 && (
           <form onSubmit={handleRegister}>
-            <DialogContent sx={{ display: "flex", flexDirection: "column", gap: 2, pt: "16px !important" }}>
+            <DialogContent
+              sx={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 2,
+                pt: "16px !important",
+              }}
+            >
               <TextField
                 label={t("llm_models.display_name")}
                 value={regName}
@@ -408,7 +472,14 @@ export default function ModelsPage() {
               />
             </DialogContent>
             <DialogActions>
-              <Button onClick={() => { setShowAdd(false); resetForm(); }}>{t("common.cancel")}</Button>
+              <Button
+                onClick={() => {
+                  setShowAdd(false);
+                  resetForm();
+                }}
+              >
+                {t("common.cancel")}
+              </Button>
               <Button type="submit" variant="contained">
                 {t("llm_models.register")}
               </Button>

@@ -1,6 +1,13 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ragKnowledge, type RagKnowledgeSearchResponse, type RagSearchMode } from "~/api/rag";
+import {
+  ragKnowledge,
+  ragLite,
+  type RagKnowledgeSearchResponse,
+  type RagLiteSearchResponse,
+  type RagSearchMode,
+} from "~/api/rag";
+import { useRagMode } from "~/lib/useRagMode";
 
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
@@ -24,11 +31,110 @@ function splitCsv(value: string): string[] {
     .filter((chunk) => chunk.length > 0);
 }
 
-export default function RagSearchPage() {
+// ── Lite search ────────────────────────────────────────────────────
+
+function RagLiteSearch() {
   const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [response, setResponse] = useState<RagKnowledgeSearchResponse | null>(null);
+  const [response, setResponse] = useState<RagLiteSearchResponse | null>(null);
+  const [query, setQuery] = useState("");
+  const [topK, setTopK] = useState(5);
+
+  async function runSearch(event: React.FormEvent) {
+    event.preventDefault();
+    setLoading(true);
+    setError(null);
+    setResponse(null);
+    try {
+      const result = await ragLite.search({ query, top_k: topK });
+      setResponse(result);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t("rag_search.failed"));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Stack spacing={2}>
+      <Typography variant="h5">{t("rag_search.title")}</Typography>
+      <Alert severity="info">{t("rag_search.description")}</Alert>
+      {error && <Alert severity="error">{error}</Alert>}
+
+      <Card variant="outlined">
+        <CardContent>
+          <form onSubmit={runSearch}>
+            <Stack spacing={2}>
+              <TextField
+                label={t("rag_search.query")}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                required
+                fullWidth
+                multiline
+                minRows={2}
+              />
+              <Stack direction="row" spacing={2} alignItems="center">
+                <TextField
+                  label={t("rag_search.top_k")}
+                  type="number"
+                  value={topK}
+                  onChange={(e) =>
+                    setTopK(
+                      Math.max(1, Math.min(50, Number(e.target.value) || 1)),
+                    )
+                  }
+                  sx={{ width: 140 }}
+                />
+                <Box sx={{ flexGrow: 1 }} />
+                <Button type="submit" variant="contained" disabled={loading}>
+                  {loading ? t("common.loading") : t("rag_search.search")}
+                </Button>
+              </Stack>
+            </Stack>
+          </form>
+        </CardContent>
+      </Card>
+
+      {response && (
+        <Stack spacing={1.5}>
+          <Typography variant="h6">
+            {t("rag_search.results", { count: response.results.length })}
+          </Typography>
+          {response.results.map((result, index) => (
+            <Card
+              key={`${result.document_id}-${result.chunk_index}`}
+              variant="outlined"
+            >
+              <CardContent>
+                <Stack spacing={0.75}>
+                  <Typography variant="body2" color="text.secondary">
+                    {result.filename} • chunk {result.chunk_index} • score{" "}
+                    {result.score.toFixed(4)}
+                  </Typography>
+                  <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
+                    {result.chunk_text}
+                  </Typography>
+                </Stack>
+              </CardContent>
+            </Card>
+          ))}
+        </Stack>
+      )}
+    </Stack>
+  );
+}
+
+// ── Pro search ─────────────────────────────────────────────────────
+
+function RagProSearch() {
+  const { t } = useTranslation();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [response, setResponse] = useState<RagKnowledgeSearchResponse | null>(
+    null,
+  );
 
   const [tenantId, setTenantId] = useState("tenant-demo");
   const [workspaceId, setWorkspaceId] = useState("");
@@ -152,12 +258,20 @@ export default function RagSearchPage() {
                 />
               </Stack>
 
-              <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems="center">
+              <Stack
+                direction={{ xs: "column", md: "row" }}
+                spacing={2}
+                alignItems="center"
+              >
                 <TextField
                   label={t("rag_search.top_k")}
                   type="number"
                   value={topK}
-                  onChange={(e) => setTopK(Math.max(1, Math.min(50, Number(e.target.value) || 1)))}
+                  onChange={(e) =>
+                    setTopK(
+                      Math.max(1, Math.min(50, Number(e.target.value) || 1)),
+                    )
+                  }
                   sx={{ width: 140 }}
                 />
                 <FormControl sx={{ minWidth: 180 }}>
@@ -201,7 +315,8 @@ export default function RagSearchPage() {
               <CardContent>
                 <Stack spacing={0.75}>
                   <Typography variant="body2" color="text.secondary">
-                    {result.doc_title ?? t("common.none")} • {result.source_uri} • score {result.score.toFixed(4)}
+                    {result.doc_title ?? t("common.none")} • {result.source_uri}{" "}
+                    • score {result.score.toFixed(4)}
                   </Typography>
                   {result.section && (
                     <Typography variant="caption" color="text.secondary">
@@ -242,4 +357,12 @@ export default function RagSearchPage() {
       )}
     </Stack>
   );
+}
+
+// ── Exported page — delegates to the correct mode ──────────────────
+
+export default function RagSearchPage() {
+  const { mode } = useRagMode();
+  if (mode === "lite") return <RagLiteSearch />;
+  return <RagProSearch />;
 }

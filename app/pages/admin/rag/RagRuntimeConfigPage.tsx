@@ -2,9 +2,12 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ragRuntime,
+  ragLite,
   type RagEmbeddingProvider,
   type RagRuntimeConfigPayload,
+  type RagLiteConfigDTO,
 } from "~/api/rag";
+import { useRagMode } from "~/lib/useRagMode";
 
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
@@ -19,6 +22,88 @@ import Select from "@mui/material/Select";
 import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
+
+// ── Lite runtime config (read-only) ───────────────────────────────
+
+function RagLiteRuntimeConfig() {
+  const { t } = useTranslation();
+  const [loading, setLoading] = useState(true);
+  const [config, setConfig] = useState<RagLiteConfigDTO | null>(null);
+  const [health, setHealth] = useState<string>("unknown");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const h = await ragRuntime.health();
+        if (!cancelled) setHealth(h.status);
+      } catch {
+        if (!cancelled) setHealth("unreachable");
+      }
+      try {
+        const c = await ragLite.config();
+        if (!cancelled) setConfig(c);
+      } catch {
+        // config may not be available yet
+      }
+      if (!cancelled) setLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (loading) {
+    return (
+      <Box sx={{ display: "flex", justifyContent: "center", py: 6 }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  return (
+    <Stack spacing={2}>
+      <Stack direction="row" justifyContent="space-between" alignItems="center">
+        <Typography variant="h5">{t("rag_runtime.title")}</Typography>
+        <Typography variant="body2" color="text.secondary">
+          {t("rag_runtime.health")}: {health}
+        </Typography>
+      </Stack>
+
+      <Alert severity="info">{t("rag_runtime.lite_settings_hint")}</Alert>
+
+      {config && (
+        <Card variant="outlined">
+          <CardContent>
+            <Stack spacing={1.5}>
+              <Typography variant="subtitle2">
+                {t("rag_runtime.embedding_model")}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {config.embedding_model || "—"} (dim {config.embedding_dim})
+              </Typography>
+              <Typography variant="subtitle2">
+                {t("rag_runtime.max_tokens")}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {config.chunk_max_tokens} ({t("rag_runtime.overlap")}:{" "}
+                {config.chunk_overlap_tokens})
+              </Typography>
+              <Typography variant="subtitle2">
+                {t("rag_runtime.file_store")}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {config.file_store_root} • max {config.upload_max_file_mb} MB
+              </Typography>
+            </Stack>
+          </CardContent>
+        </Card>
+      )}
+    </Stack>
+  );
+}
+
+// ── Pro runtime config (full form) ────────────────────────────────
 
 function defaultPayload(): RagRuntimeConfigPayload {
   return {
@@ -35,7 +120,7 @@ function defaultPayload(): RagRuntimeConfigPayload {
   };
 }
 
-export default function RagRuntimeConfigPage() {
+function RagProRuntimeConfig() {
   const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -44,7 +129,8 @@ export default function RagRuntimeConfigPage() {
   const [success, setSuccess] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [embeddingApiKey, setEmbeddingApiKey] = useState("");
-  const [payload, setPayload] = useState<RagRuntimeConfigPayload>(defaultPayload);
+  const [payload, setPayload] =
+    useState<RagRuntimeConfigPayload>(defaultPayload);
 
   async function load() {
     setLoading(true);
@@ -91,7 +177,9 @@ export default function RagRuntimeConfigPage() {
       setEmbeddingApiKey("");
       setSuccess(t("rag_runtime.saved"));
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t("rag_runtime.failed_save"));
+      setError(
+        err instanceof Error ? err.message : t("rag_runtime.failed_save"),
+      );
     } finally {
       setSaving(false);
     }
@@ -113,7 +201,11 @@ export default function RagRuntimeConfigPage() {
           <Typography variant="body2" color="text.secondary">
             {t("rag_runtime.health")}: {health}
           </Typography>
-          <Button variant="outlined" onClick={() => void load()} disabled={saving}>
+          <Button
+            variant="outlined"
+            onClick={() => void load()}
+            disabled={saving}
+          >
             {t("dashboard.refresh")}
           </Button>
         </Stack>
@@ -135,7 +227,8 @@ export default function RagRuntimeConfigPage() {
                   onChange={(e) =>
                     setPayload((prev) => ({
                       ...prev,
-                      embedding_provider: e.target.value as RagEmbeddingProvider,
+                      embedding_provider: e.target
+                        .value as RagEmbeddingProvider,
                     }))
                   }
                 >
@@ -148,7 +241,12 @@ export default function RagRuntimeConfigPage() {
               <TextField
                 label={t("rag_runtime.embedding_model")}
                 value={payload.embedding_model}
-                onChange={(e) => setPayload((prev) => ({ ...prev, embedding_model: e.target.value }))}
+                onChange={(e) =>
+                  setPayload((prev) => ({
+                    ...prev,
+                    embedding_model: e.target.value,
+                  }))
+                }
                 required
                 fullWidth
               />
@@ -156,14 +254,24 @@ export default function RagRuntimeConfigPage() {
               <TextField
                 label={t("rag_runtime.embedding_base_url")}
                 value={payload.embedding_base_url ?? ""}
-                onChange={(e) => setPayload((prev) => ({ ...prev, embedding_base_url: e.target.value }))}
+                onChange={(e) =>
+                  setPayload((prev) => ({
+                    ...prev,
+                    embedding_base_url: e.target.value,
+                  }))
+                }
                 fullWidth
               />
 
               <TextField
                 label={t("rag_runtime.embedding_api_key_ref")}
                 value={payload.embedding_api_key_ref ?? ""}
-                onChange={(e) => setPayload((prev) => ({ ...prev, embedding_api_key_ref: e.target.value }))}
+                onChange={(e) =>
+                  setPayload((prev) => ({
+                    ...prev,
+                    embedding_api_key_ref: e.target.value,
+                  }))
+                }
                 fullWidth
               />
 
@@ -183,7 +291,8 @@ export default function RagRuntimeConfigPage() {
                   onChange={(e) =>
                     setPayload((prev) => ({
                       ...prev,
-                      embedding_dim: Number(e.target.value) || prev.embedding_dim,
+                      embedding_dim:
+                        Number(e.target.value) || prev.embedding_dim,
                     }))
                   }
                   fullWidth
@@ -197,7 +306,9 @@ export default function RagRuntimeConfigPage() {
                       ...prev,
                       chunking_policy: {
                         ...prev.chunking_policy,
-                        max_tokens: Number(e.target.value) || prev.chunking_policy.max_tokens,
+                        max_tokens:
+                          Number(e.target.value) ||
+                          prev.chunking_policy.max_tokens,
                       },
                     }))
                   }
@@ -212,7 +323,9 @@ export default function RagRuntimeConfigPage() {
                       ...prev,
                       chunking_policy: {
                         ...prev.chunking_policy,
-                        overlap: Number(e.target.value) || prev.chunking_policy.overlap,
+                        overlap:
+                          Number(e.target.value) ||
+                          prev.chunking_policy.overlap,
                       },
                     }))
                   }
@@ -240,7 +353,11 @@ export default function RagRuntimeConfigPage() {
                 </Select>
               </FormControl>
 
-              <Stack direction="row" justifyContent="space-between" alignItems="center">
+              <Stack
+                direction="row"
+                justifyContent="space-between"
+                alignItems="center"
+              >
                 <Typography variant="body2" color="text.secondary">
                   {updatedAt
                     ? `${t("rag_runtime.last_updated")}: ${new Date(updatedAt).toLocaleString()}`
@@ -256,4 +373,12 @@ export default function RagRuntimeConfigPage() {
       </Card>
     </Stack>
   );
+}
+
+// ── Exported page — delegates to the correct mode ──────────────────
+
+export default function RagRuntimeConfigPage() {
+  const { mode } = useRagMode();
+  if (mode === "lite") return <RagLiteRuntimeConfig />;
+  return <RagProRuntimeConfig />;
 }

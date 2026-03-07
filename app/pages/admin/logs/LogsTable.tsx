@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactElement } from "react";
+import { useNavigate } from "react-router";
 import { useTranslation } from "react-i18next";
 
 import Alert from "@mui/material/Alert";
@@ -7,6 +8,7 @@ import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
 import Chip from "@mui/material/Chip";
+import Link from "@mui/material/Link";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import Tooltip from "@mui/material/Tooltip";
@@ -45,19 +47,41 @@ function levelUi(level: string): {
 } {
   const value = level.toLowerCase();
   if (value === "error" || value === "fatal") {
-    return { label: value || "unknown", color: "error", icon: <ErrorOutlineIcon fontSize="small" /> };
+    return {
+      label: value || "unknown",
+      color: "error",
+      icon: <ErrorOutlineIcon fontSize="small" />,
+    };
   }
   if (value === "warn" || value === "warning") {
-    return { label: value || "unknown", color: "warning", icon: <WarningAmberIcon fontSize="small" /> };
+    return {
+      label: value || "unknown",
+      color: "warning",
+      icon: <WarningAmberIcon fontSize="small" />,
+    };
   }
   if (value === "debug" || value === "trace") {
-    return { label: value || "unknown", color: "default", icon: <BugReportOutlinedIcon fontSize="small" /> };
+    return {
+      label: value || "unknown",
+      color: "default",
+      icon: <BugReportOutlinedIcon fontSize="small" />,
+    };
   }
-  return { label: value || "info", color: "info", icon: <InfoOutlinedIcon fontSize="small" /> };
+  return {
+    label: value || "info",
+    color: "info",
+    icon: <InfoOutlinedIcon fontSize="small" />,
+  };
 }
 
-export default function LogsTable({ streams, loading, error, live }: LogsTableProps) {
+export default function LogsTable({
+  streams,
+  loading,
+  error,
+  live,
+}: LogsTableProps) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [levelFilter, setLevelFilter] = useState<string[]>([]);
   const [serviceFilter, setServiceFilter] = useState<string[]>([]);
@@ -70,7 +94,9 @@ export default function LogsTable({ streams, loading, error, live }: LogsTablePr
       const labels = stream.labels ?? {};
       for (const entry of stream.entries) {
         const level = String(labels.level ?? "");
-        const service = String(labels.compose_service ?? labels.service_name ?? "");
+        const service = String(
+          labels.compose_service ?? labels.service_name ?? "",
+        );
         const container = String(labels.container ?? labels.container_id ?? "");
         const host = String(labels.host ?? "");
         const job = String(labels.job ?? "");
@@ -119,13 +145,19 @@ export default function LogsTable({ streams, loading, error, live }: LogsTablePr
 
   const filteredRows = useMemo(() => {
     return flatLogs.filter((row) => {
-      const levelActive = levelFilter.length > 0 && levelFilter.length < levelOptions.length;
-      const serviceActive = serviceFilter.length > 0 && serviceFilter.length < serviceOptions.length;
-      const containerActive = containerFilter.length > 0 && containerFilter.length < containerOptions.length;
+      const levelActive =
+        levelFilter.length > 0 && levelFilter.length < levelOptions.length;
+      const serviceActive =
+        serviceFilter.length > 0 &&
+        serviceFilter.length < serviceOptions.length;
+      const containerActive =
+        containerFilter.length > 0 &&
+        containerFilter.length < containerOptions.length;
 
       if (levelActive && !levelFilter.includes(row.__level)) return false;
       if (serviceActive && !serviceFilter.includes(row.__service)) return false;
-      if (containerActive && !containerFilter.includes(row.__container)) return false;
+      if (containerActive && !containerFilter.includes(row.__container))
+        return false;
       return true;
     });
   }, [
@@ -140,7 +172,10 @@ export default function LogsTable({ streams, loading, error, live }: LogsTablePr
 
   const visibleRows = filteredRows.slice(0, visibleCount);
 
-  function withDefaults(prev: string[], options: { value: string; label: string }[]): string[] {
+  function withDefaults(
+    prev: string[],
+    options: { value: string; label: string }[],
+  ): string[] {
     const allValues = options.map((opt) => opt.value);
     if (allValues.length === 0) return [];
     if (prev.length === 0) return allValues;
@@ -174,7 +209,12 @@ export default function LogsTable({ streams, loading, error, live }: LogsTablePr
       sortValue: (row) => row.__tsMs,
       minWidth: 120,
       render: (row) => (
-        <Typography variant="body2" fontFamily="monospace" fontSize="0.78rem" noWrap>
+        <Typography
+          variant="body2"
+          fontFamily="monospace"
+          fontSize="0.78rem"
+          noWrap
+        >
           {new Date(row.ts).toLocaleTimeString()}
         </Typography>
       ),
@@ -208,7 +248,9 @@ export default function LogsTable({ streams, loading, error, live }: LogsTablePr
       searchValue: (row) => `${row.__service} ${row.__job} ${row.__host}`,
       minWidth: 180,
       render: (row) => (
-        <Tooltip title={`${row.__service || "—"} ${row.__job ? `(${t("logs.job")}=${row.__job})` : ""}`}>
+        <Tooltip
+          title={`${row.__service || "—"} ${row.__job ? `(${t("logs.job")}=${row.__job})` : ""}`}
+        >
           <Typography variant="body2" noWrap sx={{ maxWidth: 260 }}>
             {row.__service || "—"}
           </Typography>
@@ -222,13 +264,45 @@ export default function LogsTable({ streams, loading, error, live }: LogsTablePr
       sortValue: (row) => row.__container,
       searchValue: (row) => row.__container,
       minWidth: 160,
-      render: (row) => (
-        <Tooltip title={row.__container || "—"}>
-          <Typography variant="body2" fontFamily="monospace" noWrap sx={{ maxWidth: 240 }}>
-            {row.__container || "—"}
-          </Typography>
-        </Tooltip>
-      ),
+      render: (row) => {
+        const name = row.__container || "—";
+        if (!row.__container) {
+          return (
+            <Typography
+              variant="body2"
+              fontFamily="monospace"
+              noWrap
+              sx={{ maxWidth: 240 }}
+            >
+              {name}
+            </Typography>
+          );
+        }
+        return (
+          <Tooltip title={name}>
+            <Link
+              component="button"
+              variant="body2"
+              underline="hover"
+              onClick={() =>
+                navigate(
+                  `/admin/containers?highlight=${encodeURIComponent(name)}`,
+                )
+              }
+              sx={{
+                fontFamily: "monospace",
+                maxWidth: 240,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                textAlign: "left",
+              }}
+            >
+              {name}
+            </Link>
+          </Tooltip>
+        );
+      },
     },
     {
       key: "message",
@@ -287,8 +361,20 @@ export default function LogsTable({ streams, loading, error, live }: LogsTablePr
   }
 
   return (
-    <Box sx={{ minHeight: 0, display: "flex", flexDirection: "column", flexGrow: 1 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 0.5 }}>
+    <Box
+      sx={{
+        minHeight: 0,
+        display: "flex",
+        flexDirection: "column",
+        flexGrow: 1,
+      }}
+    >
+      <Stack
+        direction="row"
+        justifyContent="space-between"
+        alignItems="center"
+        sx={{ mb: 0.5 }}
+      >
         <Typography variant="caption" color="text.secondary">
           {t("logs.lines_count", { count: filteredRows.length })}
         </Typography>
@@ -306,7 +392,9 @@ export default function LogsTable({ streams, loading, error, live }: LogsTablePr
         loading={false}
         error={null}
         emptyMessage={
-          flatLogs.length === 0 ? t("logs.no_logs_found") : t("logs.no_rows_match_filters")
+          flatLogs.length === 0
+            ? t("logs.no_logs_found")
+            : t("logs.no_rows_match_filters")
         }
         searchPlaceholder={t("logs.search_logs")}
         columnFilters={[
@@ -340,7 +428,11 @@ export default function LogsTable({ streams, loading, error, live }: LogsTablePr
         ]}
         toolbarActions={
           visibleCount < filteredRows.length ? (
-            <Button variant="outlined" size="small" onClick={() => setVisibleCount((v) => v + PAGE_SIZE)}>
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={() => setVisibleCount((v) => v + PAGE_SIZE)}
+            >
               {t("logs.load_more")}
             </Button>
           ) : undefined

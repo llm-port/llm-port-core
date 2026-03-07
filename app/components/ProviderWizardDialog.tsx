@@ -54,6 +54,8 @@ import DownloadIcon from "@mui/icons-material/Download";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import NetworkCheckIcon from "@mui/icons-material/NetworkCheck";
 
+import { VllmEngineArgsPanel } from "~/components/VllmEngineArgsPanel";
+
 // ── Constants ────────────────────────────────────────────────────────
 const PROVIDER_TYPES: ProviderType[] = ["vllm", "llamacpp", "tgi", "ollama"];
 const PROVIDER_TARGETS: ProviderTarget[] = ["local_docker", "remote_endpoint"];
@@ -112,11 +114,9 @@ export function ProviderWizardDialog({
   const [imageChoice, setImageChoice] = useState(AUTO_IMAGE_VALUE);
   const [customImage, setCustomImage] = useState("");
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [maxModelLen, setMaxModelLen] = useState("");
-  const [dtype, setDtype] = useState("");
-  const [gpuMemUtil, setGpuMemUtil] = useState("");
-  const [tensorParallel, setTensorParallel] = useState("");
-  const [extraArgs, setExtraArgs] = useState("");
+  const [engineArgs, setEngineArgs] = useState<
+    Record<string, string | number | boolean>
+  >({});
   const [openaiCompat, setOpenaiCompat] = useState(true);
   const [legacyGpu, setLegacyGpu] = useState(false);
 
@@ -159,11 +159,7 @@ export function ProviderWizardDialog({
       setCustomImage("");
       setAdvancedOpen(false);
       setLegacyGpu(false);
-      setMaxModelLen("");
-      setDtype("");
-      setGpuMemUtil("");
-      setTensorParallel("");
-      setExtraArgs("");
+      setEngineArgs({});
       setOpenaiCompat(true);
       setImageStatus("idle");
       setImageError("");
@@ -394,15 +390,11 @@ export function ProviderWizardDialog({
       newProvId = newProv.id;
 
       if (target === "local_docker") {
-        const generic_config: Record<string, unknown> = {};
-        if (maxModelLen) generic_config.max_model_len = Number(maxModelLen);
-        if (dtype) generic_config.dtype = dtype;
-        if (gpuMemUtil)
-          generic_config.gpu_memory_utilization = Number(gpuMemUtil);
-        if (tensorParallel)
-          generic_config.tensor_parallel_size = Number(tensorParallel);
-        if (legacyGpu) generic_config.enforce_eager = true;
+        // Merge legacy-GPU flag into engine args
+        const mergedArgs = { ...engineArgs };
+        if (legacyGpu) mergedArgs["enforce-eager"] = true;
 
+        // Build provider_config with engine_args + image
         const provider_config: Record<string, unknown> = {};
         const resolvedImage =
           imageChoice === CUSTOM_IMAGE_VALUE
@@ -411,12 +403,22 @@ export function ProviderWizardDialog({
               ? undefined
               : imageChoice;
         if (resolvedImage) provider_config.image = resolvedImage;
-        if (extraArgs) {
-          provider_config.extra_args = extraArgs
-            .split(",")
-            .map((a) => a.trim())
-            .filter(Boolean);
-        }
+        if (Object.keys(mergedArgs).length > 0)
+          provider_config.engine_args = mergedArgs;
+
+        // Backward-compat: also populate generic_config with commonly-used fields
+        const generic_config: Record<string, unknown> = {};
+        if (mergedArgs["max-model-len"] != null)
+          generic_config.max_model_len = mergedArgs["max-model-len"];
+        if (mergedArgs["dtype"] != null)
+          generic_config.dtype = mergedArgs["dtype"];
+        if (mergedArgs["gpu-memory-utilization"] != null)
+          generic_config.gpu_memory_utilization =
+            mergedArgs["gpu-memory-utilization"];
+        if (mergedArgs["tensor-parallel-size"] != null)
+          generic_config.tensor_parallel_size =
+            mergedArgs["tensor-parallel-size"];
+        if (mergedArgs["enforce-eager"]) generic_config.enforce_eager = true;
 
         const rtPayload: CreateRuntimePayload = {
           name,
@@ -801,62 +803,20 @@ export function ProviderWizardDialog({
             >
               <AccordionSummary expandIcon={<ExpandMoreIcon />}>
                 <Typography variant="subtitle2">
-                  {t("llm_runtimes.advanced_options")}
+                  {t(
+                    "llm_runtimes.engine_configuration",
+                    "Engine Configuration",
+                  )}
                 </Typography>
               </AccordionSummary>
               <AccordionDetails
                 sx={{ display: "flex", flexDirection: "column", gap: 2 }}
               >
-                <Stack direction="row" spacing={2}>
-                  <TextField
-                    label={t("llm_runtimes.max_model_len")}
-                    type="number"
-                    value={maxModelLen}
-                    onChange={(e) => setMaxModelLen(e.target.value)}
-                    fullWidth
-                    size="small"
-                  />
-                  <FormControl fullWidth size="small">
-                    <InputLabel>{t("llm_runtimes.dtype")}</InputLabel>
-                    <Select
-                      value={dtype}
-                      label={t("llm_runtimes.dtype")}
-                      onChange={(e) => setDtype(e.target.value)}
-                    >
-                      <MenuItem value="">auto</MenuItem>
-                      <MenuItem value="float16">float16</MenuItem>
-                      <MenuItem value="bfloat16">bfloat16</MenuItem>
-                      <MenuItem value="float32">float32</MenuItem>
-                    </Select>
-                  </FormControl>
-                </Stack>
-                <Stack direction="row" spacing={2}>
-                  <TextField
-                    label={t("llm_runtimes.gpu_memory_util")}
-                    type="number"
-                    inputProps={{ min: 0.1, max: 1.0, step: 0.05 }}
-                    value={gpuMemUtil}
-                    onChange={(e) => setGpuMemUtil(e.target.value)}
-                    fullWidth
-                    size="small"
-                  />
-                  <TextField
-                    label={t("llm_runtimes.tensor_parallel")}
-                    type="number"
-                    inputProps={{ min: 1, step: 1 }}
-                    value={tensorParallel}
-                    onChange={(e) => setTensorParallel(e.target.value)}
-                    fullWidth
-                    size="small"
-                  />
-                </Stack>
-                <TextField
-                  label={t("llm_runtimes.extra_args")}
-                  helperText={t("llm_runtimes.extra_args_help")}
-                  value={extraArgs}
-                  onChange={(e) => setExtraArgs(e.target.value)}
-                  fullWidth
-                  size="small"
+                <VllmEngineArgsPanel
+                  values={engineArgs}
+                  onChange={setEngineArgs}
+                  version={legacyGpu ? "0.6.6" : "0.7.3"}
+                  modelName={models.find((m) => m.id === modelId)?.display_name}
                 />
                 <FormControlLabel
                   control={

@@ -15,7 +15,11 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { servicesApi, type ServiceInfo, type ServicesManifest } from "~/api/services";
+import {
+  servicesApi,
+  type ServiceInfo,
+  type ServicesManifest,
+} from "~/api/services";
 
 // ── Cache ────────────────────────────────────────────────────────────
 const CACHE_KEY = "llm-port-services-v1";
@@ -45,7 +49,10 @@ function readCache(): ServicesManifest | null {
 function writeCache(manifest: ServicesManifest): void {
   if (typeof window === "undefined") return;
   try {
-    const entry: CacheEntry = { manifest, expiresAt: Date.now() + CACHE_TTL_MS };
+    const entry: CacheEntry = {
+      manifest,
+      expiresAt: Date.now() + CACHE_TTL_MS,
+    };
     window.sessionStorage.setItem(CACHE_KEY, JSON.stringify(entry));
   } catch {
     // ignore
@@ -117,7 +124,13 @@ export function ServicesProvider({ children }: { children: ReactNode }) {
   const isModuleEnabled = useCallback(
     (name: string) => {
       const svc = serviceMap.get(name);
-      return svc?.enabled === true;
+      if (svc?.enabled === true) return true;
+      // "rag" is satisfied by either the full RAG Engine or the embedded RAG Lite plugin.
+      if (name === "rag") {
+        const lite = serviceMap.get("rag_lite");
+        return lite?.enabled === true;
+      }
+      return false;
     },
     [serviceMap],
   );
