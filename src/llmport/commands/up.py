@@ -39,7 +39,7 @@ def up_cmd(
         env_path = Path(cfg.install_dir) / ".env"
         console.print("[cyan]Generating .env file…[/cyan]")
         env_vars = default_env_vars(profiles=cfg.profiles)
-        write_env_file(env_path, env_vars)
+        write_env_file(env_path, env_vars, preserve_secrets=True)
         success(f"Environment file written to {env_path}")
 
     ctx = build_context_from_config(cfg)
