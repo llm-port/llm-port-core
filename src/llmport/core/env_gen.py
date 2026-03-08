@@ -14,6 +14,7 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from llmport.core.registry import module_env_vars
+from llmport.core.sysinfo import calculate_tune_profile
 
 # Keys that contain cryptographic secrets. These must never be replaced
 # when regenerating an .env file because changing them would make
@@ -102,7 +103,11 @@ def dev_env_vars(
         "LLM_PORT_BACKEND_SETTINGS_MASTER_KEY": "dev-settings-master-key-change-me",
         "LLM_PORT_API_ENCRYPTION_KEY": "dev-encryption-key-change-me",
         "LLM_PORT_API_LANGFUSE_ENABLED": "false",
+        "LLM_PORT_BACKEND_GATEWAY_URL": "http://llm-port-api:9000",
     }
+
+    # Scalability tuning (conservative dev defaults)
+    env.update(calculate_tune_profile("dev").to_env_dict())
 
     profs = profiles or []
     for prof in profs:
@@ -154,7 +159,11 @@ def default_env_vars(
         "LLM_PORT_BACKEND_SETTINGS_MASTER_KEY": _random_secret(),
         "LLM_PORT_API_ENCRYPTION_KEY": _random_secret(),
         "LLM_PORT_API_LANGFUSE_ENABLED": "false",
+        "LLM_PORT_BACKEND_GATEWAY_URL": "http://llm-port-api:9000",
     }
+
+    # Scalability tuning (auto-detect host resources for prod)
+    env.update(calculate_tune_profile("prod").to_env_dict())
 
     # Module activation
     profs = profiles or []
