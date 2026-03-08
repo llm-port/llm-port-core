@@ -21,8 +21,10 @@ def upgrade() -> None:
     # NOTE: The pgvector extension must be created by a superuser.
     # It is provisioned in llm_port_shared/initdb/01-init.sql.
 
-    # Enum types are created implicitly by SQLAlchemy when create_type=True
-    # on the first sa.Enum column that references them.
+    # -- Enum types (drop orphans from prior failed runs) ------------------
+    op.execute("DROP TYPE IF EXISTS rag_lite_document_status")
+    op.execute("DROP TYPE IF EXISTS rag_lite_job_status")
+    op.execute("DROP TYPE IF EXISTS rag_lite_event_type")
 
     # -- Collections -------------------------------------------------------
     op.create_table(
@@ -67,7 +69,10 @@ def upgrade() -> None:
         sa.Column("chunk_count", sa.Integer(), nullable=False, server_default="0"),
         sa.Column(
             "status",
-            sa.Text(),
+            sa.Enum(
+                "pending", "processing", "ready", "error",
+                name="rag_lite_document_status",
+            ),
             nullable=False,
             server_default="pending",
         ),
@@ -155,7 +160,10 @@ def upgrade() -> None:
         ),
         sa.Column(
             "status",
-            sa.Text(),
+            sa.Enum(
+                "queued", "running", "completed", "failed",
+                name="rag_lite_job_status",
+            ),
             nullable=False,
             server_default="queued",
         ),
@@ -201,7 +209,10 @@ def upgrade() -> None:
         ),
         sa.Column(
             "event_type",
-            sa.Text(),
+            sa.Enum(
+                "info", "warning", "error",
+                name="rag_lite_event_type",
+            ),
             nullable=False,
             server_default="info",
         ),
@@ -227,3 +238,6 @@ def downgrade() -> None:
     op.drop_table("rag_lite_chunks")
     op.drop_table("rag_lite_documents")
     op.drop_table("rag_lite_collections")
+    op.execute("DROP TYPE IF EXISTS rag_lite_event_type")
+    op.execute("DROP TYPE IF EXISTS rag_lite_job_status")
+    op.execute("DROP TYPE IF EXISTS rag_lite_document_status")

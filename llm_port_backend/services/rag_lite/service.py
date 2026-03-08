@@ -146,13 +146,16 @@ class RagLiteService:
             )
 
             # 2. Extract text
-            if processor is not None:
-                result = await processor.process(file_bytes, doc.filename)
-                content_text = result.get("content", "")
-                metadata = result.get("metadata", {})
-            else:
-                content_text = file_bytes.decode("utf-8", errors="replace")
-                metadata = {}
+            if processor is None:
+                from llm_port_backend.services.docling.processor import (  # noqa: PLC0415
+                    DocumentProcessor,
+                )
+
+                processor = DocumentProcessor()
+
+            result = await processor.process(file_bytes, doc.filename)
+            content_text = result.get("content", "")
+            metadata = result.get("metadata", {})
 
             await job_dao.add_event(
                 job_id,

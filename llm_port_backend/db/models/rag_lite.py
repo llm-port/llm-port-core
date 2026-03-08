@@ -75,6 +75,12 @@ class RagLiteCollection(Base):
         primary_key=True,
         default=uuid.uuid4,
     )
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("rag_lite_collections.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
     name: Mapped[str] = mapped_column(String(256), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -90,6 +96,15 @@ class RagLiteCollection(Base):
     )
 
     # relationships
+    parent: Mapped[RagLiteCollection | None] = relationship(
+        remote_side="RagLiteCollection.id",
+        back_populates="children",
+    )
+    children: Mapped[list[RagLiteCollection]] = relationship(
+        back_populates="parent",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
     documents: Mapped[list[RagLiteDocument]] = relationship(
         back_populates="collection",
         cascade="all, delete-orphan",
@@ -118,6 +133,11 @@ class RagLiteDocument(Base):
     content_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     sha256: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    summary: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        doc="AI-generated or user-written summary of the document.",
+    )
     metadata_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     chunk_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     status: Mapped[RagLiteDocumentStatus] = mapped_column(

@@ -35,6 +35,7 @@ class RagLiteDocumentDTO(BaseModel):
     size_bytes: int
     chunk_count: int
     status: str
+    summary: str | None = None
     created_at: datetime
 
 
@@ -76,19 +77,49 @@ class RagLiteSearchResponse(BaseModel):
 class RagLiteCollectionCreate(BaseModel):
     name: str = Field(min_length=1, max_length=256)
     description: str | None = None
+    parent_id: uuid.UUID | None = None
 
 
 class RagLiteCollectionUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=256)
     description: str | None = None
+    parent_id: uuid.UUID | None = ...
 
 
 class RagLiteCollectionDTO(BaseModel):
     id: uuid.UUID
     name: str
     description: str | None
+    parent_id: uuid.UUID | None = None
+    document_count: int = 0
     created_at: datetime
     updated_at: datetime
+
+
+class RagLiteDocumentMoveRequest(BaseModel):
+    collection_id: uuid.UUID | None = None
+
+
+class RagLiteSummaryResponse(BaseModel):
+    summary: str
+
+
+class RagLiteGraphSearchRequest(BaseModel):
+    query: str = Field(min_length=1)
+    top_k_collections: int = Field(default=3, ge=1, le=20)
+    top_k_chunks: int = Field(default=5, ge=1, le=50)
+
+
+class RagLiteGraphSearchCollectionHit(BaseModel):
+    collection_id: uuid.UUID
+    collection_name: str
+    score: float
+
+
+class RagLiteGraphSearchResponse(BaseModel):
+    query: str
+    collection_hits: list[RagLiteGraphSearchCollectionHit]
+    results: list[RagLiteSearchResult]
 
 
 # -----------------------------------------------------------------------

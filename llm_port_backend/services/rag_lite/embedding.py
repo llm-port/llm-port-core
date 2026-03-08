@@ -74,6 +74,7 @@ class EmbeddingClient:
         provider: Any,
         *,
         model_override: str | None = None,
+        base_url_override: str | None = None,
         dim: int = 768,
         crypto: Any | None = None,
     ) -> EmbeddingClient:
@@ -85,12 +86,14 @@ class EmbeddingClient:
             An ``LLMProvider`` instance (from ``llm_port_backend.db.models.llm``).
         model_override:
             Explicit model name.  Falls back to ``provider.capabilities["remote_model"]``.
+        base_url_override:
+            Explicit base URL (e.g. from a running runtime's endpoint_url).
         dim:
             Actual embedding dimension (for zero-padding).
         crypto:
             ``SettingsCrypto`` instance for decrypting the API key.
         """
-        base_url = provider.endpoint_url or ""
+        base_url = base_url_override or provider.endpoint_url or ""
         caps = provider.capabilities or {}
 
         model = model_override or caps.get("remote_model", "")
@@ -126,7 +129,11 @@ class EmbeddingClient:
         If *preferred_provider_id* is set, uses that provider.
         Otherwise, picks the first embedding-capable provider.
         """
-        from llm_port_backend.db.dao.llm_dao import ProviderDAO  # noqa: PLC0415
+        from llm_port_backend.db.dao.llm_dao import (  # noqa: PLC0415
+            ModelDAO,
+            ProviderDAO,
+            RuntimeDAO,
+        )
 
         dao = ProviderDAO(session)
 
@@ -145,9 +152,33 @@ class EmbeddingClient:
                 )
             provider = providers[0]
 
+        # For local Docker providers, resolve model name and endpoint URL
+        # from the running runtime when not set on the provider itself.
+        effective_model = model_override
+        effective_base_url: str | None = None
+        if not effective_model:
+            caps = provider.capabilities or {}
+            effective_model = caps.get("remote_model") or None
+        if not effective_model or not provider.endpoint_url:
+            runtime_dao = RuntimeDAO(session)
+            model_dao = ModelDAO(session)
+            runtimes = await runtime_dao.list_by_provider(provider.id)
+            for rt in runtimes:
+                if rt.status.value == "running":
+                    if not effective_model:
+                        m = await model_dao.get(rt.model_id)
+                        if m:
+                            effective_model = m.hf_repo_id or m.display_name
+                    if not provider.endpoint_url and rt.endpoint_url:
+                        # Runtime endpoint_url is bare http://host:port;
+                        # the OpenAI-compat API lives under /v1.
+                        effective_base_url = rt.endpoint_url.rstrip("/") + "/v1"
+                    break
+
         return await cls.from_provider(
             provider,
-            model_override=model_override,
+            model_override=effective_model,
+            base_url_override=effective_base_url,
             dim=dim,
             crypto=crypto,
         )

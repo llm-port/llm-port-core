@@ -38,11 +38,13 @@ class RagLiteCollectionDAO:
         self,
         name: str,
         description: str | None = None,
+        parent_id: uuid.UUID | None = None,
     ) -> RagLiteCollection:
         col = RagLiteCollection(
             id=uuid.uuid4(),
             name=name,
             description=description,
+            parent_id=parent_id,
         )
         self.session.add(col)
         await self.session.flush()
@@ -66,6 +68,7 @@ class RagLiteCollectionDAO:
         *,
         name: str | None = None,
         description: str | None = ...,  # type: ignore[assignment]
+        parent_id: uuid.UUID | None = ...,  # type: ignore[assignment]
     ) -> RagLiteCollection | None:
         col = await self.get(collection_id)
         if col is None:
@@ -74,7 +77,26 @@ class RagLiteCollectionDAO:
             col.name = name
         if description is not ...:
             col.description = description
+        if parent_id is not ...:
+            col.parent_id = parent_id
         return col
+
+    async def list_with_doc_counts(self) -> list[tuple[RagLiteCollection, int]]:
+        """Return all collections with their direct document counts."""
+        stmt = (
+            select(
+                RagLiteCollection,
+                func.count(RagLiteDocument.id).label("doc_count"),
+            )
+            .outerjoin(
+                RagLiteDocument,
+                RagLiteDocument.collection_id == RagLiteCollection.id,
+            )
+            .group_by(RagLiteCollection.id)
+            .order_by(RagLiteCollection.name)
+        )
+        result = await self.session.execute(stmt)
+        return [(row[0], row[1]) for row in result.all()]
 
     async def delete(self, collection_id: uuid.UUID) -> bool:
         col = await self.get(collection_id)
@@ -174,6 +196,51 @@ class RagLiteDocumentDAO:
         if chunk_count is not None:
             doc.chunk_count = chunk_count
         return doc
+
+    async def move_to_collection(
+        self,
+        document_id: uuid.UUID,
+        collection_id: uuid.UUID | None,
+    ) -> RagLiteDocument | None:
+        """Move a document to a different collection (or root if None)."""
+        doc = await self.get(document_id)
+        if doc is None:
+            return None
+        doc.collection_id = collection_id
+        # Also update the denormalised collection_id on chunks
+        await self.session.execute(
+            update(RagLiteChunk)
+            .where(RagLiteChunk.document_id == document_id)
+            .values(collection_id=collection_id),
+        )
+        return doc
+
+    async def update_summary(
+        self,
+        document_id: uuid.UUID,
+        summary: str | None,
+    ) -> RagLiteDocument | None:
+        doc = await self.get(document_id)
+        if doc is None:
+            return None
+        doc.summary = summary
+        return doc
+
+    async def list_all(
+        self,
+        *,
+        limit: int = 500,
+        offset: int = 0,
+    ) -> list[RagLiteDocument]:
+        """Return all documents regardless of collection."""
+        query = (
+            select(RagLiteDocument)
+            .order_by(RagLiteDocument.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        result = await self.session.execute(query)
+        return list(result.scalars().all())
 
     async def delete(self, document_id: uuid.UUID) -> bool:
         doc = await self.get(document_id)

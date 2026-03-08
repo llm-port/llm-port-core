@@ -33,6 +33,7 @@
     "rag_search": "Search",
     "rag_documents": "Documents",
     "rag_collections": "Collections",
+    "rag_knowledge_base": "Knowledge Base",
     "logs": "Logs",
     "settings": "Settings",
     "pii_group": "Privacy (PII)",
@@ -551,7 +552,10 @@
     "extra_args_help": "Additional command-line arguments passed to the runtime engine (one per line, e.g. --enforce-eager).",
     "save_and_restart": "Save & Restart",
     "enforce_eager": "Legacy GPU support (uses XFormers backend for compute capability < 8.0 — e.g. TITAN RTX, V100, GTX 10xx/20xx)",
-    "swap_space_help": "CPU swap space per GPU in GiB (e.g. 4). Leave blank for vLLM default (1 GiB in legacy GPU mode)."
+    "swap_space_help": "CPU swap space per GPU in GiB (e.g. 4). Leave blank for vLLM default (1 GiB in legacy GPU mode).",
+    "model_id": "Model ID",
+    "capabilities": "Capabilities",
+    "supports_embeddings": "Embeddings"
   },
   "llm_jobs": {
     "title": "Download Jobs",
@@ -688,7 +692,21 @@
     "failed_load_collections": "Failed to load collections.",
     "failed_create_collection": "Failed to create collection.",
     "failed_delete_collection": "Failed to delete collection.",
-    "confirm_delete_collection": "Delete this collection and unlink its documents?"
+    "confirm_delete_collection": "Delete this collection and unlink its documents?",
+    "knowledge_base_title": "Knowledge Base",
+    "name": "Name",
+    "description": "Description",
+    "type": "Type",
+    "created": "Created",
+    "items": "items",
+    "retry": "Retry",
+    "no_description": "No description",
+    "generate_ai": "Generate with AI",
+    "add_subfolder": "Add Sub-Folder",
+    "upload_here": "Upload Here",
+    "new_collection": "New Collection",
+    "empty_explorer": "No collections or documents yet. Create a collection or upload a file to get started.",
+    "create_collection": "New Collection"
   },
   "agents_api_docs": {
     "title": "Endpoint",
