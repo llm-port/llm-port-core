@@ -149,7 +149,12 @@ def _setup_db(app: FastAPI) -> None:  # pragma: no cover
 
     :param app: current fastapi application.
     """
-    engine = create_async_engine(str(settings.db_url), echo=settings.db_echo)
+    engine = create_async_engine(
+        str(settings.db_url),
+        echo=settings.db_echo,
+        pool_size=settings.db_pool_size,
+        max_overflow=settings.db_max_overflow,
+    )
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     app.state.db_engine = engine
     app.state.db_session_factory = session_factory

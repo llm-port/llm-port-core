@@ -31,7 +31,7 @@ router = APIRouter()
 
 
 @router.get("/health")
-def public_health_check() -> None:
+async def public_health_check() -> None:
     """Public health endpoint for L7 probes."""
 
 

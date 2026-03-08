@@ -328,3 +328,29 @@ async def get_session_summary(
         return JSONResponse(status_code=200, content={"data": None})
     data = SummaryDTO.model_validate(summary).model_dump(mode="json")
     return JSONResponse(status_code=200, content={"data": data})
+
+
+# ── Capacity ──────────────────────────────────────────────────────
+
+
+@router.get("/capacity")
+async def get_capacity(
+    request: Request,
+    auth: AuthContext = Depends(get_auth_context),
+    dao: SessionDAO = Depends(),
+) -> JSONResponse:
+    """Return project capacity for the current user."""
+    capacity = getattr(request.app.state, "_resource_capacity", {})
+    limit = capacity.get("projects")
+    current = await dao.count_projects(
+        tenant_id=auth.tenant_id, user_id=auth.user_id,
+    )
+    return JSONResponse(
+        status_code=200,
+        content={
+            "projects": {
+                "current": current,
+                "limit": limit,
+            },
+        },
+    )

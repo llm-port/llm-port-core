@@ -1,10 +1,13 @@
 import enum
+import os
 from pathlib import Path
 from tempfile import gettempdir
 from typing import Optional
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from yarl import URL
+
+_CPU_COUNT = os.cpu_count() or 1
 
 TEMP_DIR = Path(gettempdir())
 
@@ -31,7 +34,7 @@ class Settings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = 8000
     # quantity of workers for uvicorn
-    workers_count: int = 1
+    workers_count: int = min(_CPU_COUNT, 4)
     # Enable uvicorn reloading
     reload: bool = False
 
@@ -47,6 +50,8 @@ class Settings(BaseSettings):
     db_pass: str = "llm_user"
     db_base: str = "llm_api"
     db_echo: bool = False
+    db_pool_size: int = max(5, _CPU_COUNT * 3)
+    db_max_overflow: int = max(10, _CPU_COUNT * 3)
     db_url_override: str | None = None
 
     # Variables for Redis (optional — empty host disables Redis)
