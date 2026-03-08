@@ -120,6 +120,30 @@ async def _sync_docling_enabled(
     return []
 
 
+async def _sync_sessions_enabled(
+    service: SystemSettingsService,
+    enabled: bool,
+    actor_id: Any,
+) -> list[str]:
+    """Sync ``llm_port_api.sessions_enabled`` as module lifecycle flag."""
+    try:
+        result = await service.update_value(
+            key="llm_port_api.sessions_enabled",
+            value=enabled,
+            actor_id=actor_id,
+            root_mode_active=False,
+            target_host="local",
+        )
+    except Exception as exc:
+        logger.exception("Failed to sync llm_port_api.sessions_enabled")
+        return [f"Failed to sync llm_port_api.sessions_enabled: {exc}"]
+
+    if result.apply_status != "success":
+        details = "; ".join(result.messages) if result.messages else "unknown apply failure"
+        return [f"Failed to apply llm_port_api.sessions_enabled={enabled}: {details}"]
+    return []
+
+
 # ── Registration ──────────────────────────────────────────────────────
 
 
@@ -130,6 +154,19 @@ def register_core_modules() -> None:
     modules that are already registered.
     """
     _defs: list[ModuleDef] = [
+        ModuleDef(
+            name="chat",
+            display_name="Chat & Sessions",
+            description=(
+                "Session-aware chat with message history, rolling summaries, "
+                "memory facts, and file attachments. Managed by the gateway."
+            ),
+            module_type="plugin",
+            settings_flag="sessions_enabled",
+            is_available_fn=lambda: settings.sessions_enabled,
+            on_enable=_sync_sessions_enabled,
+            on_disable=_sync_sessions_enabled,
+        ),
         ModuleDef(
             name="rag_lite",
             display_name="RAG Lite",

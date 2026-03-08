@@ -48,7 +48,11 @@
     "pinned": "Pinned",
     "reset_nav_order": "Reset navigation order",
     "security_map": "Data Residency",
-    "scheduler": "Scheduler"
+    "scheduler": "Scheduler",
+    "chat_group": "Chat",
+    "chat_projects": "Projects",
+    "chat_sessions": "Sessions",
+    "chat_attachments": "Attachments"
   },
   "auth": {
     "logout": "Logout",
@@ -994,5 +998,37 @@
     "type": "Type",
     "type_model_download": "Model Download",
     "type_rag_ingest": "RAG Ingest"
+  },
+  "chat_admin": {
+    "projects_title": "Chat Projects",
+    "sessions_title": "Chat Sessions",
+    "attachments_title": "Chat Attachments",
+    "col_name": "Name",
+    "col_title": "Title",
+    "col_user": "User",
+    "col_tenant": "Tenant",
+    "col_model": "Model",
+    "col_created": "Created",
+    "col_status": "Status",
+    "col_project": "Project",
+    "col_filename": "Filename",
+    "col_size": "Size",
+    "col_type": "Content Type",
+    "col_extraction": "Extraction",
+    "col_scope": "Scope",
+    "untitled_session": "(untitled)",
+    "search_projects": "Search projects…",
+    "search_sessions": "Search sessions…",
+    "search_attachments": "Search attachments…",
+    "delete_project_title": "Delete Project",
+    "delete_project_message": "Delete project \"{{name}}\" and all its sessions, messages, and attachments?",
+    "delete_session_title": "Delete Session",
+    "delete_session_message": "Delete this session and all its messages and attachments?",
+    "delete_attachment_title": "Delete Attachment",
+    "delete_attachment_message": "Delete attachment \"{{name}}\"?",
+    "stat_projects": "Projects",
+    "stat_sessions": "Sessions",
+    "stat_attachments": "Attachments",
+    "stat_storage": "Total Storage"
   }
 }

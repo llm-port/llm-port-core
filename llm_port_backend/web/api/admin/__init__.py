@@ -73,3 +73,8 @@ else:
 
     admin_router.include_router(rag_lite_router, prefix="/rag", tags=["admin-rag"])
     logger.info("RAG Lite routes registered — activate via Settings > Modules")
+
+# --- Chat & Sessions admin routes (always registered) ---------------------
+from llm_port_backend.web.api.admin.chat.views import router as chat_router  # noqa: E402
+
+admin_router.include_router(chat_router, prefix="/chat", tags=["admin-chat"])

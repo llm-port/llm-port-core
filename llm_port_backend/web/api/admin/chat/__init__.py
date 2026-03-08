@@ -1,0 +1,1 @@
+"""Admin chat router package."""

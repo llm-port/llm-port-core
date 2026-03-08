@@ -77,6 +77,7 @@ _RUNTIME_VALUE_KEYS: dict[str, str] = {
     "rag_lite.chunk_max_tokens": "rag_lite_chunk_max_tokens",
     "rag_lite.chunk_overlap_tokens": "rag_lite_chunk_overlap_tokens",
     "rag_lite.upload_max_file_mb": "rag_lite_upload_max_file_mb",
+    "llm_port_api.sessions_enabled": "sessions_enabled",
 }
 _RUNTIME_SECRET_KEYS: dict[str, str] = {
     "llm_port_backend.users_secret": "users_secret",

@@ -152,6 +152,9 @@ class Settings(BaseSettings):
     rag_lite_chunk_overlap_tokens: int = 64
     rag_lite_upload_max_file_mb: int = 20
 
+    # Chat & Sessions module settings (gateway feature, managed from backend)
+    sessions_enabled: bool = True
+
     # Admin dashboard / Grafana embedding settings
     grafana_url: str | None = Field(
         default=None,
