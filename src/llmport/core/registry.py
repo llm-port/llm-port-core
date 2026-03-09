@@ -32,11 +32,7 @@ REPOS: list[RepoInfo] = [
     RepoInfo("llm-port-backend", "llm_port_backend", "Backend API server"),
     RepoInfo("llm-port-frontend", "llm_port_frontend", "React frontend"),
     RepoInfo("llm-port-api", "llm_port_api", "LLM Gateway API"),
-    RepoInfo("llm-port-rag", "llm_port_rag", "RAG service"),
     RepoInfo("llm-port-pii", "llm_port_pii", "PII redaction service"),
-    RepoInfo("llm-port-auth", "llm_port_auth", "Auth service"),
-    RepoInfo("llm-port-mailer", "llm_port_mailer", "Mailer service"),
-    RepoInfo("llm-port-docling", "llm_port_docling", "Document parsing service"),
     RepoInfo("llm-port-shared", "llm_port_shared", "Shared infra (compose)"),
     RepoInfo("llm-port-dev", "llm_port_dev", "Dev tooling & docs"),
     RepoInfo("llm-port-cli", "llm_port_cli", "CLI"),
@@ -63,17 +59,10 @@ class ModuleInfo:
     container: str = ""
     port: int = 0
     service_url: str = ""
+    env_vars: tuple[tuple[str, str], ...] = ()
 
 
 MODULES: dict[str, ModuleInfo] = {
-    "rag": ModuleInfo(
-        name="rag",
-        profile="rag",
-        description="Retrieval-Augmented Generation — document ingestion, vector search",
-        container="llm-port-rag",
-        port=8002,
-        service_url="http://llm-port-rag:8000",
-    ),
     "pii": ModuleInfo(
         name="pii",
         profile="pii",
@@ -81,30 +70,10 @@ MODULES: dict[str, ModuleInfo] = {
         container="llm-port-pii",
         port=8003,
         service_url="http://llm-port-pii:8000",
-    ),
-    "auth": ModuleInfo(
-        name="auth",
-        profile="auth",
-        description="External authentication provider (Keycloak)",
-        container="llm-port-auth",
-        port=8004,
-        service_url="http://llm-port-auth:8000",
-    ),
-    "mailer": ModuleInfo(
-        name="mailer",
-        profile="mailer",
-        description="Email notifications",
-        container="llm-port-mailer",
-        port=8005,
-        service_url="http://llm-port-mailer:8000",
-    ),
-    "docling": ModuleInfo(
-        name="docling",
-        profile="docling",
-        description="Document parsing & conversion (Docling)",
-        container="llm-port-docling",
-        port=8006,
-        service_url="http://llm-port-docling:8000",
+        env_vars=(
+            ("LLM_PORT_API_PII_ENABLED", "true"),
+            ("LLM_PORT_API_PII_SERVICE_URL", "http://llm-port-pii:8000"),
+        ),
     ),
 }
 
@@ -133,11 +102,7 @@ KNOWN_PORTS: list[tuple[int, str]] = [
     (8000, "Backend"),
     (5173, "Frontend (dev)"),
     (8001, "API Gateway"),
-    (8002, "RAG Service"),
     (8003, "PII Service"),
-    (8004, "Auth Service"),
-    (8005, "Mailer Service"),
-    (8006, "Docling Service"),
     # Tools
     (5050, "pgAdmin"),
     (3000, "Langfuse"),
@@ -151,7 +116,6 @@ KNOWN_PORTS: list[tuple[int, str]] = [
 DATABASES: list[str] = [
     "llm_port_backend",
     "llm_api",
-    "rag",
     "pii",
     "langfuse",
 ]
@@ -209,7 +173,6 @@ DEV_ENDPOINTS: list[tuple[str, str]] = [
     ("pgAdmin", "http://localhost:5050"),
     ("RabbitMQ", "http://localhost:15672"),
     ("LLM API", "http://localhost:8001"),
-    ("RAG API", "http://localhost:8002"),
 ]
 
 
@@ -234,22 +197,15 @@ def module_env_vars(profile: str) -> dict[str, str]:
 
     Used by ``env_gen.dev_env_vars()`` and ``env_gen.default_env_vars()``
     to inject module-specific settings into generated ``.env`` files.
+
+    Each ``ModuleInfo`` carries its own ``env_vars`` tuple so that
+    enterprise modules registered via ``extend_modules()`` are handled
+    automatically — no hard-coded profile branches needed.
     """
     mod = MODULES.get(profile)
-    if not mod or not mod.service_url:
+    if not mod:
         return {}
-    env: dict[str, str] = {}
-    if profile == "rag":
-        env["LLM_PORT_BACKEND_RAG_ENABLED"] = "true"
-        env["LLM_PORT_API_RAG_ENABLED"] = "true"
-        env["LLM_PORT_API_RAG_SERVICE_URL"] = mod.service_url
-    elif profile == "pii":
-        env["LLM_PORT_API_PII_ENABLED"] = "true"
-        env["LLM_PORT_API_PII_SERVICE_URL"] = mod.service_url
-    elif profile == "auth":
-        env["LLM_PORT_API_AUTH_ENABLED"] = "true"
-        env["LLM_PORT_API_AUTH_SERVICE_URL"] = mod.service_url
-    return env
+    return dict(mod.env_vars)
 
 
 # ── Extension API (used by llmport-ee to layer on EE data) ────────
