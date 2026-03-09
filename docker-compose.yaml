@@ -282,6 +282,126 @@ services:
       timeout: 5s
       retries: 20
 
+  # -----------------------------
+  # llm_port_backend (control-plane)
+  # -----------------------------
+  llm-port-backend-migrator:
+    build:
+      context: ../llm_port_backend
+      dockerfile: Dockerfile
+    container_name: llm-port-backend-migrator
+    restart: "no"
+    command: ["sh", "-c", "sleep 3 && alembic upgrade head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      LLM_PORT_BACKEND_DB_HOST: postgres
+      LLM_PORT_BACKEND_DB_PORT: 5432
+      LLM_PORT_BACKEND_DB_USER: ${POSTGRES_USER:-postgres}
+      LLM_PORT_BACKEND_DB_PASS: ${POSTGRES_PASSWORD:-postgres}
+      LLM_PORT_BACKEND_DB_BASE: llm_port_backend
+
+  llm-port-backend:
+    build:
+      context: ../llm_port_backend
+      dockerfile: Dockerfile
+    container_name: llm-port-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      llm-port-rmq:
+        condition: service_healthy
+      llm-port-backend-migrator:
+        condition: service_completed_successfully
+    ports:
+      - "8000:8000"
+    environment:
+      LLM_PORT_BACKEND_HOST: 0.0.0.0
+      LLM_PORT_BACKEND_PORT: 8000
+      LLM_PORT_BACKEND_RELOAD: "false"
+      LLM_PORT_BACKEND_ENVIRONMENT: production
+      LLM_PORT_BACKEND_DB_HOST: postgres
+      LLM_PORT_BACKEND_DB_PORT: 5432
+      LLM_PORT_BACKEND_DB_USER: ${POSTGRES_USER:-postgres}
+      LLM_PORT_BACKEND_DB_PASS: ${POSTGRES_PASSWORD:-postgres}
+      LLM_PORT_BACKEND_DB_BASE: llm_port_backend
+      LLM_PORT_BACKEND_REDIS_HOST: redis
+      LLM_PORT_BACKEND_REDIS_PORT: 6379
+      LLM_PORT_BACKEND_REDIS_PASS: ${REDIS_AUTH:-myredissecret}
+      LLM_PORT_BACKEND_RABBIT_HOST: llm-port-rmq
+      LLM_PORT_BACKEND_RABBIT_PORT: 5672
+      LLM_PORT_BACKEND_RABBIT_USER: guest
+      LLM_PORT_BACKEND_RABBIT_PASS: guest
+      LLM_PORT_BACKEND_RABBIT_VHOST: /
+      LLM_PORT_BACKEND_GATEWAY_URL: ${LLM_PORT_BACKEND_GATEWAY_URL:-http://llm-port-api:9000}
+      LLM_PORT_BACKEND_SETTINGS_MASTER_KEY: ${LLM_PORT_BACKEND_SETTINGS_MASTER_KEY:-dev-settings-master-key-change-me}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=3).read()"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  llm-port-backend-worker:
+    build:
+      context: ../llm_port_backend
+      dockerfile: Dockerfile
+    container_name: llm-port-backend-worker
+    restart: unless-stopped
+    command:
+      - taskiq
+      - worker
+      - llm_port_backend.tkq:broker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      llm-port-rmq:
+        condition: service_healthy
+      llm-port-backend-migrator:
+        condition: service_completed_successfully
+    environment:
+      LLM_PORT_BACKEND_ENVIRONMENT: production
+      LLM_PORT_BACKEND_DB_HOST: postgres
+      LLM_PORT_BACKEND_DB_PORT: 5432
+      LLM_PORT_BACKEND_DB_USER: ${POSTGRES_USER:-postgres}
+      LLM_PORT_BACKEND_DB_PASS: ${POSTGRES_PASSWORD:-postgres}
+      LLM_PORT_BACKEND_DB_BASE: llm_port_backend
+      LLM_PORT_BACKEND_REDIS_HOST: redis
+      LLM_PORT_BACKEND_REDIS_PORT: 6379
+      LLM_PORT_BACKEND_REDIS_PASS: ${REDIS_AUTH:-myredissecret}
+      LLM_PORT_BACKEND_RABBIT_HOST: llm-port-rmq
+      LLM_PORT_BACKEND_RABBIT_PORT: 5672
+      LLM_PORT_BACKEND_RABBIT_USER: guest
+      LLM_PORT_BACKEND_RABBIT_PASS: guest
+      LLM_PORT_BACKEND_RABBIT_VHOST: /
+      LLM_PORT_BACKEND_GATEWAY_URL: ${LLM_PORT_BACKEND_GATEWAY_URL:-http://llm-port-api:9000}
+      LLM_PORT_BACKEND_SETTINGS_MASTER_KEY: ${LLM_PORT_BACKEND_SETTINGS_MASTER_KEY:-dev-settings-master-key-change-me}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  # -----------------------------
+  # llm_port_frontend (React admin console)
+  # -----------------------------
+  llm-port-frontend:
+    build:
+      context: ../llm_port_frontend
+      dockerfile: Dockerfile
+    container_name: llm-port-frontend
+    restart: unless-stopped
+    depends_on:
+      llm-port-backend:
+        condition: service_healthy
+    ports:
+      - "5173:3000"
+    environment:
+      BACKEND_URL: http://llm-port-backend:8000
+      API_URL: http://llm-port-api:8000
+
   # =====================================================================
   # OPTIONAL MODULE: RAG Engine (profile: rag)
   #
