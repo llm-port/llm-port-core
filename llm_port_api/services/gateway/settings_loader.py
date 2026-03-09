@@ -83,6 +83,9 @@ async def load_system_settings_from_backend_db() -> int:
         attr = _VALUE_KEYS.get(db_key)
         if attr is None:
             continue
+        # Skip empty/blank strings so the code-level default is preserved.
+        if isinstance(value, str) and not value.strip():
+            continue
 
         try:
             setattr(settings, attr, value)
