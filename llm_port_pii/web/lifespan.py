@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
@@ -5,7 +6,6 @@ from fastapi import FastAPI
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.redis import RedisInstrumentor
-from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 from opentelemetry.sdk.resources import (
     DEPLOYMENT_ENVIRONMENT,
     SERVICE_NAME,
@@ -18,7 +18,6 @@ from opentelemetry.trace import set_tracer_provider
 from prometheus_fastapi_instrumentator.instrumentation import (
     PrometheusFastApiInstrumentator,
 )
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from llm_port_pii.services.pii.service import PIIService
 from llm_port_pii.settings import settings
@@ -34,30 +33,6 @@ try:
 except ImportError:  # pragma: no cover
     _EE_AVAILABLE = False
 # ──────────────────────────────────────────────────────────────────
-
-
-def _setup_db(app: FastAPI) -> None:  # pragma: no cover
-    """
-    Creates connection to the database.
-
-    This function creates SQLAlchemy engine instance,
-    session_factory for creating sessions
-    and stores them in the application's state property.
-
-    :param app: fastAPI application.
-    """
-    engine = create_async_engine(
-        str(settings.db_url),
-        echo=settings.db_echo,
-        pool_size=settings.db_pool_size,
-        max_overflow=settings.db_max_overflow,
-    )
-    session_factory = async_sessionmaker(
-        engine,
-        expire_on_commit=False,
-    )
-    app.state.db_engine = engine
-    app.state.db_session_factory = session_factory
 
 
 def setup_opentelemetry(app: FastAPI) -> None:  # pragma: no cover
@@ -106,10 +81,6 @@ def setup_opentelemetry(app: FastAPI) -> None:  # pragma: no cover
         RedisInstrumentor().instrument(
             tracer_provider=tracer_provider,
         )
-    SQLAlchemyInstrumentor().instrument(
-        tracer_provider=tracer_provider,
-        engine=app.state.db_engine.sync_engine,
-    )
 
     set_tracer_provider(tracer_provider=tracer_provider)
 
@@ -126,7 +97,6 @@ def stop_opentelemetry(app: FastAPI) -> None:  # pragma: no cover
     FastAPIInstrumentor().uninstrument_app(app)
     if settings.redis_enabled:
         RedisInstrumentor().uninstrument()
-    SQLAlchemyInstrumentor().uninstrument()
 
 
 def setup_prometheus(app: FastAPI) -> None:  # pragma: no cover
@@ -155,7 +125,6 @@ async def lifespan_setup(
     """
 
     app.middleware_stack = None
-    _setup_db(app)
     setup_opentelemetry(app)
     setup_prometheus(app)
 
@@ -198,5 +167,4 @@ async def lifespan_setup(
             log.exception("Error during PII Enterprise plugin teardown.")
     # ──────────────────────────────────────────────────────────
 
-    await app.state.db_engine.dispose()
     stop_opentelemetry(app)

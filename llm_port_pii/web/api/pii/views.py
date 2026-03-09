@@ -1,31 +1,86 @@
-"""PII scan, redact, sanitize API endpoints, plus stats/events dashboard."""
+"""PII scan, redact, sanitize API endpoints.
+
+The PII service is **stateless** — event telemetry is forwarded to the
+backend service which owns the ``pii_scan_events`` table.  Stats and
+event-log endpoints are served by the backend directly.
+"""
 
 from __future__ import annotations
 
-from datetime import datetime
+import logging
 
-from fastapi import APIRouter, Depends, Query, Request
+import httpx
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-from llm_port_pii.db.dao.pii_event_dao import PIIEventDAO
-from llm_port_pii.services.pii.service import PIIService
 from llm_port_pii.services.pii.service import DEFAULT_ENTITIES, SUPPORTED_LANGUAGES
+from llm_port_pii.services.pii.service import PIIService
 from llm_port_pii.settings import settings
 from llm_port_pii.web.api.pii.schema import (
     DetectedEntityDTO,
-    PIIEventDTO,
-    PIIEventsResponse,
+    PIIPolicyOptionsResponse,
     PIIRedactRequest,
     PIIRedactResponse,
     PIISanitizeRequest,
     PIISanitizeResponse,
-    PIIPolicyOptionsResponse,
     PIIScanRequest,
     PIIScanResponse,
-    PIIStatsResponse,
 )
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
+
+# ── Shared httpx client for fire-and-forget event logging ─────────
+_event_client: httpx.AsyncClient | None = None
+
+
+def _get_event_client() -> httpx.AsyncClient:
+    global _event_client
+    if _event_client is None:
+        _event_client = httpx.AsyncClient(timeout=5.0)
+    return _event_client
+
+
+def _backend_event_url() -> str:
+    """Build the backend event-log ingestion URL."""
+    url = settings.backend_url.strip().rstrip("/")
+    if url and not url.startswith(("http://", "https://")):
+        url = f"http://{url}"
+    return f"{url}/api/admin/pii/events/log"
+
+
+async def _log_event_async(
+    *,
+    operation: str,
+    mode: str | None = None,
+    language: str = "en",
+    score_threshold: float = 0.35,
+    pii_detected: bool = False,
+    entities_found: int = 0,
+    entity_type_counts: dict[str, int] | None = None,
+    source: str = "api",
+    request_id: str | None = None,
+) -> None:
+    """Fire-and-forget POST to the backend event-log endpoint."""
+    url = _backend_event_url()
+    if not url:
+        return
+    payload = {
+        "operation": operation,
+        "mode": mode,
+        "language": language,
+        "score_threshold": score_threshold,
+        "pii_detected": pii_detected,
+        "entities_found": entities_found,
+        "entity_type_counts": entity_type_counts,
+        "source": source,
+        "request_id": request_id,
+    }
+    try:
+        await _get_event_client().post(url, json=payload)
+    except Exception:
+        logger.debug("Failed to forward PII event to backend", exc_info=True)
 
 
 def _get_pii_service(request: Request) -> PIIService:
@@ -49,7 +104,6 @@ async def get_policy_options() -> PIIPolicyOptionsResponse:
 async def scan_text(
     body: PIIScanRequest,
     request: Request,
-    dao: PIIEventDAO = Depends(),
 ) -> PIIScanResponse:
     """Detect PII entities in the provided text."""
     svc = _get_pii_service(request)
@@ -63,8 +117,8 @@ async def scan_text(
     type_counts: dict[str, int] = {}
     for e in result.entities:
         type_counts[e.entity_type] = type_counts.get(e.entity_type, 0) + 1
-    # Log event (no raw text stored)
-    await dao.log_event(
+    # Fire-and-forget event to backend (no raw text stored)
+    await _log_event_async(
         operation="scan",
         language=body.language or "en",
         score_threshold=body.score_threshold or 0.35,
@@ -93,7 +147,6 @@ async def scan_text(
 async def redact_text(
     body: PIIRedactRequest,
     request: Request,
-    dao: PIIEventDAO = Depends(),
 ) -> PIIRedactResponse:
     """Detect and redact PII entities from the provided text."""
     svc = _get_pii_service(request)
@@ -103,7 +156,7 @@ async def redact_text(
         entities=body.entities,
         score_threshold=body.score_threshold,
     )
-    await dao.log_event(
+    await _log_event_async(
         operation="redact",
         mode="redact",
         language=body.language or "en",
@@ -123,7 +176,6 @@ async def redact_text(
 async def sanitize_payload(
     body: PIISanitizeRequest,
     request: Request,
-    dao: PIIEventDAO = Depends(),
 ) -> PIISanitizeResponse | JSONResponse:
     """Sanitize all text fields in an OpenAI-shaped payload.
 
@@ -155,7 +207,7 @@ async def sanitize_payload(
     type_counts: dict[str, int] = {}
     for e in result.pii_report:
         type_counts[e.entity_type] = type_counts.get(e.entity_type, 0) + 1
-    await dao.log_event(
+    await _log_event_async(
         operation="sanitize",
         mode=body.mode,
         language=body.language or "en",
@@ -180,66 +232,4 @@ async def sanitize_payload(
             for e in result.pii_report
         ],
         token_mapping=result.token_mapping,
-    )
-
-
-# ---------------------------------------------------------------
-# Dashboard & event-log read endpoints
-# ---------------------------------------------------------------
-
-
-@router.get("/stats", response_model=PIIStatsResponse)
-async def get_pii_stats(
-    since: datetime | None = Query(default=None),
-    until: datetime | None = Query(default=None),
-    dao: PIIEventDAO = Depends(),
-) -> PIIStatsResponse:
-    """Return aggregate PII processing statistics (no raw data)."""
-    data = await dao.get_stats(since=since, until=until)
-    return PIIStatsResponse(**data)
-
-
-@router.get("/events", response_model=PIIEventsResponse)
-async def list_pii_events(
-    operation: str | None = Query(default=None),
-    source: str | None = Query(default=None),
-    pii_only: bool = Query(default=False),
-    since: datetime | None = Query(default=None),
-    limit: int = Query(default=50, ge=1, le=500),
-    offset: int = Query(default=0, ge=0),
-    dao: PIIEventDAO = Depends(),
-) -> PIIEventsResponse:
-    """Return paginated PII scan events (metadata only, no raw text)."""
-    items = await dao.list_events(
-        operation=operation,
-        source=source,
-        pii_only=pii_only,
-        since=since,
-        limit=limit,
-        offset=offset,
-    )
-    total = await dao.count_events(
-        operation=operation,
-        source=source,
-        pii_only=pii_only,
-        since=since,
-    )
-    return PIIEventsResponse(
-        items=[
-            PIIEventDTO(
-                id=str(e.id),
-                created_at=e.created_at.isoformat() if e.created_at else "",
-                operation=e.operation,
-                mode=e.mode,
-                language=e.language,
-                score_threshold=e.score_threshold,
-                pii_detected=e.pii_detected,
-                entities_found=e.entities_found,
-                entity_type_counts=e.entity_type_counts,
-                source=e.source,
-                request_id=e.request_id,
-            )
-            for e in items
-        ],
-        total=total,
     )

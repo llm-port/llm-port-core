@@ -8,19 +8,13 @@ services:
     env_file:
       - .env
     depends_on:
-      db:
-        condition: service_healthy
       redis:
         condition: service_healthy
       rmq:
         condition: service_healthy
     environment:
       LLM_PORT_PII_HOST: 0.0.0.0
-      LLM_PORT_PII_DB_HOST: llm_port_pii-db
-      LLM_PORT_PII_DB_PORT: 5432
-      LLM_PORT_PII_DB_USER: llm_port_pii
-      LLM_PORT_PII_DB_PASS: llm_port_pii
-      LLM_PORT_PII_DB_BASE: llm_port_pii
+      LLM_PORT_PII_BACKEND_URL: ${LLM_PORT_PII_BACKEND_URL:-http://host.docker.internal:8000}
       LLM_PORT_PII_RABBIT_HOST: llm_port_pii-rmq
       LLM_PORT_PII_REDIS_HOST: llm_port_pii-redis
 
@@ -31,36 +25,6 @@ services:
       - taskiq
       - worker
       - llm_port_pii.tkq:broker
-
-  db:
-    image: postgres:16.3-bullseye
-    hostname: llm_port_pii-db
-    environment:
-      POSTGRES_PASSWORD: "llm_port_pii"
-      POSTGRES_USER: "llm_port_pii"
-      POSTGRES_DB: "llm_port_pii"
-    volumes:
-      - llm_port_pii-db-data:/var/lib/postgresql/data
-    restart: always
-    healthcheck:
-      test: pg_isready -U llm_port_pii
-      interval: 2s
-      timeout: 3s
-      retries: 40
-
-  migrator:
-    image: llm_port_pii:${LLM_PORT_PII_VERSION:-latest}
-    restart: "no"
-    command: alembic upgrade head
-    environment:
-      LLM_PORT_PII_DB_HOST: llm_port_pii-db
-      LLM_PORT_PII_DB_PORT: 5432
-      LLM_PORT_PII_DB_USER: llm_port_pii
-      LLM_PORT_PII_DB_PASS: llm_port_pii
-      LLM_PORT_PII_DB_BASE: llm_port_pii
-    depends_on:
-      db:
-        condition: service_healthy
 
   redis:
     image: bitnami/redis:6.2.5
@@ -87,9 +51,3 @@ services:
       interval: 3s
       timeout: 3s
       retries: 50
-
-
-
-volumes:
-  llm_port_pii-db-data:
-    name: llm_port_pii-db-data

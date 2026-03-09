@@ -75,6 +75,9 @@ class Settings(BaseSettings):
     pii_default_language: str = "en"
     pii_score_threshold: float = 0.35
 
+    # Backend service URL for event-log forwarding
+    backend_url: str = "http://127.0.0.1:8000"
+
     @property
     def db_url(self) -> URL:
         """
