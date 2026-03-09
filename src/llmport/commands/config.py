@@ -92,8 +92,8 @@ def config_set(key: str, value: str) -> None:
     # Rebuild config
     from llmport.core.settings import LlmportConfig, DevConfig
 
-    dev_data = cfg_dict.pop("dev", {})
-    dev_cfg = DevConfig(**dev_data) if dev_data else None
+    dev_data = cfg_dict.pop("dev", {}) or {}
+    dev_cfg = DevConfig(**{k: v for k, v in dev_data.items() if k in DevConfig.__dataclass_fields__})
     new_cfg = LlmportConfig(**cfg_dict, dev=dev_cfg)
 
     save_config(new_cfg)

@@ -13,7 +13,6 @@ from rich.table import Table
 from llmport.core.console import console
 from llmport.core.detect import (
     full_report,
-    KNOWN_PORTS,
 )
 
 
@@ -35,8 +34,7 @@ def doctor_cmd(ctx: click.Context, *, ports: bool) -> None:
     os_info = report.os
     console.print(
         Panel(
-            f"[bold]{os_info.system}[/bold] {os_info.release} — {os_info.machine}\n"
-            f"Hostname: {os_info.hostname}",
+            f"[bold]{os_info.system}[/bold] {os_info.release} — {os_info.machine}",
             title="Operating System",
             border_style="cyan",
         )
@@ -77,11 +75,11 @@ def doctor_cmd(ctx: click.Context, *, ports: bool) -> None:
 
     # ── GPU ───────────────────────────────────────────────────────
     gpu = report.gpu
-    if gpu.nvidia_available or gpu.rocm_available:
+    if gpu.has_gpu:
         for dev in gpu.devices:
             console.print(
                 f"{_check_mark(True)}  GPU: [bold]{dev.name}[/bold] "
-                f"({dev.memory_mb} MB)"
+                f"({dev.vram_mb} MB)"
             )
     else:
         console.print(f"{_check_mark(False)}  GPU: not detected (CPU-only mode)")
@@ -111,13 +109,12 @@ def doctor_cmd(ctx: click.Context, *, ports: bool) -> None:
         port_table.add_column("Status")
 
         for pc in report.ports:
-            label = KNOWN_PORTS.get(pc.port, "")
             status = (
                 "[green]available[/green]"
-                if pc.available
-                else f"[red]in use[/red] ({pc.process or 'unknown'})"
+                if not pc.in_use
+                else "[red]in use[/red]"
             )
-            port_table.add_row(str(pc.port), label, status)
+            port_table.add_row(str(pc.port), pc.label, status)
         console.print(port_table)
 
     # ── Verdict ───────────────────────────────────────────────────

@@ -113,11 +113,13 @@ def up(
     return result.returncode
 
 
-def down(ctx: ComposeContext, *, volumes: bool = False) -> int:
+def down(ctx: ComposeContext, *, volumes: bool = False, remove_orphans: bool = False) -> int:
     """Run ``docker compose down``."""
     cmd = ctx.base_cmd() + ["down"]
     if volumes:
         cmd.append("-v")
+    if remove_orphans:
+        cmd.append("--remove-orphans")
     result = _run(cmd, stream=True)
     return result.returncode
 
@@ -131,12 +133,32 @@ def pull(ctx: ComposeContext, *, services: list[str] | None = None) -> int:
     return result.returncode
 
 
+def build(
+    ctx: ComposeContext,
+    *,
+    services: list[str] | None = None,
+    no_cache: bool = False,
+    pull: bool = False,
+) -> int:
+    """Run ``docker compose build``."""
+    cmd = ctx.base_cmd() + ["build"]
+    if no_cache:
+        cmd.append("--no-cache")
+    if pull:
+        cmd.append("--pull")
+    if services:
+        cmd.extend(services)
+    result = _run(cmd, stream=True)
+    return result.returncode
+
+
 def logs(
     ctx: ComposeContext,
     *,
     services: list[str] | None = None,
     follow: bool = True,
     tail: int | None = 100,
+    timestamps: bool = False,
 ) -> int:
     """Run ``docker compose logs``."""
     cmd = ctx.base_cmd() + ["logs"]
@@ -144,6 +166,8 @@ def logs(
         cmd.append("-f")
     if tail is not None:
         cmd.extend(["--tail", str(tail)])
+    if timestamps:
+        cmd.append("--timestamps")
     if services:
         cmd.extend(services)
     result = _run(cmd, stream=True)

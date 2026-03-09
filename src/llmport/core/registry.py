@@ -34,7 +34,6 @@ REPOS: list[RepoInfo] = [
     RepoInfo("llm-port-api", "llm_port_api", "LLM Gateway API"),
     RepoInfo("llm-port-pii", "llm_port_pii", "PII redaction service"),
     RepoInfo("llm-port-shared", "llm_port_shared", "Shared infra (compose)"),
-    RepoInfo("llm-port-dev", "llm_port_dev", "Dev tooling & docs"),
     RepoInfo("llm-port-cli", "llm_port_cli", "CLI"),
     RepoInfo(".github", ".github", "GitHub profile & CI"),
 ]

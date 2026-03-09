@@ -30,5 +30,5 @@ def version_cmd(*, short: bool) -> None:
         ("Compose", docker.compose_version or "[red]not found[/red]"),
     ]
 
-    kv_table(rows, title="llm.port CLI")
+    kv_table("llm.port CLI", rows)
     console.print()

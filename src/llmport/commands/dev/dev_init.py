@@ -16,9 +16,10 @@ import click
 
 from llmport.core.compose import ComposeContext, up as compose_up
 from llmport.core.console import console, success, warning, error, info
-from llmport.core.detect import detect_docker, check_tool
+from llmport.core.detect import detect_docker
 from llmport.core.env_gen import dev_env_vars, write_env_file
 from llmport.core.git import clone_all_repos
+from llmport.core.install import ensure_prerequisites
 from llmport.core.registry import (
     BACKEND_DEV_ENV,
     DATABASES,
@@ -317,6 +318,8 @@ def _generate_vscode_workspace(workspace: Path) -> None:
     default=None,
     help="Comma-separated list of modules to enable (e.g. rag,pii,auth).",
 )
+@click.option("--force-env", is_flag=True, help="Regenerate .env files even if they already exist.")
+@click.option("--install-prereqs", is_flag=True, help="Auto-install missing prerequisites (uv, git, node).")
 def dev_init(
     workspace: str,
     *,
@@ -327,6 +330,8 @@ def dev_init(
     skip_deps: bool,
     skip_migrations: bool,
     modules: str | None,
+    force_env: bool,
+    install_prereqs: bool,
 ) -> None:
     """Bootstrap a full llm.port development workspace.
 
@@ -368,21 +373,18 @@ def dev_init(
 
     # ── Prerequisites ─────────────────────────────────────────────
     console.print("[bold cyan]Checking prerequisites…[/bold cyan]")
-    docker_info = detect_docker()
-    if not docker_info.installed:
+    all_ok = ensure_prerequisites(install=install_prereqs)
+    if not all_ok:
         error(
-            "Either Docker is not installed or Docker engine is not running.\n"
-            "  Install: https://docs.docker.com/desktop/\n"
-            "  If already installed, make sure Docker Desktop is running."
+            "Some prerequisites are missing.\n"
+            "  Run: llmport dev doctor --install"
         )
         sys.exit(1)
+
+    # Docker daemon must also be running
+    docker_info = detect_docker()
     if not docker_info.daemon_running:
         error("Docker daemon is not running. Start Docker Desktop.")
-        sys.exit(1)
-
-    git_check = check_tool("git")
-    if not git_check.found:
-        error("Git is required.")
         sys.exit(1)
 
     success("Prerequisites OK.")
@@ -410,8 +412,8 @@ def dev_init(
     # ── 2a. Shared infrastructure .env ────────────────────────────
     shared_dir = workspace_path / "llm_port_shared"
     env_path = shared_dir / ".env"
-    if env_path.exists():
-        warning(f".env already exists at {env_path} — skipping.")
+    if env_path.exists() and not force_env:
+        warning(f".env already exists at {env_path} — skipping (use --force-env to regenerate).")
     else:
         env_vars = dev_env_vars(profiles=profiles)
         write_env_file(env_path, env_vars)
@@ -420,8 +422,8 @@ def dev_init(
     # ── 2b. Backend local .env (so uv run uses localhost) ─────────
     backend_dir = workspace_path / "llm_port_backend"
     backend_env_path = backend_dir / ".env"
-    if backend_env_path.exists():
-        warning(f"Backend .env already exists at {backend_env_path} — skipping.")
+    if backend_env_path.exists() and not force_env:
+        warning(f"Backend .env already exists at {backend_env_path} — skipping (use --force-env to regenerate).")
     elif backend_dir.exists():
         write_env_file(backend_env_path, dict(BACKEND_DEV_ENV))
         success(f"Backend .env written to {backend_env_path}")
@@ -499,7 +501,7 @@ def dev_init(
         workspace_dir=str(workspace_path),
         clone_method=clone_method,
         branch=branch,
-        repos=list(REPO_DIR_MAP.values()),
+        repos=list(REPO_DIR_MAP.keys()),
     )
     save_config(cfg)
     success("Configuration saved.")

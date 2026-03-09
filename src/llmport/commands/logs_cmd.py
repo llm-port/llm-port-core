@@ -33,7 +33,7 @@ def logs_cmd(
         ctx,
         services=list(services) if services else None,
         follow=follow,
-        tail=str(tail),
+        tail=tail,
         timestamps=timestamps,
     )
 

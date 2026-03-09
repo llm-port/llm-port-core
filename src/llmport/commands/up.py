@@ -51,6 +51,7 @@ def up_cmd(
             ctx,
             detach=detach,
             build=do_build,
+            pull=pull,
             services=list(services) if services else None,
         )
 
