@@ -221,10 +221,26 @@ export const NAV: NavEntry[] = [
         to: "/admin/containers",
         labelKey: "nav.containers",
         icon: <DnsIcon />,
+        permission: "containers:read",
       },
-      { to: "/admin/images", labelKey: "nav.images", icon: <ViewInArIcon /> },
-      { to: "/admin/networks", labelKey: "nav.networks", icon: <LanIcon /> },
-      { to: "/admin/stacks", labelKey: "nav.stacks", icon: <LayersIcon /> },
+      {
+        to: "/admin/images",
+        labelKey: "nav.images",
+        icon: <ViewInArIcon />,
+        permission: "images:read",
+      },
+      {
+        to: "/admin/networks",
+        labelKey: "nav.networks",
+        icon: <LanIcon />,
+        permission: "networks:read",
+      },
+      {
+        to: "/admin/stacks",
+        labelKey: "nav.stacks",
+        icon: <LayersIcon />,
+        permission: "stacks:read",
+      },
     ],
   },
   {
@@ -237,11 +253,13 @@ export const NAV: NavEntry[] = [
         to: "/admin/llm/providers",
         labelKey: "nav.providers",
         icon: <AccountTreeIcon />,
+        permission: "llm.providers:read",
       },
       {
         to: "/admin/llm/models",
         labelKey: "nav.models",
         icon: <ModelTrainingIcon />,
+        permission: "llm.models:read",
       },
     ],
   },
@@ -251,6 +269,7 @@ export const NAV: NavEntry[] = [
     to: "/admin/scheduler",
     labelKey: "nav.scheduler",
     icon: <ScheduleIcon />,
+    permission: "llm.jobs:read",
   },
 
   {
@@ -386,6 +405,7 @@ export const NAV: NavEntry[] = [
     to: "/admin/logs",
     labelKey: "nav.logs",
     icon: <ReceiptLongIcon />,
+    permission: "logs:read",
   },
   {
     id: "settings",
