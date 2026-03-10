@@ -508,6 +508,31 @@ def dev_init(
 
     # ── Summary ───────────────────────────────────────────────────
     console.print("\n[bold green]✨ Development workspace ready![/bold green]")
+
+    from rich.panel import Panel  # noqa: PLC0415
+    from rich.text import Text  # noqa: PLC0415
+
+    cred_lines = Text()
+    cred_lines.append("  Admin email:     ", style="bold")
+    cred_lines.append("admin@localhost", style="cyan")
+    cred_lines.append("\n  Admin password:  ", style="bold")
+    cred_lines.append("admin", style="cyan")
+    cred_lines.append("\n")
+    cred_lines.append(
+        "\n  The dev admin user is created automatically when the\n"
+        "  backend starts.  These credentials are for local dev only.",
+        style="dim",
+    )
+    console.print()
+    console.print(
+        Panel(
+            cred_lines,
+            title="[bold cyan]Dev Credentials[/bold cyan]",
+            border_style="cyan",
+            padding=(1, 2),
+        )
+    )
+
     console.print(
         "\n[dim]Next steps:\n"
         "  cd {workspace}\n"

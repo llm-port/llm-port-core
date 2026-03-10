@@ -221,7 +221,27 @@ def deploy_cmd(
         sys.exit(rc)
     success("All services started.")
 
-    # ── 7. Endpoint summary ───────────────────────────────────────
+    # ── 7. Initial admin setup ────────────────────────────────────
+    console.print("\n[bold cyan]Step 6: Initial admin setup…[/bold cyan]")
+
+    from llmport.core.bootstrap import bootstrap_interactive, wait_for_backend  # noqa: PLC0415
+
+    backend_url = "http://localhost:8000"
+    console.print("  [dim]Waiting for backend to become healthy…[/dim]")
+    if wait_for_backend(backend_url):
+        creds = bootstrap_interactive(
+            backend_url,
+            shared_dir,
+            auto_confirm=yes,
+        )
+        if creds:
+            cfg.admin_email = creds["email"]
+            save_config(cfg)
+    else:
+        warning("Backend did not become healthy in time — skipping admin setup.")
+        console.print("  [dim]Run 'llmport deploy' again or create an admin via the UI.[/dim]")
+
+    # ── 8. Endpoint summary ───────────────────────────────────────
     console.print("\n[bold green]✨ Deployment complete![/bold green]\n")
 
     from rich.table import Table
