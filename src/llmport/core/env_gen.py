@@ -30,6 +30,7 @@ SECRET_KEYS: frozenset[str] = frozenset({
     "LANGFUSE_ENCRYPTION_KEY",
     "LLM_PORT_BACKEND_SETTINGS_MASTER_KEY",
     "LLM_PORT_API_ENCRYPTION_KEY",
+    "USERS_SECRET",
 })
 
 
@@ -160,6 +161,8 @@ def default_env_vars(
         "LLM_PORT_API_ENCRYPTION_KEY": _random_secret(),
         "LLM_PORT_API_LANGFUSE_ENABLED": "false",
         "LLM_PORT_BACKEND_GATEWAY_URL": "http://llm-port-api:8000",
+        "LLM_PORT_BACKEND_ENVIRONMENT": "production",
+        "USERS_SECRET": _random_secret(),
     }
 
     # Scalability tuning (auto-detect host resources for prod)

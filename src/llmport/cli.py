@@ -67,6 +67,7 @@ def register_core_commands(group: click.Group | None = None) -> None:
     from llmport.commands.tune import tune_cmd
     from llmport.commands.deploy import deploy_cmd
     from llmport.commands.dev.dev_group import dev_group
+    from llmport.commands.admin import admin_group
 
     target.add_command(version_cmd, "version")
     target.add_command(doctor_cmd, "doctor")
@@ -79,6 +80,7 @@ def register_core_commands(group: click.Group | None = None) -> None:
     target.add_command(tune_cmd, "tune")
     target.add_command(deploy_cmd, "deploy")
     target.add_command(dev_group, "dev")
+    target.add_command(admin_group, "admin")
 
 
 register_core_commands()

@@ -20,6 +20,7 @@ import click
 from llmport.core.compose import (
     ComposeContext,
     build as compose_build,
+    build_base_image,
     build_context_from_config,
     pull_base_images,
     up as compose_up,
@@ -158,7 +159,9 @@ def deploy_cmd(
     # ── 2. Parse requested modules ────────────────────────────────
     console.print("\n[bold cyan]Step 2: Module configuration…[/bold cyan]")
 
-    profiles: set[str] = set(cfg.profiles or [])
+    known_profiles = {m["profile"] for m in KNOWN_MODULES.values()}
+    profiles: set[str] = {p for p in (cfg.profiles or []) if p in known_profiles}
+
     if modules:
         for mod in modules.split(","):
             mod = mod.strip().lower()
@@ -183,7 +186,7 @@ def deploy_cmd(
         info(f".env already exists at {env_path} (use --force-env to regenerate)")
     else:
         env_vars = default_env_vars(profiles=sorted(profiles))
-        write_env_file(env_path, env_vars, preserve_secrets=True)
+        write_env_file(env_path, env_vars, preserve_secrets=not force_env)
         success(f"Environment file written to {env_path}")
 
     # ── 4. Save config ────────────────────────────────────────────
@@ -205,6 +208,15 @@ def deploy_cmd(
         console.print("[dim]This may take several minutes on first run.[/dim]")
 
         pull_base_images()
+
+        # Build the shared platform base image first (same BuildKit context)
+        info("Building platform base image…")
+        rc = build_base_image(ctx, no_cache=no_cache)
+        if rc != 0:
+            warning("Base image build failed — service builds may fail.")
+        else:
+            success("Base image built.")
+
         rc = compose_build(ctx, no_cache=no_cache)
         if rc != 0:
             warning(
@@ -219,7 +231,7 @@ def deploy_cmd(
     # ── 6. Start services ─────────────────────────────────────────
     console.print("\n[bold cyan]Step 5: Starting services…[/bold cyan]")
 
-    rc = compose_up(ctx, detach=True, build=False)
+    rc = compose_up(ctx, detach=True, build=False, pull="missing", wait=True, timeout=180)
     if rc != 0:
         error(f"docker compose up failed (exit code {rc}).")
         sys.exit(rc)

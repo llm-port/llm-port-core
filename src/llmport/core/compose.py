@@ -67,11 +67,10 @@ class ComposeContext:
 
 # ── Constants ─────────────────────────────────────────────────────
 
-# Base images used in multi-stage Dockerfiles that BuildKit manages
-# internally (not visible in ``docker images``).  Pre-pulling them
-# puts them in the local store so Docker Desktop shows them and
-# subsequent builds hit the cache without a network round-trip.
+# Base images used in the platform base Dockerfile.  Pre-pulling
+# puts them in the local store so subsequent builds hit cache.
 _BASE_IMAGES = [
+    "python:3.13-slim-bookworm",
     "ghcr.io/astral-sh/uv:0.9.12",
 ]
 
@@ -91,6 +90,22 @@ def pull_base_images() -> None:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
+
+
+def build_base_image(ctx: ComposeContext, *, no_cache: bool = False) -> int:
+    """Build the shared platform base image via compose.
+
+    Uses the ``llm-port-base`` service (gated behind the ``_build``
+    profile) so the image lands in the same BuildKit context that
+    subsequent service builds use.
+    """
+    base_ctx = ComposeContext(
+        compose_files=ctx.compose_files,
+        env_file=ctx.env_file,
+        project_dir=ctx.project_dir,
+        profiles=["_build"],
+    )
+    return build(base_ctx, services=["llm-port-base"], no_cache=no_cache)
 
 
 def _run(
@@ -122,16 +137,28 @@ def up(
     services: list[str] | None = None,
     detach: bool = True,
     build: bool = False,
-    pull: bool = False,
+    pull: str = "",
+    wait: bool = False,
+    timeout: int = 0,
 ) -> int:
-    """Run ``docker compose up``."""
+    """Run ``docker compose up``.
+
+    *pull* accepts ``"always"``, ``"missing"``, or ``"never"``.
+    An empty string (default) leaves Docker Compose to decide.
+    *wait* blocks until services are healthy (implies ``-d``).
+    *timeout* sets the max wait time in seconds (requires *wait*).
+    """
     cmd = ctx.base_cmd() + ["up"]
     if detach:
         cmd.append("-d")
     if build:
         cmd.append("--build")
     if pull:
-        cmd.append("--pull=always")
+        cmd.append(f"--pull={pull}")
+    if wait:
+        cmd.append("--wait")
+    if timeout > 0:
+        cmd.append(f"--wait-timeout={timeout}")
     if services:
         cmd.extend(services)
     result = _run(cmd, stream=True)
