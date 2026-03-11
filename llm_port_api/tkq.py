@@ -11,7 +11,10 @@ broker: AsyncBroker
 if settings.environment.lower() == "pytest":
     broker = InMemoryBroker()
 else:
-    _broker = AioPikaBroker(str(settings.rabbit_url))
+    _broker = AioPikaBroker(
+        str(settings.rabbit_url),
+        declare_exchange_kwargs={"durable": True},
+    )
     if settings.redis_enabled:
         from taskiq_redis import RedisAsyncResultBackend
 

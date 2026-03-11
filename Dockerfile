@@ -1,25 +1,19 @@
-FROM python:3.11.4-slim-bullseye AS prod
+ARG BASE_IMAGE=llmport/base:latest
+FROM ${BASE_IMAGE} AS prod
 
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    uv sync --locked --inexact --no-install-project --no-dev
 
-RUN pip install poetry==1.8.2
+COPY . .
 
-# Configuring poetry
-RUN poetry config virtualenvs.create false
-RUN poetry config cache-dir /tmp/poetry_cache
-
-# Copying requirements of a project
-COPY pyproject.toml poetry.lock /app/src/
-WORKDIR /app/src
-
-# Installing requirements
-RUN --mount=type=cache,target=/tmp/poetry_cache poetry install --only main
-
-# Copying actuall application
-COPY . /app/src/
-RUN --mount=type=cache,target=/tmp/poetry_cache poetry install --only main
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --inexact --no-dev
 
 CMD ["/usr/local/bin/python", "-m", "llm_port_api"]
 
 FROM prod AS dev
 
-RUN --mount=type=cache,target=/tmp/poetry_cache poetry install
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --all-groups
