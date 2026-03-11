@@ -23,6 +23,7 @@ from llmport.core.install import ensure_prerequisites
 from llmport.core.registry import (
     BACKEND_DEV_ENV,
     DATABASES,
+    INFRA_SERVICES,
     MODULES_COMPAT,
     POSTGRES_CONTAINER,
 )
@@ -438,7 +439,7 @@ def dev_init(
                 env_file=str(env_path) if env_path.exists() else None,
                 project_dir=str(compose_file.parent),
             )
-            returncode = compose_up(ctx, detach=True)
+            returncode = compose_up(ctx, services=INFRA_SERVICES, detach=True)
             if returncode != 0:
                 error("docker compose up failed for shared infrastructure.")
             else:

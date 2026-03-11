@@ -121,6 +121,21 @@ DATABASES: list[str] = [
 
 POSTGRES_CONTAINER = "llm-port-postgres"
 
+# Services that use pre-built public images and should be started in dev mode.
+# Application services (backend, frontend, api) are run natively on the host.
+INFRA_SERVICES: list[str] = [
+    "postgres",
+    "redis",
+    "minio",
+    "clickhouse",
+    "langfuse-worker",
+    "langfuse-web",
+    "llm-port-rmq",
+    "loki",
+    "grafana",
+    "alloy",
+]
+
 
 # ── Dev backend env vars ─────────────────────────────────────────
 

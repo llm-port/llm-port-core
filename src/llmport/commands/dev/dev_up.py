@@ -159,6 +159,7 @@ def dev_up(
     if not skip_infra and not frontend_only:
         from llmport.commands.dev.dev_init import _resolve_shared_compose, _wait_for_postgres
         from llmport.core.compose import ComposeContext, up as compose_up
+        from llmport.core.registry import INFRA_SERVICES
 
         console.print("[cyan]Checking shared infrastructure…[/cyan]")
         compose_file = _resolve_shared_compose(workspace)
@@ -169,7 +170,7 @@ def dev_up(
                 env_file=str(env_file) if env_file.exists() else None,
                 project_dir=str(compose_file.parent),
             )
-            compose_up(ctx, detach=True)
+            compose_up(ctx, services=INFRA_SERVICES, detach=True)
             if _wait_for_postgres(timeout=30):
                 success("Shared infrastructure running.")
             else:
