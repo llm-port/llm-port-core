@@ -78,6 +78,25 @@ class Settings(BaseSettings):
     # Backend service URL for event-log forwarding
     backend_url: str = "http://127.0.0.1:8000"
 
+    # RabbitMQ settings (used by taskiq worker)
+    rabbit_host: str = "127.0.0.1"
+    rabbit_port: int = 5672
+    rabbit_user: str = "guest"
+    rabbit_pass: str = "guest"  # noqa: S105
+    rabbit_vhost: str = "/"
+
+    @property
+    def rabbit_url(self) -> URL:
+        """Assemble RabbitMQ URL from settings."""
+        return URL.build(
+            scheme="amqp",
+            host=self.rabbit_host,
+            port=self.rabbit_port,
+            user=self.rabbit_user,
+            password=self.rabbit_pass,
+            path=self.rabbit_vhost,
+        )
+
     @property
     def db_url(self) -> URL:
         """
