@@ -232,6 +232,15 @@ services:
       RABBITMQ_DEFAULT_USER: "guest"
       RABBITMQ_DEFAULT_PASS: "guest"
       RABBITMQ_DEFAULT_VHOST: "/"
+      # Limit Erlang schedulers and disable busy-wait to avoid CPU spin at idle.
+      # -S 2:2  — 2 online schedulers (enough for a message broker)
+      # +sbwt/+sbwtdcpu/+sbwtdio none — disable scheduler busy-waiting
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "-S 2:2 +sbwt none +sbwtdcpu none +sbwtdio none"
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
     healthcheck:
       test: rabbitmq-diagnostics check_running -q
       interval: 3s
@@ -308,6 +317,12 @@ services:
       # PII module integration (set via .env or COMPOSE_PROFILES)
       LLM_PORT_API_PII_ENABLED: ${LLM_PORT_API_PII_ENABLED:-false}
       LLM_PORT_API_PII_SERVICE_URL: ${LLM_PORT_API_PII_SERVICE_URL:-http://llm-port-pii:8000}
+      # Scalability tuning (set via llmport tune)
+      LLM_PORT_API_WORKERS_COUNT: ${LLM_PORT_API_WORKERS_COUNT:-4}
+      LLM_PORT_API_DB_POOL_SIZE: ${LLM_PORT_API_DB_POOL_SIZE:-5}
+      LLM_PORT_API_DB_MAX_OVERFLOW: ${LLM_PORT_API_DB_MAX_OVERFLOW:-5}
+      LLM_PORT_API_RABBIT_POOL_SIZE: ${LLM_PORT_API_RABBIT_POOL_SIZE:-2}
+      LLM_PORT_API_RABBIT_CHANNEL_POOL_SIZE: ${LLM_PORT_API_RABBIT_CHANNEL_POOL_SIZE:-10}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=3).read()"]
       interval: 5s
@@ -378,6 +393,12 @@ services:
       LLM_PORT_BACKEND_LOKI_BASE_URL: http://llm-port-loki:3100
       LLM_PORT_BACKEND_COOKIE_SECURE: "false"
       USERS_SECRET: ${USERS_SECRET:-}
+      # Scalability tuning (set via llmport tune)
+      LLM_PORT_BACKEND_WORKERS_COUNT: ${LLM_PORT_BACKEND_WORKERS_COUNT:-4}
+      LLM_PORT_BACKEND_DB_POOL_SIZE: ${LLM_PORT_BACKEND_DB_POOL_SIZE:-5}
+      LLM_PORT_BACKEND_DB_MAX_OVERFLOW: ${LLM_PORT_BACKEND_DB_MAX_OVERFLOW:-5}
+      LLM_PORT_BACKEND_RABBIT_POOL_SIZE: ${LLM_PORT_BACKEND_RABBIT_POOL_SIZE:-2}
+      LLM_PORT_BACKEND_RABBIT_CHANNEL_POOL_SIZE: ${LLM_PORT_BACKEND_RABBIT_CHANNEL_POOL_SIZE:-10}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     healthcheck:
@@ -424,6 +445,11 @@ services:
       LLM_PORT_BACKEND_LOKI_BASE_URL: http://llm-port-loki:3100
       LLM_PORT_BACKEND_COOKIE_SECURE: "false"
       USERS_SECRET: ${USERS_SECRET:-}
+      # Scalability tuning (set via llmport tune)
+      LLM_PORT_BACKEND_DB_POOL_SIZE: ${LLM_PORT_BACKEND_DB_POOL_SIZE:-5}
+      LLM_PORT_BACKEND_DB_MAX_OVERFLOW: ${LLM_PORT_BACKEND_DB_MAX_OVERFLOW:-5}
+      LLM_PORT_BACKEND_RABBIT_POOL_SIZE: ${LLM_PORT_BACKEND_RABBIT_POOL_SIZE:-2}
+      LLM_PORT_BACKEND_RABBIT_CHANNEL_POOL_SIZE: ${LLM_PORT_BACKEND_RABBIT_CHANNEL_POOL_SIZE:-10}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
 
@@ -476,6 +502,10 @@ services:
       LLM_PORT_PII_RABBIT_USER: guest
       LLM_PORT_PII_RABBIT_PASS: guest
       LLM_PORT_PII_RABBIT_VHOST: /
+      # Scalability tuning (set via llmport tune)
+      LLM_PORT_PII_WORKERS_COUNT: ${LLM_PORT_PII_WORKERS_COUNT:-4}
+      LLM_PORT_PII_DB_POOL_SIZE: ${LLM_PORT_PII_DB_POOL_SIZE:-5}
+      LLM_PORT_PII_DB_MAX_OVERFLOW: ${LLM_PORT_PII_DB_MAX_OVERFLOW:-5}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=3).read()"]
       interval: 5s
