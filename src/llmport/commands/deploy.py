@@ -21,6 +21,7 @@ from llmport.core.compose import (
     ComposeContext,
     build as compose_build,
     build_context_from_config,
+    pull_base_images,
     up as compose_up,
 )
 from llmport.core.console import console, error, info, success, warning
@@ -61,7 +62,7 @@ def _find_shared_dir(workspace: Path) -> Path | None:
 @click.option(
     "--modules", "-m",
     default="",
-    help="Comma-separated modules to enable (e.g. pii,rag,auth).",
+    help="Comma-separated modules to enable (EE only, e.g. pii,auth).",
 )
 @click.option("--no-build", is_flag=True, help="Skip building images (pull only).")
 @click.option("--no-cache", is_flag=True, help="Build images without Docker cache.")
@@ -96,7 +97,6 @@ def deploy_cmd(
     Examples:
         llmport deploy                         # deploy from current workspace
         llmport deploy /opt/llm-port           # deploy to specific directory
-        llmport deploy -m pii,rag              # deploy with PII and RAG modules
         llmport deploy --no-build              # skip building (use existing images)
         llmport deploy --force-env             # regenerate secrets
     """
@@ -204,11 +204,15 @@ def deploy_cmd(
         console.print("\n[bold cyan]Step 4: Building container images…[/bold cyan]")
         console.print("[dim]This may take several minutes on first run.[/dim]")
 
+        pull_base_images()
         rc = compose_build(ctx, no_cache=no_cache)
         if rc != 0:
-            error(f"Image build failed (exit code {rc}).")
-            sys.exit(rc)
-        success("All images built successfully.")
+            warning(
+                "Some images failed to build. Services with successful"
+                " builds will still start."
+            )
+        else:
+            success("All images built successfully.")
     else:
         console.print("\n[dim]Skipping image build (--no-build).[/dim]")
 

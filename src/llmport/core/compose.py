@@ -65,7 +65,32 @@ class ComposeContext:
         return cmd
 
 
+# ── Constants ─────────────────────────────────────────────────────
+
+# Base images used in multi-stage Dockerfiles that BuildKit manages
+# internally (not visible in ``docker images``).  Pre-pulling them
+# puts them in the local store so Docker Desktop shows them and
+# subsequent builds hit the cache without a network round-trip.
+_BASE_IMAGES = [
+    "ghcr.io/astral-sh/uv:0.9.12",
+]
+
+
 # ── Public API ────────────────────────────────────────────────────
+
+
+def pull_base_images() -> None:
+    """Pre-pull shared base images so BuildKit finds them locally."""
+    docker = shutil.which("docker")
+    if not docker:
+        return
+    for image in _BASE_IMAGES:
+        subprocess.run(  # noqa: S603
+            [docker, "pull", image],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
 
 
 def _run(

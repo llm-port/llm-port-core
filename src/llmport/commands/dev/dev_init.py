@@ -316,7 +316,7 @@ def _generate_vscode_workspace(workspace: Path) -> None:
 @click.option(
     "--modules",
     default=None,
-    help="Comma-separated list of modules to enable (e.g. rag,pii,auth).",
+    help="Comma-separated list of modules to enable (e.g. pii,auth).",
 )
 @click.option("--force-env", is_flag=True, help="Regenerate .env files even if they already exist.")
 @click.option("--install-prereqs", is_flag=True, help="Auto-install missing prerequisites (uv, git, node).")

@@ -16,15 +16,15 @@ import psutil
 # Heavy services handle high-volume request traffic or CPU-bound work.
 # Light services are low-traffic or background-only.
 
-HEAVY_SERVICES = ("backend", "api", "rag", "pii")
-LIGHT_SERVICES = ("auth", "mailer", "docling")
+HEAVY_SERVICES = ("backend", "api", "pii")
+LIGHT_SERVICES: tuple[str, ...] = ()
 ALL_SERVICES = HEAVY_SERVICES + LIGHT_SERVICES
 
 # Services that use a PostgreSQL connection pool.
-DB_SERVICES = ("backend", "api", "auth", "pii", "rag")
+DB_SERVICES = ("backend", "api", "pii")
 
 # Services that use a RabbitMQ connection pool.
-RABBIT_SERVICES = ("backend", "api", "rag")
+RABBIT_SERVICES = ("backend", "api")
 
 
 # ── System snapshot ───────────────────────────────────────────────
@@ -78,11 +78,7 @@ class TuneProfile:
         default_factory=lambda: {
             "backend": "LLM_PORT_BACKEND_",
             "api": "LLM_PORT_API_",
-            "auth": "LLM_PORT_AUTH_",
-            "mailer": "LLM_PORT_MAILER_",
             "pii": "LLM_PORT_PII_",
-            "rag": "LLM_PORT_RAG_",
-            "docling": "LLM_PORT_DOCLING_",
         },
         repr=False,
     )

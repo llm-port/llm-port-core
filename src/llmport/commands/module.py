@@ -12,7 +12,7 @@ from llmport.core.settings import load_config, save_config
 
 @click.group("module")
 def module_group() -> None:
-    """Manage optional llm.port modules (rag, pii, auth)."""
+    """Manage optional llm.port modules (pii, auth, mailer, docling)."""
 
 
 @module_group.command("list")
@@ -43,7 +43,7 @@ def module_list() -> None:
 def module_enable(modules: tuple[str, ...]) -> None:
     """Enable one or more modules.
 
-    Example: llmport module enable rag pii
+    Example: llmport module enable pii auth
     """
     cfg = load_config()
     profiles = set(cfg.profiles or [])
