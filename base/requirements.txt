@@ -1,0 +1,56 @@
+# llm.port platform base — common Python packages
+#
+# These are pre-installed in the base Docker image so that downstream
+# service images (backend, api, pii, rag, auth, mailer, docling) only
+# install the delta.  Each service's `uv sync --locked` will adjust
+# versions to match its own lock file.
+#
+# Only packages that appear in 3+ services are included here.
+
+# ── Web framework + ASGI server (7/7) ────────────────────────────
+fastapi>=0.115.6
+uvicorn[standard]>=0.34.0
+
+# ── Data validation (7/7) ────────────────────────────────────────
+pydantic>=2.10.4
+pydantic-settings>=2.7.0
+
+# ── Networking / serialization (7/7) ─────────────────────────────
+yarl>=1.18.3
+ujson>=5.10.0
+
+# ── Observability (7/7) ──────────────────────────────────────────
+prometheus-client>=0.21.1
+prometheus-fastapi-instrumentator>=7.0.0
+sentry-sdk>=2.19.2
+opentelemetry-api>=1.29.0
+opentelemetry-sdk>=1.29.0
+opentelemetry-exporter-otlp>=1.29.0
+opentelemetry-instrumentation>=0.50b0
+opentelemetry-instrumentation-fastapi>=0.50b0
+loguru>=0.7.3
+
+# ── Database (5-6 / 7) ──────────────────────────────────────────
+asyncpg>=0.30.0
+sqlalchemy[asyncio]>=2.0.36
+alembic>=1.14.0
+
+# ── HTTP client (4/7) ───────────────────────────────────────────
+httpx>=0.28.1
+
+# ── Form/multipart parsing (required by FastAPI) ───────────────
+python-multipart>=0.0.6
+
+# ── Cryptography (4/7) ──────────────────────────────────────────
+cryptography>=41.0
+
+# ── Messaging & task queue (3/7) ─────────────────────────────────
+aio-pika>=9.5.4
+opentelemetry-instrumentation-sqlalchemy>=0.50b0
+opentelemetry-instrumentation-aio-pika>=0.50b0
+taskiq>=0.11.10
+taskiq-fastapi>=0.3.3
+taskiq-aio-pika>=0.4.1
+
+# ── File I/O (3/7) ──────────────────────────────────────────────
+aiofiles>=24.1.0

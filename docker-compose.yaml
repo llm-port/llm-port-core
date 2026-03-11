@@ -1,5 +1,15 @@
 services:
   # -----------------------------
+  # Platform base image (build-only, no runtime container)
+  # -----------------------------
+  llm-port-base:
+    image: ${REGISTRY:-llmport}/base:${VERSION:-latest}
+    build:
+      context: ./base
+      dockerfile: Dockerfile
+    profiles: ["_build"]
+
+  # -----------------------------
   # Reverse proxy — single public entrypoint
   # -----------------------------
   nginx:
@@ -16,10 +26,11 @@ services:
       llm-port-frontend:
         condition: service_started
     healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:80/ || exit 1"]
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:80/healthz || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 10
+      start_period: 10s
 
   # -----------------------------
   # Database for RAG + Langfuse state
@@ -43,7 +54,8 @@ services:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
       interval: 3s
       timeout: 3s
-      retries: 10
+      retries: 15
+      start_period: 120s
 
   # -----------------------------
   # Langfuse (v3) dependencies
@@ -228,12 +240,9 @@ services:
 
   llm-port-api-migrator:
     image: ${REGISTRY:-llmport}/api:${VERSION:-latest}
-    build:
-      context: ../llm_port_api
-      dockerfile: Dockerfile
     container_name: llm-port-api-migrator
-    restart: "no"
-    command: ["sh", "-c", "sleep 3 && alembic upgrade head"]
+    restart: on-failure:5
+    command: ["sh", "-c", "sleep 5 && alembic upgrade head"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -252,6 +261,9 @@ services:
     build:
       context: ../llm_port_api
       dockerfile: Dockerfile
+      target: prod
+      args:
+        BASE_IMAGE: ${REGISTRY:-llmport}/base:${VERSION:-latest}
     container_name: llm-port-api
     restart: unless-stopped
     depends_on:
@@ -293,13 +305,9 @@ services:
       LLM_PORT_API_LANGFUSE_HOST: ${LLM_PORT_API_LANGFUSE_HOST:-http://langfuse-web:3000}
       LLM_PORT_API_LANGFUSE_PUBLIC_KEY: ${LLM_PORT_API_LANGFUSE_PUBLIC_KEY:-}
       LLM_PORT_API_LANGFUSE_SECRET_KEY: ${LLM_PORT_API_LANGFUSE_SECRET_KEY:-}
-      # Optional modules (set via .env or COMPOSE_PROFILES)
+      # PII module integration (set via .env or COMPOSE_PROFILES)
       LLM_PORT_API_PII_ENABLED: ${LLM_PORT_API_PII_ENABLED:-false}
       LLM_PORT_API_PII_SERVICE_URL: ${LLM_PORT_API_PII_SERVICE_URL:-http://llm-port-pii:8000}
-      LLM_PORT_API_AUTH_ENABLED: ${LLM_PORT_API_AUTH_ENABLED:-false}
-      LLM_PORT_API_AUTH_SERVICE_URL: ${LLM_PORT_API_AUTH_SERVICE_URL:-http://llm-port-auth:8000}
-      LLM_PORT_API_RAG_ENABLED: ${LLM_PORT_API_RAG_ENABLED:-false}
-      LLM_PORT_API_RAG_SERVICE_URL: ${LLM_PORT_API_RAG_SERVICE_URL:-http://llm-port-rag:8000}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=3).read()"]
       interval: 5s
@@ -311,12 +319,9 @@ services:
   # -----------------------------
   llm-port-backend-migrator:
     image: ${REGISTRY:-llmport}/backend:${VERSION:-latest}
-    build:
-      context: ../llm_port_backend
-      dockerfile: Dockerfile
     container_name: llm-port-backend-migrator
-    restart: "no"
-    command: ["sh", "-c", "sleep 3 && alembic upgrade head"]
+    restart: on-failure:5
+    command: ["sh", "-c", "sleep 5 && alembic upgrade head"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -332,6 +337,9 @@ services:
     build:
       context: ../llm_port_backend
       dockerfile: Dockerfile
+      target: prod
+      args:
+        BASE_IMAGE: ${REGISTRY:-llmport}/base:${VERSION:-latest}
     container_name: llm-port-backend
     restart: unless-stopped
     depends_on:
@@ -348,7 +356,7 @@ services:
       LLM_PORT_BACKEND_HOST: 0.0.0.0
       LLM_PORT_BACKEND_PORT: 8000
       LLM_PORT_BACKEND_RELOAD: "false"
-      LLM_PORT_BACKEND_ENVIRONMENT: production
+      LLM_PORT_BACKEND_ENVIRONMENT: ${LLM_PORT_BACKEND_ENVIRONMENT:-dev}
       LLM_PORT_BACKEND_DB_HOST: postgres
       LLM_PORT_BACKEND_DB_PORT: 5432
       LLM_PORT_BACKEND_DB_USER: ${POSTGRES_USER:-postgres}
@@ -364,6 +372,12 @@ services:
       LLM_PORT_BACKEND_RABBIT_VHOST: /
       LLM_PORT_BACKEND_GATEWAY_URL: ${LLM_PORT_BACKEND_GATEWAY_URL:-http://llm-port-api:8000}
       LLM_PORT_BACKEND_SETTINGS_MASTER_KEY: ${LLM_PORT_BACKEND_SETTINGS_MASTER_KEY:-dev-settings-master-key-change-me}
+      LLM_PORT_BACKEND_LLM_GRAPH_DB_HOST: postgres
+      LLM_PORT_BACKEND_LLM_GRAPH_DB_USER: ${POSTGRES_USER:-postgres}
+      LLM_PORT_BACKEND_LLM_GRAPH_DB_PASS: ${POSTGRES_PASSWORD:-postgres}
+      LLM_PORT_BACKEND_LOKI_BASE_URL: http://llm-port-loki:3100
+      LLM_PORT_BACKEND_COOKIE_SECURE: "false"
+      USERS_SECRET: ${USERS_SECRET:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     healthcheck:
@@ -374,9 +388,6 @@ services:
 
   llm-port-backend-worker:
     image: ${REGISTRY:-llmport}/backend:${VERSION:-latest}
-    build:
-      context: ../llm_port_backend
-      dockerfile: Dockerfile
     container_name: llm-port-backend-worker
     restart: unless-stopped
     command:
@@ -391,7 +402,7 @@ services:
       llm-port-backend-migrator:
         condition: service_completed_successfully
     environment:
-      LLM_PORT_BACKEND_ENVIRONMENT: production
+      LLM_PORT_BACKEND_ENVIRONMENT: ${LLM_PORT_BACKEND_ENVIRONMENT:-dev}
       LLM_PORT_BACKEND_DB_HOST: postgres
       LLM_PORT_BACKEND_DB_PORT: 5432
       LLM_PORT_BACKEND_DB_USER: ${POSTGRES_USER:-postgres}
@@ -407,6 +418,12 @@ services:
       LLM_PORT_BACKEND_RABBIT_VHOST: /
       LLM_PORT_BACKEND_GATEWAY_URL: ${LLM_PORT_BACKEND_GATEWAY_URL:-http://llm-port-api:8000}
       LLM_PORT_BACKEND_SETTINGS_MASTER_KEY: ${LLM_PORT_BACKEND_SETTINGS_MASTER_KEY:-dev-settings-master-key-change-me}
+      LLM_PORT_BACKEND_LLM_GRAPH_DB_HOST: postgres
+      LLM_PORT_BACKEND_LLM_GRAPH_DB_USER: ${POSTGRES_USER:-postgres}
+      LLM_PORT_BACKEND_LLM_GRAPH_DB_PASS: ${POSTGRES_PASSWORD:-postgres}
+      LLM_PORT_BACKEND_LOKI_BASE_URL: http://llm-port-loki:3100
+      LLM_PORT_BACKEND_COOKIE_SECURE: "false"
+      USERS_SECRET: ${USERS_SECRET:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
 
@@ -429,161 +446,9 @@ services:
       API_URL: http://llm-port-api:8000
 
   # =====================================================================
-  # OPTIONAL MODULE: RAG Engine (profile: rag)
+  # PII Protection (profile: pii)
   #
-  # Activate with:  --profile rag  (or COMPOSE_PROFILES=rag)
-  # =====================================================================
-  llm-port-rag-migrator:
-    profiles: ["rag"]
-    image: ${REGISTRY:-llmport}/rag:${VERSION:-latest}
-    build:
-      context: ../llm_port_rag
-      dockerfile: Dockerfile
-    container_name: llm-port-rag-migrator
-    restart: "no"
-    command: ["sh", "-c", "sleep 3 && alembic upgrade head"]
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      LLM_PORT_RAG_DB_HOST: postgres
-      LLM_PORT_RAG_DB_PORT: 5432
-      LLM_PORT_RAG_DB_USER: ${POSTGRES_USER:-postgres}
-      LLM_PORT_RAG_DB_PASS: ${POSTGRES_PASSWORD:-postgres}
-      LLM_PORT_RAG_DB_BASE: rag
-
-  llm-port-rag:
-    profiles: ["rag"]
-    image: ${REGISTRY:-llmport}/rag:${VERSION:-latest}
-    build:
-      context: ../llm_port_rag
-      dockerfile: Dockerfile
-    container_name: llm-port-rag
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-      llm-port-rmq:
-        condition: service_healthy
-      llm-port-rag-migrator:
-        condition: service_completed_successfully
-    # No host port — reached by API gateway via internal network
-    environment:
-      LLM_PORT_RAG_HOST: 0.0.0.0
-      LLM_PORT_RAG_PORT: 8000
-      LLM_PORT_RAG_RELOAD: "false"
-      LLM_PORT_RAG_ENVIRONMENT: dev
-      LLM_PORT_RAG_SERVICE_TOKEN: ${LLM_PORT_RAG_SERVICE_TOKEN:-dev-rag-service-token}
-      LLM_PORT_RAG_DB_HOST: postgres
-      LLM_PORT_RAG_DB_PORT: 5432
-      LLM_PORT_RAG_DB_USER: ${POSTGRES_USER:-postgres}
-      LLM_PORT_RAG_DB_PASS: ${POSTGRES_PASSWORD:-postgres}
-      LLM_PORT_RAG_DB_BASE: rag
-      LLM_PORT_RAG_RABBIT_HOST: llm-port-rmq
-      LLM_PORT_RAG_RABBIT_PORT: 5672
-      LLM_PORT_RAG_RABBIT_USER: guest
-      LLM_PORT_RAG_RABBIT_PASS: guest
-      LLM_PORT_RAG_RABBIT_VHOST: /
-      LLM_PORT_RAG_MINIO_ENDPOINT: minio:9000
-      LLM_PORT_RAG_MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minio}
-      LLM_PORT_RAG_MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-miniosecret}
-      LLM_PORT_RAG_MINIO_BUCKET: llm-port-rag-raw
-      LLM_PORT_RAG_MINIO_SECURE: "false"
-      LLM_PORT_RAG_RAW_STORE_BACKEND: minio
-      LLM_PORT_RAG_COLLECTORS_CONFIG_PATH: /app/src/examples/collectors.yaml
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=3).read()"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-
-  llm-port-rag-worker:
-    profiles: ["rag"]
-    image: ${REGISTRY:-llmport}/rag:${VERSION:-latest}
-    build:
-      context: ../llm_port_rag
-      dockerfile: Dockerfile
-    container_name: llm-port-rag-worker
-    restart: unless-stopped
-    command:
-      - taskiq
-      - worker
-      - llm_port_rag.tkq:broker
-    depends_on:
-      postgres:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-      llm-port-rmq:
-        condition: service_healthy
-      llm-port-rag-migrator:
-        condition: service_completed_successfully
-    environment:
-      LLM_PORT_RAG_ENVIRONMENT: dev
-      LLM_PORT_RAG_DB_HOST: postgres
-      LLM_PORT_RAG_DB_PORT: 5432
-      LLM_PORT_RAG_DB_USER: ${POSTGRES_USER:-postgres}
-      LLM_PORT_RAG_DB_PASS: ${POSTGRES_PASSWORD:-postgres}
-      LLM_PORT_RAG_DB_BASE: rag
-      LLM_PORT_RAG_RABBIT_HOST: llm-port-rmq
-      LLM_PORT_RAG_RABBIT_PORT: 5672
-      LLM_PORT_RAG_RABBIT_USER: guest
-      LLM_PORT_RAG_RABBIT_PASS: guest
-      LLM_PORT_RAG_RABBIT_VHOST: /
-      LLM_PORT_RAG_MINIO_ENDPOINT: minio:9000
-      LLM_PORT_RAG_MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minio}
-      LLM_PORT_RAG_MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-miniosecret}
-      LLM_PORT_RAG_MINIO_BUCKET: llm-port-rag-raw
-      LLM_PORT_RAG_MINIO_SECURE: "false"
-      LLM_PORT_RAG_RAW_STORE_BACKEND: minio
-      LLM_PORT_RAG_COLLECTORS_CONFIG_PATH: /app/src/examples/collectors.yaml
-
-  llm-port-rag-scheduler:
-    profiles: ["rag"]
-    image: ${REGISTRY:-llmport}/rag:${VERSION:-latest}
-    build:
-      context: ../llm_port_rag
-      dockerfile: Dockerfile
-    container_name: llm-port-rag-scheduler
-    restart: unless-stopped
-    command:
-      - python
-      - -m
-      - llm_port_rag.workers.scheduler
-    depends_on:
-      postgres:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-      llm-port-rmq:
-        condition: service_healthy
-      llm-port-rag-migrator:
-        condition: service_completed_successfully
-    environment:
-      LLM_PORT_RAG_ENVIRONMENT: dev
-      LLM_PORT_RAG_DB_HOST: postgres
-      LLM_PORT_RAG_DB_PORT: 5432
-      LLM_PORT_RAG_DB_USER: ${POSTGRES_USER:-postgres}
-      LLM_PORT_RAG_DB_PASS: ${POSTGRES_PASSWORD:-postgres}
-      LLM_PORT_RAG_DB_BASE: rag
-      LLM_PORT_RAG_RABBIT_HOST: llm-port-rmq
-      LLM_PORT_RAG_RABBIT_PORT: 5672
-      LLM_PORT_RAG_RABBIT_USER: guest
-      LLM_PORT_RAG_RABBIT_PASS: guest
-      LLM_PORT_RAG_RABBIT_VHOST: /
-      LLM_PORT_RAG_MINIO_ENDPOINT: minio:9000
-      LLM_PORT_RAG_MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minio}
-      LLM_PORT_RAG_MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-miniosecret}
-      LLM_PORT_RAG_MINIO_BUCKET: llm-port-rag-raw
-      LLM_PORT_RAG_MINIO_SECURE: "false"
-      LLM_PORT_RAG_RAW_STORE_BACKEND: minio
-      LLM_PORT_RAG_COLLECTORS_CONFIG_PATH: /app/src/examples/collectors.yaml
-
-  # =====================================================================
-  # OPTIONAL MODULE: PII Protection (profile: pii)
-  #
+  # Core redact-only mode. EE extends with tokenize/detokenize.
   # Activate with:  --profile pii  (or COMPOSE_PROFILES=pii)
   # =====================================================================
   llm-port-pii:
@@ -592,12 +457,14 @@ services:
     build:
       context: ../llm_port_pii
       dockerfile: Dockerfile
+      target: prod
+      args:
+        BASE_IMAGE: ${REGISTRY:-llmport}/base:${VERSION:-latest}
     container_name: llm-port-pii
     restart: unless-stopped
     depends_on:
       llm-port-rmq:
         condition: service_healthy
-    # No host port — reached by API gateway via internal network
     environment:
       LLM_PORT_PII_HOST: 0.0.0.0
       LLM_PORT_PII_PORT: 8000
@@ -618,9 +485,6 @@ services:
   llm-port-pii-worker:
     profiles: ["pii"]
     image: ${REGISTRY:-llmport}/pii:${VERSION:-latest}
-    build:
-      context: ../llm_port_pii
-      dockerfile: Dockerfile
     container_name: llm-port-pii-worker
     restart: unless-stopped
     command:
@@ -638,118 +502,6 @@ services:
       LLM_PORT_PII_RABBIT_USER: guest
       LLM_PORT_PII_RABBIT_PASS: guest
       LLM_PORT_PII_RABBIT_VHOST: /
-
-
-  # =====================================================================
-  # OPTIONAL MODULE: Mailer (profile: mailer)
-  #
-  # Activate with:  --profile mailer  (or COMPOSE_PROFILES=mailer)
-  # =====================================================================
-  llm-port-mailer:
-    profiles: ["mailer"]
-    image: ${REGISTRY:-llmport}/mailer:${VERSION:-latest}
-    build:
-      context: ../llm_port_mailer
-      dockerfile: Dockerfile
-    container_name: llm-port-mailer
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-    # No host port — reached internally by backend
-    environment:
-      LLM_PORT_MAILER_HOST: 0.0.0.0
-      LLM_PORT_MAILER_PORT: 8000
-      LLM_PORT_MAILER_RELOAD: "false"
-      LLM_PORT_MAILER_ENVIRONMENT: dev
-      LLM_PORT_MAILER_DB_HOST: postgres
-      LLM_PORT_MAILER_DB_PORT: 5432
-      LLM_PORT_MAILER_DB_USER: llm_user
-      LLM_PORT_MAILER_DB_PASS: llm_user
-      LLM_PORT_MAILER_BACKEND_DB_BASE: llm_port_backend
-      LLM_PORT_MAILER_SETTINGS_MASTER_KEY: ${LLM_PORT_BACKEND_SETTINGS_MASTER_KEY:-dev-settings-master-key-change-me}
-      LLM_PORT_MAILER_INTERNAL_API_TOKEN: ${LLM_PORT_MAILER_API_TOKEN:-}
-      LLM_PORT_MAILER_SMTP_HOST: ${LLM_PORT_MAILER_SMTP_HOST:-}
-      LLM_PORT_MAILER_SMTP_PORT: ${LLM_PORT_MAILER_SMTP_PORT:-587}
-      LLM_PORT_MAILER_SMTP_USERNAME: ${LLM_PORT_MAILER_SMTP_USERNAME:-}
-      LLM_PORT_MAILER_SMTP_PASSWORD: ${LLM_PORT_MAILER_SMTP_PASSWORD:-}
-      LLM_PORT_MAILER_SMTP_STARTTLS: ${LLM_PORT_MAILER_SMTP_STARTTLS:-true}
-      LLM_PORT_MAILER_SMTP_SSL: ${LLM_PORT_MAILER_SMTP_SSL:-false}
-      LLM_PORT_MAILER_FROM_EMAIL: ${LLM_PORT_MAILER_FROM_EMAIL:-noreply@llm-port.local}
-      LLM_PORT_MAILER_FROM_NAME: ${LLM_PORT_MAILER_FROM_NAME:-LLM Port}
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=3).read()"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-
-  # =====================================================================
-  # OPTIONAL MODULE: Document Processor (profile: docling)
-  #
-  # Stateless document conversion service wrapping IBM Docling.
-  # Provides layout-aware PDF/DOCX parsing, OCR, table extraction,
-  # and hierarchical chunking for RAG pipelines.
-  # Activate with:  --profile docling  (or COMPOSE_PROFILES=docling)
-  # =====================================================================
-  llm-port-docling:
-    profiles: ["docling"]
-    image: ${REGISTRY:-llmport}/docling:${VERSION:-latest}
-    build:
-      context: ../llm_port_docling
-      dockerfile: Dockerfile
-    container_name: llm-port-docling
-    restart: unless-stopped
-    # No host port — reached by RAG service via internal network
-    environment:
-      LLM_PORT_DOCLING_HOST: 0.0.0.0
-      LLM_PORT_DOCLING_PORT: 8000
-      LLM_PORT_DOCLING_RELOAD: "false"
-      LLM_PORT_DOCLING_ENVIRONMENT: dev
-      LLM_PORT_DOCLING_OCR_ENABLED: "true"
-      LLM_PORT_DOCLING_TABLE_MODE: fast
-      LLM_PORT_DOCLING_MAX_UPLOAD_SIZE_MB: "100"
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health', timeout=3).read()"]
-      interval: 10s
-      timeout: 10s
-      retries: 10
-      start_period: 30s
-
-  # =====================================================================
-  # OPTIONAL MODULE: External Auth (profile: auth)
-  #
-  # Enterprise SSO module (OIDC / OAuth2 provider management).
-  # Activate with:  --profile auth  (or COMPOSE_PROFILES=auth)
-  # =====================================================================
-  llm-port-auth:
-    profiles: ["auth"]
-    image: ${REGISTRY:-llmport}/auth:${VERSION:-latest}
-    build:
-      context: ../llm_port_auth
-      dockerfile: Dockerfile
-    container_name: llm-port-auth
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-    # No host port — reached by API gateway via internal network
-    environment:
-      LLM_PORT_AUTH_HOST: 0.0.0.0
-      LLM_PORT_AUTH_PORT: 8000
-      LLM_PORT_AUTH_RELOAD: "false"
-      LLM_PORT_AUTH_ENVIRONMENT: dev
-      LLM_PORT_AUTH_DB_HOST: postgres
-      LLM_PORT_AUTH_DB_PORT: 5432
-      LLM_PORT_AUTH_DB_USER: llm_user
-      LLM_PORT_AUTH_DB_PASS: llm_user
-      LLM_PORT_AUTH_DB_BASE: llm_port_backend
-      LLM_PORT_AUTH_USERS_SECRET: ${USERS_SECRET:-}
-      LLM_PORT_AUTH_BACKEND_CALLBACK_URL: http://llm-port-backend:8000/api/admin/auth-providers/external-callback
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/providers/health', timeout=3).read()"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
 
   # -----------------------------
   # Logs: Loki + Grafana + Alloy
