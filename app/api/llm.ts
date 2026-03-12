@@ -10,6 +10,22 @@ const BASE = "/api/llm";
 
 export type ProviderType = "vllm" | "llamacpp" | "tgi" | "ollama";
 export type ProviderTarget = "local_docker" | "remote_endpoint";
+
+/** LiteLLM provider prefixes for remote endpoints. */
+export type LiteLLMProvider =
+  | "openai"
+  | "anthropic"
+  | "gemini"
+  | "vertex_ai"
+  | "bedrock"
+  | "azure"
+  | "azure_ai"
+  | "mistral"
+  | "groq"
+  | "deepseek"
+  | "cohere"
+  | "openrouter"
+  | string;
 export type ModelSource = "huggingface" | "local_path" | "archive_import";
 export type ModelStatus = "available" | "downloading" | "failed" | "deleting";
 export type ArtifactFormat = "safetensors" | "gguf" | "other";
@@ -35,6 +51,9 @@ export interface Provider {
   endpoint_url: string | null;
   capabilities: Record<string, unknown> | null;
   remote_model: string | null;
+  litellm_provider: string | null;
+  litellm_model: string | null;
+  extra_params: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
 }
@@ -109,6 +128,9 @@ export interface CreateProviderPayload {
   endpoint_url?: string;
   api_key?: string;
   remote_model?: string;
+  litellm_provider?: string;
+  litellm_model?: string;
+  extra_params?: Record<string, unknown>;
 }
 
 export interface UpdateProviderPayload {
@@ -117,6 +139,9 @@ export interface UpdateProviderPayload {
   endpoint_url?: string;
   api_key?: string;
   remote_model?: string | null;
+  litellm_provider?: string | null;
+  litellm_model?: string | null;
+  extra_params?: Record<string, unknown> | null;
 }
 
 export interface DownloadModelPayload {
@@ -161,8 +186,10 @@ export interface UpdateRuntimePayload {
 }
 
 export interface TestEndpointPayload {
-  endpoint_url: string;
+  endpoint_url?: string;
   api_key?: string;
+  litellm_provider?: string;
+  litellm_model?: string;
 }
 
 export interface TestEndpointResult {

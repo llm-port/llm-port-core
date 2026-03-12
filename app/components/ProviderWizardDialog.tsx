@@ -62,6 +62,23 @@ const PROVIDER_TARGETS: ProviderTarget[] = ["local_docker", "remote_endpoint"];
 const CUSTOM_IMAGE_VALUE = "__custom__";
 const AUTO_IMAGE_VALUE = "__auto__";
 
+/** Known LiteLLM provider prefixes shown in the remote-endpoint dropdown. */
+const LITELLM_PROVIDERS: { value: string; label: string }[] = [
+  { value: "openai", label: "OpenAI" },
+  { value: "anthropic", label: "Anthropic" },
+  { value: "gemini", label: "Google Gemini" },
+  { value: "vertex_ai", label: "Google Vertex AI" },
+  { value: "bedrock", label: "AWS Bedrock" },
+  { value: "azure", label: "Azure OpenAI" },
+  { value: "azure_ai", label: "Azure AI" },
+  { value: "mistral", label: "Mistral" },
+  { value: "groq", label: "Groq" },
+  { value: "deepseek", label: "DeepSeek" },
+  { value: "cohere", label: "Cohere" },
+  { value: "openrouter", label: "OpenRouter" },
+  { value: "openai", label: "Other (OpenAI-compatible)" },
+];
+
 function formatBytes(bytes: number): string {
   if (bytes <= 0) return "0 B";
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -102,6 +119,7 @@ export function ProviderWizardDialog({
   const [endpointUrl, setEndpointUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [remoteModel, setRemoteModel] = useState("");
+  const [litellmProvider, setLitellmProvider] = useState("");
   const [testStatus, setTestStatus] = useState<
     "idle" | "testing" | "success" | "error"
   >("idle");
@@ -151,6 +169,7 @@ export function ProviderWizardDialog({
       setEndpointUrl("");
       setApiKey("");
       setRemoteModel("");
+      setLitellmProvider("");
       setTestStatus("idle");
       setTestMessage("");
       setModelId("");
@@ -305,8 +324,10 @@ export function ProviderWizardDialog({
     setTestMessage("");
     try {
       const result = await providers.testEndpoint({
-        endpoint_url: endpointUrl,
+        ...(endpointUrl && { endpoint_url: endpointUrl }),
         ...(apiKey && { api_key: apiKey }),
+        ...(litellmProvider && { litellm_provider: litellmProvider }),
+        ...(remoteModel.trim() && { litellm_model: remoteModel.trim() }),
       });
       if (result.compatible) {
         setTestStatus("success");
@@ -385,6 +406,10 @@ export function ProviderWizardDialog({
         ...(target === "remote_endpoint" && apiKey && { api_key: apiKey }),
         ...(target === "remote_endpoint" &&
           remoteModel.trim() && { remote_model: remoteModel.trim() }),
+        ...(target === "remote_endpoint" &&
+          litellmProvider && { litellm_provider: litellmProvider }),
+        ...(target === "remote_endpoint" &&
+          remoteModel.trim() && { litellm_model: remoteModel.trim() }),
       };
       const newProv = await providers.create(provPayload);
       newProvId = newProv.id;
@@ -512,6 +537,23 @@ export function ProviderWizardDialog({
 
             {target === "remote_endpoint" && (
               <>
+                <FormControl fullWidth>
+                  <InputLabel>
+                    {t("llm_providers.litellm_provider", "Provider")}
+                  </InputLabel>
+                  <Select
+                    value={litellmProvider}
+                    label={t("llm_providers.litellm_provider", "Provider")}
+                    onChange={(e) => setLitellmProvider(e.target.value)}
+                  >
+                    {LITELLM_PROVIDERS.map((p) => (
+                      <MenuItem key={`${p.value}-${p.label}`} value={p.value}>
+                        {p.label}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+
                 <TextField
                   label={t("llm_providers.endpoint_url")}
                   placeholder="https://api.example.com/v1"
@@ -520,9 +562,15 @@ export function ProviderWizardDialog({
                     setEndpointUrl(e.target.value);
                     setTestStatus("idle");
                   }}
-                  required
                   fullWidth
-                  helperText={t("llm_providers.endpoint_url_help")}
+                  helperText={
+                    litellmProvider
+                      ? t(
+                          "llm_providers.endpoint_url_help_optional",
+                          "Optional — leave empty for hosted providers like Gemini, Anthropic, etc.",
+                        )
+                      : t("llm_providers.endpoint_url_help")
+                  }
                 />
                 <TextField
                   label={t("llm_providers.api_key")}
@@ -552,7 +600,10 @@ export function ProviderWizardDialog({
                       <NetworkCheckIcon />
                     )
                   }
-                  disabled={!endpointUrl || testStatus === "testing"}
+                  disabled={
+                    (!endpointUrl && !litellmProvider) ||
+                    testStatus === "testing"
+                  }
                   onClick={() => void handleTestConnection()}
                   sx={{ alignSelf: "flex-start" }}
                 >
