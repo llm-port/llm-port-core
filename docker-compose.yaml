@@ -218,6 +218,17 @@ services:
       LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
       LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
 
+      # Initial admin user seeding (set by llmport deploy)
+      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:-}
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:-}
+      LANGFUSE_INIT_USER_NAME: ${LANGFUSE_INIT_USER_NAME:-Admin}
+      LANGFUSE_INIT_ORG_ID: ${LANGFUSE_INIT_ORG_ID:-llm-port-org}
+      LANGFUSE_INIT_ORG_NAME: ${LANGFUSE_INIT_ORG_NAME:-llm-port}
+      LANGFUSE_INIT_PROJECT_ID: ${LANGFUSE_INIT_PROJECT_ID:-llm-port-project}
+      LANGFUSE_INIT_PROJECT_NAME: ${LANGFUSE_INIT_PROJECT_NAME:-llm-port}
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_INIT_PROJECT_PUBLIC_KEY:-}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_INIT_PROJECT_SECRET_KEY:-}
+
   # -----------------------------
   # Shared RabbitMQ broker (API + RAG + local backend dev)
   # -----------------------------
@@ -229,8 +240,8 @@ services:
       - "127.0.0.1:5672:5672"
       - "127.0.0.1:15672:15672"
     environment:
-      RABBITMQ_DEFAULT_USER: "guest"
-      RABBITMQ_DEFAULT_PASS: "guest"
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-guest}
       RABBITMQ_DEFAULT_VHOST: "/"
       # Limit Erlang schedulers and disable busy-wait to avoid CPU spin at idle.
       # -S 2:2  — 2 online schedulers (enough for a message broker)
@@ -307,8 +318,8 @@ services:
       LLM_PORT_API_REDIS_BASE: 1
       LLM_PORT_API_RABBIT_HOST: llm-port-rmq
       LLM_PORT_API_RABBIT_PORT: 5672
-      LLM_PORT_API_RABBIT_USER: guest
-      LLM_PORT_API_RABBIT_PASS: guest
+      LLM_PORT_API_RABBIT_USER: ${RABBITMQ_USER:-guest}
+      LLM_PORT_API_RABBIT_PASS: ${RABBITMQ_PASS:-guest}
       LLM_PORT_API_RABBIT_VHOST: /
       LLM_PORT_API_LANGFUSE_ENABLED: ${LLM_PORT_API_LANGFUSE_ENABLED:-false}
       LLM_PORT_API_LANGFUSE_HOST: ${LLM_PORT_API_LANGFUSE_HOST:-http://langfuse-web:3000}
@@ -382,8 +393,8 @@ services:
       LLM_PORT_BACKEND_REDIS_PASS: ${REDIS_AUTH:-myredissecret}
       LLM_PORT_BACKEND_RABBIT_HOST: llm-port-rmq
       LLM_PORT_BACKEND_RABBIT_PORT: 5672
-      LLM_PORT_BACKEND_RABBIT_USER: guest
-      LLM_PORT_BACKEND_RABBIT_PASS: guest
+      LLM_PORT_BACKEND_RABBIT_USER: ${RABBITMQ_USER:-guest}
+      LLM_PORT_BACKEND_RABBIT_PASS: ${RABBITMQ_PASS:-guest}
       LLM_PORT_BACKEND_RABBIT_VHOST: /
       LLM_PORT_BACKEND_GATEWAY_URL: ${LLM_PORT_BACKEND_GATEWAY_URL:-http://llm-port-api:8000}
       LLM_PORT_BACKEND_SETTINGS_MASTER_KEY: ${LLM_PORT_BACKEND_SETTINGS_MASTER_KEY:-dev-settings-master-key-change-me}
@@ -437,8 +448,8 @@ services:
       LLM_PORT_BACKEND_REDIS_PASS: ${REDIS_AUTH:-myredissecret}
       LLM_PORT_BACKEND_RABBIT_HOST: llm-port-rmq
       LLM_PORT_BACKEND_RABBIT_PORT: 5672
-      LLM_PORT_BACKEND_RABBIT_USER: guest
-      LLM_PORT_BACKEND_RABBIT_PASS: guest
+      LLM_PORT_BACKEND_RABBIT_USER: ${RABBITMQ_USER:-guest}
+      LLM_PORT_BACKEND_RABBIT_PASS: ${RABBITMQ_PASS:-guest}
       LLM_PORT_BACKEND_RABBIT_VHOST: /
       LLM_PORT_BACKEND_GATEWAY_URL: ${LLM_PORT_BACKEND_GATEWAY_URL:-http://llm-port-api:8000}
       LLM_PORT_BACKEND_SETTINGS_MASTER_KEY: ${LLM_PORT_BACKEND_SETTINGS_MASTER_KEY:-dev-settings-master-key-change-me}
@@ -505,8 +516,8 @@ services:
       LLM_PORT_PII_BACKEND_URL: http://llm-port-backend:8000
       LLM_PORT_PII_RABBIT_HOST: llm-port-rmq
       LLM_PORT_PII_RABBIT_PORT: 5672
-      LLM_PORT_PII_RABBIT_USER: guest
-      LLM_PORT_PII_RABBIT_PASS: guest
+      LLM_PORT_PII_RABBIT_USER: ${RABBITMQ_USER:-guest}
+      LLM_PORT_PII_RABBIT_PASS: ${RABBITMQ_PASS:-guest}
       LLM_PORT_PII_RABBIT_VHOST: /
       # Scalability tuning (set via llmport tune)
       LLM_PORT_PII_WORKERS_COUNT: ${LLM_PORT_PII_WORKERS_COUNT:-4}
@@ -535,8 +546,8 @@ services:
       LLM_PORT_PII_BACKEND_URL: http://llm-port-backend:8000
       LLM_PORT_PII_RABBIT_HOST: llm-port-rmq
       LLM_PORT_PII_RABBIT_PORT: 5672
-      LLM_PORT_PII_RABBIT_USER: guest
-      LLM_PORT_PII_RABBIT_PASS: guest
+      LLM_PORT_PII_RABBIT_USER: ${RABBITMQ_USER:-guest}
+      LLM_PORT_PII_RABBIT_PASS: ${RABBITMQ_PASS:-guest}
       LLM_PORT_PII_RABBIT_VHOST: /
 
   # -----------------------------

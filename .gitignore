@@ -1,2 +1,4 @@
 .env
 .empty-hf-cache/
+.bootstrap-credentials
+.env
