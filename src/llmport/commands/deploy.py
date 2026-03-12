@@ -73,6 +73,10 @@ def _find_shared_dir(workspace: Path) -> Path | None:
     help="Skip pre-flight system checks.",
 )
 @click.option(
+    "--gpu", is_flag=True,
+    help="Enable NVIDIA GPU passthrough (requires NVIDIA Container Toolkit).",
+)
+@click.option(
     "--yes", "-y", is_flag=True,
     help="Auto-confirm all prompts.",
 )
@@ -84,6 +88,7 @@ def deploy_cmd(
     no_cache: bool,
     force_env: bool,
     skip_doctor: bool,
+    gpu: bool,
     yes: bool,
 ) -> None:
     """Deploy llm.port to a local production environment.
@@ -189,6 +194,24 @@ def deploy_cmd(
         write_env_file(env_path, env_vars, preserve_secrets=not force_env)
         success(f"Environment file written to {env_path}")
 
+    # If --gpu, auto-detect host HF cache and write to .env
+    if gpu:
+        from llmport.core.env_gen import read_env_file  # noqa: PLC0415
+
+        existing = read_env_file(env_path)
+        if "HF_CACHE_DIR" not in existing:
+            hf_default = Path.home() / ".cache" / "huggingface" / "hub"
+            if hf_default.is_dir():
+                with env_path.open("a", encoding="utf-8") as f:
+                    f.write(f"\n# HuggingFace cache — auto-detected, mount into backend\n")
+                    f.write(f"HF_CACHE_DIR={hf_default}\n")
+                info(f"Auto-detected HF cache: {hf_default}")
+            else:
+                info("No HuggingFace cache found at default path — set HF_CACHE_DIR in .env to mount one")
+        # Ensure empty fallback directory exists for compose
+        fallback_dir = shared_dir / ".empty-hf-cache"
+        fallback_dir.mkdir(exist_ok=True)
+
     # ── 4. Save config ────────────────────────────────────────────
     cfg.install_dir = str(shared_dir)
     cfg.compose_file = compose_file.name
@@ -196,8 +219,17 @@ def deploy_cmd(
     save_config(cfg)
 
     # ── 5. Build images ───────────────────────────────────────────
+    compose_files = [compose_file]
+    if gpu:
+        gpu_overlay = shared_dir / "docker-compose.gpu.yaml"
+        if gpu_overlay.exists():
+            compose_files.append(gpu_overlay)
+            info("GPU passthrough enabled (docker-compose.gpu.yaml)")
+        else:
+            warning(f"GPU overlay not found at {gpu_overlay}, skipping GPU passthrough.")
+
     ctx = ComposeContext(
-        compose_files=[compose_file],
+        compose_files=compose_files,
         env_file=env_path if env_path.exists() else None,
         project_dir=shared_dir,
         profiles=sorted(profiles),
