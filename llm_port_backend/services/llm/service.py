@@ -219,10 +219,12 @@ class LLMService:
     ) -> list[LLMModel]:
         """Scan HF cache directories and auto-import any new models.
 
-        Scans both the app-managed cache (``model_store_root/hf``) and the
-        default HuggingFace cache (``~/.cache/huggingface/hub``).  Models
-        whose ``hf_repo_id`` is already registered are skipped.  Newly
-        imported models are tagged ``["local"]`` and set to AVAILABLE.
+        Scans the app-managed cache (``model_store_root/hf``), the
+        default HuggingFace cache (``~/.cache/huggingface/hub``), and
+        the host-mounted HF cache (``host_hf_cache_dir``) if configured.
+        Models whose ``hf_repo_id`` is already registered are skipped.
+        Newly imported models are tagged ``["local"]`` and set to
+        AVAILABLE.
 
         Returns the list of newly created model records.
         """
@@ -237,7 +239,11 @@ class LLMService:
         app_cache = Path(settings.model_store_root, "hf")
         default_cache = Path.home() / ".cache" / "huggingface" / "hub"
 
-        for d in (app_cache, default_cache):
+        candidates = [app_cache, default_cache]
+        if settings.host_hf_cache_dir:
+            candidates.append(Path(settings.host_hf_cache_dir))
+
+        for d in candidates:
             resolved = d.resolve()
             if resolved.is_dir() and resolved not in seen_resolved:
                 cache_dirs.append(d)

@@ -91,6 +91,11 @@ class Settings(BaseSettings):
     # LLM Server settings
     model_store_root: str = "/srv/llm-port/models"
     hf_token: str | None = None
+    # Absolute path to a host-mounted HuggingFace cache directory.
+    # When set (e.g. via the GPU compose overlay), auto_import_hf_cache
+    # will scan this path for pre-downloaded models in addition to
+    # the app-managed cache and the default HF cache.
+    host_hf_cache_dir: str = ""
     default_vllm_image: str = "vllm/vllm-openai:latest"
     default_vllm_rocm_image: str = "vllm/vllm-openai-rocm:latest"
     # Legacy image for GPUs with compute capability < 8.0 (Turing/Volta).
