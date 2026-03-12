@@ -399,8 +399,11 @@ services:
       LLM_PORT_BACKEND_DB_MAX_OVERFLOW: ${LLM_PORT_BACKEND_DB_MAX_OVERFLOW:-5}
       LLM_PORT_BACKEND_RABBIT_POOL_SIZE: ${LLM_PORT_BACKEND_RABBIT_POOL_SIZE:-2}
       LLM_PORT_BACKEND_RABBIT_CHANNEL_POOL_SIZE: ${LLM_PORT_BACKEND_RABBIT_CHANNEL_POOL_SIZE:-10}
+      LLM_PORT_BACKEND_MODEL_STORE_ROOT: /srv/llm-port/models
+      LLM_PORT_BACKEND_HOST_HF_CACHE_DIR: ${LLM_PORT_BACKEND_HOST_HF_CACHE_DIR:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - llm_port_models:/srv/llm-port/models
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=3).read()"]
       interval: 5s
@@ -450,8 +453,11 @@ services:
       LLM_PORT_BACKEND_DB_MAX_OVERFLOW: ${LLM_PORT_BACKEND_DB_MAX_OVERFLOW:-5}
       LLM_PORT_BACKEND_RABBIT_POOL_SIZE: ${LLM_PORT_BACKEND_RABBIT_POOL_SIZE:-2}
       LLM_PORT_BACKEND_RABBIT_CHANNEL_POOL_SIZE: ${LLM_PORT_BACKEND_RABBIT_CHANNEL_POOL_SIZE:-10}
+      LLM_PORT_BACKEND_MODEL_STORE_ROOT: /srv/llm-port/models
+      LLM_PORT_BACKEND_HOST_HF_CACHE_DIR: ${LLM_PORT_BACKEND_HOST_HF_CACHE_DIR:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - llm_port_models:/srv/llm-port/models
 
   # -----------------------------
   # llm_port_frontend (React admin console)
@@ -596,3 +602,4 @@ volumes:
   minio_data:
   loki_data:
   grafana_data:
+  llm_port_models:

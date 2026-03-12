@@ -1,0 +1,52 @@
+# GPU passthrough overlay — adds NVIDIA GPU access and optional
+# host HuggingFace cache mount to the backend containers.
+#
+# Usage (manual):
+#   docker compose -f docker-compose.yaml -f docker-compose.gpu.yaml up -d
+#
+# Automatic:
+#   llmport deploy --gpu
+#
+# Prerequisites:
+#   - NVIDIA GPU with drivers installed on the host
+#   - NVIDIA Container Toolkit (nvidia-ctk)
+#     Install: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
+#
+# Optional .env variables:
+#   HF_CACHE_DIR   — absolute path to the host's HuggingFace cache
+#                    (e.g. /home/user/.cache/huggingface/hub or
+#                     C:\Users\user\.cache\huggingface\hub)
+#                    When set, it is bind-mounted read-only into the
+#                    backend containers at /host-hf-cache so that
+#                    auto_import_hf_cache() can discover pre-downloaded
+#                    models without re-downloading them.
+#                    Falls back to an empty directory when unset.
+
+services:
+  llm-port-backend:
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      LLM_PORT_BACKEND_HOST_HF_CACHE_DIR: /host-hf-cache
+    volumes:
+      - ${HF_CACHE_DIR:-./.empty-hf-cache}:/host-hf-cache:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  llm-port-backend-worker:
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      LLM_PORT_BACKEND_HOST_HF_CACHE_DIR: /host-hf-cache
+    volumes:
+      - ${HF_CACHE_DIR:-./.empty-hf-cache}:/host-hf-cache:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
