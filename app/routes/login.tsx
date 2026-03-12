@@ -21,11 +21,12 @@ export default function LoginPage() {
   const [params] = useSearchParams();
   const next = params.get("next") || "/admin/dashboard";
 
-  const [username, setUsername] = useState("admin@localhost");
-  const [password, setPassword] = useState("admin");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ssoProviders, setSsoProviders] = useState<AuthProviderPublic[]>([]);
+  const [isDevMode, setIsDevMode] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -48,6 +49,20 @@ export default function LoginPage() {
       })
       .catch(() => {
         // SSO not available — ignore
+      });
+
+    // Check backend environment for dev mode features
+    fetch("/api/health")
+      .then((res) => res.json())
+      .then((data: { environment?: string }) => {
+        if (!cancelled && data.environment === "dev") {
+          setIsDevMode(true);
+          setUsername("admin@localhost");
+          setPassword("admin");
+        }
+      })
+      .catch(() => {
+        // health endpoint unavailable — stay in production mode
       });
 
     // Check for OAuth error in query params
@@ -138,9 +153,11 @@ export default function LoginPage() {
             <Button type="submit" variant="contained" size="large" disabled={loading}>
               {t("auth.sign_in")}
             </Button>
-            <Button variant="outlined" disabled={loading} onClick={handleDevLogin}>
-              {t("auth.dev_login")}
-            </Button>
+            {isDevMode && (
+              <Button variant="outlined" disabled={loading} onClick={handleDevLogin}>
+                {t("auth.dev_login")}
+              </Button>
+            )}
 
             {ssoProviders.length > 0 && (
               <>
