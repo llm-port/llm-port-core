@@ -104,14 +104,29 @@ def deploy_cmd(
     console.print("\n[bold magenta]llm.port — Production Deployment[/bold magenta]\n")
 
     # ── 0. Resolve install directory ──────────────────────────────
+    #
+    # Priority order:
+    #   1. Explicit CLI argument  (llmport deploy /path)
+    #   2. Current working directory — if it contains llm_port_shared
+    #   3. Saved config install_dir  (from a previous dev init / deploy)
+    #   4. CWD as final fallback
+    #
+    # This ensures that running ``llmport deploy`` from a development
+    # workspace always builds from the local source, even when the
+    # config still points at a different (possibly stale) clone.
     cfg = load_config()
 
     if install_dir:
         workspace = Path(install_dir)
-    elif cfg.install_dir:
-        workspace = Path(cfg.install_dir)
     else:
-        workspace = Path.cwd()
+        cwd = Path.cwd()
+        cwd_shared = _find_shared_dir(cwd)
+        if cwd_shared:
+            workspace = cwd
+        elif cfg.install_dir:
+            workspace = Path(cfg.install_dir)
+        else:
+            workspace = cwd
 
     shared_dir = _find_shared_dir(workspace)
     if not shared_dir:
@@ -283,6 +298,40 @@ def deploy_cmd(
         if creds:
             cfg.admin_email = creds["email"]
             save_config(cfg)
+
+            # ── Sync credentials to Grafana, Langfuse & RabbitMQ ──
+            from llmport.core.env_gen import read_env_file  # noqa: PLC0415
+            from llmport.core.compose import up as compose_up_svc  # noqa: PLC0415
+
+            env_vars = read_env_file(env_path)
+            env_vars["GRAFANA_ADMIN_USER"] = creds["email"]
+            env_vars["GRAFANA_ADMIN_PASSWORD"] = creds["password"]
+            env_vars["RABBITMQ_PASS"] = creds["password"]
+            env_vars["LANGFUSE_INIT_USER_EMAIL"] = creds["email"]
+            env_vars["LANGFUSE_INIT_USER_PASSWORD"] = creds["password"]
+            env_vars["LANGFUSE_INIT_USER_NAME"] = "Admin"
+            env_vars["LANGFUSE_INIT_PROJECT_NAME"] = "llm-port"
+            if creds.get("api_token"):
+                env_vars["LANGFUSE_INIT_PROJECT_SECRET_KEY"] = creds["api_token"][:40]
+                env_vars["LANGFUSE_INIT_PROJECT_PUBLIC_KEY"] = "pk-lf-llmport"
+
+            write_env_file(env_path, env_vars)
+            info("Synced admin credentials to Grafana, Langfuse & RabbitMQ.")
+
+            # Force-recreate so containers pick up the new env vars.
+            # RabbitMQ only reads RABBITMQ_DEFAULT_USER/PASS on first
+            # boot of a fresh mnesia DB — recreating the container
+            # (which has no named volume) resets the DB.
+            recreate_services = ["grafana", "langfuse-web", "llm-port-rmq"]
+            compose_up_svc(
+                ctx,
+                services=recreate_services,
+                detach=True,
+                force_recreate=True,
+                wait=True,
+                timeout=60,
+            )
+            success("Grafana, Langfuse & RabbitMQ recreated with shared credentials.")
     else:
         warning("Backend did not become healthy in time — skipping admin setup.")
         console.print("  [dim]Run 'llmport deploy' again or create an admin via the UI.[/dim]")

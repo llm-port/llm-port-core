@@ -25,6 +25,7 @@ SECRET_KEYS: frozenset[str] = frozenset({
     "MINIO_ROOT_PASSWORD",
     "CLICKHOUSE_PASSWORD",
     "GRAFANA_ADMIN_PASSWORD",
+    "RABBITMQ_PASS",
     "LANGFUSE_NEXTAUTH_SECRET",
     "LANGFUSE_SALT",
     "LANGFUSE_ENCRYPTION_KEY",
@@ -98,6 +99,9 @@ def dev_env_vars(
         "MINIO_ROOT_PASSWORD": pw,
         "LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT": "http://minio:9000",
         "LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT": "http://minio:9000",
+        # RabbitMQ
+        "RABBITMQ_USER": "guest",
+        "RABBITMQ_PASS": pw,
         # Settings master key — used to encrypt/decrypt secrets stored in the DB.
         # Must match LLM_PORT_BACKEND_SETTINGS_MASTER_KEY in the backend .env.
         # JWT secrets are seeded automatically in the DB on first startup.
@@ -105,6 +109,16 @@ def dev_env_vars(
         "LLM_PORT_API_ENCRYPTION_KEY": "dev-encryption-key-change-me",
         "LLM_PORT_API_LANGFUSE_ENABLED": "false",
         "LLM_PORT_BACKEND_GATEWAY_URL": "http://llm-port-api:8000",
+        # Langfuse initial admin seeding
+        "LANGFUSE_INIT_USER_EMAIL": "",
+        "LANGFUSE_INIT_USER_PASSWORD": "",
+        "LANGFUSE_INIT_USER_NAME": "Admin",
+        "LANGFUSE_INIT_ORG_ID": "llm-port-org",
+        "LANGFUSE_INIT_ORG_NAME": "llm-port",
+        "LANGFUSE_INIT_PROJECT_ID": "llm-port-project",
+        "LANGFUSE_INIT_PROJECT_NAME": "llm-port",
+        "LANGFUSE_INIT_PROJECT_PUBLIC_KEY": "",
+        "LANGFUSE_INIT_PROJECT_SECRET_KEY": "",
     }
 
     # Scalability tuning (conservative dev defaults)
@@ -155,6 +169,9 @@ def default_env_vars(
         # MinIO
         "MINIO_ROOT_USER": "minio",
         "MINIO_ROOT_PASSWORD": minio_password,
+        # RabbitMQ
+        "RABBITMQ_USER": "admin",
+        "RABBITMQ_PASS": _random_password(24),
         # Settings master key — used to encrypt/decrypt secrets stored in the DB.
         # JWT secrets are seeded automatically in the DB on first startup.
         "LLM_PORT_BACKEND_SETTINGS_MASTER_KEY": _random_secret(),
@@ -163,6 +180,16 @@ def default_env_vars(
         "LLM_PORT_BACKEND_GATEWAY_URL": "http://llm-port-api:8000",
         "LLM_PORT_BACKEND_ENVIRONMENT": "production",
         "USERS_SECRET": _random_secret(),
+        # Langfuse initial admin seeding (populated during bootstrap)
+        "LANGFUSE_INIT_USER_EMAIL": "",
+        "LANGFUSE_INIT_USER_PASSWORD": "",
+        "LANGFUSE_INIT_USER_NAME": "Admin",
+        "LANGFUSE_INIT_ORG_ID": "llm-port-org",
+        "LANGFUSE_INIT_ORG_NAME": "llm-port",
+        "LANGFUSE_INIT_PROJECT_ID": "llm-port-project",
+        "LANGFUSE_INIT_PROJECT_NAME": "llm-port",
+        "LANGFUSE_INIT_PROJECT_PUBLIC_KEY": "",
+        "LANGFUSE_INIT_PROJECT_SECRET_KEY": "",
     }
 
     # Scalability tuning (auto-detect host resources for prod)

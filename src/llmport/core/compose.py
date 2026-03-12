@@ -140,6 +140,7 @@ def up(
     pull: str = "",
     wait: bool = False,
     timeout: int = 0,
+    force_recreate: bool = False,
 ) -> int:
     """Run ``docker compose up``.
 
@@ -147,6 +148,7 @@ def up(
     An empty string (default) leaves Docker Compose to decide.
     *wait* blocks until services are healthy (implies ``-d``).
     *timeout* sets the max wait time in seconds (requires *wait*).
+    *force_recreate* recreates containers even if config hasn't changed.
     """
     cmd = ctx.base_cmd() + ["up"]
     if detach:
@@ -155,6 +157,8 @@ def up(
         cmd.append("--build")
     if pull:
         cmd.append(f"--pull={pull}")
+    if force_recreate:
+        cmd.append("--force-recreate")
     if wait:
         cmd.append("--wait")
     if timeout > 0:
@@ -165,13 +169,35 @@ def up(
     return result.returncode
 
 
-def down(ctx: ComposeContext, *, volumes: bool = False, remove_orphans: bool = False) -> int:
-    """Run ``docker compose down``."""
+def down(
+    ctx: ComposeContext,
+    *,
+    volumes: bool = False,
+    remove_orphans: bool = False,
+    rmi: str | None = None,
+) -> int:
+    """Run ``docker compose down``.
+
+    Args:
+        rmi: Remove images. ``"all"`` removes all images, ``"local"``
+             removes only images without a custom tag.
+    """
     cmd = ctx.base_cmd() + ["down"]
     if volumes:
         cmd.append("-v")
     if remove_orphans:
         cmd.append("--remove-orphans")
+    if rmi:
+        cmd.extend(["--rmi", rmi])
+    result = _run(cmd, stream=True)
+    return result.returncode
+
+
+def restart(ctx: ComposeContext, *, services: list[str] | None = None) -> int:
+    """Run ``docker compose restart`` for the given services."""
+    cmd = ctx.base_cmd() + ["restart"]
+    if services:
+        cmd.extend(services)
     result = _run(cmd, stream=True)
     return result.returncode
 
