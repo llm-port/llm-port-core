@@ -41,6 +41,9 @@ class ProviderDAO:
         capabilities: dict | None = None,
         endpoint_url: str | None = None,
         api_key_encrypted: str | None = None,
+        litellm_provider: str | None = None,
+        litellm_model: str | None = None,
+        extra_params: dict | None = None,
     ) -> LLMProvider:
         """Create a new provider."""
         provider = LLMProvider(
@@ -51,6 +54,9 @@ class ProviderDAO:
             capabilities=capabilities,
             endpoint_url=endpoint_url,
             api_key_encrypted=api_key_encrypted,
+            litellm_provider=litellm_provider,
+            litellm_model=litellm_model,
+            extra_params=extra_params,
         )
         self.session.add(provider)
         await self.session.flush()
@@ -78,6 +84,9 @@ class ProviderDAO:
         capabilities: dict | None = None,
         endpoint_url: str | None = ...,
         api_key_encrypted: str | None = ...,
+        litellm_provider: str | None = ...,
+        litellm_model: str | None = ...,
+        extra_params: dict | None = ...,
     ) -> LLMProvider | None:
         """Patch writable fields on a provider."""
         provider = await self.get(provider_id)
@@ -91,6 +100,12 @@ class ProviderDAO:
             provider.endpoint_url = endpoint_url
         if api_key_encrypted is not ...:
             provider.api_key_encrypted = api_key_encrypted
+        if litellm_provider is not ...:
+            provider.litellm_provider = litellm_provider
+        if litellm_model is not ...:
+            provider.litellm_model = litellm_model
+        if extra_params is not ...:
+            provider.extra_params = extra_params
         return provider
 
     async def delete(self, provider_id: uuid.UUID) -> bool:

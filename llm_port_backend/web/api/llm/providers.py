@@ -28,6 +28,113 @@ from llm_port_backend.web.api.rbac import require_permission
 
 log = logging.getLogger(__name__)
 
+# ── Known provider health-check URLs (used when no endpoint_url given) ───────
+_PROVIDER_HEALTH_URLS: dict[str, str] = {
+    "openai": "https://api.openai.com/v1/models",
+    "anthropic": "https://api.anthropic.com/v1/models",
+    "gemini": "https://generativelanguage.googleapis.com/v1beta/models",
+    "mistral": "https://api.mistral.ai/v1/models",
+    "groq": "https://api.groq.com/openai/v1/models",
+    "deepseek": "https://api.deepseek.com/v1/models",
+    "cohere": "https://api.cohere.com/v2/models",
+    "openrouter": "https://openrouter.ai/api/v1/models",
+}
+
+_PROVIDER_AUTH_HEADER: dict[str, tuple[str, str]] = {
+    # provider -> (header_name_template, value_template)
+    # Most providers use Bearer, Anthropic uses x-api-key
+    "anthropic": ("x-api-key", "{key}"),
+    "gemini": ("x-goog-api-key", "{key}"),
+}
+
+
+async def _test_litellm_provider(
+    *,
+    litellm_provider: str,
+    api_key: str | None,
+    litellm_model: str | None,
+) -> TestEndpointResponse:
+    """Test connectivity to a known LiteLLM provider via its health endpoint."""
+    health_url = _PROVIDER_HEALTH_URLS.get(litellm_provider)
+    if not health_url:
+        # Unknown provider — we can't auto-test without an endpoint URL
+        return TestEndpointResponse(
+            compatible=False,
+            error=(
+                f"No known health endpoint for provider '{litellm_provider}'. "
+                "Please provide an endpoint URL to test connectivity."
+            ),
+        )
+
+    headers: dict[str, str] = {"Accept": "application/json"}
+    if api_key:
+        if litellm_provider in _PROVIDER_AUTH_HEADER:
+            hdr_name, hdr_tpl = _PROVIDER_AUTH_HEADER[litellm_provider]
+            headers[hdr_name] = hdr_tpl.format(key=api_key)
+        else:
+            headers["Authorization"] = f"Bearer {api_key}"
+
+    # For Gemini, the API key goes as a query param
+    params: dict[str, str] = {}
+    if litellm_provider == "gemini" and api_key:
+        params["key"] = api_key
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(health_url, headers=headers, params=params)
+    except httpx.ConnectError:
+        return TestEndpointResponse(
+            compatible=False,
+            error=f"Connection refused to {litellm_provider} API.",
+        )
+    except httpx.TimeoutException:
+        return TestEndpointResponse(
+            compatible=False,
+            error=f"Request to {litellm_provider} API timed out after 10 s.",
+        )
+    except Exception as exc:
+        return TestEndpointResponse(
+            compatible=False,
+            error=f"Connection to {litellm_provider} failed: {exc}",
+        )
+
+    if resp.status_code == 401:
+        return TestEndpointResponse(
+            compatible=False,
+            error="Authentication failed (HTTP 401). Check your API key.",
+        )
+    if resp.status_code == 403:
+        return TestEndpointResponse(
+            compatible=False,
+            error="Access denied (HTTP 403). The API key may lack required permissions.",
+        )
+    if resp.status_code >= 400:
+        return TestEndpointResponse(
+            compatible=False,
+            error=f"{litellm_provider} API returned HTTP {resp.status_code}.",
+        )
+
+    # Try to extract model IDs from the response
+    model_ids: list[str] = []
+    try:
+        payload = resp.json()
+        # OpenAI-style: {"data": [{"id": ...}]}
+        data = payload.get("data") if isinstance(payload, dict) else None
+        # Gemini-style: {"models": [{"name": ...}]}
+        if data is None and isinstance(payload, dict):
+            data = payload.get("models")
+        if isinstance(data, list):
+            for item in data:
+                if isinstance(item, dict):
+                    model_ids.append(str(item.get("id") or item.get("name", "")))
+    except Exception:
+        pass
+
+    return TestEndpointResponse(
+        compatible=True,
+        models=model_ids[:20],  # cap at 20 to keep response small
+    )
+
 router = APIRouter()
 
 
@@ -83,10 +190,24 @@ async def test_endpoint(
 ) -> TestEndpointResponse:
     """Probe a remote endpoint for OpenAI API compatibility.
 
-    Sends GET ``{endpoint_url}/models`` and checks whether the response
-    follows the ``{"data": [{"id": ...}, ...]}`` schema used by the
-    OpenAI-compatible API.
+    When ``litellm_provider`` is set without an ``endpoint_url``, a
+    lightweight LiteLLM completion call is used to verify connectivity.
+    Otherwise sends GET ``{endpoint_url}/models``.
     """
+    # ── LiteLLM provider test (no endpoint URL needed) ───────────
+    if body.litellm_provider and not body.endpoint_url:
+        return await _test_litellm_provider(
+            litellm_provider=body.litellm_provider,
+            api_key=body.api_key,
+            litellm_model=body.litellm_model,
+        )
+
+    if not body.endpoint_url:
+        return TestEndpointResponse(
+            compatible=False,
+            error="Either an endpoint URL or a LiteLLM provider must be specified.",
+        )
+
     url = body.endpoint_url.rstrip("/")
 
     headers: dict[str, str] = {"Accept": "application/json"}
@@ -203,14 +324,21 @@ async def create_provider(
         endpoint_url=body.endpoint_url,
         api_key=body.api_key,
         remote_model=body.remote_model,
+        litellm_provider=body.litellm_provider,
+        litellm_model=body.litellm_model,
+        extra_params=body.extra_params,
     )
 
     # ── Auto-provision remote providers ──────────────────────────
-    if body.target == ProviderTarget.REMOTE_ENDPOINT and body.endpoint_url:
+    if body.target == ProviderTarget.REMOTE_ENDPOINT and (
+        body.endpoint_url or body.litellm_provider
+    ):
         # Determine alias name: prefer explicit remote_model, otherwise
         # probe the remote endpoint for the first available model id.
         alias_name = (body.remote_model or "").strip()
-        if not alias_name:
+        if not alias_name and body.litellm_model:
+            alias_name = body.litellm_model.strip()
+        if not alias_name and body.endpoint_url:
             alias_name = await _probe_first_model(
                 body.endpoint_url, body.api_key,
             )
@@ -301,6 +429,9 @@ async def update_provider(
         capabilities=next_capabilities if capabilities_changed else None,
         endpoint_url=body.endpoint_url if body.endpoint_url is not None else ...,
         api_key_encrypted=body.api_key if body.api_key is not None else ...,
+        litellm_provider=body.litellm_provider if "litellm_provider" in body.model_fields_set else ...,
+        litellm_model=body.litellm_model if "litellm_model" in body.model_fields_set else ...,
+        extra_params=body.extra_params if "extra_params" in body.model_fields_set else ...,
     )
     if provider is None:
         raise HTTPException(status_code=404, detail="Provider not found")

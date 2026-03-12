@@ -19,10 +19,11 @@ dedicated ``async_sessionmaker`` that targets the gateway database
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import uuid
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 from sqlalchemy import text
 
@@ -45,9 +46,27 @@ _BACKEND_TO_GATEWAY_TYPE = {
 }
 
 
-def _map_provider_type(backend_type: str, *, is_remote: bool) -> str:
+def _map_provider_type(backend_type: str, *, is_remote: bool, litellm_provider: str | None = None) -> str:
     """Map a backend ``ProviderType`` to the gateway enum value."""
     if is_remote:
+        # Use litellm_provider to pick the right gateway remote type
+        _LITELLM_TO_GATEWAY: dict[str, str] = {
+            "anthropic": "remote_anthropic",
+            "gemini": "remote_google",
+            "vertex_ai": "remote_google",
+            "bedrock": "remote_bedrock",
+            "azure": "remote_azure",
+            "azure_ai": "remote_azure",
+            "mistral": "remote_mistral",
+            "groq": "remote_groq",
+            "deepseek": "remote_deepseek",
+            "cohere": "remote_cohere",
+            "cohere_chat": "remote_cohere",
+            "openai": "remote_openai",
+            "openrouter": "remote_openai",
+        }
+        if litellm_provider:
+            return _LITELLM_TO_GATEWAY.get(litellm_provider, "remote_custom")
         return "remote_openai"
     return _BACKEND_TO_GATEWAY_TYPE.get(backend_type, "vllm")
 
@@ -96,6 +115,10 @@ class GatewaySyncService:
         health_status: str = "healthy",
         weight: float = 1.0,
         max_concurrency: int = 10,
+        api_key_encrypted: str | None = None,
+        litellm_provider: str | None = None,
+        litellm_model: str | None = None,
+        extra_params: dict[str, Any] | None = None,
     ) -> None:
         """Create or update gateway routing records for a runtime.
 
@@ -106,7 +129,9 @@ class GatewaySyncService:
         """
         if not self.enabled:
             return
-        gateway_type = _map_provider_type(backend_provider_type, is_remote=is_remote)
+        gateway_type = _map_provider_type(
+            backend_provider_type, is_remote=is_remote, litellm_provider=litellm_provider,
+        )
         try:
             async with self._sf() as session:  # type: ignore[union-attr]
                 # 1 ── model alias ──────────────────────────────────────────
@@ -126,18 +151,24 @@ class GatewaySyncService:
                     text("""
                         INSERT INTO llm_provider_instance
                             (id, type, base_url, enabled, weight, max_concurrency,
-                             health_status, created_at, updated_at)
+                             health_status, api_key_encrypted, litellm_provider,
+                             litellm_model, extra_params, created_at, updated_at)
                         VALUES
                             (:id, :type, :base_url, TRUE, :weight, :max_concurrency,
-                             :health, NOW(), NOW())
+                             :health, :api_key, :litellm_provider,
+                             :litellm_model, :extra_params, NOW(), NOW())
                         ON CONFLICT (id) DO UPDATE
-                            SET base_url       = EXCLUDED.base_url,
-                                type           = EXCLUDED.type,
-                                enabled        = TRUE,
-                                weight         = EXCLUDED.weight,
-                                max_concurrency= EXCLUDED.max_concurrency,
-                                health_status  = EXCLUDED.health_status,
-                                updated_at     = NOW()
+                            SET base_url        = EXCLUDED.base_url,
+                                type            = EXCLUDED.type,
+                                enabled         = TRUE,
+                                weight          = EXCLUDED.weight,
+                                max_concurrency = EXCLUDED.max_concurrency,
+                                health_status   = EXCLUDED.health_status,
+                                api_key_encrypted = EXCLUDED.api_key_encrypted,
+                                litellm_provider  = EXCLUDED.litellm_provider,
+                                litellm_model     = EXCLUDED.litellm_model,
+                                extra_params      = EXCLUDED.extra_params,
+                                updated_at      = NOW()
                     """),
                     {
                         "id": runtime_id,
@@ -146,6 +177,10 @@ class GatewaySyncService:
                         "weight": weight,
                         "max_concurrency": max_concurrency,
                         "health": health_status,
+                        "api_key": api_key_encrypted,
+                        "litellm_provider": litellm_provider,
+                        "litellm_model": litellm_model,
+                        "extra_params": json.dumps(extra_params) if extra_params else None,
                     },
                 )
 

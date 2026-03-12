@@ -44,13 +44,29 @@ class ProviderCreateRequest(BaseModel):
         max_length=256,
         description="Optional default model name for remote providers (metadata/display only).",
     )
+    litellm_provider: str | None = Field(
+        None,
+        max_length=64,
+        description="LiteLLM provider prefix (e.g. 'anthropic', 'openrouter'). Auto-detected if omitted.",
+    )
+    litellm_model: str | None = Field(
+        None,
+        max_length=256,
+        description="LiteLLM model identifier. Defaults to remote_model or probed model.",
+    )
+    extra_params: dict | None = Field(
+        None,
+        description="Provider-specific params (extra_headers, api_version, etc.).",
+    )
 
 
 class TestEndpointRequest(BaseModel):
-    """Request body for testing a remote endpoint's OpenAI compatibility."""
+    """Request body for testing a remote endpoint or LiteLLM provider."""
 
-    endpoint_url: str = Field(..., min_length=1, max_length=1024)
+    endpoint_url: str | None = Field(None, max_length=1024)
     api_key: str | None = Field(None, max_length=512)
+    litellm_provider: str | None = Field(None, max_length=64)
+    litellm_model: str | None = Field(None, max_length=256)
 
 
 class TestEndpointResponse(BaseModel):
@@ -69,6 +85,9 @@ class ProviderUpdateRequest(BaseModel):
     endpoint_url: str | None = Field(None, max_length=1024)
     api_key: str | None = Field(None, max_length=512)
     remote_model: str | None = Field(None, max_length=256)
+    litellm_provider: str | None = Field(None, max_length=64)
+    litellm_model: str | None = Field(None, max_length=256)
+    extra_params: dict | None = None
 
 
 class ProviderDTO(BaseModel):
@@ -81,6 +100,9 @@ class ProviderDTO(BaseModel):
     endpoint_url: str | None = None
     capabilities: dict | None = None
     remote_model: str | None = None
+    litellm_provider: str | None = None
+    litellm_model: str | None = None
+    extra_params: dict | None = None
     created_at: datetime
     updated_at: datetime
 

@@ -70,6 +70,9 @@ class LLMService:
         endpoint_url: str | None = None,
         api_key: str | None = None,
         remote_model: str | None = None,
+        litellm_provider: str | None = None,
+        litellm_model: str | None = None,
+        extra_params: dict[str, Any] | None = None,
     ) -> LLMProvider:
         """Register a new LLM engine provider.
 
@@ -78,8 +81,14 @@ class LLMService:
         TGI, NVIDIA NIM, etc.).  No Docker container is managed — the
         runtime simply proxies to that URL.
         """
-        if target == ProviderTarget.REMOTE_ENDPOINT and not endpoint_url:
-            raise ValueError("endpoint_url is required for remote providers")
+        if (
+            target == ProviderTarget.REMOTE_ENDPOINT
+            and not endpoint_url
+            and not litellm_provider
+        ):
+            raise ValueError(
+                "endpoint_url or litellm_provider is required for remote providers",
+            )
 
         # ── capacity enforcement ─────────────────────────────
         _lim = self._caps.get("remote_providers")
@@ -113,6 +122,9 @@ class LLMService:
             capabilities=capabilities,
             endpoint_url=endpoint_url,
             api_key_encrypted=api_key,  # TODO: encrypt with SettingsCrypto
+            litellm_provider=litellm_provider,
+            litellm_model=litellm_model,
+            extra_params=extra_params,
         )
 
     # ------------------------------------------------------------------
@@ -349,7 +361,12 @@ class LLMService:
         if provider.target == ProviderTarget.REMOTE_ENDPOINT:
             endpoint_url = provider.endpoint_url
             if not endpoint_url:
-                raise ValueError("Remote provider has no endpoint_url configured")
+                if provider.litellm_provider:
+                    # LiteLLM handles routing internally; use a sentinel so
+                    # the gateway sync still has a non-null base_url.
+                    endpoint_url = f"litellm://{provider.litellm_provider}"
+                else:
+                    raise ValueError("Remote provider has no endpoint_url configured")
             await runtime_dao.set_container_ref(runtime.id, None, endpoint_url)
             await runtime_dao.set_status(runtime.id, RuntimeStatus.RUNNING)
             log.info(
@@ -365,6 +382,10 @@ class LLMService:
                 backend_provider_type=provider.type.value,
                 is_remote=True,
                 health_status="healthy",
+                api_key_encrypted=provider.api_key_encrypted,
+                litellm_provider=provider.litellm_provider,
+                litellm_model=provider.litellm_model,
+                extra_params=provider.extra_params,
             )
             return runtime
 

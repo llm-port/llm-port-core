@@ -136,6 +136,21 @@ class LLMProvider(Base):
         nullable=True,
         doc="Encrypted API key for remote endpoint auth.",
     )
+    litellm_provider: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        doc="LiteLLM provider prefix (e.g. 'anthropic', 'openrouter').",
+    )
+    litellm_model: Mapped[str | None] = mapped_column(
+        String(256),
+        nullable=True,
+        doc="LiteLLM model identifier (e.g. 'claude-sonnet-4-20250514').",
+    )
+    extra_params: Mapped[dict | None] = mapped_column(
+        JSON,
+        nullable=True,
+        doc="Provider-specific params (headers, api_version, etc.).",
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
