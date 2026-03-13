@@ -6,6 +6,7 @@ Requires the PII module to be enabled (``pii_enabled`` setting).
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime
 from typing import Annotated, Any
@@ -238,13 +239,16 @@ async def upsert_tenant_policy(
             text(
                 """
                 INSERT INTO tenant_llm_policy (tenant_id, pii_config, created_at, updated_at)
-                VALUES (:tenant_id, :pii_config, NOW(), NOW())
+                VALUES (:tenant_id, :pii_config::json, NOW(), NOW())
                 ON CONFLICT (tenant_id) DO UPDATE
                 SET pii_config = EXCLUDED.pii_config,
                     updated_at = NOW()
                 """,
             ),
-            {"tenant_id": tenant_id, "pii_config": body.pii_config},
+            {
+                "tenant_id": tenant_id,
+                "pii_config": json.dumps(body.pii_config) if body.pii_config else None,
+            },
         )
         await gateway_session.commit()
 

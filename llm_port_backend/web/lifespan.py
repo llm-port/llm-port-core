@@ -492,9 +492,10 @@ async def lifespan_setup(
     # Load DB-backed runtime settings before services that need them
     await _load_runtime_settings_from_db(app)
 
-    # In dev mode, auto-seed required secrets so the stack works out of the box
-    if settings.environment == "dev":
-        await _seed_secrets(app)
+    # Auto-seed required secrets (JWT signing/verification) if the DB table is
+    # empty.  The function is idempotent — it only generates a new secret when
+    # no row exists yet; existing secrets are preserved.
+    await _seed_secrets(app)
 
     setup_opentelemetry(app)
     init_rabbit(app)
@@ -545,6 +546,9 @@ async def lifespan_setup(
 
     # Seed built-in RBAC roles and permissions on every startup (idempotent).
     await _seed_rbac(app)
+
+    # Seed default system settings (e.g. PII policy) if not already set.
+    await _seed_default_settings(app)
 
     # Seed a default admin user in dev mode so the UI is usable immediately
     if settings.environment == "dev":
@@ -700,6 +704,67 @@ async def _seed_rbac(app: FastAPI) -> None:
         await rbac_dao.seed_defaults()
         await session.commit()
         log.info("Seeded RBAC roles and permissions")
+
+
+# Core default PII policy (matches the modularization spec):
+# - All 12 built-in entity types, score threshold 0.35, English
+# - Redaction mode (irreversible but safe — Core tier)
+# - Egress scanning enabled for cloud providers only
+# - Fail action: block (safe-by-default)
+_CORE_DEFAULT_PII_POLICY: dict = {
+    "telemetry": {
+        "enabled": False,
+        "mode": "sanitized",
+        "store_raw": False,
+    },
+    "egress": {
+        "enabled_for_cloud": True,
+        "enabled_for_local": False,
+        "mode": "redact",
+        "fail_action": "block",
+    },
+    "presidio": {
+        "language": "en",
+        "threshold": 0.35,
+        "entities": [
+            "PERSON",
+            "EMAIL_ADDRESS",
+            "PHONE_NUMBER",
+            "CREDIT_CARD",
+            "IBAN_CODE",
+            "IP_ADDRESS",
+            "US_SSN",
+            "LOCATION",
+            "DATE_TIME",
+            "NRP",
+            "MEDICAL_LICENSE",
+            "URL",
+        ],
+    },
+}
+
+
+async def _seed_default_settings(app: FastAPI) -> None:
+    """Seed system-level defaults that should exist out of the box.
+
+    Idempotent — only inserts if the key has no value yet.
+    """
+    from llm_port_backend.db.dao.system_settings_dao import SystemSettingsDAO  # noqa: PLC0415
+
+    async with app.state.db_session_factory() as session:
+        dao = SystemSettingsDAO(session)
+
+        existing = await dao.get_value("llm_port_api.pii_default_policy")
+        if existing is None:
+            await dao.upsert_value(
+                key="llm_port_api.pii_default_policy",
+                value_json={"value": _CORE_DEFAULT_PII_POLICY},
+                updated_by=None,
+            )
+            await session.commit()
+            log.info("Seeded default PII policy (Core: redact, 12 entity types, threshold 0.35)")
+        else:
+            log.debug("Default PII policy already configured; skipping seed.")
 
 
 async def _assign_dev_admin_role(app: FastAPI) -> None:
