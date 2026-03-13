@@ -1,0 +1,52 @@
+# Publish llmport-cli to PyPI when a version tag is pushed.
+#
+# Usage:
+#   1. Bump version in pyproject.toml + src/llmport/__init__.py
+#   2. Commit: git commit -am "release: v0.2.0"
+#   3. Tag:    git tag v0.2.0
+#   4. Push:   git push origin master --tags
+#
+# Prerequisites:
+#   Add a repository secret named PYPI_API_TOKEN with a PyPI API token
+#   scoped to the llmport-cli project.
+
+name: Release to PyPI
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install build tools
+        run: pip install --upgrade build twine
+
+      - name: Build sdist + wheel
+        run: python -m build
+
+      - name: Publish to PyPI
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: twine upload dist/*
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: dist/*
