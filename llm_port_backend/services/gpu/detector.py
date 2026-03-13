@@ -128,7 +128,7 @@ def redetect_gpus() -> GpuInventory:
 
 
 def _detect_nvidia() -> list[GpuDevice]:
-    """Detect NVIDIA GPUs using pynvml (works on any OS with drivers)."""
+    """Detect NVIDIA GPUs using pynvml, falling back to nvidia-smi CLI."""
     devices: list[GpuDevice] = []
     with contextlib.suppress(ImportError, Exception):
         import pynvml  # noqa: PLC0415
@@ -157,6 +157,62 @@ def _detect_nvidia() -> list[GpuDevice]:
             pynvml.nvmlShutdown()
     if devices:
         logger.info("Detected %d NVIDIA GPU(s) via pynvml", len(devices))
+        return devices
+
+    # Fallback: nvidia-smi CLI (pynvml unavailable or failed)
+    devices = _detect_nvidia_smi()
+    if devices:
+        logger.info("Detected %d NVIDIA GPU(s) via nvidia-smi CLI", len(devices))
+    return devices
+
+
+def _detect_nvidia_smi() -> list[GpuDevice]:
+    """Detect NVIDIA GPUs by parsing nvidia-smi CSV output."""
+    import shutil  # noqa: PLC0415
+
+    nvidia_smi = shutil.which("nvidia-smi")
+    if not nvidia_smi:
+        return []
+
+    devices: list[GpuDevice] = []
+    with contextlib.suppress(Exception):
+        proc = subprocess.run(
+            [
+                nvidia_smi,
+                "--query-gpu=index,name,memory.total,driver_version",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if proc.returncode != 0 or not proc.stdout.strip():
+            return devices
+
+        driver_version = ""
+        for line in proc.stdout.strip().splitlines():
+            parts = [p.strip() for p in line.split(",")]
+            if len(parts) < 4:  # noqa: PLR2004
+                continue
+            idx = 0
+            with contextlib.suppress(ValueError):
+                idx = int(parts[0])
+            name = parts[1]
+            vram_mib = 0
+            with contextlib.suppress(ValueError):
+                vram_mib = int(float(parts[2]))
+            driver_version = parts[3]
+            devices.append(
+                GpuDevice(
+                    index=idx,
+                    vendor=GpuVendor.NVIDIA,
+                    model=name,
+                    vram_bytes=vram_mib * 1024 * 1024,
+                    driver_version=driver_version,
+                    compute_api=GpuComputeApi.CUDA,
+                ),
+            )
+
     return devices
 
 
@@ -527,9 +583,10 @@ def _detect_via_docker() -> list[GpuDevice]:
     devices: list[GpuDevice] = []
     docker_sock = Path("/var/run/docker.sock")
     if not docker_sock.exists():
+        logger.debug("Docker socket not found at %s — skipping Docker GPU probe", docker_sock)
         return devices
 
-    with contextlib.suppress(Exception):
+    try:
         import http.client  # noqa: PLC0415
         import json as _json  # noqa: PLC0415
         import socket as _socket  # noqa: PLC0415
@@ -563,21 +620,60 @@ def _detect_via_docker() -> list[GpuDevice]:
         c1.close()
 
         runtimes = info.get("Runtimes") or {}
-        if "nvidia" not in runtimes:
+        default_runtime = info.get("DefaultRuntime", "")
+        # Check for nvidia runtime or CDI device support (DGX Spark / newer toolkit)
+        has_nvidia_runtime = (
+            "nvidia" in runtimes
+            or default_runtime == "nvidia"
+            or any("nvidia" in str(v) for v in (info.get("SecurityOptions") or []))
+        )
+        if not has_nvidia_runtime:
+            logger.debug(
+                "No nvidia runtime found in Docker info. "
+                "Runtimes=%s DefaultRuntime=%s",
+                list(runtimes.keys()),
+                default_runtime,
+            )
             return devices
 
         logger.debug("nvidia runtime found — running GPU probe container")
 
         # ── 2. Create probe container ────────────────────────────────
         # Use a slim CUDA base image that ships nvidia-smi.
-        # The image must already be pulled; we don't pull here to avoid
-        # network delays during startup.
-        probe_image = "nvidia/cuda:12.6.3-base-ubuntu24.04"
+        # Try multiple images in case only one is available.
+        probe_images = [
+            "nvidia/cuda:12.6.3-base-ubuntu24.04",
+            "nvidia/cuda:12.4.1-base-ubuntu22.04",
+            "nvidia/cuda:12.0.0-base-ubuntu22.04",
+            "ubuntu:22.04",  # nvidia-smi is mounted by the runtime
+        ]
         probe_cmd = [
             "nvidia-smi",
             "--query-gpu=name,memory.total",
             "--format=csv,noheader,nounits",
         ]
+
+        # Find first available image
+        probe_image = None
+        for img in probe_images:
+            ci = _UnixConn(sock_str)
+            ci.request("GET", f"/images/{img}/json")
+            ri = ci.getresponse()
+            ri.read()
+            ci.close()
+            if ri.status == 200:
+                probe_image = img
+                break
+
+        if not probe_image:
+            logger.warning(
+                "Docker GPU probe: no suitable image found locally. "
+                "Pull one of: %s",
+                ", ".join(probe_images[:2]),
+            )
+            return devices
+
+        logger.debug("Docker GPU probe using image: %s", probe_image)
         create_body = _json.dumps({
             "Image": probe_image,
             "Cmd": probe_cmd,
@@ -680,6 +776,8 @@ def _detect_via_docker() -> list[GpuDevice]:
                 cx.request("DELETE", f"/containers/{cid}?force=true")
                 cx.getresponse().read()
                 cx.close()
+    except Exception:
+        logger.warning("Docker GPU probe failed", exc_info=True)
 
     return devices
 
