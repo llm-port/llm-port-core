@@ -35,7 +35,6 @@ REPOS: list[RepoInfo] = [
     RepoInfo("llm-port-pii", "llm_port_pii", "PII redaction service"),
     RepoInfo("llm-port-shared", "llm_port_shared", "Shared infra (compose)"),
     RepoInfo("llm-port-cli", "llm_port_cli", "CLI"),
-    RepoInfo(".github", ".github", "GitHub profile & CI"),
 ]
 
 REPO_DIR_MAP: dict[str, str] = {r.github_name: r.local_dir for r in REPOS}
