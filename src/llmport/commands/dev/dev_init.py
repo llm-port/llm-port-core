@@ -250,7 +250,7 @@ def _install_backend_deps(backend_dir: Path) -> None:
 def _install_frontend_deps(frontend_dir: Path) -> None:
     """Run ``npm install`` in the frontend directory."""
     console.print("[cyan]Installing frontend dependencies (npm install)…[/cyan]")
-    result = subprocess.run(["npm", "install"], cwd=str(frontend_dir), shell=True)
+    result = subprocess.run(["npm", "install"], cwd=str(frontend_dir))  # noqa: S603, S607
     if result.returncode != 0:
         error("npm install failed.")
         return
@@ -395,7 +395,9 @@ def dev_init(
     # Docker daemon must also be running
     docker_info = detect_docker()
     if not docker_info.daemon_running:
-        error("Docker daemon is not running. Start Docker Desktop.")
+        error(f"Docker daemon is not running. {docker_info.daemon_hint}")
+        if docker_info.error:
+            info(f"  Detail: {docker_info.error}")        
         sys.exit(1)
 
     success("Prerequisites OK.")
