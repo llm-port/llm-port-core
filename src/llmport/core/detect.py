@@ -53,6 +53,14 @@ class DockerInfo:
         """Docker, Compose v2, and daemon are all available."""
         return self.installed and self.compose_installed and self.daemon_running
 
+    @property
+    def daemon_hint(self) -> str:
+        """Cross-platform hint for starting the Docker daemon."""
+        system = platform.system()
+        if system in ("Darwin", "Windows"):
+            return "Start Docker Desktop."
+        return "Start the Docker daemon: sudo systemctl start docker"
+
 
 @dataclass
 class GpuDevice:
@@ -181,14 +189,14 @@ def detect_docker() -> DockerInfo:
     """Detect Docker Engine and Docker Compose v2."""
     info = DockerInfo()
 
-    # Docker Engine
     docker_bin = shutil.which("docker")
     if not docker_bin:
         info.error = "docker not found on PATH"
         return info
 
+    # Client-only check (no daemon needed)
     try:
-        result = _run([docker_bin, "version", "--format", "{{.Server.Version}}"])
+        result = _run([docker_bin, "version", "--format", "{{.Client.Version}}"])
         if result.returncode == 0 and result.stdout.strip():
             info.installed = True
             info.version = result.stdout.strip()
@@ -199,11 +207,19 @@ def detect_docker() -> DockerInfo:
         info.error = str(exc)
         return info
 
-    # Docker daemon reachability
+    # Daemon reachability + server version in one call
     try:
-        result = _run([docker_bin, "info"])
-        info.daemon_running = result.returncode == 0
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        result = _run([docker_bin, "version", "--format", "{{.Server.Version}}"], timeout=30)
+        if result.returncode == 0 and result.stdout.strip():
+            info.daemon_running = True
+            info.version = result.stdout.strip()
+        else:
+            info.daemon_running = False
+            info.error = result.stderr.strip()
+    except subprocess.TimeoutExpired:
+        info.daemon_running = False
+        info.error = "docker daemon did not respond within 30 s"
+    except (FileNotFoundError, OSError):
         info.daemon_running = False
 
     # Docker Compose v2 (docker compose subcommand)
@@ -236,10 +252,14 @@ def detect_gpu() -> GpuInfo:
                 for line in result.stdout.strip().splitlines():
                     parts = [p.strip() for p in line.split(",")]
                     if len(parts) >= 4:  # noqa: PLR2004
+                        try:
+                            vram = int(float(parts[2]))
+                        except (ValueError, TypeError):
+                            vram = 0
                         device = GpuDevice(
                             index=int(parts[0]),
                             name=parts[1],
-                            vram_mb=int(float(parts[2])),
+                            vram_mb=vram,
                             driver_version=parts[3],
                         )
                         info.devices.append(device)
@@ -254,7 +274,7 @@ def detect_gpu() -> GpuInfo:
                         for d in info.devices:
                             d.cuda_version = match.group(1)
                 return info
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError, ValueError) as exc:
             info.error = str(exc)
 
     # Try AMD ROCm
