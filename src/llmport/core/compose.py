@@ -318,13 +318,27 @@ def run_cmd(
     return _run(cmd, capture=capture)
 
 
+def _resolve_compose_path(cfg: "LlmportConfig") -> Path:
+    """Resolve the compose file, falling back to llm_port_shared/."""
+    primary = cfg.compose_path
+    if primary.exists():
+        return primary
+    # Check inside llm_port_shared relative to install path
+    for name in ("docker-compose.yaml", "docker-compose.yml"):
+        candidate = cfg.install_path / "llm_port_shared" / name
+        if candidate.exists():
+            return candidate
+    return primary
+
+
 def build_context_from_config(cfg: "LlmportConfig") -> ComposeContext:
     """Build a ComposeContext from the current config."""
-    files = [cfg.compose_path]
+    compose_file = _resolve_compose_path(cfg)
+    files = [compose_file]
     return ComposeContext(
         compose_files=files,
         env_file=cfg.env_path if cfg.env_path.exists() else None,
-        project_dir=cfg.install_path,
+        project_dir=compose_file.parent,
         profiles=list(cfg.profiles),
     )
 
