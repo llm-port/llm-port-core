@@ -309,8 +309,8 @@ services:
       LLM_PORT_API_JWT_ALGORITHM: HS256
       LLM_PORT_API_DB_HOST: postgres
       LLM_PORT_API_DB_PORT: 5432
-      LLM_PORT_API_DB_USER: llm_user
-      LLM_PORT_API_DB_PASS: llm_user
+      LLM_PORT_API_DB_USER: ${POSTGRES_USER:-postgres}
+      LLM_PORT_API_DB_PASS: ${POSTGRES_PASSWORD:-postgres}
       LLM_PORT_API_DB_BASE: llm_api
       LLM_PORT_API_REDIS_HOST: redis
       LLM_PORT_API_REDIS_PORT: 6379
@@ -608,8 +608,8 @@ services:
       LLM_PORT_MCP_ENVIRONMENT: dev
       LLM_PORT_MCP_DB_HOST: postgres
       LLM_PORT_MCP_DB_PORT: 5432
-      LLM_PORT_MCP_DB_USER: llm_user
-      LLM_PORT_MCP_DB_PASS: llm_user
+      LLM_PORT_MCP_DB_USER: ${POSTGRES_USER:-postgres}
+      LLM_PORT_MCP_DB_PASS: ${POSTGRES_PASSWORD:-postgres}
       LLM_PORT_MCP_DB_BASE: llm_mcp
       LLM_PORT_MCP_REDIS_HOST: redis
       LLM_PORT_MCP_REDIS_PORT: 6379

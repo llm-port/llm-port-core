@@ -1,0 +1,14 @@
+# Force LF line endings for files that run on Linux containers.
+# Prevents CRLF corruption when editing on Windows and deploying to Linux.
+*.env         text eol=lf
+*.sh          text eol=lf
+*.yaml        text eol=lf
+*.yml         text eol=lf
+*.py          text eol=lf
+*.sql         text eol=lf
+*.conf        text eol=lf
+*.ini         text eol=lf
+*.toml        text eol=lf
+*.cfg         text eol=lf
+Dockerfile    text eol=lf
+Makefile      text eol=lf
