@@ -56,19 +56,11 @@ except ImportError:  # pragma: no cover
 _RUNTIME_VALUE_KEYS: dict[str, str] = {
     "llm_port_api.pii_enabled": "pii_enabled",
     "llm_port_api.pii_service_url": "pii_service_url",
-    "llm_port_mailer.enabled": "mailer_enabled",
-    "llm_port_mailer.service_url": "mailer_service_url",
-    "llm_port_mailer.frontend_base_url": "mailer_frontend_base_url",
-    "llm_port_mailer.admin_recipients": "mailer_admin_recipients",
-    "llm_port_mailer.alert_5xx_threshold_percent": "mailer_alert_5xx_threshold_percent",
-    "llm_port_mailer.alert_5xx_window_minutes": "mailer_alert_5xx_window_minutes",
-    "llm_port_mailer.alert_cooldown_minutes": "mailer_alert_cooldown_minutes",
-    "llm_port_mailer.smtp.host": "mailer_smtp_host",
-    "llm_port_mailer.smtp.port": "mailer_smtp_port",
-    "llm_port_mailer.smtp.starttls": "mailer_smtp_starttls",
-    "llm_port_mailer.smtp.ssl": "mailer_smtp_ssl",
-    "llm_port_mailer.from_email": "mailer_from_email",
-    "llm_port_mailer.from_name": "mailer_from_name",
+    "llm_port_api.mcp_enabled": "mcp_enabled",
+    "llm_port_api.mcp_service_url": "mcp_service_url",
+    "llm_port_api.skills_enabled": "skills_enabled",
+    "llm_port_api.skills_service_url": "skills_service_url",
+    "llm_port_api.sessions_enabled": "sessions_enabled",
     "rag_lite.enabled": "rag_lite_enabled",
     "rag_lite.file_store_root": "rag_lite_file_store_root",
     "rag_lite.embedding_provider_id": "rag_lite_embedding_provider_id",
@@ -77,15 +69,22 @@ _RUNTIME_VALUE_KEYS: dict[str, str] = {
     "rag_lite.chunk_max_tokens": "rag_lite_chunk_max_tokens",
     "rag_lite.chunk_overlap_tokens": "rag_lite_chunk_overlap_tokens",
     "rag_lite.upload_max_file_mb": "rag_lite_upload_max_file_mb",
-    "llm_port_api.sessions_enabled": "sessions_enabled",
 }
 _RUNTIME_SECRET_KEYS: dict[str, str] = {
     "llm_port_backend.users_secret": "users_secret",
-    "llm_port_mailer.api_token": "mailer_api_token",
-    "llm_port_mailer.smtp.username": "mailer_smtp_username",
-    "llm_port_mailer.smtp.password": "mailer_smtp_password",
-    "llm_port_mailer.grafana_webhook_token": "mailer_grafana_webhook_token",
+    "llm_port_api.mcp_service_token": "mcp_service_token",
+    "llm_port_api.skills_service_token": "skills_service_token",
 }
+
+
+def register_hydration_key(key: str, attr: str) -> None:
+    """Register an additional runtime value key for DB hydration (used by EE plugins)."""
+    _RUNTIME_VALUE_KEYS[key] = attr
+
+
+def register_hydration_secret(key: str, attr: str) -> None:
+    """Register an additional runtime secret key for DB hydration (used by EE plugins)."""
+    _RUNTIME_SECRET_KEYS[key] = attr
 
 
 def _setup_db(app: FastAPI) -> None:  # pragma: no cover
@@ -468,6 +467,14 @@ async def lifespan_setup(
     from llm_port_backend.services.core_modules import register_core_modules  # noqa: PLC0415
 
     register_core_modules()
+
+    # Let EE register runtime keys *before* DB hydration so persisted
+    # values for EE modules are loaded into settings on startup.
+    if _EE_AVAILABLE:
+        try:
+            backend_plugin.register_runtime_keys()
+        except Exception:
+            log.debug("EE runtime key registration skipped.", exc_info=True)
 
     # Connect to RabbitMQ with retries — RMQ may still be starting.
     if not broker.is_worker_process:

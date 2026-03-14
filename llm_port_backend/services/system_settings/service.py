@@ -30,19 +30,11 @@ log = logging.getLogger(__name__)
 _RUNTIME_VALUE_KEY_MAP: dict[str, str] = {
     "llm_port_api.pii_enabled": "pii_enabled",
     "llm_port_api.pii_service_url": "pii_service_url",
-    "llm_port_mailer.enabled": "mailer_enabled",
-    "llm_port_mailer.service_url": "mailer_service_url",
-    "llm_port_mailer.frontend_base_url": "mailer_frontend_base_url",
-    "llm_port_mailer.admin_recipients": "mailer_admin_recipients",
-    "llm_port_mailer.alert_5xx_threshold_percent": "mailer_alert_5xx_threshold_percent",
-    "llm_port_mailer.alert_5xx_window_minutes": "mailer_alert_5xx_window_minutes",
-    "llm_port_mailer.alert_cooldown_minutes": "mailer_alert_cooldown_minutes",
-    "llm_port_mailer.smtp.host": "mailer_smtp_host",
-    "llm_port_mailer.smtp.port": "mailer_smtp_port",
-    "llm_port_mailer.smtp.starttls": "mailer_smtp_starttls",
-    "llm_port_mailer.smtp.ssl": "mailer_smtp_ssl",
-    "llm_port_mailer.from_email": "mailer_from_email",
-    "llm_port_mailer.from_name": "mailer_from_name",
+    "llm_port_api.mcp_enabled": "mcp_enabled",
+    "llm_port_api.mcp_service_url": "mcp_service_url",
+    "llm_port_api.skills_enabled": "skills_enabled",
+    "llm_port_api.skills_service_url": "skills_service_url",
+    "llm_port_api.sessions_enabled": "sessions_enabled",
     "rag_lite.enabled": "rag_lite_enabled",
     "rag_lite.embedding_provider_id": "rag_lite_embedding_provider_id",
     "rag_lite.embedding_model": "rag_lite_embedding_model",
@@ -54,11 +46,19 @@ _RUNTIME_VALUE_KEY_MAP: dict[str, str] = {
 }
 _RUNTIME_SECRET_KEY_MAP: dict[str, str] = {
     "llm_port_backend.users_secret": "users_secret",
-    "llm_port_mailer.api_token": "mailer_api_token",
-    "llm_port_mailer.smtp.username": "mailer_smtp_username",
-    "llm_port_mailer.smtp.password": "mailer_smtp_password",
-    "llm_port_mailer.grafana_webhook_token": "mailer_grafana_webhook_token",
+    "llm_port_api.mcp_service_token": "mcp_service_token",
+    "llm_port_api.skills_service_token": "skills_service_token",
 }
+
+
+def register_runtime_value_key(key: str, attr: str) -> None:
+    """Register an additional runtime value key mapping (used by EE plugins)."""
+    _RUNTIME_VALUE_KEY_MAP[key] = attr
+
+
+def register_runtime_secret_key(key: str, attr: str) -> None:
+    """Register an additional runtime secret key mapping (used by EE plugins)."""
+    _RUNTIME_SECRET_KEY_MAP[key] = attr
 
 
 @dataclass(frozen=True)

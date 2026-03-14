@@ -25,7 +25,11 @@ async def list_servers(
     _user: Annotated[User, Depends(require_superuser)],
     client: Annotated[MCPServiceClient, Depends(get_mcp_client)],
 ) -> list[dict[str, Any]]:
-    return await client.list_servers()
+    data = await client.list_servers()
+    # MCP service returns {"servers": [...], "total": N}
+    if isinstance(data, dict):
+        return data.get("servers", [])
+    return data
 
 
 @router.post("/servers", status_code=201)

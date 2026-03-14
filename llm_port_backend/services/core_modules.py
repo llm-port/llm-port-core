@@ -96,6 +96,54 @@ async def _sync_sessions_enabled(
     return []
 
 
+async def _sync_mcp_enabled(
+    service: SystemSettingsService,
+    enabled: bool,
+    actor_id: Any,
+) -> list[str]:
+    """Sync ``llm_port_api.mcp_enabled`` and trigger gateway apply flow."""
+    try:
+        result = await service.update_value(
+            key="llm_port_api.mcp_enabled",
+            value=enabled,
+            actor_id=actor_id,
+            root_mode_active=False,
+            target_host="local",
+        )
+    except Exception as exc:
+        logger.exception("Failed to sync llm_port_api.mcp_enabled")
+        return [f"Failed to sync llm_port_api.mcp_enabled: {exc}"]
+
+    if result.apply_status != "success":
+        details = "; ".join(result.messages) if result.messages else "unknown apply failure"
+        return [f"Failed to apply llm_port_api.mcp_enabled={enabled}: {details}"]
+    return []
+
+
+async def _sync_skills_enabled(
+    service: SystemSettingsService,
+    enabled: bool,
+    actor_id: Any,
+) -> list[str]:
+    """Sync ``llm_port_api.skills_enabled`` and trigger gateway apply flow."""
+    try:
+        result = await service.update_value(
+            key="llm_port_api.skills_enabled",
+            value=enabled,
+            actor_id=actor_id,
+            root_mode_active=False,
+            target_host="local",
+        )
+    except Exception as exc:
+        logger.exception("Failed to sync llm_port_api.skills_enabled")
+        return [f"Failed to sync llm_port_api.skills_enabled: {exc}"]
+
+    if result.apply_status != "success":
+        details = "; ".join(result.messages) if result.messages else "unknown apply failure"
+        return [f"Failed to apply llm_port_api.skills_enabled={enabled}: {details}"]
+    return []
+
+
 # ── Registration ──────────────────────────────────────────────────────
 
 
@@ -175,6 +223,31 @@ def register_core_modules() -> None:
             container_names=[
                 "llm-port-mcp",
             ],
+            on_enable=_sync_mcp_enabled,
+            on_disable=_sync_mcp_enabled,
+        ),
+        ModuleDef(
+            name="skills",
+            display_name="Skills Registry",
+            description=(
+                "Centralized skill management — create, version, and assign "
+                "reusable LLM instruction sets (skills) with YAML frontmatter "
+                "and Markdown body. Skills are injected into the gateway "
+                "pipeline as system prompts."
+            ),
+            module_type="container",
+            settings_flag="skills_enabled",
+            health_url_fn=lambda: f"{settings.skills_service_url}/api/health",
+            compose_profile="skills",
+            compose_services=[
+                "llm-port-skills",
+                "llm-port-skills-migrator",
+            ],
+            container_names=[
+                "llm-port-skills",
+            ],
+            on_enable=_sync_skills_enabled,
+            on_disable=_sync_skills_enabled,
         ),
     ]
 

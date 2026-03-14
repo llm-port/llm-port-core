@@ -159,6 +159,11 @@ class Settings(BaseSettings):
     mcp_service_url: str = "http://127.0.0.1:8007"
     mcp_service_token: str = "dev-mcp-service-token"
 
+    # Skills module settings
+    skills_enabled: bool = False
+    skills_service_url: str = "http://127.0.0.1:8008"
+    skills_service_token: str = "dev-skills-service-token"
+
     # RAG Lite module settings (embedded pgvector-based RAG)
     rag_lite_enabled: bool = False
     rag_lite_file_store_root: str = "/data/llm-port/rag-lite"
