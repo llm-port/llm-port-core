@@ -39,6 +39,8 @@
     "pii_dashboard": "Dashboard",
     "pii_activity": "Aktivitätsprotokoll",
     "pii_policies": "Mandantenrichtlinien",
+    "mcp_group": "MCP",
+    "mcp_servers": "Server",
     "access_control_group": "Zugriffskontrolle",
     "users": "Benutzer",
     "roles": "Rollen",
@@ -642,6 +644,10 @@
       "name": "Docling",
       "description": "Erweiterter Dokumentenkonvertierungsdienst fuer PDF, DOCX, PPTX und Tabellenkalkulation."
     },
+    "mcp": {
+      "name": "MCP",
+      "description": "Model Context Protocol Werkzeugregister — verwalteter Broker für externe MCP-Server."
+    },
     "status": {
       "healthy": "funktionsfähig",
       "unhealthy": "fehlerhaft",
@@ -862,5 +868,36 @@
     "type": "Typ",
     "type_model_download": "Modell-Download",
     "type_rag_ingest": "RAG-Aufnahme"
+  },
+  "mcp": {
+    "servers_title": "MCP-Server",
+    "name": "Name",
+    "transport": "Transport",
+    "status": "Status",
+    "tool_count": "Werkzeuge",
+    "pii_mode": "PII-Modus",
+    "no_servers": "Keine MCP-Server registriert.",
+    "search_servers": "Server suchen…",
+    "register_server": "Server registrieren",
+    "register": "Registrieren",
+    "view_details": "Details anzeigen",
+    "refresh": "Aktualisieren",
+    "server_name": "Servername",
+    "server_url": "Server-URL",
+    "command": "Befehl",
+    "command_help": "Leerzeichen-getrennte Befehlszeile und Argumente",
+    "tool_prefix": "Werkzeugpräfix",
+    "prefix_help": "Eindeutiges Präfix für Werkzeugnamen (z.B. 'brave'). Wird automatisch generiert wenn leer.",
+    "delete_server": "Server löschen",
+    "delete_confirm": "Sind Sie sicher, dass Sie \"{{name}}\" löschen möchten? Alle zugeordneten Werkzeuge werden entfernt.",
+    "tools_title": "Entdeckte Werkzeuge",
+    "test": "Testen",
+    "timeout": "Zeitlimit",
+    "url": "URL",
+    "tool_name": "Name",
+    "version": "Version",
+    "last_seen": "Zuletzt gesehen",
+    "no_tools": "Noch keine Werkzeuge entdeckt.",
+    "search_tools": "Werkzeuge suchen…"
   }
 }

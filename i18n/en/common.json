@@ -40,6 +40,8 @@
     "pii_dashboard": "Dashboard",
     "pii_activity": "Activity Log",
     "pii_policies": "Tenant Policies",
+    "mcp_group": "MCP",
+    "mcp_servers": "Servers",
     "access_control_group": "Access Control",
     "users": "Users",
     "roles": "Roles",
@@ -778,6 +780,10 @@
       "name": "Docling",
       "description": "Advanced document conversion service for PDF, DOCX, PPTX and spreadsheet parsing."
     },
+    "mcp": {
+      "name": "MCP",
+      "description": "Model Context Protocol tool registry — governed broker for external MCP servers."
+    },
     "status": {
       "healthy": "healthy",
       "unhealthy": "unhealthy",
@@ -1050,5 +1056,36 @@
     "token_detail": "Prompt: {{prompt}} · Completion: {{completion}} · Total: {{total}}",
     "no_models": "No models",
     "no_models_hint": "No models are available. Configure a provider and model alias in the admin panel."
+  },
+  "mcp": {
+    "servers_title": "MCP Servers",
+    "name": "Name",
+    "transport": "Transport",
+    "status": "Status",
+    "tool_count": "Tools",
+    "pii_mode": "PII Mode",
+    "no_servers": "No MCP servers registered.",
+    "search_servers": "Search servers…",
+    "register_server": "Register Server",
+    "register": "Register",
+    "view_details": "View details",
+    "refresh": "Refresh",
+    "server_name": "Server Name",
+    "server_url": "Server URL",
+    "command": "Command",
+    "command_help": "Space-separated command and arguments",
+    "tool_prefix": "Tool Prefix",
+    "prefix_help": "Unique prefix for tool names (e.g. 'brave'). Auto-generated if empty.",
+    "delete_server": "Delete Server",
+    "delete_confirm": "Are you sure you want to delete \"{{name}}\"? This will remove all associated tools.",
+    "tools_title": "Discovered Tools",
+    "test": "Test",
+    "timeout": "Timeout",
+    "url": "URL",
+    "tool_name": "Name",
+    "version": "Version",
+    "last_seen": "Last Seen",
+    "no_tools": "No tools discovered yet.",
+    "search_tools": "Search tools…"
   }
 }

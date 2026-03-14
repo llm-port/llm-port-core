@@ -39,6 +39,8 @@
     "pii_dashboard": "Panel",
     "pii_activity": "Registro de actividad",
     "pii_policies": "Politicas por inquilino",
+    "mcp_group": "MCP",
+    "mcp_servers": "Servidores",
     "access_control_group": "Control de acceso",
     "users": "Usuarios",
     "roles": "Roles",
@@ -642,6 +644,10 @@
       "name": "Docling",
       "description": "Servicio avanzado de conversión de documentos para PDF, DOCX, PPTX y hojas de cálculo."
     },
+    "mcp": {
+      "name": "MCP",
+      "description": "Registro de herramientas del Protocolo de Contexto de Modelo — intermediario gobernado para servidores MCP externos."
+    },
     "status": {
       "healthy": "saludable",
       "unhealthy": "en fallo",
@@ -862,5 +868,36 @@
     "type": "Tipo",
     "type_model_download": "Descarga de modelo",
     "type_rag_ingest": "Ingesta RAG"
+  },
+  "mcp": {
+    "servers_title": "Servidores MCP",
+    "name": "Nombre",
+    "transport": "Transporte",
+    "status": "Estado",
+    "tool_count": "Herramientas",
+    "pii_mode": "Modo PII",
+    "no_servers": "No hay servidores MCP registrados.",
+    "search_servers": "Buscar servidores…",
+    "register_server": "Registrar servidor",
+    "register": "Registrar",
+    "view_details": "Ver detalles",
+    "refresh": "Actualizar",
+    "server_name": "Nombre del servidor",
+    "server_url": "URL del servidor",
+    "command": "Comando",
+    "command_help": "Comando y argumentos separados por espacios",
+    "tool_prefix": "Prefijo de herramienta",
+    "prefix_help": "Prefijo único para nombres de herramientas (ej. 'brave'). Se genera automáticamente si está vacío.",
+    "delete_server": "Eliminar servidor",
+    "delete_confirm": "¿Está seguro de que desea eliminar \"{{name}}\"? Esto eliminará todas las herramientas asociadas.",
+    "tools_title": "Herramientas descubiertas",
+    "test": "Probar",
+    "timeout": "Tiempo de espera",
+    "url": "URL",
+    "tool_name": "Nombre",
+    "version": "Versión",
+    "last_seen": "Última vez visto",
+    "no_tools": "Aún no se han descubierto herramientas.",
+    "search_tools": "Buscar herramientas…"
   }
 }

@@ -39,6 +39,8 @@
     "pii_dashboard": "仪表盘",
     "pii_activity": "活动日志",
     "pii_policies": "租户策略",
+    "mcp_group": "MCP",
+    "mcp_servers": "服务器",
     "access_control_group": "访问控制",
     "users": "用户",
     "roles": "角色",
@@ -642,6 +644,10 @@
       "name": "Docling",
       "description": "高级文档转换服务，支持 PDF、DOCX、PPTX 和电子表格解析。"
     },
+    "mcp": {
+      "name": "MCP",
+      "description": "模型上下文协议工具注册表 — 外部 MCP 服务器的受控代理。"
+    },
     "status": {
       "healthy": "健康",
       "unhealthy": "异常",
@@ -862,5 +868,36 @@
     "type": "类型",
     "type_model_download": "模型下载",
     "type_rag_ingest": "RAG 摄取"
+  },
+  "mcp": {
+    "servers_title": "MCP 服务器",
+    "name": "名称",
+    "transport": "传输方式",
+    "status": "状态",
+    "tool_count": "工具",
+    "pii_mode": "PII 模式",
+    "no_servers": "没有已注册的 MCP 服务器。",
+    "search_servers": "搜索服务器…",
+    "register_server": "注册服务器",
+    "register": "注册",
+    "view_details": "查看详情",
+    "refresh": "刷新",
+    "server_name": "服务器名称",
+    "server_url": "服务器 URL",
+    "command": "命令",
+    "command_help": "空格分隔的命令和参数",
+    "tool_prefix": "工具前缀",
+    "prefix_help": "工具名称的唯一前缀（例如 'brave'）。留空则自动生成。",
+    "delete_server": "删除服务器",
+    "delete_confirm": "您确定要删除 \"{{name}}\" 吗？这将移除所有关联的工具。",
+    "tools_title": "已发现的工具",
+    "test": "测试",
+    "timeout": "超时",
+    "url": "URL",
+    "tool_name": "名称",
+    "version": "版本",
+    "last_seen": "最后发现",
+    "no_tools": "尚未发现工具。",
+    "search_tools": "搜索工具…"
   }
 }
