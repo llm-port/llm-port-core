@@ -332,6 +332,10 @@ services:
       LLM_PORT_API_MCP_ENABLED: ${LLM_PORT_API_MCP_ENABLED:-false}
       LLM_PORT_API_MCP_SERVICE_URL: ${LLM_PORT_API_MCP_SERVICE_URL:-http://llm-port-mcp:8000}
       LLM_PORT_API_MCP_SERVICE_TOKEN: ${LLM_PORT_API_MCP_SERVICE_TOKEN:-dev-mcp-service-token-change-me}
+      # Skills registry integration (set via .env or COMPOSE_PROFILES)
+      LLM_PORT_API_SKILLS_ENABLED: ${LLM_PORT_API_SKILLS_ENABLED:-false}
+      LLM_PORT_API_SKILLS_SERVICE_URL: ${LLM_PORT_API_SKILLS_SERVICE_URL:-http://llm-port-skills:8000}
+      LLM_PORT_API_SKILLS_SERVICE_TOKEN: ${LLM_PORT_API_SKILLS_SERVICE_TOKEN:-dev-skills-service-token-change-me}
       # Scalability tuning (set via llmport tune)
       LLM_PORT_API_WORKERS_COUNT: ${LLM_PORT_API_WORKERS_COUNT:-4}
       LLM_PORT_API_DB_POOL_SIZE: ${LLM_PORT_API_DB_POOL_SIZE:-5}
@@ -408,6 +412,15 @@ services:
       LLM_PORT_BACKEND_LOKI_BASE_URL: http://llm-port-loki:3100
       LLM_PORT_BACKEND_COOKIE_SECURE: "false"
       USERS_SECRET: ${USERS_SECRET:-}
+      # Optional module flags (so the backend knows which modules are configured)
+      LLM_PORT_BACKEND_PII_ENABLED: ${LLM_PORT_BACKEND_PII_ENABLED:-false}
+      LLM_PORT_BACKEND_PII_SERVICE_URL: ${LLM_PORT_BACKEND_PII_SERVICE_URL:-http://llm-port-pii:8000}
+      LLM_PORT_BACKEND_MCP_ENABLED: ${LLM_PORT_BACKEND_MCP_ENABLED:-false}
+      LLM_PORT_BACKEND_MCP_SERVICE_URL: ${LLM_PORT_BACKEND_MCP_SERVICE_URL:-http://llm-port-mcp:8000}
+      LLM_PORT_BACKEND_MCP_SERVICE_TOKEN: ${LLM_PORT_BACKEND_MCP_SERVICE_TOKEN:-dev-mcp-service-token-change-me}
+      LLM_PORT_BACKEND_SKILLS_ENABLED: ${LLM_PORT_BACKEND_SKILLS_ENABLED:-false}
+      LLM_PORT_BACKEND_SKILLS_SERVICE_URL: ${LLM_PORT_BACKEND_SKILLS_SERVICE_URL:-http://llm-port-skills:8000}
+      LLM_PORT_BACKEND_SKILLS_SERVICE_TOKEN: ${LLM_PORT_BACKEND_SKILLS_SERVICE_TOKEN:-dev-skills-service-token-change-me}
       # Scalability tuning (set via llmport tune)
       LLM_PORT_BACKEND_WORKERS_COUNT: ${LLM_PORT_BACKEND_WORKERS_COUNT:-4}
       LLM_PORT_BACKEND_DB_POOL_SIZE: ${LLM_PORT_BACKEND_DB_POOL_SIZE:-5}
@@ -619,6 +632,68 @@ services:
       LLM_PORT_MCP_SERVICE_TOKEN: ${LLM_PORT_MCP_SERVICE_TOKEN:-dev-mcp-service-token-change-me}
       LLM_PORT_MCP_ENCRYPTION_KEY: ${LLM_PORT_MCP_ENCRYPTION_KEY:-dev-mcp-encryption-key-change-me-32b}
       LLM_PORT_MCP_WORKERS_COUNT: ${LLM_PORT_MCP_WORKERS_COUNT:-1}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=3).read()"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # =====================================================================
+  # Skills Registry (profile: skills)
+  #
+  # Centralized LLM skill management with versioning & assignments.
+  # Activate with:  --profile skills  (or COMPOSE_PROFILES=skills)
+  # =====================================================================
+  llm-port-skills-migrator:
+    profiles: ["skills"]
+    image: ${REGISTRY:-llmport}/skills:${VERSION:-latest}
+    container_name: llm-port-skills-migrator
+    restart: on-failure:5
+    command: ["sh", "-c", "sleep 5 && alembic upgrade head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      LLM_PORT_SKILLS_DB_HOST: postgres
+      LLM_PORT_SKILLS_DB_PORT: 5432
+      LLM_PORT_SKILLS_DB_USER: ${POSTGRES_USER:-postgres}
+      LLM_PORT_SKILLS_DB_PASS: ${POSTGRES_PASSWORD:-postgres}
+      LLM_PORT_SKILLS_DB_BASE: llm_skills
+
+  llm-port-skills:
+    profiles: ["skills"]
+    image: ${REGISTRY:-llmport}/skills:${VERSION:-latest}
+    build:
+      context: ../llm_port_skills
+      dockerfile: Dockerfile
+      target: prod
+      args:
+        BASE_IMAGE: ${REGISTRY:-llmport}/base:${VERSION:-latest}
+    container_name: llm-port-skills
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      llm-port-skills-migrator:
+        condition: service_completed_successfully
+    environment:
+      LLM_PORT_SKILLS_HOST: 0.0.0.0
+      LLM_PORT_SKILLS_PORT: 8000
+      LLM_PORT_SKILLS_RELOAD: "false"
+      LLM_PORT_SKILLS_ENVIRONMENT: dev
+      LLM_PORT_SKILLS_DB_HOST: postgres
+      LLM_PORT_SKILLS_DB_PORT: 5432
+      LLM_PORT_SKILLS_DB_USER: ${POSTGRES_USER:-postgres}
+      LLM_PORT_SKILLS_DB_PASS: ${POSTGRES_PASSWORD:-postgres}
+      LLM_PORT_SKILLS_DB_BASE: llm_skills
+      LLM_PORT_SKILLS_REDIS_HOST: redis
+      LLM_PORT_SKILLS_REDIS_PORT: 6379
+      LLM_PORT_SKILLS_REDIS_PASS: ${REDIS_AUTH:-myredissecret}
+      LLM_PORT_SKILLS_REDIS_BASE: 4
+      LLM_PORT_SKILLS_SERVICE_TOKEN: ${LLM_PORT_SKILLS_SERVICE_TOKEN:-dev-skills-service-token-change-me}
+      LLM_PORT_SKILLS_WORKERS_COUNT: ${LLM_PORT_SKILLS_WORKERS_COUNT:-1}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=3).read()"]
       interval: 5s

@@ -10,6 +10,8 @@ CREATE DATABASE llm_port_backend;
 CREATE DATABASE llm_api;
 -- DB for MCP tool registry
 CREATE DATABASE llm_mcp;
+-- DB for Skills registry
+CREATE DATABASE llm_skills;
 
 -- Dedicated least-privileged role for llm_api
 DO $$
@@ -31,6 +33,7 @@ $$;
 
 GRANT CONNECT ON DATABASE llm_api TO llm_user;
 GRANT CONNECT ON DATABASE llm_mcp TO llm_user;
+GRANT CONNECT ON DATABASE llm_skills TO llm_user;
 GRANT CONNECT ON DATABASE llm_port_backend TO llm_port_backend;
 GRANT ALL PRIVILEGES ON DATABASE llm_port_backend TO llm_port_backend;
 
