@@ -156,6 +156,26 @@ def register_core_modules() -> None:
             on_enable=_sync_pii_enabled,
             on_disable=_sync_pii_enabled,
         ),
+        ModuleDef(
+            name="mcp",
+            display_name="MCP Tool Registry",
+            description=(
+                "Model Context Protocol server registry — registers external "
+                "MCP servers, discovers tools, and routes tool calls through "
+                "a governed privacy proxy."
+            ),
+            module_type="container",
+            settings_flag="mcp_enabled",
+            health_url_fn=lambda: f"{settings.mcp_service_url}/api/health",
+            compose_profile="mcp",
+            compose_services=[
+                "llm-port-mcp",
+                "llm-port-mcp-migrator",
+            ],
+            container_names=[
+                "llm-port-mcp",
+            ],
+        ),
     ]
 
     for mod in _defs:

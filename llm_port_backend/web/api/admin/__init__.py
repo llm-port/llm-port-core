@@ -78,3 +78,8 @@ else:
 from llm_port_backend.web.api.admin.chat.views import router as chat_router  # noqa: E402
 
 admin_router.include_router(chat_router, prefix="/chat", tags=["admin-chat"])
+
+# --- MCP admin routes (always registered, 503 when module disabled) -------
+from llm_port_backend.web.api.admin.mcp.views import router as mcp_router  # noqa: E402
+
+admin_router.include_router(mcp_router, prefix="/mcp", tags=["admin-mcp"])

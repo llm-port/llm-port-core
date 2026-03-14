@@ -154,6 +154,11 @@ class Settings(BaseSettings):
     docling_enabled: bool = False
     docling_service_url: str = "http://127.0.0.1:8006"
 
+    # MCP module settings
+    mcp_enabled: bool = False
+    mcp_service_url: str = "http://127.0.0.1:8007"
+    mcp_service_token: str = "dev-mcp-service-token"
+
     # RAG Lite module settings (embedded pgvector-based RAG)
     rag_lite_enabled: bool = False
     rag_lite_file_store_root: str = "/data/llm-port/rag-lite"
