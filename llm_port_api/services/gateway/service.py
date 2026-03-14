@@ -17,6 +17,8 @@ from llm_port_api.services.gateway.llm_adapter import LLMAdapter
 from llm_port_api.services.gateway.observability import (
     GatewayObservability,
 )
+from llm_port_api.services.gateway.mcp_client import MCPClient
+from llm_port_api.services.gateway.mcp_tool_cache import MCP_TOOL_PREFIX, MCPToolCache
 from llm_port_api.services.gateway.pii_client import PIIClient
 from llm_port_api.services.gateway.pii_policy import PIIPolicy, parse_pii_policy
 from llm_port_api.services.gateway.proxy import UpstreamProxy, UpstreamResult
@@ -104,6 +106,8 @@ class GatewayService:
         rag_lite_client: RagLiteClient | None = None,
         session_dao: SessionDAO | None = None,
         file_store: FileStore | None = None,
+        mcp_client: MCPClient | None = None,
+        mcp_tool_cache: MCPToolCache | None = None,
     ) -> None:
         self.dao = dao
         self.router = router
@@ -116,6 +120,8 @@ class GatewayService:
         self.rag_lite_client = rag_lite_client
         self.session_dao = session_dao
         self._file_store = file_store
+        self.mcp_client = mcp_client
+        self.mcp_tool_cache = mcp_tool_cache
 
     async def list_models(self, auth: AuthContext) -> dict[str, Any]:
         aliases = await self.dao.list_enabled_aliases_for_tenant(auth.tenant_id)
@@ -241,6 +247,12 @@ class GatewayService:
                 routing_metadata={"pii_fallback_outcome": fallback_outcome},
             )
 
+            # MCP tool injection: merge MCP tools into the payload
+            if endpoint == "/v1/chat/completions" and self.mcp_tool_cache:
+                egress_payload = await self._inject_mcp_tools(
+                    egress_payload, auth.tenant_id,
+                )
+
             for attempt in range(settings.retry_pre_first_token + 1):
                 try:
                     adapter_result = await self.adapter.completion(
@@ -277,6 +289,15 @@ class GatewayService:
                     error_type="server_error",
                     code="upstream_request_failed",
                 )
+            # MCP tool execution loop
+            if endpoint == "/v1/chat/completions" and self.mcp_client:
+                result = await self._run_mcp_tool_loop(
+                    result=result,
+                    egress_payload=egress_payload,
+                    adapter=self.adapter,
+                    decision=decision,
+                )
+
             usage = usage_from_payload(result.payload)
             usage_prompt = usage.prompt_tokens
             usage_completion = usage.completion_tokens
@@ -940,6 +961,133 @@ class GatewayService:
                 )
 
         return payload, str(sid)
+
+    # ── MCP tool helpers ─────────────────────────────────────────────────────
+
+    async def _inject_mcp_tools(
+        self,
+        payload: dict[str, Any],
+        tenant_id: str,
+    ) -> dict[str, Any]:
+        """Merge MCP tools into the outgoing payload's ``tools`` array."""
+        assert self.mcp_tool_cache is not None  # noqa: S101
+        mcp_tools = await self.mcp_tool_cache.get_tools(tenant_id)
+        if not mcp_tools:
+            return payload
+
+        existing = list(payload.get("tools") or [])
+        existing.extend(mcp_tools)
+        payload = {**payload, "tools": existing}
+        # Ensure tool_choice allows the model to call tools
+        if "tool_choice" not in payload:
+            payload["tool_choice"] = "auto"
+        return payload
+
+    async def _run_mcp_tool_loop(
+        self,
+        *,
+        result: UpstreamResult,
+        egress_payload: dict[str, Any],
+        adapter: LLMAdapter,
+        decision: RoutingDecision,
+    ) -> UpstreamResult:
+        """Execute MCP tool calls in a loop, re-calling the LLM each round.
+
+        The loop detects ``tool_calls`` whose function name starts with
+        ``MCP_TOOL_PREFIX`` (``"mcp."``), executes them via
+        ``self.mcp_client``, appends tool-result messages, and re-invokes the
+        LLM.  Non-MCP tool calls are left for the client to handle (loop
+        breaks immediately).
+
+        The loop runs at most ``settings.mcp_tool_loop_max_iterations``
+        iterations to prevent infinite loops.
+        """
+        assert self.mcp_client is not None  # noqa: S101
+        max_iter = settings.mcp_tool_loop_max_iterations
+
+        for _iteration in range(max_iter):
+            choices = result.payload.get("choices") or []
+            if not choices:
+                break
+
+            message = choices[0].get("message", {})
+            tool_calls = message.get("tool_calls")
+            if not tool_calls:
+                break
+
+            # Separate MCP calls from client-side calls
+            mcp_calls = [
+                tc for tc in tool_calls
+                if (tc.get("function", {}).get("name") or "").startswith(MCP_TOOL_PREFIX)
+            ]
+            if not mcp_calls:
+                # All tool calls are for the client — stop the loop
+                break
+
+            if len(mcp_calls) < len(tool_calls):
+                # Mixed MCP + non-MCP calls: execute MCP ones, return with
+                # remaining non-MCP calls for the client.
+                # For simplicity in Phase 1, we execute the MCP calls but
+                # still break after so the client can handle the rest.
+                pass
+
+            # Build messages list: original messages + assistant message + tool results
+            messages = list(egress_payload.get("messages", []))
+            messages.append(message)
+
+            for tc in mcp_calls:
+                func = tc.get("function", {})
+                qualified_name = func.get("name", "")
+                try:
+                    arguments = json.loads(func.get("arguments", "{}"))
+                except (json.JSONDecodeError, TypeError):
+                    arguments = {}
+
+                call_result = await self.mcp_client.call_tool(
+                    qualified_name=qualified_name,
+                    arguments=arguments,
+                    tenant_id=egress_payload.get("_tenant_id", ""),
+                    request_id=egress_payload.get("_request_id", ""),
+                )
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc.get("id", ""),
+                    "content": call_result.content,
+                })
+
+            # Re-call the LLM with the extended conversation
+            loop_payload = {**egress_payload, "messages": messages}
+            from llm_port_api.services.gateway.llm_adapter import CompletionResult  # noqa: PLC0415
+
+            adapter_result = await adapter.completion(
+                provider_type=decision.candidate.provider_type,
+                base_url=decision.candidate.base_url,
+                api_key_encrypted=decision.candidate.api_key_encrypted,
+                litellm_provider=decision.candidate.litellm_provider,
+                litellm_model=decision.candidate.litellm_model,
+                extra_params=(
+                    dict(decision.candidate.extra_params)
+                    if decision.candidate.extra_params
+                    else None
+                ),
+                payload=loop_payload,
+                stream=False,
+            )
+            assert isinstance(adapter_result, CompletionResult)  # noqa: S101
+            result = UpstreamResult(
+                status_code=adapter_result.status_code,
+                payload=adapter_result.payload,
+                headers={},
+            )
+
+            # Update egress_payload messages for next iteration
+            egress_payload = loop_payload
+
+            # If we had mixed calls, break after executing MCP ones
+            if len(mcp_calls) < len(tool_calls):
+                break
+
+        return result
 
     async def _persist_assistant_response(
         self,

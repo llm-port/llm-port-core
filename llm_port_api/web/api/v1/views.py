@@ -16,6 +16,8 @@ from llm_port_api.services.gateway.errors import GatewayError, error_response
 from llm_port_api.services.gateway.lease import LeaseManager
 from llm_port_api.services.gateway.llm_adapter import LLMAdapter
 from llm_port_api.services.gateway.observability import GatewayObservability
+from llm_port_api.services.gateway.mcp_client import MCPClient
+from llm_port_api.services.gateway.mcp_tool_cache import MCPToolCache
 from llm_port_api.services.gateway.pii_client import PIIClient
 from llm_port_api.services.gateway.proxy import UpstreamProxy
 from llm_port_api.services.gateway.ratelimit import RateLimiter
@@ -76,6 +78,18 @@ def get_gateway_service(
             http_client=request.app.state.http_client,
         )
 
+    # MCP client + cache (optional - when MCP module is enabled in registry)
+    mcp_client: MCPClient | None = None
+    mcp_tool_cache: MCPToolCache | None = None
+    mcp_url = service_registry.get_url("mcp")
+    if mcp_url and settings.mcp_service_token:
+        mcp_client = MCPClient(
+            base_url=mcp_url,
+            http_client=request.app.state.http_client,
+            service_token=settings.mcp_service_token,
+        )
+        mcp_tool_cache = MCPToolCache(mcp_client)
+
     # RAG Lite client (optional - when RAG Lite is enabled)
     from llm_port_api.services.gateway.rag_lite_client import RagLiteClient  # noqa: PLC0415
 
@@ -98,6 +112,8 @@ def get_gateway_service(
         rag_lite_client=rag_lite_client,
         session_dao=session_dao if settings.sessions_enabled else None,
         file_store=getattr(request.app.state, "chat_file_store", None),
+        mcp_client=mcp_client,
+        mcp_tool_cache=mcp_tool_cache,
     )
 
 

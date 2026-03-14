@@ -203,6 +203,9 @@ def _setup_service_registry(app: FastAPI) -> None:
     service_registry.configure(
         "rag", enabled=settings.rag_enabled, url=settings.rag_service_url,
     )
+    service_registry.configure(
+        "mcp", enabled=settings.mcp_enabled, url=settings.mcp_service_url,
+    )
     app.state.service_registry = service_registry
 
 

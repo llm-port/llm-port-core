@@ -123,6 +123,12 @@ class Settings(BaseSettings):
     pii_enabled: bool = False
     pii_default_policy: dict | None = None
 
+    # Optional module: MCP tool registry
+    mcp_service_url: str | None = None
+    mcp_enabled: bool = False
+    mcp_service_token: str = ""
+    mcp_tool_loop_max_iterations: int = 5
+
     # Optional module: External auth service
     auth_service_url: str | None = None
     auth_enabled: bool = False

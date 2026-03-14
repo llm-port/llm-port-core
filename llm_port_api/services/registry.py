@@ -115,6 +115,15 @@ _KNOWN_SERVICES: list[_ServiceDef] = [
         ),
         health_path="/api/health",
     ),
+    _ServiceDef(
+        name="mcp",
+        display_name="MCP Tool Registry",
+        description=(
+            "Generic MCP server registry with automatic tool discovery, "
+            "PII-aware execution, and OpenAI-compatible tool injection."
+        ),
+        health_path="/api/health",
+    ),
 ]
 
 
