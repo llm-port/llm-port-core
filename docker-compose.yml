@@ -1,0 +1,44 @@
+services:
+  api: &main_app
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    image: llm_port_mcp:${LLM_PORT_MCP_VERSION:-latest}
+    restart: always
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      LLM_PORT_MCP_HOST: 0.0.0.0
+      LLM_PORT_MCP_DB_HOST: llm_port_mcp-db
+      LLM_PORT_MCP_REDIS_HOST: llm_port_mcp-redis
+
+  db:
+    image: postgres:16
+    hostname: "llm_port_mcp-db"
+    restart: always
+    environment:
+      POSTGRES_PASSWORD: "llm_user"
+      POSTGRES_USER: "llm_user"
+      POSTGRES_DB: "llm_mcp"
+    healthcheck:
+      test: pg_isready -U llm_user -d llm_mcp
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: bitnami/redis:6.2.5
+    hostname: "llm_port_mcp-redis"
+    restart: always
+    environment:
+      ALLOW_EMPTY_PASSWORD: "yes"
+    healthcheck:
+      test: redis-cli ping
+      interval: 1s
+      timeout: 3s
+      retries: 50
