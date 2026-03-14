@@ -61,6 +61,16 @@ class DockerInfo:
             return "Start Docker Desktop."
         return "Start the Docker daemon: sudo systemctl start docker"
 
+    @property
+    def install_hint(self) -> str:
+        """Platform-specific install URL for Docker."""
+        system = platform.system()
+        if system == "Windows":
+            return "https://docs.docker.com/desktop/setup/install/windows-install/"
+        if system == "Darwin":
+            return "https://docs.docker.com/desktop/setup/install/mac-install/"
+        return "https://docs.docker.com/engine/install/"
+
 
 @dataclass
 class GpuDevice:
@@ -142,6 +152,19 @@ class ToolCheck:
     found: bool
     version: str = ""
     path: str = ""
+    install_hint: str = ""
+
+
+# ── Install hints for common tools ────────────────────────────────
+
+TOOL_INSTALL_HINTS: dict[str, str] = {
+    "docker": "https://docs.docker.com/engine/install/",
+    "git": "https://git-scm.com/downloads",
+    "uv": "pip install uv",
+    "node": "https://nodejs.org/en/download",
+    "npm": "https://nodejs.org/en/download",
+    "poetry": "pip install poetry",
+}
 
 
 @dataclass
@@ -201,7 +224,18 @@ def detect_docker() -> DockerInfo:
             info.installed = True
             info.version = result.stdout.strip()
         else:
-            info.error = result.stderr.strip() or "docker version failed"
+            stderr = result.stderr.strip()
+            # Permission denied means Docker is installed but user lacks socket access
+            if "permission denied" in stderr.lower():
+                info.installed = True
+                info.daemon_running = False
+                info.error = (
+                    "Permission denied on Docker socket. "
+                    "Add your user to the docker group: "
+                    "sudo usermod -aG docker $USER && newgrp docker"
+                )
+                return info
+            info.error = stderr or "docker version failed"
             return info
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
         info.error = str(exc)
@@ -215,7 +249,15 @@ def detect_docker() -> DockerInfo:
             info.version = result.stdout.strip()
         else:
             info.daemon_running = False
-            info.error = result.stderr.strip()
+            stderr = result.stderr.strip()
+            if "permission denied" in stderr.lower():
+                info.error = (
+                    "Permission denied on Docker socket. "
+                    "Add your user to the docker group: "
+                    "sudo usermod -aG docker $USER && newgrp docker"
+                )
+            else:
+                info.error = stderr
     except subprocess.TimeoutExpired:
         info.daemon_running = False
         info.error = "docker daemon did not respond within 30 s"
@@ -353,18 +395,19 @@ def check_known_ports() -> list[PortCheck]:
 
 def check_tool(name: str, *, version_flag: str = "--version") -> ToolCheck:
     """Check if a CLI tool exists on PATH and get its version."""
+    hint = TOOL_INSTALL_HINTS.get(name, "")
     path = shutil.which(name)
     if not path:
-        return ToolCheck(name=name, found=False)
+        return ToolCheck(name=name, found=False, install_hint=hint)
     try:
         result = _run([path, version_flag])
         version = result.stdout.strip() or result.stderr.strip()
         # Extract just the version number from common formats
         match = re.search(r"(\d+\.\d+[\.\d]*)", version)
         ver = match.group(1) if match else version[:60]
-        return ToolCheck(name=name, found=True, version=ver, path=path)
+        return ToolCheck(name=name, found=True, version=ver, path=path, install_hint=hint)
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        return ToolCheck(name=name, found=True, path=path)
+        return ToolCheck(name=name, found=True, path=path, install_hint=hint)
 
 
 def check_dev_tools() -> list[ToolCheck]:

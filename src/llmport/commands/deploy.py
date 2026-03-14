@@ -32,6 +32,57 @@ from llmport.core.registry import MODULES_COMPAT as KNOWN_MODULES
 from llmport.core.settings import LlmportConfig, load_config, save_config
 
 
+def _sync_postgres_password(ctx: ComposeContext, env_path: Path) -> None:
+    """Ensure the Postgres superuser password matches ``.env``.
+
+    The official ``postgres`` image only reads ``POSTGRES_PASSWORD``
+    during the **first** initialisation of the data volume.  If the
+    volume already exists and ``.env`` contains a different password,
+    every service that connects with the new password will fail with
+    ``InvalidPasswordError``.
+
+    This function boots only the ``postgres`` service, waits for it to
+    become healthy, then runs ``ALTER USER`` via local socket auth
+    (which never requires a password) to bring the DB in sync.
+    """
+    import shutil
+    import subprocess
+
+    from llmport.core.env_gen import read_env_file
+
+    docker = shutil.which("docker")
+    if not docker:
+        return
+
+    env_vars = read_env_file(env_path)
+    pg_user = env_vars.get("POSTGRES_USER", "postgres")
+    pg_pass = env_vars.get("POSTGRES_PASSWORD", "")
+    if not pg_pass:
+        return
+
+    info("Syncing Postgres password with .env…")
+
+    # Start only postgres so we can ALTER before migrators run.
+    compose_up(ctx, services=["postgres"], detach=True, wait=True, timeout=60)
+
+    # ALTER via local socket auth (no password needed inside container).
+    # Use stdin pipe to avoid shell-quoting issues with special chars.
+    # Escape single quotes in password for SQL literal safety.
+    safe_pass = pg_pass.replace("'", "''")
+    alter_sql = f"ALTER USER {pg_user} PASSWORD '{safe_pass}';\n"
+    result = subprocess.run(  # noqa: S603
+        [docker, "exec", "-i", "llm-port-postgres", "psql", "-U", pg_user],
+        input=alter_sql,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode == 0:
+        success("Postgres password synchronised.")
+    else:
+        warning(f"Could not sync Postgres password: {result.stderr.strip()}")
+
+
 def _resolve_compose_file(install_dir: Path) -> Path | None:
     """Find the shared docker-compose file."""
     for candidate in (
@@ -153,14 +204,26 @@ def deploy_cmd(
         console.print("\n[bold cyan]Step 1: Pre-flight checks…[/bold cyan]")
 
         docker = detect_docker()
+        preflight_errors: list[str] = []
+
         if not docker.installed:
-            error("Docker is not installed. Install Docker Engine 24+ first.")
-            sys.exit(1)
-        if not docker.compose_installed:
-            error("Docker Compose V2 is not installed.")
-            sys.exit(1)
-        if not docker.daemon_running:
-            error(f"Docker daemon is not running. {docker.daemon_hint}")
+            msg = docker.error or "Docker Engine 24+ is required."
+            preflight_errors.append(
+                f"Docker is not available. {msg}\n"
+                f"  Install: {docker.install_hint}"
+            )
+        if docker.installed and not docker.compose_installed:
+            preflight_errors.append(
+                "Docker Compose V2 is not installed.\n"
+                f"  Install: {docker.install_hint}"
+            )
+        if docker.installed and not docker.daemon_running:
+            hint = docker.error or docker.daemon_hint
+            preflight_errors.append(f"Docker daemon is not running. {hint}")
+
+        if preflight_errors:
+            for msg in preflight_errors:
+                error(msg)
             sys.exit(1)
 
         success(
@@ -265,6 +328,14 @@ def deploy_cmd(
 
     # ── 6. Start services ─────────────────────────────────────────
     console.print("\n[bold cyan]Step 5: Starting services…[/bold cyan]")
+
+    # Start Postgres first and sync its password.
+    # The POSTGRES_PASSWORD env var only takes effect on first volume
+    # initialisation.  If the data volume already exists with a
+    # different password, migrators will fail with InvalidPasswordError.
+    # We boot Postgres alone, ALTER USER to match .env, then start
+    # everything else.
+    _sync_postgres_password(ctx, env_path)
 
     rc = compose_up(ctx, detach=True, build=False, pull="missing", wait=True, timeout=180)
     if rc != 0:

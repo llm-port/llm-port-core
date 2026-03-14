@@ -33,6 +33,7 @@ REPOS: list[RepoInfo] = [
     RepoInfo("llm-port-frontend", "llm_port_frontend", "React frontend"),
     RepoInfo("llm-port-api", "llm_port_api", "LLM Gateway API"),
     RepoInfo("llm-port-pii", "llm_port_pii", "PII redaction service"),
+    RepoInfo("llm-port-mcp", "llm_port_mcp", "MCP Tool Registry"),
     RepoInfo("llm-port-shared", "llm_port_shared", "Shared infra (compose)"),
     RepoInfo("llm-port-cli", "llm_port_cli", "CLI"),
 ]
@@ -73,6 +74,20 @@ MODULES: dict[str, ModuleInfo] = {
             ("LLM_PORT_API_PII_SERVICE_URL", "http://llm-port-pii:8000"),
         ),
     ),
+    "mcp": ModuleInfo(
+        name="mcp",
+        profile="mcp",
+        description="MCP Tool Registry (governed MCP server broker)",
+        container="llm-port-mcp",
+        port=8007,
+        service_url="http://llm-port-mcp:8000",
+        env_vars=(
+            ("LLM_PORT_API_MCP_ENABLED", "true"),
+            ("LLM_PORT_API_MCP_SERVICE_URL", "http://llm-port-mcp:8000"),
+            ("LLM_PORT_BACKEND_MCP_ENABLED", "true"),
+            ("LLM_PORT_BACKEND_MCP_SERVICE_URL", "http://llm-port-mcp:8000"),
+        ),
+    ),
 }
 
 # Legacy dict-of-dicts shape consumed by commands/module.py
@@ -101,6 +116,7 @@ KNOWN_PORTS: list[tuple[int, str]] = [
     (5173, "Frontend (dev)"),
     (8001, "API Gateway"),
     (8003, "PII Service"),
+    (8007, "MCP Tool Registry"),
     # Tools
     (5050, "pgAdmin"),
     (3000, "Langfuse"),
@@ -115,6 +131,7 @@ DATABASES: list[str] = [
     "llm_port_backend",
     "llm_api",
     "pii",
+    "llm_mcp",
     "langfuse",
 ]
 
@@ -186,6 +203,7 @@ DEV_ENDPOINTS: list[tuple[str, str]] = [
     ("pgAdmin", "http://localhost:5050"),
     ("RabbitMQ", "http://localhost:15672"),
     ("LLM API", "http://localhost:8001"),
+    ("MCP Registry", "http://localhost:8007"),
 ]
 
 

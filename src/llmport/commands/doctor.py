@@ -60,13 +60,17 @@ def doctor_cmd(ctx: click.Context, *, ports: bool) -> None:
 
     # ── Docker ────────────────────────────────────────────────────
     docker = report.docker
+    docker_ver = docker.version or f'[red]not found[/red]  → {docker.install_hint}'
     console.print(
         f"\n{_check_mark(docker.installed)}  Docker: "
-        f"{docker.version or '[red]not found[/red]'}"
+        f"{docker_ver}"
     )
+    if docker.installed and not docker.daemon_running and docker.error:
+        console.print(f"   [dim]{docker.error}[/dim]")
+    compose_ver = docker.compose_version or f'[red]not found[/red]  → {docker.install_hint}'
     console.print(
         f"{_check_mark(docker.compose_installed)}  Compose: "
-        f"{docker.compose_version or '[red]not found[/red]'}"
+        f"{compose_ver}"
     )
     console.print(
         f"{_check_mark(docker.daemon_running)}  Docker daemon: "
@@ -91,12 +95,20 @@ def doctor_cmd(ctx: click.Context, *, ports: bool) -> None:
         tools_table.add_column("Tool", style="bold")
         tools_table.add_column("Status")
         tools_table.add_column("Version")
+        tools_table.add_column("Install")
 
         for tool in report.tools:
+            if tool.found:
+                status = _check_mark(True)
+                install_col = ""
+            else:
+                status = _check_mark(False)
+                install_col = tool.install_hint or "—"
             tools_table.add_row(
                 tool.name,
-                _check_mark(tool.found),
+                status,
                 tool.version or "—",
+                install_col,
             )
         console.print(tools_table)
 

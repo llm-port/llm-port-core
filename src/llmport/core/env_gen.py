@@ -284,7 +284,8 @@ def write_env_file(
             lines.append(f"{k}={v}")
         lines.append("")
 
-    output_path.write_text("\n".join(lines), encoding="utf-8")
+    # Always write LF line endings — .env is consumed by Linux containers.
+    output_path.write_bytes("\n".join(lines).encode("utf-8"))
     return output_path
 
 
