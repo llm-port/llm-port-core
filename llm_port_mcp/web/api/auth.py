@@ -47,10 +47,24 @@ def _verify_token(token: str) -> dict[str, Any]:
 async def get_auth_context(
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
 ) -> AuthContext:
-    """FastAPI dependency — validates JWT bearer token."""
+    """FastAPI dependency — validates JWT or service bearer token.
+
+    When the Backend admin proxy forwards a request it sends the
+    shared ``service_token`` instead of a user JWT.  We accept that
+    as a trusted internal call and synthesize an AuthContext.
+    """
     token = credentials.credentials if credentials else None
     if not token:
         raise HTTPException(status_code=401, detail="Missing Authorization header.")
+
+    # Allow trusted service-token from the backend proxy.
+    if settings.service_token and token == settings.service_token:
+        return AuthContext(
+            user_id="service",
+            tenant_id="default",
+            raw_claims={},
+        )
+
     claims = _verify_token(token)
     user_id = str(claims.get("sub", "")).strip()
     if not user_id:

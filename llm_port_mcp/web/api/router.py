@@ -13,7 +13,7 @@ async def health_check() -> UJSONResponse:
     return UJSONResponse({"status": "ok"})
 
 
-api_router.include_router(admin_router, prefix="/v1/mcp", tags=["MCP Admin"])
+api_router.include_router(admin_router, prefix="/admin", tags=["MCP Admin"])
 api_router.include_router(
     internal_router,
     prefix="/internal",
