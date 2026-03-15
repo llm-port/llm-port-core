@@ -16,6 +16,7 @@ import {
   canDelete,
   canPause,
   type ContainerSummary,
+  type ContainerClass,
 } from "~/api/admin";
 import { DataTable, type ColumnDef } from "~/components/DataTable";
 import { ClassChip, StateChip } from "~/components/Chips";
@@ -24,6 +25,8 @@ import { useAsyncData } from "~/lib/useAsyncData";
 import Button from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
 import Link from "@mui/material/Link";
+import MenuItem from "@mui/material/MenuItem";
+import Select from "@mui/material/Select";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import Tooltip from "@mui/material/Tooltip";
@@ -44,9 +47,13 @@ interface AdminContext {
 const CLASS_OPTIONS: { value: string; label: string }[] = [
   { value: "SYSTEM_CORE", label: "SYSTEM_CORE" },
   { value: "SYSTEM_AUX", label: "SYSTEM_AUX" },
+  { value: "MCP", label: "MCP" },
   { value: "TENANT_APP", label: "TENANT_APP" },
   { value: "UNTRUSTED", label: "UNTRUSTED" },
 ];
+
+/** Classes that cannot be reassigned via the inline dropdown. */
+const LOCKED_CLASSES = new Set<string>(["SYSTEM_CORE"]);
 
 export default function ContainersPage() {
   const { t } = useTranslation();
@@ -66,6 +73,23 @@ export default function ContainersPage() {
     CLASS_OPTIONS.map((o) => o.value),
   );
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+
+  async function handleClassChange(c: ContainerSummary, newClass: ContainerClass) {
+    if (newClass === c.container_class) return;
+    setActionLoading(`${c.id}-class`);
+    try {
+      await containers.register(c.id, {
+        container_class: newClass,
+        owner_scope: c.owner_scope,
+        policy: c.policy,
+      });
+      await load();
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : t("common.action_failed"));
+    } finally {
+      setActionLoading(null);
+    }
+  }
 
   async function handleAction(
     id: string,
@@ -158,7 +182,53 @@ export default function ContainersPage() {
       sortable: true,
       sortValue: (c) => c.container_class,
       searchValue: (c) => c.container_class,
-      render: (c) => <ClassChip value={c.container_class} />,
+      render: (c) => {
+        const locked = LOCKED_CLASSES.has(c.container_class);
+        if (locked) return <ClassChip value={c.container_class} />;
+        const busy = actionLoading === `${c.id}-class`;
+        return (
+          <Select
+            size="small"
+            value={c.container_class}
+            disabled={busy}
+            onChange={(e) =>
+              void handleClassChange(c, e.target.value as ContainerClass)
+            }
+            onClick={(e) => e.stopPropagation()}
+            variant="standard"
+            disableUnderline
+            sx={{ fontSize: "0.8rem", minWidth: 110 }}
+          >
+            {CLASS_OPTIONS.map((opt) => (
+              <MenuItem key={opt.value} value={opt.value} dense>
+                {opt.label}
+              </MenuItem>
+            ))}
+          </Select>
+        );
+      },
+    },
+    {
+      key: "endpoint",
+      label: t("containers.endpoint"),
+      sortable: true,
+      sortValue: (c) => c.endpoint,
+      searchValue: (c) => c.endpoint,
+      render: (c) =>
+        c.endpoint ? (
+          <Typography
+            variant="body2"
+            fontFamily="monospace"
+            fontSize="0.8rem"
+            color="text.secondary"
+          >
+            {c.endpoint}
+          </Typography>
+        ) : (
+          <Typography variant="body2" color="text.disabled" fontSize="0.8rem">
+            –
+          </Typography>
+        ),
     },
     {
       key: "owner_scope",
@@ -176,6 +246,7 @@ export default function ContainersPage() {
       key: "actions",
       label: t("common.actions"),
       align: "right",
+      hideable: false,
       render: (c) => {
         const busy = !!actionLoading?.startsWith(c.id);
         const isRunning = c.state.toLowerCase() === "running";
@@ -309,6 +380,7 @@ export default function ContainersPage() {
       onRefresh={load}
       searchPlaceholder={t("containers.search_placeholder")}
       highlightId={highlightId}
+      columnVisibilityKey="dt-containers"
       toolbarActions={
         <Button
           variant="contained"

@@ -28,6 +28,7 @@ import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/Delete";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
+import SettingsIcon from "@mui/icons-material/Settings";
 
 const STATUS_COLOR: Record<
   string,
@@ -58,7 +59,8 @@ export default function MCPServersPage() {
   // Register dialog
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState("");
-  const [newTransport, setNewTransport] = useState<MCPTransportType>("sse");
+  const [newTransport, setNewTransport] =
+    useState<MCPTransportType>("streamable_http");
   const [newPrefix, setNewPrefix] = useState("");
   const [newUrl, setNewUrl] = useState("");
   const [newCommand, setNewCommand] = useState("");
@@ -73,7 +75,7 @@ export default function MCPServersPage() {
 
   function openCreate() {
     setNewName("");
-    setNewTransport("sse");
+    setNewTransport("streamable_http");
     setNewPrefix("");
     setNewUrl("");
     setNewCommand("");
@@ -90,7 +92,9 @@ export default function MCPServersPage() {
         transport: newTransport,
         tool_prefix:
           newPrefix || newName.toLowerCase().replace(/[^a-z0-9]/g, "_"),
-        ...(newTransport === "sse" ? { url: newUrl } : {}),
+        ...(newTransport === "sse" || newTransport === "streamable_http"
+          ? { url: newUrl }
+          : {}),
         ...(newTransport === "stdio"
           ? { command_json: newCommand.split(/\s+/).filter(Boolean) }
           : {}),
@@ -203,6 +207,16 @@ export default function MCPServersPage() {
       align: "right",
       render: (s) => (
         <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+          {s.has_settings && (
+            <IconButton
+              size="small"
+              title={t("mcp.provider_settings", "Provider Settings")}
+              onClick={() => navigate(`/admin/mcp/servers/${s.id}`)}
+              color="primary"
+            >
+              <SettingsIcon fontSize="small" />
+            </IconButton>
+          )}
           <IconButton
             size="small"
             title={t("mcp.view_details", "View details")}
@@ -268,7 +282,9 @@ export default function MCPServersPage() {
         submitLabel={t("mcp.register", "Register")}
         cancelLabel={t("common.cancel", "Cancel")}
         submitDisabled={
-          !newName.trim() || (newTransport === "sse" && !newUrl.trim())
+          !newName.trim() ||
+          ((newTransport === "sse" || newTransport === "streamable_http") &&
+            !newUrl.trim())
         }
         onSubmit={handleCreate}
         onClose={() => setCreateOpen(false)}
@@ -292,15 +308,20 @@ export default function MCPServersPage() {
             fullWidth
             disabled={creating}
           >
-            <MenuItem value="sse">SSE (HTTP)</MenuItem>
+            <MenuItem value="streamable_http">Streamable HTTP</MenuItem>
+            <MenuItem value="sse">SSE (Legacy HTTP)</MenuItem>
             <MenuItem value="stdio">Stdio (Command)</MenuItem>
           </TextField>
-          {newTransport === "sse" && (
+          {(newTransport === "sse" || newTransport === "streamable_http") && (
             <TextField
               label={t("mcp.server_url", "Server URL")}
               value={newUrl}
               onChange={(e) => setNewUrl(e.target.value)}
-              placeholder="http://localhost:3000/sse"
+              placeholder={
+                newTransport === "streamable_http"
+                  ? "http://localhost:8100/mcp/"
+                  : "http://localhost:3000/sse"
+              }
               fullWidth
               required
               disabled={creating}

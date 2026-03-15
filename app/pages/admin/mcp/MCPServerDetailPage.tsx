@@ -31,6 +31,8 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import ScienceIcon from "@mui/icons-material/Science";
 
+import { MCPSettingsPanel } from "./MCPSettingsPanel";
+
 const STATUS_COLOR: Record<
   string,
   "success" | "warning" | "error" | "default" | "info"
@@ -311,6 +313,9 @@ export default function MCPServerDetailPage() {
       )}
 
       <Divider sx={{ my: 2 }} />
+
+      {/* ── Provider settings (dynamic) ── */}
+      {server && server.url && <MCPSettingsPanel serverId={id!} />}
 
       {/* ── Tools table ── */}
       <DataTable

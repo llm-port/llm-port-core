@@ -15,6 +15,7 @@ const BASE = "/api/admin";
 export type ContainerClass =
   | "SYSTEM_CORE"
   | "SYSTEM_AUX"
+  | "MCP"
   | "TENANT_APP"
   | "UNTRUSTED";
 export type ContainerPolicy = "locked" | "restricted" | "free";
@@ -28,6 +29,7 @@ export interface ContainerSummary {
   created: string;
   ports: Record<string, unknown>[];
   networks: string[];
+  endpoint: string;
   container_class: ContainerClass;
   policy: ContainerPolicy;
   owner_scope: string;
@@ -825,7 +827,7 @@ export function canExec(cls: ContainerClass, rootModeActive: boolean): boolean {
 
 export function canStop(cls: ContainerClass, rootModeActive: boolean): boolean {
   if (cls === "UNTRUSTED") return false;
-  if (cls === "TENANT_APP" || cls === "SYSTEM_AUX") return true;
+  if (cls === "TENANT_APP" || cls === "SYSTEM_AUX" || cls === "MCP") return true;
   if (cls === "SYSTEM_CORE") return rootModeActive;
   return false;
 }
@@ -843,7 +845,7 @@ export function canPause(
   cls: ContainerClass,
   rootModeActive: boolean,
 ): boolean {
-  if (cls === "UNTRUSTED") return false;
+  if (cls === "UNTRUSTED" || cls === "MCP") return false;
   if (cls === "TENANT_APP") return true;
   return rootModeActive;
 }
@@ -859,6 +861,7 @@ export function canLogs(
 export const CLASS_COLORS: Record<ContainerClass, string> = {
   SYSTEM_CORE: "bg-red-100 text-red-800 border-red-200",
   SYSTEM_AUX: "bg-amber-100 text-amber-800 border-amber-200",
+  MCP: "bg-purple-100 text-purple-800 border-purple-200",
   TENANT_APP: "bg-green-100 text-green-800 border-green-200",
   UNTRUSTED: "bg-gray-100 text-gray-700 border-gray-200",
 };

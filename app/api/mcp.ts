@@ -7,7 +7,7 @@ const BASE = "/api/admin/mcp";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
-export type MCPTransportType = "stdio" | "sse";
+export type MCPTransportType = "stdio" | "sse" | "streamable_http";
 export type MCPServerStatus =
   | "registering"
   | "active"
@@ -26,6 +26,7 @@ export interface MCPServerSummary {
   pii_mode: PIIMode;
   enabled: boolean;
   tool_count: number;
+  has_settings: boolean;
   created_at: string;
   updated_at: string;
   last_discovery_at: string | null;
@@ -177,4 +178,32 @@ export async function updateTool(
     method: "PATCH",
     body: JSON.stringify(payload),
   });
+}
+
+// ── Provider Settings ─────────────────────────────────────────────────────
+
+export type JSONSchema = Record<string, unknown>;
+
+export async function getSettingsSchema(serverId: string): Promise<JSONSchema> {
+  return request<JSONSchema>(
+    `/servers/${encodeURIComponent(serverId)}/settings/schema`,
+  );
+}
+
+export async function getSettings(
+  serverId: string,
+): Promise<Record<string, unknown>> {
+  return request<Record<string, unknown>>(
+    `/servers/${encodeURIComponent(serverId)}/settings`,
+  );
+}
+
+export async function updateSettings(
+  serverId: string,
+  payload: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  return request<Record<string, unknown>>(
+    `/servers/${encodeURIComponent(serverId)}/settings`,
+    { method: "PUT", body: JSON.stringify(payload) },
+  );
 }

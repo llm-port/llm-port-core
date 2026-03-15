@@ -18,10 +18,11 @@ import type {
 
 const CLASS_CONFIG: Record<
   ContainerClass,
-  { color: "error" | "warning" | "success" | "default"; label: string }
+  { color: "error" | "warning" | "success" | "default" | "secondary"; label: string }
 > = {
   SYSTEM_CORE: { color: "error", label: "SYSTEM_CORE" },
   SYSTEM_AUX: { color: "warning", label: "SYSTEM_AUX" },
+  MCP: { color: "secondary", label: "MCP" },
   TENANT_APP: { color: "success", label: "TENANT_APP" },
   UNTRUSTED: { color: "default", label: "UNTRUSTED" },
 };
