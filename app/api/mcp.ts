@@ -207,3 +207,36 @@ export async function updateSettings(
     { method: "PUT", body: JSON.stringify(payload) },
   );
 }
+
+// ── Network Scanner ───────────────────────────────────────────────────────
+
+export interface DiscoveredServer {
+  host: string;
+  port: number;
+  url: string;
+  server_name: string;
+  protocol_version: string | null;
+  tools: string[];
+  already_registered: boolean;
+}
+
+export interface ScanResult {
+  discovered: DiscoveredServer[];
+  scanned_ports: number;
+  errors: number;
+}
+
+export async function scanForServers(
+  host: string,
+  portStart: number = 8000,
+  portEnd: number = 9000,
+): Promise<ScanResult> {
+  return request<ScanResult>("/scan", {
+    method: "POST",
+    body: JSON.stringify({
+      host,
+      port_start: portStart,
+      port_end: portEnd,
+    }),
+  });
+}

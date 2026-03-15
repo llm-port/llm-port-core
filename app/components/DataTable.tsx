@@ -17,6 +17,7 @@ import {
   flexRender,
   type SortingState,
   type ColumnDef as TanColumnDef,
+  type ColumnSizingState,
 } from "@tanstack/react-table";
 
 import Alert from "@mui/material/Alert";
@@ -171,6 +172,7 @@ export function DataTable<T>({
 }: DataTableProps<T>) {
   const [search, setSearch] = useState("");
   const [sorting, setSorting] = useState<SortingState>([]);
+  const [columnSizing, setColumnSizing] = useState<ColumnSizingState>({});
   const highlightRef = useRef<HTMLTableRowElement>(null);
   const [colMenuAnchor, setColMenuAnchor] = useState<HTMLElement | null>(null);
 
@@ -257,8 +259,10 @@ export function DataTable<T>({
   const table = useReactTable<T>({
     data: filteredRows,
     columns: tanColumns,
-    state: { sorting },
+    state: { sorting, columnSizing },
     onSortingChange: setSorting,
+    onColumnSizingChange: setColumnSizing,
+    columnResizeMode: "onChange",
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     ...(isPaginated
@@ -499,7 +503,7 @@ export function DataTable<T>({
           variant="outlined"
           sx={{ flexGrow: 1, overflow: "auto" }}
         >
-          <Table size="small" stickyHeader>
+          <Table size="small" stickyHeader style={{ minWidth: table.getCenterTotalSize(), tableLayout: "fixed" }}>
             <TableHead>
               {table.getHeaderGroups().map((headerGroup) => (
                 <TableRow key={headerGroup.id}>
@@ -517,9 +521,12 @@ export function DataTable<T>({
                       <TableCell
                         key={header.id}
                         align={align}
-                        style={{ minWidth: meta?.minWidth }}
                         sortDirection={sorted || false}
-                        sx={{ bgcolor: "background.paper" }}
+                        sx={{
+                          width: header.getSize(),
+                          minWidth: meta?.minWidth,
+                          userSelect: "none",
+                        }}
                       >
                         {canSort ? (
                           <TableSortLabel
@@ -538,6 +545,36 @@ export function DataTable<T>({
                             header.getContext(),
                           )
                         )}
+                        {/* Column resize handle */}
+                        <Box
+                          onMouseDown={header.getResizeHandler()}
+                          onTouchStart={header.getResizeHandler()}
+                          sx={{
+                            position: "absolute",
+                            right: -3,
+                            top: 0,
+                            height: "100%",
+                            width: 8,
+                            cursor: "col-resize",
+                            zIndex: 1,
+                            "&::after": {
+                              content: '""',
+                              position: "absolute",
+                              top: "25%",
+                              left: 3,
+                              width: 2,
+                              height: "50%",
+                              borderRadius: 1,
+                              bgcolor: header.column.getIsResizing()
+                                ? "primary.main"
+                                : "divider",
+                              transition: "background-color 0.15s",
+                            },
+                            "&:hover::after": {
+                              bgcolor: "primary.main",
+                            },
+                          }}
+                        />
                       </TableCell>
                     );
                   })}
@@ -594,6 +631,7 @@ export function DataTable<T>({
                               | "center"
                               | "right"
                           }
+                          style={{ width: cell.column.getSize() }}
                         >
                           {flexRender(
                             cell.column.columnDef.cell,

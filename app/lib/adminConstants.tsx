@@ -400,30 +400,22 @@ export const NAV: NavEntry[] = [
     ],
   },
   {
-    id: "mcp",
+    id: "extensions",
     kind: "group",
-    labelKey: "nav.mcp_group",
+    labelKey: "nav.extensions_group",
     icon: <HubIcon />,
-    module: "mcp",
     children: [
       {
         to: "/admin/mcp/servers",
-        labelKey: "nav.mcp_servers",
+        labelKey: "nav.mcp_hub",
         icon: <DnsIcon />,
+        module: "mcp",
       },
-    ],
-  },
-  {
-    id: "skills",
-    kind: "group",
-    labelKey: "nav.skills_group",
-    icon: <AutoFixHighIcon />,
-    module: "skills",
-    children: [
       {
         to: "/admin/skills",
-        labelKey: "nav.skills_list",
-        icon: <LibraryBooksIcon />,
+        labelKey: "nav.skills_hub",
+        icon: <AutoFixHighIcon />,
+        module: "skills",
       },
     ],
   },
