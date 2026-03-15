@@ -35,6 +35,7 @@ class MCPTransportType(str, enum.Enum):
 
     STDIO = "stdio"
     SSE = "sse"
+    STREAMABLE_HTTP = "streamable_http"
 
 
 class MCPServerStatus(str, enum.Enum):
@@ -122,6 +123,16 @@ class MCPServerModel(Base):
     )
     last_discovery_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
+        nullable=True,
+    )
+
+    # ── Provider settings (dynamic, proxied from remote MCP server) ──
+    settings_schema_json: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+    )
+    provider_settings_json: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB,
         nullable=True,
     )
 

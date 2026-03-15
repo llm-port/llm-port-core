@@ -61,6 +61,12 @@ def _create_adapter(config: MCPServerConfig) -> GenericMCPServer:
         from llm_port_mcp.services.transport.sse import SSEMCPServer
 
         return SSEMCPServer(config)
+    if config.transport == "streamable_http":
+        from llm_port_mcp.services.transport.streamable_http import (
+            StreamableHTTPMCPServer,
+        )
+
+        return StreamableHTTPMCPServer(config)
     msg = f"Unsupported transport: {config.transport}"
     raise ValueError(msg)
 

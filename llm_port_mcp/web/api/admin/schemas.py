@@ -16,7 +16,7 @@ class RegisterServerRequest(BaseModel):
     """Register a new MCP server."""
 
     name: str = Field(min_length=1, max_length=256)
-    transport: str = Field(pattern=r"^(stdio|sse)$")
+    transport: str = Field(pattern=r"^(stdio|sse|streamable_http)$")
     url: str | None = None
     command: list[str] | None = None
     args: list[str] = Field(default_factory=list)
@@ -94,6 +94,7 @@ class ServerResponse(BaseModel):
     heartbeat_interval_sec: int
     tenant_id: str
     discovered_tools: int = 0
+    has_settings: bool = False
     created_at: datetime
     updated_at: datetime
     last_discovery_at: datetime | None = None

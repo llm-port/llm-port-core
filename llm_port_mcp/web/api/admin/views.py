@@ -73,6 +73,7 @@ def _server_to_response(
         heartbeat_interval_sec=server.heartbeat_interval_sec,
         tenant_id=server.tenant_id,
         discovered_tools=len(tools),
+        has_settings=server.settings_schema_json is not None,
         created_at=server.created_at,
         updated_at=server.updated_at,
         last_discovery_at=server.last_discovery_at,
@@ -120,6 +121,11 @@ async def register_server(
         raise HTTPException(
             status_code=422,
             detail="SSE transport requires 'url'.",
+        )
+    if body.transport == "streamable_http" and not body.url:
+        raise HTTPException(
+            status_code=422,
+            detail="Streamable HTTP transport requires 'url'.",
         )
 
     dao = MCPDao(session)
@@ -176,6 +182,16 @@ async def register_server(
                         session=session,
                     )
                     await _increment_catalog_version(request, body.tenant_id)
+            # Try to fetch settings schema from remote server
+            if body.url:
+                try:
+                    schema = await _fetch_from_server(body.url, "/schema")
+                    await dao.update_server(
+                        server.id, settings_schema_json=schema,  # type: ignore[arg-type]
+                    )
+                    await session.commit()
+                except Exception:
+                    logger.debug("No settings schema from %s", body.url)
         except Exception as exc:
             logger.warning(
                 "Failed to connect/discover server %s: %s",
@@ -338,6 +354,15 @@ async def refresh_server(
     )
     await _increment_catalog_version(request, server.tenant_id)
 
+    # Refresh settings schema from remote
+    if server.url:
+        try:
+            schema = await _fetch_from_server(server.url, "/schema")
+            await dao.update_server(server_id, settings_schema_json=schema)
+            await session.commit()
+        except Exception:
+            logger.debug("No settings schema from %s", server.url)
+
     server = await dao.get_server(server_id)
     return _server_to_response(server)
 
@@ -427,3 +452,130 @@ async def update_tool(
         await _increment_catalog_version(request, tool.tenant_id)  # type: ignore[union-attr]
 
     return _tool_to_response(tool)
+
+
+# ── Provider-settings proxy endpoints ────────────────────────────────
+
+
+async def _fetch_from_server(
+    server_url: str,
+    path: str,
+    *,
+    method: str = "GET",
+    json_body: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Make an HTTP request to a remote MCP server's REST API."""
+    import httpx
+
+    base = server_url.rstrip("/")
+    url = f"{base}/api/settings{path}"
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        if method == "PUT":
+            resp = await client.put(url, json=json_body)
+        else:
+            resp = await client.get(url)
+    resp.raise_for_status()
+    return resp.json()
+
+
+@router.get("/servers/{server_id}/settings/schema")
+async def get_server_settings_schema(
+    server_id: uuid.UUID,
+    auth: AuthContext = Depends(get_auth_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict[str, Any]:
+    """Return the provider settings JSON Schema for a server.
+
+    Serves cached schema from DB if available, otherwise fetches from
+    the remote MCP server and caches it.
+    """
+    dao = MCPDao(session)
+    server = await dao.get_server(server_id)
+    if server is None:
+        raise HTTPException(status_code=404, detail="Server not found.")
+
+    if server.settings_schema_json is not None:
+        return server.settings_schema_json
+
+    # Fetch from remote
+    if not server.url:
+        raise HTTPException(
+            status_code=400,
+            detail="Server has no URL — settings not available for stdio servers.",
+        )
+    try:
+        schema = await _fetch_from_server(server.url, "/schema")
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to fetch settings schema: {exc}",
+        ) from exc
+
+    await dao.update_server(server_id, settings_schema_json=schema)
+    await session.commit()
+    return schema
+
+
+@router.get("/servers/{server_id}/settings")
+async def get_server_settings(
+    server_id: uuid.UUID,
+    auth: AuthContext = Depends(get_auth_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict[str, Any]:
+    """Return current provider settings values (proxied from remote server)."""
+    dao = MCPDao(session)
+    server = await dao.get_server(server_id)
+    if server is None:
+        raise HTTPException(status_code=404, detail="Server not found.")
+    if not server.url:
+        raise HTTPException(
+            status_code=400,
+            detail="Server has no URL — settings not available for stdio servers.",
+        )
+
+    try:
+        values = await _fetch_from_server(server.url, "")
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to fetch settings: {exc}",
+        ) from exc
+
+    # Cache in DB
+    await dao.update_server(server_id, provider_settings_json=values)
+    await session.commit()
+    return values
+
+
+@router.put("/servers/{server_id}/settings")
+async def update_server_settings(
+    server_id: uuid.UUID,
+    body: dict[str, Any],
+    auth: AuthContext = Depends(get_auth_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict[str, Any]:
+    """Update provider settings on the remote MCP server."""
+    dao = MCPDao(session)
+    server = await dao.get_server(server_id)
+    if server is None:
+        raise HTTPException(status_code=404, detail="Server not found.")
+    if not server.url:
+        raise HTTPException(
+            status_code=400,
+            detail="Server has no URL — settings not available for stdio servers.",
+        )
+
+    try:
+        updated = await _fetch_from_server(
+            server.url, "", method="PUT", json_body=body,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to update settings: {exc}",
+        ) from exc
+
+    # Cache updated values
+    await dao.update_server(server_id, provider_settings_json=updated)
+    await session.commit()
+    return updated
