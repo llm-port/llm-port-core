@@ -107,3 +107,34 @@ class ServerListResponse(BaseModel):
 
     servers: list[ServerResponse]
     total: int
+
+
+# ── Scan schemas ──────────────────────────────────────────────────────
+
+
+class ScanRequest(BaseModel):
+    """Scan a host for running MCP servers."""
+
+    host: str = Field(min_length=1, max_length=256)
+    port_start: int = Field(default=8000, ge=1, le=65535)
+    port_end: int = Field(default=9000, ge=1, le=65535)
+
+
+class DiscoveredServer(BaseModel):
+    """An MCP server found during a network scan."""
+
+    host: str
+    port: int
+    url: str
+    server_name: str
+    protocol_version: str | None = None
+    tools: list[str] = Field(default_factory=list)
+    already_registered: bool = False
+
+
+class ScanResponse(BaseModel):
+    """Result of an MCP server scan."""
+
+    discovered: list[DiscoveredServer]
+    scanned_ports: int
+    errors: int = 0

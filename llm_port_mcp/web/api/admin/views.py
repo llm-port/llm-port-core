@@ -14,7 +14,10 @@ from llm_port_mcp.services.connection_manager import MCPConnectionManager
 from llm_port_mcp.services.dao import MCPDao
 from llm_port_mcp.services.discovery import discover_tools
 from llm_port_mcp.web.api.admin.schemas import (
+    DiscoveredServer,
     RegisterServerRequest,
+    ScanRequest,
+    ScanResponse,
     ServerListResponse,
     ServerResponse,
     ToolResponse,
@@ -579,3 +582,147 @@ async def update_server_settings(
     await dao.update_server(server_id, provider_settings_json=updated)
     await session.commit()
     return updated
+
+
+# ── Network scanner ──────────────────────────────────────────────────
+
+
+async def _probe_mcp_port(
+    host: str,
+    port: int,
+    *,
+    timeout: float = 3.0,
+) -> DiscoveredServer | None:
+    """Try to handshake with an MCP server at host:port/mcp/."""
+    import httpx
+
+    url = f"http://{host}:{port}/mcp/"
+    payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-03-26",
+            "capabilities": {},
+            "clientInfo": {"name": "llm-port-scanner", "version": "1.0"},
+        },
+    }
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(
+                url,
+                json=payload,
+                headers={
+                    "Content-Type": "application/json",
+                    "Accept": "application/json, text/event-stream",
+                },
+            )
+        if resp.status_code != 200:
+            return None
+
+        body = resp.json()
+        result = body.get("result", {})
+        server_info = result.get("serverInfo", {})
+        server_name = server_info.get("name", f"unknown-{port}")
+        protocol_version = result.get("protocolVersion")
+
+        # Try to list tools via a follow-up request
+        tools: list[str] = []
+        try:
+            list_resp = await _probe_list_tools(host, port, timeout=timeout)
+            tools = list_resp
+        except Exception:
+            pass
+
+        return DiscoveredServer(
+            host=host,
+            port=port,
+            url=url,
+            server_name=server_name,
+            protocol_version=protocol_version,
+            tools=tools,
+        )
+    except Exception:
+        return None
+
+
+async def _probe_list_tools(
+    host: str,
+    port: int,
+    *,
+    timeout: float = 3.0,
+) -> list[str]:
+    """Try to list tools from a discovered MCP server."""
+    import httpx
+
+    url = f"http://{host}:{port}/mcp/"
+    payload = {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/list",
+        "params": {},
+    }
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        resp = await client.post(
+            url,
+            json=payload,
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json, text/event-stream",
+            },
+        )
+    if resp.status_code != 200:
+        return []
+    body = resp.json()
+    result = body.get("result", {})
+    return [t.get("name", "") for t in result.get("tools", [])]
+
+
+@router.post("/scan", response_model=ScanResponse)
+async def scan_for_servers(
+    body: ScanRequest,
+    auth: AuthContext = Depends(get_auth_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> ScanResponse:
+    """Scan a host for running MCP servers on a port range."""
+    import asyncio
+
+    if body.port_end < body.port_start:
+        raise HTTPException(
+            status_code=422,
+            detail="port_end must be >= port_start.",
+        )
+    port_range = body.port_end - body.port_start + 1
+    if port_range > 1000:
+        raise HTTPException(
+            status_code=422,
+            detail="Port range must not exceed 1000 ports.",
+        )
+
+    # Get already-registered server URLs to flag duplicates
+    dao = MCPDao(session)
+    existing = await dao.list_servers(tenant_id=auth.tenant_id)
+    registered_urls = {s.url for s in existing if s.url}
+
+    # Probe all ports concurrently with bounded parallelism
+    sem = asyncio.Semaphore(50)
+
+    async def probe(port: int) -> DiscoveredServer | None:
+        async with sem:
+            return await _probe_mcp_port(body.host, port)
+
+    tasks = [probe(p) for p in range(body.port_start, body.port_end + 1)]
+    results = await asyncio.gather(*tasks)
+
+    discovered: list[DiscoveredServer] = []
+    errors = 0
+    for result in results:
+        if result is not None:
+            result.already_registered = result.url in registered_urls
+            discovered.append(result)
+
+    return ScanResponse(
+        discovered=discovered,
+        scanned_ports=port_range,
+        errors=errors,
+    )
