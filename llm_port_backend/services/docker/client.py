@@ -373,6 +373,42 @@ class DockerService:
         n = await self.client.networks.create(config)
         return await n.show()
 
+    async def connect_container_to_network(
+        self,
+        network_id: str,
+        container_id: str,
+    ) -> None:
+        """Connect a container to a network (no-op if already connected)."""
+        n = await self.client.networks.get(network_id)
+        try:
+            await n.connect({"Container": container_id})
+        except Exception as exc:
+            # aiodocker raises DockerError 403 when already connected
+            if "already exists" in str(exc).lower():
+                return
+            raise
+
+    async def find_container_by_name(
+        self,
+        name: str,
+    ) -> dict[str, Any] | None:
+        """Find a container by name. Returns inspect dict or None."""
+        try:
+            c = await self.client.containers.get(name)
+            await c.show()
+            return dict(c._container)  # noqa: SLF001
+        except Exception:
+            return None
+
+    async def get_container_networks(
+        self,
+        container_id: str,
+    ) -> list[str]:
+        """Return network names a container is connected to."""
+        info = await self.inspect_container(container_id)
+        nets = info.get("NetworkSettings", {}).get("Networks", {})
+        return list(nets.keys())
+
     async def delete_network(self, network_id: str) -> None:
         """Delete a Docker network."""
         n = await self.client.networks.get(network_id)

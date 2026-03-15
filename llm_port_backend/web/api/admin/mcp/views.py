@@ -10,17 +10,96 @@ import asyncio
 import json
 import logging
 from typing import Annotated, Any
+from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException, Path
 from pydantic import BaseModel, Field
 
 from llm_port_backend.db.models.users import User
+from llm_port_backend.services.docker.client import DockerService
 from llm_port_backend.services.mcp.client import MCPServiceClient, get_mcp_client
-from llm_port_backend.web.api.admin.dependencies import require_superuser
+from llm_port_backend.web.api.admin.dependencies import get_docker, require_superuser
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# Name of the MCP service container — used to discover its network.
+_MCP_SERVICE_CONTAINER = "llm-port-mcp"
+
+
+async def _ensure_container_network(
+    docker: DockerService,
+    url: str,
+) -> None:
+    """Connect the container referenced by *url* to the MCP service's network.
+
+    Parses the hostname from the URL, looks up whether a Docker container
+    with that name exists, and — if so — connects it to the same network
+    as the ``llm-port-mcp`` container so they can communicate via DNS.
+    This is a best-effort operation: failures are logged but never raised.
+    """
+    try:
+        hostname = urlparse(url).hostname
+        if not hostname or "." in hostname:
+            # Not a bare container name (e.g. an IP or FQDN) — skip.
+            return
+
+        target = await docker.find_container_by_name(hostname)
+        if target is None:
+            logger.debug(
+                "MCP network auto-join: container %r not found — skipping",
+                hostname,
+            )
+            return
+
+        mcp_container = await docker.find_container_by_name(_MCP_SERVICE_CONTAINER)
+        if mcp_container is None:
+            logger.debug("MCP network auto-join: %s container not found", _MCP_SERVICE_CONTAINER)
+            return
+
+        mcp_networks = (
+            mcp_container.get("NetworkSettings", {}).get("Networks", {})
+        )
+        if not mcp_networks:
+            return
+
+        # Pick the first network the MCP container is on
+        network_name = next(iter(mcp_networks))
+
+        # Check if the target is already on that network
+        target_networks = (
+            target.get("NetworkSettings", {}).get("Networks", {})
+        )
+        if network_name in target_networks:
+            logger.debug(
+                "MCP network auto-join: %s already on %s",
+                hostname,
+                network_name,
+            )
+            return
+
+        # Find the network ID
+        all_nets = await docker.list_networks()
+        net_id: str | None = None
+        for n in all_nets:
+            if n.get("Name") == network_name:
+                net_id = n.get("Id")
+                break
+
+        if not net_id:
+            logger.warning("MCP network auto-join: network %r not found", network_name)
+            return
+
+        target_id = target.get("Id", "")
+        await docker.connect_container_to_network(net_id, target_id)
+        logger.info(
+            "MCP network auto-join: connected %s to %s",
+            hostname,
+            network_name,
+        )
+    except Exception:
+        logger.warning("MCP network auto-join failed for %s", url, exc_info=True)
 
 
 # ── Servers ──────────────────────────────────────────────────────────────────
@@ -42,8 +121,14 @@ async def list_servers(
 async def register_server(
     _user: Annotated[User, Depends(require_superuser)],
     client: Annotated[MCPServiceClient, Depends(get_mcp_client)],
+    docker: Annotated[DockerService, Depends(get_docker)],
     payload: Annotated[dict[str, Any], Body()],
 ) -> dict[str, Any]:
+    # Auto-join the MCP server's container to our Docker network
+    # BEFORE registration, because the MCP service connects immediately.
+    url = payload.get("url", "")
+    if url:
+        await _ensure_container_network(docker, url)
     return await client.register_server(payload)
 
 
@@ -61,8 +146,12 @@ async def update_server(
     server_id: Annotated[str, Path()],
     _user: Annotated[User, Depends(require_superuser)],
     client: Annotated[MCPServiceClient, Depends(get_mcp_client)],
+    docker: Annotated[DockerService, Depends(get_docker)],
     payload: Annotated[dict[str, Any], Body()],
 ) -> dict[str, Any]:
+    url = payload.get("url", "")
+    if url:
+        await _ensure_container_network(docker, url)
     return await client.update_server(server_id, payload)
 
 

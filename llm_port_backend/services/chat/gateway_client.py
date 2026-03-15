@@ -96,6 +96,32 @@ class GatewayChatClient:
         )
         return resp
 
+    # -- stream reconnection ------------------------------------------------
+
+    async def stream_status(self, session_id: str, jwt: str) -> Any:
+        """Check if a stream is active for *session_id*."""
+        client = self._ensure_client()
+        resp = await client.get(
+            f"/v1/sessions/{session_id}/stream/status",
+            headers=self._headers(jwt),
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def stream_resume(
+        self, session_id: str, jwt: str,
+    ) -> AsyncIterator[bytes]:
+        """Reconnect to an in-progress SSE stream."""
+        client = self._ensure_client()
+        async with client.stream(
+            "GET",
+            f"/v1/sessions/{session_id}/stream",
+            headers=self._headers(jwt),
+        ) as resp:
+            resp.raise_for_status()
+            async for chunk in resp.aiter_bytes():
+                yield chunk
+
     # -- models -------------------------------------------------------------
 
     async def list_models(self, jwt: str) -> Any:

@@ -80,7 +80,7 @@ async def _test_litellm_provider(
         params["key"] = api_key
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.get(health_url, headers=headers, params=params)
     except httpx.ConnectError:
         return TestEndpointResponse(
@@ -90,7 +90,7 @@ async def _test_litellm_provider(
     except httpx.TimeoutException:
         return TestEndpointResponse(
             compatible=False,
-            error=f"Request to {litellm_provider} API timed out after 10 s.",
+            error=f"Request to {litellm_provider} API timed out after 30 s.",
         )
     except Exception as exc:
         return TestEndpointResponse(
@@ -132,7 +132,7 @@ async def _test_litellm_provider(
 
     return TestEndpointResponse(
         compatible=True,
-        models=model_ids[:20],  # cap at 20 to keep response small
+        models=model_ids[:500],  # cap to keep response manageable
     )
 
 router = APIRouter()
@@ -215,7 +215,7 @@ async def test_endpoint(
         headers["Authorization"] = f"Bearer {body.api_key}"
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.get(f"{url}/models", headers=headers)
     except httpx.ConnectError:
         return TestEndpointResponse(
@@ -225,7 +225,7 @@ async def test_endpoint(
     except httpx.TimeoutException:
         return TestEndpointResponse(
             compatible=False,
-            error="Request timed out after 10 s.",
+            error="Request timed out after 30 s.",
         )
     except Exception as exc:
         return TestEndpointResponse(

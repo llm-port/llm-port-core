@@ -257,6 +257,36 @@ async def list_messages(
         return await _proxy_error(exc)
 
 
+# ── Stream reconnection ──────────────────────────────────────────
+
+
+@router.get("/sessions/{session_id}/stream/status")
+async def stream_status(session_id: str, request: Request) -> JSONResponse:
+    """Check whether an SSE stream is still active for a session."""
+    jwt = _jwt_from_cookie(request)
+    client = _client()
+    try:
+        data = await client.stream_status(session_id, jwt)
+        return JSONResponse(content=data)
+    except Exception as exc:
+        return await _proxy_error(exc)
+
+
+@router.get("/sessions/{session_id}/stream", response_model=None)
+async def stream_resume(session_id: str, request: Request) -> StreamingResponse | JSONResponse:
+    """Reconnect to an in-progress SSE stream (replays buffered chunks)."""
+    jwt = _jwt_from_cookie(request)
+    client = _client()
+    try:
+        return StreamingResponse(
+            client.stream_resume(session_id, jwt),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+    except Exception as exc:
+        return await _proxy_error(exc)
+
+
 # ── Attachments ───────────────────────────────────────────────────
 
 
