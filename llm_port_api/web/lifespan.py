@@ -273,6 +273,9 @@ async def lifespan_setup(
         app.state.chat_file_store = LocalFileStore(settings.chat_file_store_root)
     else:
         app.state.chat_file_store = None
+    # Stream reconnection buffer
+    from llm_port_api.services.gateway.stream_buffer import StreamBuffer  # noqa: PLC0415
+    app.state.stream_buffer = StreamBuffer()
     setup_opentelemetry(app)
     _init_cache(app)
     init_rabbit(app)

@@ -27,6 +27,7 @@ from llm_port_api.services.gateway.ratelimit import RateLimiter
 from llm_port_api.services.gateway.routing import RouterService, RoutingDecision
 from llm_port_api.services.gateway.skills_client import ResolvedSkill, SkillsClient
 from llm_port_api.services.gateway.stream import StreamStats, wrap_sse_stream
+from llm_port_api.services.gateway.stream_buffer import StreamBuffer
 from llm_port_api.services.gateway.usage import (
     estimate_input_tokens,
     usage_from_payload,
@@ -125,6 +126,7 @@ class GatewayService:
         self.mcp_client = mcp_client
         self.mcp_tool_cache = mcp_tool_cache
         self.skills_client = skills_client
+        self.stream_buffer: StreamBuffer | None = None
 
     async def list_models(self, auth: AuthContext) -> dict[str, Any]:
         aliases = await self.dao.list_enabled_aliases_for_tenant(auth.tenant_id)
@@ -312,6 +314,8 @@ class GatewayService:
                     egress_payload=egress_payload,
                     adapter=self.adapter,
                     decision=decision,
+                    tenant_id=auth.tenant_id,
+                    request_id=request_id,
                 )
 
             usage = usage_from_payload(result.payload)
@@ -530,20 +534,96 @@ class GatewayService:
                 stream=True,
                 routing_metadata={"pii_fallback_outcome": fallback_outcome},
             )
-            raw_stream = self.adapter.completion(
-                provider_type=decision.candidate.provider_type,
-                base_url=decision.candidate.base_url,
-                api_key_encrypted=decision.candidate.api_key_encrypted,
-                litellm_provider=decision.candidate.litellm_provider,
-                litellm_model=decision.candidate.litellm_model,
-                extra_params=dict(decision.candidate.extra_params) if decision.candidate.extra_params else None,
-                payload=egress_payload,
-                stream=True,
-            )
-            # raw_stream is a coroutine returning AsyncIterator[bytes]
-            raw_stream = await raw_stream  # type: ignore[misc]
-            wrapped_stream, stats = await wrap_sse_stream(raw_stream)
+
+            # MCP tool injection: merge MCP tools into the payload
+            mcp_tools_injected = False
+            if self.mcp_tool_cache:
+                egress_payload = await self._inject_mcp_tools(
+                    egress_payload, auth.tenant_id,
+                )
+                mcp_tools_injected = any(
+                    (t.get("function", {}).get("name") or "").startswith(MCP_TOOL_PREFIX)
+                    for t in (egress_payload.get("tools") or [])
+                )
+
+            # Apply skill-based tool constraints (after all tools are merged)
+            if resolved_stream_skills:
+                egress_payload = self._apply_skill_tool_constraints(
+                    egress_payload, resolved_stream_skills,
+                )
+
+            if mcp_tools_injected and self.mcp_client:
+                # When MCP tools are present, use non-streaming to enable the
+                # tool loop, then convert the final response to SSE for the client.
+                logger.info("MCP streaming path: switching to non-streaming for tool loop (request_id=%s)", request_id)
+                from llm_port_api.services.gateway.llm_adapter import CompletionResult  # noqa: PLC0415
+
+                adapter_result = await self.adapter.completion(
+                    provider_type=decision.candidate.provider_type,
+                    base_url=decision.candidate.base_url,
+                    api_key_encrypted=decision.candidate.api_key_encrypted,
+                    litellm_provider=decision.candidate.litellm_provider,
+                    litellm_model=decision.candidate.litellm_model,
+                    extra_params=dict(decision.candidate.extra_params) if decision.candidate.extra_params else None,
+                    payload=egress_payload,
+                    stream=False,
+                )
+                assert isinstance(adapter_result, CompletionResult)  # noqa: S101
+                # Propagate upstream errors (e.g. 429 rate-limit) instead of
+                # silently converting them into an empty SSE stream.
+                if adapter_result.status_code >= 400:
+                    err_payload = adapter_result.payload or {}
+                    err_msg = (
+                        err_payload.get("error", {}).get("message")
+                        or f"Upstream error {adapter_result.status_code}"
+                    )
+                    err_type = err_payload.get("error", {}).get("type", "upstream_error")
+                    raise GatewayError(
+                        status_code=adapter_result.status_code,
+                        message=err_msg,
+                        error_type=err_type,
+                        code=err_payload.get("error", {}).get("code"),
+                    )
+                mcp_result = UpstreamResult(
+                    status_code=adapter_result.status_code,
+                    payload=adapter_result.payload,
+                    headers={},
+                )
+                mcp_result = await self._run_mcp_tool_loop(
+                    result=mcp_result,
+                    egress_payload=egress_payload,
+                    adapter=self.adapter,
+                    decision=decision,
+                    tenant_id=auth.tenant_id,
+                    request_id=request_id,
+                )
+                mcp_usage = usage_from_payload(mcp_result.payload)
+                wrapped_stream = _nonstream_to_sse(mcp_result.payload)
+                stats = StreamStats(
+                    ttft_ms=int((time.perf_counter() - started) * 1000),
+                    usage=mcp_usage,
+                )
+            else:
+                raw_stream = self.adapter.completion(
+                    provider_type=decision.candidate.provider_type,
+                    base_url=decision.candidate.base_url,
+                    api_key_encrypted=decision.candidate.api_key_encrypted,
+                    litellm_provider=decision.candidate.litellm_provider,
+                    litellm_model=decision.candidate.litellm_model,
+                    extra_params=dict(decision.candidate.extra_params) if decision.candidate.extra_params else None,
+                    payload=egress_payload,
+                    stream=True,
+                )
+                # raw_stream is a coroutine returning AsyncIterator[bytes]
+                raw_stream = await raw_stream  # type: ignore[misc]
+                wrapped_stream, stats = await wrap_sse_stream(raw_stream)
             stream_started = True
+
+            # Start stream buffer for SSE reconnection
+            _sbuf = self.stream_buffer
+            _sbuf_sid = resolved_stream_session_id
+            if _sbuf and _sbuf_sid:
+                _sbuf.start(_sbuf_sid)
 
             async def _stream_with_finalize() -> AsyncIterator[bytes]:
                 stream_status_code = 200
@@ -553,6 +633,9 @@ class GatewayService:
                     async for chunk in wrapped_stream:
                         # Collect assistant content for persistence
                         _accumulate_stream_content(chunk, accumulated_content)
+                        # Push to reconnection buffer
+                        if _sbuf and _sbuf_sid:
+                            _sbuf.push(_sbuf_sid, chunk)
                         yield chunk
                 except Exception as exc:
                     stream_status_code = 502
@@ -624,6 +707,9 @@ class GatewayService:
                             ),
                             error_code=final_error_code,
                         )
+                    # Mark stream buffer as finished for reconnection
+                    if _sbuf and _sbuf_sid:
+                        _sbuf.finish(_sbuf_sid)
 
             return StreamingGatewayResponse(
                 stream=_stream_with_finalize(),
@@ -967,6 +1053,31 @@ class GatewayService:
 
         # Current request messages become the "tail" of the assembled context
         current_messages = payload.get("messages", [])
+
+        # ── Dedup: detect retry / reload-retry ──────────────────
+        # If the last persisted message already matches the incoming
+        # user message, this is a retry.  Skip persistence and drop
+        # the duplicate from current_messages so the assembler
+        # (which already loads it from history) doesn't double it.
+        if current_messages:
+            last_msgs = await self.session_dao.get_recent_messages(
+                session_id=sid, limit=1,
+            )
+            if last_msgs:
+                last_db = last_msgs[-1]
+                first_cur = current_messages[0]
+                cur_content = first_cur.get("content", "")
+                if isinstance(cur_content, list):
+                    cur_content = " ".join(
+                        p.get("text", "") for p in cur_content
+                        if isinstance(p, dict) and p.get("type") == "text"
+                    ) or ""
+                if (
+                    last_db.role == first_cur.get("role")
+                    and last_db.content == cur_content
+                ):
+                    current_messages = current_messages[1:]
+
         assembled = await assembler.assemble(
             session_id=sid,
             tenant_id=auth.tenant_id,
@@ -977,7 +1088,7 @@ class GatewayService:
 
         payload["messages"] = assembled.messages
 
-        # Persist the user message(s)
+        # Persist only genuinely new user/system messages
         for msg in current_messages:
             if msg.get("role") in ("user", "system"):
                 content = msg.get("content", "")
@@ -995,6 +1106,11 @@ class GatewayService:
                     content=content,
                     content_parts_json=content_parts_json,
                 )
+
+        # Commit user messages immediately so they survive if the
+        # streaming response is interrupted (e.g. page reload).
+        if current_messages:
+            await self.session_dao.session.commit()
 
         return payload, str(sid)
 
@@ -1133,14 +1249,26 @@ class GatewayService:
         assert self.mcp_tool_cache is not None  # noqa: S101
         mcp_tools = await self.mcp_tool_cache.get_tools(tenant_id)
         if not mcp_tools:
+            logger.debug("MCP tool injection: no tools for tenant %s", tenant_id)
             return payload
 
         existing = list(payload.get("tools") or [])
-        existing.extend(mcp_tools)
+        existing.extend(
+            t["openai_tool"] if "openai_tool" in t else t for t in mcp_tools
+        )
         payload = {**payload, "tools": existing}
         # Ensure tool_choice allows the model to call tools
         if "tool_choice" not in payload:
             payload["tool_choice"] = "auto"
+        logger.info(
+            "MCP tool injection: %d tool(s) merged for tenant %s: %s",
+            len(mcp_tools),
+            tenant_id,
+            [
+                (t.get("openai_tool", t).get("function", {}).get("name", "?") if isinstance(t, dict) else "?")
+                for t in mcp_tools
+            ],
+        )
         return payload
 
     async def _run_mcp_tool_loop(
@@ -1150,6 +1278,8 @@ class GatewayService:
         egress_payload: dict[str, Any],
         adapter: LLMAdapter,
         decision: RoutingDecision,
+        tenant_id: str,
+        request_id: str,
     ) -> UpstreamResult:
         """Execute MCP tool calls in a loop, re-calling the LLM each round.
 
@@ -1206,8 +1336,8 @@ class GatewayService:
                 call_result = await self.mcp_client.call_tool(
                     qualified_name=qualified_name,
                     arguments=arguments,
-                    tenant_id=egress_payload.get("_tenant_id", ""),
-                    request_id=egress_payload.get("_request_id", ""),
+                    tenant_id=tenant_id,
+                    request_id=request_id,
                 )
                 messages.append({
                     "role": "tool",
@@ -1234,6 +1364,20 @@ class GatewayService:
                 stream=False,
             )
             assert isinstance(adapter_result, CompletionResult)  # noqa: S101
+            # Propagate upstream errors from tool-loop re-calls
+            if adapter_result.status_code >= 400:
+                err_payload = adapter_result.payload or {}
+                err_msg = (
+                    err_payload.get("error", {}).get("message")
+                    or f"Upstream error {adapter_result.status_code}"
+                )
+                err_type = err_payload.get("error", {}).get("type", "upstream_error")
+                raise GatewayError(
+                    status_code=adapter_result.status_code,
+                    message=err_msg,
+                    error_type=err_type,
+                    code=err_payload.get("error", {}).get("code"),
+                )
             result = UpstreamResult(
                 status_code=adapter_result.status_code,
                 payload=adapter_result.payload,
@@ -1313,7 +1457,12 @@ class GatewayService:
         trace_id: str | None = None,
         token_estimate: int | None = None,
     ) -> None:
-        """Store the accumulated streaming assistant response in the session."""
+        """Store the accumulated streaming assistant response in the session.
+
+        Uses a fresh, independent DB session so the commit is not tied
+        to the request-scoped session (which may already be closed or
+        rolled back if the client disconnected mid-stream).
+        """
         if not self.session_dao or not content:
             return
 
@@ -1324,17 +1473,27 @@ class GatewayService:
         except ValueError:
             return
 
-        await self.session_dao.append_message(
-            session_id=sid,
-            role="assistant",
-            content=content,
-            model_alias=model_alias,
-            provider_instance_id=(
-                _uuid.UUID(provider_instance_id) if provider_instance_id else None
-            ),
-            token_estimate=token_estimate,
-            trace_id=trace_id,
-        )
+        # Obtain a fresh DB session from the factory stored on session_dao.
+        # The request-scoped session may be unusable at this point (client
+        # disconnect can close/rollback it), so we create an independent one.
+        engine = self.session_dao.session.bind  # AsyncEngine
+        from sqlalchemy.ext.asyncio import AsyncSession  # noqa: PLC0415
+        from llm_port_api.db.models.gateway import ChatMessage  # noqa: PLC0415
+
+        async with AsyncSession(engine, expire_on_commit=False) as fresh_session:
+            msg = ChatMessage(
+                session_id=sid,
+                role="assistant",
+                content=content,
+                model_alias=model_alias,
+                provider_instance_id=(
+                    _uuid.UUID(provider_instance_id) if provider_instance_id else None
+                ),
+                token_estimate=token_estimate,
+                trace_id=trace_id,
+            )
+            fresh_session.add(msg)
+            await fresh_session.commit()
 
 
 def _accumulate_stream_content(chunk: bytes, acc: list[str]) -> None:
@@ -1355,6 +1514,65 @@ def _accumulate_stream_content(chunk: bytes, acc: list[str]) -> None:
             delta_content = choice.get("delta", {}).get("content")
             if delta_content:
                 acc.append(delta_content)
+
+
+async def _nonstream_to_sse(payload: dict[str, Any]) -> AsyncIterator[bytes]:
+    """Convert a non-streaming ChatCompletion response into SSE bytes.
+
+    Used when the MCP tool loop runs in non-streaming mode but the client
+    expects a streaming SSE response.
+    """
+    # Surface upstream errors as SSE error events
+    if "error" in payload and not payload.get("choices"):
+        err_evt = {
+            "error": payload["error"],
+        }
+        yield f"data: {json.dumps(err_evt)}\n\n".encode()
+        yield b"data: [DONE]\n\n"
+        return
+
+    choices = payload.get("choices", [])
+    content = ""
+    if choices:
+        msg = choices[0].get("message", {})
+        content = msg.get("content", "") or ""
+    completion_id = payload.get("id", f"chatcmpl-mcp-{int(time.time())}")
+    model = payload.get("model", "unknown")
+
+    # Role delta
+    role_evt = {
+        "id": completion_id,
+        "object": "chat.completion.chunk",
+        "model": model,
+        "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}],
+    }
+    yield f"data: {json.dumps(role_evt)}\n\n".encode()
+
+    # Content deltas (chunked for a smoother streaming feel)
+    chunk_size = 24
+    for i in range(0, max(len(content), 1), chunk_size):
+        text_piece = content[i : i + chunk_size]
+        if text_piece:
+            content_evt = {
+                "id": completion_id,
+                "object": "chat.completion.chunk",
+                "model": model,
+                "choices": [{"index": 0, "delta": {"content": text_piece}, "finish_reason": None}],
+            }
+            yield f"data: {json.dumps(content_evt)}\n\n".encode()
+
+    # Finish delta with optional usage
+    finish_evt: dict[str, Any] = {
+        "id": completion_id,
+        "object": "chat.completion.chunk",
+        "model": model,
+        "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+    }
+    usage = payload.get("usage")
+    if usage:
+        finish_evt["usage"] = usage
+    yield f"data: {json.dumps(finish_evt)}\n\n".encode()
+    yield b"data: [DONE]\n\n"
 
 
 def _resolve_pii_policy(
