@@ -15,6 +15,7 @@ Usage::
 from __future__ import annotations
 
 import logging
+import json
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -70,15 +71,71 @@ class GatewayChatClient:
     ) -> AsyncIterator[bytes]:
         """Stream SSE chunks from the gateway ``/v1/chat/completions``."""
         client = self._ensure_client()
-        async with client.stream(
-            "POST",
-            "/v1/chat/completions",
-            json=payload,
-            headers=self._headers(jwt),
-        ) as resp:
-            resp.raise_for_status()
-            async for chunk in resp.aiter_bytes():
-                yield chunk
+        try:
+            async with client.stream(
+                "POST",
+                "/v1/chat/completions",
+                json=payload,
+                headers=self._headers(jwt),
+            ) as resp:
+                resp.raise_for_status()
+                async for chunk in resp.aiter_bytes():
+                    yield chunk
+        except httpx.HTTPStatusError as exc:
+            body_text = ""
+            try:
+                body_bytes = await exc.response.aread()
+                body_text = body_bytes.decode("utf-8", errors="replace")
+            except Exception:
+                body_text = ""
+
+            try:
+                detail = json.loads(body_text) if body_text else {}
+            except Exception:
+                detail = {
+                    "error": {
+                        "message": body_text or str(exc),
+                        "type": "gateway_error",
+                        "code": "gateway_http_error",
+                    },
+                }
+
+            if not isinstance(detail, dict):
+                detail = {
+                    "error": {
+                        "message": str(detail),
+                        "type": "gateway_error",
+                        "code": "gateway_http_error",
+                    },
+                }
+
+            error_obj = detail.get("error") if isinstance(detail.get("error"), dict) else {}
+            error_obj = dict(error_obj)
+            error_obj.setdefault(
+                "message",
+                exc.response.reason_phrase or "Gateway request failed",
+            )
+            error_obj.setdefault("type", "gateway_error")
+            error_obj.setdefault("code", "gateway_http_error")
+            error_obj.setdefault("status", exc.response.status_code)
+
+            sse_payload = json.dumps({"error": error_obj}, ensure_ascii=False)
+            yield f"data: {sse_payload}\n\n".encode("utf-8")
+            yield b"data: [DONE]\n\n"
+        except Exception:
+            logger.exception("Streaming chat proxy error")
+            sse_payload = json.dumps(
+                {
+                    "error": {
+                        "message": "Gateway unavailable",
+                        "type": "gateway_unavailable",
+                        "code": "gateway_unavailable",
+                    },
+                },
+                ensure_ascii=False,
+            )
+            yield f"data: {sse_payload}\n\n".encode("utf-8")
+            yield b"data: [DONE]\n\n"
 
     # -- chat completions (non-streaming) -----------------------------------
 

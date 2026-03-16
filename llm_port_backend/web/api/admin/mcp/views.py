@@ -244,6 +244,16 @@ class ScanRequest(BaseModel):
     port_end: int = Field(default=9000, ge=1, le=65535)
 
 
+def _normalize_scan_host(host: str) -> str:
+    normalized = host.strip()
+    normalized = normalized.replace("host.docker.internel", "host.docker.internal")
+    if normalized.startswith(("http://", "https://")):
+        normalized = urlparse(normalized).hostname or normalized
+    if "/" in normalized:
+        normalized = normalized.split("/", 1)[0]
+    return normalized
+
+
 class DiscoveredServer(BaseModel):
     host: str
     port: int
@@ -367,6 +377,8 @@ async def scan_for_servers(
     client: Annotated[MCPServiceClient, Depends(get_mcp_client)],
 ) -> ScanResponse:
     """Scan a host for running MCP servers on a port range."""
+    host = _normalize_scan_host(body.host)
+
     if body.port_end < body.port_start:
         raise HTTPException(status_code=422, detail="port_end must be >= port_start.")
     port_range = body.port_end - body.port_start + 1
@@ -389,7 +401,7 @@ async def scan_for_servers(
 
     async def probe(port: int) -> DiscoveredServer | None:
         async with sem:
-            return await _probe_mcp_port(body.host, port)
+            return await _probe_mcp_port(host, port)
 
     tasks = [probe(p) for p in range(body.port_start, body.port_end + 1)]
     results = await asyncio.gather(*tasks)
