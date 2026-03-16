@@ -20,6 +20,7 @@ class ContainerSummaryDTO(BaseModel):
     created: str
     ports: list[dict[str, Any]] = Field(default_factory=list)
     networks: list[str] = Field(default_factory=list)
+    endpoint: str = Field(default="", description="Published host:port bindings, e.g. '0.0.0.0:8080'.")
     container_class: ContainerClass = ContainerClass.UNTRUSTED
     policy: ContainerPolicy = ContainerPolicy.FREE
     owner_scope: str = "unknown"

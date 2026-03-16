@@ -115,10 +115,40 @@ class MCPServiceClient:
             "PATCH", f"/api/admin/tools/{tool_id}", json_body=payload,
         )
 
+    # ── Provider Settings ────────────────────────────────────────────────
+
+    async def get_settings_schema(self, server_id: str) -> dict[str, Any]:
+        return await self._request(
+            "GET", f"/api/admin/servers/{server_id}/settings/schema",
+        )
+
+    async def get_settings(self, server_id: str) -> dict[str, Any]:
+        return await self._request(
+            "GET", f"/api/admin/servers/{server_id}/settings",
+        )
+
+    async def update_settings(
+        self, server_id: str, payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        return await self._request(
+            "PUT", f"/api/admin/servers/{server_id}/settings", json_body=payload,
+        )
+
     # ── Health ───────────────────────────────────────────────────────────
 
     async def health(self) -> dict[str, Any]:
         return await self._request("GET", "/api/health")
+
+    async def scan_servers(self, payload: dict[str, Any]) -> dict[str, Any]:
+        # Scanning many ports can take longer than the default timeout
+        orig = self.timeout_sec
+        self.timeout_sec = max(orig, 120.0)
+        try:
+            return await self._request(
+                "POST", "/api/admin/scan", json_body=payload,
+            )
+        finally:
+            self.timeout_sec = orig
 
 
 def get_mcp_client() -> MCPServiceClient:

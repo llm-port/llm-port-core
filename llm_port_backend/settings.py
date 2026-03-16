@@ -67,7 +67,7 @@ class Settings(BaseSettings):
     db_max_overflow: int = max(10, _CPU_COUNT * 3)
 
     # Variables for RabbitMQ
-    rabbit_host: str = "llm-port-backend-rmq"
+    rabbit_host: str = "llm-port-rmq"
     rabbit_port: int = 5672
     rabbit_user: str = "guest"
     rabbit_pass: str = "guest"  # noqa: S105
@@ -158,6 +158,11 @@ class Settings(BaseSettings):
     mcp_enabled: bool = False
     mcp_service_url: str = "http://127.0.0.1:8007"
     mcp_service_token: str = "dev-mcp-service-token"
+
+    # Skills module settings
+    skills_enabled: bool = False
+    skills_service_url: str = "http://127.0.0.1:8008"
+    skills_service_token: str = "dev-skills-service-token"
 
     # RAG Lite module settings (embedded pgvector-based RAG)
     rag_lite_enabled: bool = False

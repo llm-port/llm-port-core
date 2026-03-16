@@ -12,10 +12,13 @@ from typing import Any, Literal
 from urllib.parse import quote, urlencode, urlparse, urlunparse
 
 import httpx
+import jwt
 import websockets
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket
 from starlette import status
 from starlette.websockets import WebSocketDisconnect
+
+from fastapi_users.db import SQLAlchemyUserDatabase
 
 from llm_port_backend.db.models.users import User
 from llm_port_backend.settings import settings
@@ -25,6 +28,45 @@ router = APIRouter()
 log = logging.getLogger(__name__)
 
 _RATE_LIMIT_PER_MINUTE = 120
+
+
+async def _ws_authenticate(websocket: WebSocket) -> User:
+    """Extract and verify the user from a WebSocket cookie JWT.
+
+    fastapi-users' ``current_user`` dependency doesn't work on WebSocket
+    endpoints because its transport layer requires an HTTP ``Request``.
+    This helper manually reads the ``fapiauth`` cookie set by the cookie
+    transport and validates it against the same JWT secret.
+    """
+    token = websocket.cookies.get("fapiauth")
+    if not token:
+        await websocket.close(code=4401, reason="Not authenticated")
+        raise WebSocketDisconnect(code=4401, reason="Not authenticated")
+
+    try:
+        payload = jwt.decode(
+            token,
+            settings.users_secret,
+            algorithms=["HS256"],
+            audience=["fastapi-users:auth"],
+        )
+        user_id = payload.get("sub")
+        if not user_id:
+            raise ValueError("Missing sub claim")
+    except (jwt.PyJWTError, ValueError):
+        await websocket.close(code=4401, reason="Invalid token")
+        raise WebSocketDisconnect(code=4401, reason="Invalid token")
+
+    session_factory = websocket.app.state.db_session_factory
+    async with session_factory() as session:
+        user_db = SQLAlchemyUserDatabase(session, User)
+        user = await user_db.get(uuid.UUID(user_id))
+        if user is None or not user.is_active:
+            await websocket.close(code=4403, reason="User not found or inactive")
+            raise WebSocketDisconnect(code=4403)
+        return user
+
+
 _rate_buckets: dict[str, int] = defaultdict(int)
 
 _LABEL_MATCH_RE = re.compile(r"([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:=|!=|=~|!~)")
@@ -320,7 +362,6 @@ async def query_range(
 async def tail_logs(
     websocket: WebSocket,
     query: str = Query(..., min_length=1),
-    _user: User = Depends(require_permission("logs", "read")),
 ) -> None:
     """
     Stream tail messages from Loki to the browser via backend websocket proxy.
@@ -328,6 +369,7 @@ async def tail_logs(
     Loki currently publishes JSON frames for tail updates. The endpoint forwards
     each frame as-is so the frontend can parse/shape it as needed.
     """
+    user = await _ws_authenticate(websocket)
     _enforce_query_allowlist(query)
     await websocket.accept()
 

@@ -255,13 +255,24 @@ async def list_services(
             entry["configured"] = configured
             entry["containers"] = containers
             any_running = any(c["state"] == "running" for c in containers)
-            entry["enabled"] = any_running
-            if any_running and mod.health_url_fn:
+
+            if not any_running and configured and mod.health_url_fn:
+                # No Docker container found, but the module is configured
+                # via settings — probe the health endpoint as a fallback
+                # (supports dev-mode where services run natively).
+                entry["enabled"] = False  # updated after health check
+                entry["status"] = "unknown"
+                health_checks.append(
+                    (len(result), asyncio.create_task(_probe_health(mod.health_url_fn()))),
+                )
+            elif any_running and mod.health_url_fn:
+                entry["enabled"] = True
                 entry["status"] = "unknown"
                 health_checks.append(
                     (len(result), asyncio.create_task(_probe_health(mod.health_url_fn()))),
                 )
             else:
+                entry["enabled"] = any_running
                 entry["status"] = "configured" if configured else "disabled"
 
         result.append(entry)
@@ -273,6 +284,11 @@ async def list_services(
         )
         for (idx, _), status_val in zip(health_checks, statuses):
             result[idx]["status"] = status_val
+            # For container modules with no running Docker containers,
+            # a successful health probe means the service is reachable
+            # (e.g. running natively in dev mode).
+            if status_val == "healthy" and not result[idx].get("enabled"):
+                result[idx]["enabled"] = True
 
     return JSONResponse(status_code=200, content={"services": result})
 

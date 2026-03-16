@@ -25,6 +25,7 @@ class ContainerClass(enum.StrEnum):
 
     SYSTEM_CORE = "SYSTEM_CORE"
     SYSTEM_AUX = "SYSTEM_AUX"
+    MCP = "MCP"
     TENANT_APP = "TENANT_APP"
     UNTRUSTED = "UNTRUSTED"
 

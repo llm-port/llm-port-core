@@ -64,23 +64,46 @@ def _severity(root_mode: bool) -> str:
 # ──────────────────────────────────────────────────────────────────────────────
 
 # Containers whose name contains any of these substrings are classified accordingly.
+# Rules are evaluated top-to-bottom; first match wins.
 _AUTO_CLASS_RULES: list[tuple[list[str], ContainerClass, str]] = [
-    # SYSTEM_CORE — infra that must always be running
-    (["postgres", "clickhouse", "redis"], ContainerClass.SYSTEM_CORE, "platform"),
-    # SYSTEM_AUX — supporting services
+    # SYSTEM_CORE — shared platform infrastructure (non-editable)
     (
         [
-            "grafana",
-            "loki",
-            "alloy",
-            "minio",
-            "langfuse",
-            "rabbitmq",
-            "rmq",
+            "postgres", "clickhouse", "redis", "nginx",  # data & proxy
+            "rabbitmq", "rmq",                            # message broker
+            "minio",                                      # object storage
+            "loki", "grafana", "alloy",                   # observability
+            "langfuse", "llm-port-worker", "llm-port-web",  # LLM tracing
+        ],
+        ContainerClass.SYSTEM_CORE,
+        "platform",
+    ),
+    # SYSTEM_AUX — application services (checked before MCP so that
+    # "llm-port-mcp-migrator" doesn't accidentally match the generic
+    # "mcp-" pattern below).
+    (
+        [
             "llm-port-api",
             "llm_port_api",
+            "llm-port-backend",
+            "llm-port-frontend",
+            "llm-port-mcp",
+            "llm-port-skills",
+            "llm-port-pii",
+            "llm-port-rag",
+            "llm-port-auth",
+            "llm-port-mailer",
+            "llm-port-docling",
+            "llm-port-ee",
+            "migrator",
         ],
         ContainerClass.SYSTEM_AUX,
+        "platform",
+    ),
+    # MCP — standalone Model Context Protocol servers
+    (
+        ["mcp-brave", "mcp-searxng", "mcp-"],
+        ContainerClass.MCP,
         "platform",
     ),
 ]
@@ -93,6 +116,26 @@ def _classify_by_name(name: str) -> tuple[ContainerClass, str]:
         if any(s in lower for s in substrings):
             return cls, scope
     return ContainerClass.UNTRUSTED, "unknown"
+
+
+def _format_endpoint(ports: list[dict[str, Any]]) -> str:
+    """Build a human-readable endpoint string from Docker port entries."""
+    seen: list[str] = []
+    for p in ports:
+        pub = p.get("PublicPort")
+        priv = p.get("PrivatePort")
+        ip = p.get("IP", "0.0.0.0")
+        if pub:
+            if ip in ("::", "0.0.0.0"):
+                ip = "0.0.0.0"
+            entry = f"{ip}:{pub}"
+            if entry not in seen:
+                seen.append(entry)
+        elif priv:
+            entry = f":{priv}"
+            if entry not in seen:
+                seen.append(entry)
+    return ", ".join(seen)
 
 
 def _container_summary_from_docker(
@@ -119,6 +162,7 @@ def _container_summary_from_docker(
         created=str(raw.get("Created", "")),
         ports=ports,
         networks=network_names,
+        endpoint=_format_endpoint(ports),
         container_class=container_class,
         policy=policy,
         owner_scope=owner_scope,
