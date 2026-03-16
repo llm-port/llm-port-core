@@ -2,3 +2,4 @@
 .empty-hf-cache/
 .bootstrap-credentials
 .env
+rabbitmq/definitions.json
