@@ -206,6 +206,9 @@ def _setup_service_registry(app: FastAPI) -> None:
     service_registry.configure(
         "mcp", enabled=settings.mcp_enabled, url=settings.mcp_service_url,
     )
+    service_registry.configure(
+        "skills", enabled=settings.skills_enabled, url=settings.skills_service_url,
+    )
     app.state.service_registry = service_registry
 
 
@@ -270,6 +273,9 @@ async def lifespan_setup(
         app.state.chat_file_store = LocalFileStore(settings.chat_file_store_root)
     else:
         app.state.chat_file_store = None
+    # Stream reconnection buffer
+    from llm_port_api.services.gateway.stream_buffer import StreamBuffer  # noqa: PLC0415
+    app.state.stream_buffer = StreamBuffer()
     setup_opentelemetry(app)
     _init_cache(app)
     init_rabbit(app)

@@ -5,6 +5,7 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request, Response
+from pydantic import ValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
 from starlette import status
 
@@ -19,6 +20,7 @@ from llm_port_api.services.gateway.observability import GatewayObservability
 from llm_port_api.services.gateway.mcp_client import MCPClient
 from llm_port_api.services.gateway.mcp_tool_cache import MCPToolCache
 from llm_port_api.services.gateway.pii_client import PIIClient
+from llm_port_api.services.gateway.skills_client import SkillsClient
 from llm_port_api.services.gateway.proxy import UpstreamProxy
 from llm_port_api.services.gateway.ratelimit import RateLimiter
 from llm_port_api.services.gateway.routing import RouterService
@@ -90,6 +92,16 @@ def get_gateway_service(
         )
         mcp_tool_cache = MCPToolCache(mcp_client)
 
+    # Skills client (optional - when Skills module is enabled in registry)
+    skills_client: SkillsClient | None = None
+    skills_url = service_registry.get_url("skills")
+    if skills_url and settings.skills_service_token:
+        skills_client = SkillsClient(
+            base_url=skills_url,
+            http_client=request.app.state.http_client,
+            service_token=settings.skills_service_token,
+        )
+
     # RAG Lite client (optional - when RAG Lite is enabled)
     from llm_port_api.services.gateway.rag_lite_client import RagLiteClient  # noqa: PLC0415
 
@@ -100,7 +112,7 @@ def get_gateway_service(
             http_client=request.app.state.http_client,
         )
 
-    return GatewayService(
+    service = GatewayService(
         dao=dao,
         router=router_service,
         proxy=proxy,
@@ -114,7 +126,10 @@ def get_gateway_service(
         file_store=getattr(request.app.state, "chat_file_store", None),
         mcp_client=mcp_client,
         mcp_tool_cache=mcp_tool_cache,
+        skills_client=skills_client,
     )
+    service.stream_buffer = getattr(request.app.state, "stream_buffer", None)
+    return service
 
 
 @router.get("/v1/models")
@@ -222,6 +237,13 @@ async def create_chat_completions(
         if non_stream.trace_id:
             json_response.headers["x-langfuse-trace-id"] = non_stream.trace_id
         return json_response
+    except ValidationError as exc:
+        return error_response(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            message=str(exc),
+            error_type="invalid_request_error",
+            code="validation_error",
+        )
     except GatewayError as exc:
         return error_response(
             status_code=exc.status_code,
@@ -230,6 +252,46 @@ async def create_chat_completions(
             param=exc.param,
             code=exc.code,
         )
+
+
+# ── Stream reconnection ──────────────────────────────────────────
+
+@router.get("/v1/sessions/{session_id}/stream/status")
+async def stream_status(
+    request: Request,
+    session_id: str,
+    auth: AuthContext = Depends(get_auth_context),
+) -> JSONResponse:
+    """Check whether a streaming response is still in progress for a session."""
+    from llm_port_api.services.gateway.stream_buffer import StreamBuffer  # noqa: PLC0415
+    buf: StreamBuffer | None = getattr(request.app.state, "stream_buffer", None)
+    if buf and buf.has_buffer(session_id):
+        return JSONResponse({"active": buf.is_active(session_id)})
+    return JSONResponse({"active": False})
+
+
+@router.get("/v1/sessions/{session_id}/stream")
+async def stream_resume(
+    request: Request,
+    session_id: str,
+    auth: AuthContext = Depends(get_auth_context),
+) -> Response:
+    """Reconnect to an in-progress (or recently finished) SSE stream.
+
+    Replays all buffered chunks, then tails live chunks until the
+    stream completes.  Returns 204 if no buffer exists.
+    """
+    from llm_port_api.services.gateway.stream_buffer import StreamBuffer  # noqa: PLC0415
+    buf: StreamBuffer | None = getattr(request.app.state, "stream_buffer", None)
+    if not buf or not buf.has_buffer(session_id):
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    subscriber = await buf.subscribe(session_id)
+    return StreamingResponse(
+        subscriber,
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 def _request_id(request: Request) -> str:
