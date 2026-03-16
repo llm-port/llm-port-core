@@ -101,15 +101,28 @@ class PrivacyProxy:
         resp.raise_for_status()
         data = resp.json()
 
-        entities_found = data.get("entities_found", [])
-        pii_detected = bool(entities_found)
+        raw_entities = data.get("entities_found", [])
+        entities_found: list[dict[str, Any]]
+        entities_count: int
+
+        if isinstance(raw_entities, list):
+            entities_found = [e for e in raw_entities if isinstance(e, dict)]
+            entities_count = len(raw_entities)
+        elif isinstance(raw_entities, int):
+            entities_found = []
+            entities_count = max(raw_entities, 0)
+        else:
+            entities_found = []
+            entities_count = 0
+
+        pii_detected = entities_count > 0
 
         if pii_mode == "block" and pii_detected:
             return PrivacyDecision(
                 allowed=False,
                 sanitized_args=arguments,
                 entities_found=entities_found,
-                redaction_summary={"action": "blocked", "count": len(entities_found)},
+                redaction_summary={"action": "blocked", "count": entities_count},
             )
 
         if pii_mode == "redact" and pii_detected:
@@ -119,7 +132,7 @@ class PrivacyProxy:
                 allowed=True,
                 sanitized_args=_text_to_args(sanitized_text, arguments),
                 entities_found=entities_found,
-                redaction_summary={"action": "redacted", "count": len(entities_found)},
+                redaction_summary={"action": "redacted", "count": entities_count},
             )
 
         return PrivacyDecision(allowed=True, sanitized_args=arguments)

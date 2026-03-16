@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import uuid
 from typing import Any
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,6 +29,16 @@ from llm_port_mcp.web.api.auth import AuthContext, get_auth_context
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def _normalize_scan_host(host: str) -> str:
+    normalized = host.strip()
+    normalized = normalized.replace("host.docker.internel", "host.docker.internal")
+    if normalized.startswith(("http://", "https://")):
+        normalized = urlparse(normalized).hostname or normalized
+    if "/" in normalized:
+        normalized = normalized.split("/", 1)[0]
+    return normalized
 
 
 # ── Helpers ───────────────────────────────────────────────────────────
@@ -687,6 +698,8 @@ async def scan_for_servers(
     """Scan a host for running MCP servers on a port range."""
     import asyncio
 
+    host = _normalize_scan_host(body.host)
+
     if body.port_end < body.port_start:
         raise HTTPException(
             status_code=422,
@@ -709,7 +722,7 @@ async def scan_for_servers(
 
     async def probe(port: int) -> DiscoveredServer | None:
         async with sem:
-            return await _probe_mcp_port(body.host, port)
+            return await _probe_mcp_port(host, port)
 
     tasks = [probe(p) for p in range(body.port_start, body.port_end + 1)]
     results = await asyncio.gather(*tasks)
