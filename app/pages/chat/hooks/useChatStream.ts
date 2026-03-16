@@ -5,6 +5,7 @@
  * file attachments, and token‐usage extraction.
  */
 import { useCallback, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { chatApi, resumeStream, streamChat } from "~/api/chatClient";
 import type { ChatMessage, ChatSession, TokenUsage } from "~/api/chatTypes";
@@ -77,6 +78,7 @@ export function useChatStream({
   onSessionCreated,
   onSessionUpdated,
 }: UseChatStreamOptions): UseChatStreamReturn {
+  const { t } = useTranslation();
   const selectedModelRef = useRef(selectedModel);
   selectedModelRef.current = selectedModel;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -171,7 +173,13 @@ export function useChatStream({
       if (msgs.length > 0 && msgs[msgs.length - 1].role === "user") {
         const lastUser = msgs[msgs.length - 1];
         lastSendRef.current = { text: lastUser.content, model: "" };
-        setError("The last message did not receive a response. You can retry.");
+        setError(
+          t("error_last_message_no_response", {
+            ns: "chat",
+            defaultValue:
+              "The last message did not receive a response. You can retry.",
+          }),
+        );
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -241,7 +249,12 @@ export function useChatStream({
         const streamStartedAt = performance.now();
 
         if (!model) {
-          throw new Error("Please select a model before sending a message.");
+          throw new Error(
+            t("error_select_model", {
+              ns: "chat",
+              defaultValue: "Please select a model before sending a message.",
+            }),
+          );
         }
 
         const { reader, abort } = streamChat({
@@ -267,7 +280,12 @@ export function useChatStream({
 
         // 5. Streaming complete — materialise assistant message
         if (!accumulated.trim()) {
-          throw new Error("No response received from the model.");
+          throw new Error(
+            t("error_no_response", {
+              ns: "chat",
+              defaultValue: "No response received from the model.",
+            }),
+          );
         }
         const elapsedMs = Math.round(performance.now() - streamStartedAt);
         const assistantMsgId = `tmp-${Date.now()}-a`;

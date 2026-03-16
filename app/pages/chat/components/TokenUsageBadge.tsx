@@ -17,7 +17,10 @@ function fmtNum(n: number): string {
 
 export default function TokenUsageBadge({ usage }: Props) {
   const { t } = useTranslation();
-  const label = `${fmtNum(usage.total_tokens)} tok`;
+  const label = `${fmtNum(usage.total_tokens)} ${t("token_suffix", {
+    ns: "chat",
+    defaultValue: "tok",
+  })}`;
   const detail = t("chat.token_detail", {
     defaultValue:
       "Prompt: {{prompt}} · Completion: {{completion}} · Total: {{total}}",

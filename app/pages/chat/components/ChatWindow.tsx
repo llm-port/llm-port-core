@@ -1,7 +1,7 @@
 /**
  * ChatWindow — active chat session with message history + streaming.
  */
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import Box from "@mui/material/Box";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
@@ -14,10 +14,17 @@ import ReplayIcon from "@mui/icons-material/Replay";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import LightModeIcon from "@mui/icons-material/LightMode";
 import DarkModeIcon from "@mui/icons-material/DarkMode";
+import TranslateIcon from "@mui/icons-material/Translate";
+import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
 import { useTranslation } from "react-i18next";
-import { useLocation } from "react-router";
+import { useNavigate, useLocation } from "react-router";
 
 import Avatar from "@mui/material/Avatar";
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
+import type { ChatSession, TokenUsage } from "~/api/chatTypes";
+import type { UiLanguage } from "~/api/i18n";
+import i18n from "~/i18n";
 import type { ChatSession, TokenUsage } from "~/api/chatTypes";
 import type { InitialMessageState } from "./ChatWelcome";
 import { useThemeMode } from "~/theme-mode";
@@ -33,6 +40,10 @@ interface Props {
   onSessionUpdated: (session: ChatSession) => void;
   onToggleSidebar: () => void;
   sidebarOpen: boolean;
+  languages: UiLanguage[];
+  language: string;
+  onLanguageChange: (code: string) => void;
+  isSuperuser: boolean;
 }
 
 export default function ChatWindow({
@@ -43,10 +54,18 @@ export default function ChatWindow({
   onSessionUpdated,
   onToggleSidebar,
   sidebarOpen,
+  languages,
+  language,
+  onLanguageChange,
+  isSuperuser,
 }: Props) {
   const { t } = useTranslation();
   const theme = useTheme();
+  const navigate = useNavigate();
   const { mode, toggleMode } = useThemeMode();
+  const [langMenuAnchor, setLangMenuAnchor] = useState<HTMLElement | null>(
+    null,
+  );
   const bottomRef = useRef<HTMLDivElement>(null);
   const location = useLocation();
   const initialSentRef = useRef(false);
@@ -143,15 +162,67 @@ export default function ChatWindow({
         <Typography variant="body1" fontWeight={600} noWrap sx={{ flex: 1 }}>
           {t("chat.conversation", { defaultValue: "Conversation" })}
         </Typography>
-        <Tooltip title={mode === "dark" ? "Light mode" : "Dark mode"}>
-          <IconButton size="small" onClick={toggleMode}>
-            {mode === "dark" ? (
-              <LightModeIcon fontSize="small" />
-            ) : (
-              <DarkModeIcon fontSize="small" />
-            )}
-          </IconButton>
-        </Tooltip>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+          {isSuperuser && (
+            <Tooltip title={t("nav.admin", { defaultValue: "Admin panel" })}>
+              <IconButton size="small" onClick={() => navigate("/admin")}>
+                <AdminPanelSettingsIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
+          <Tooltip title={t("language.label", { defaultValue: "Language" })}>
+            <IconButton
+              size="small"
+              onClick={(e) => setLangMenuAnchor(e.currentTarget)}
+            >
+              <TranslateIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+          <Menu
+            anchorEl={langMenuAnchor}
+            open={Boolean(langMenuAnchor)}
+            onClose={() => setLangMenuAnchor(null)}
+            anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+            transformOrigin={{ vertical: "top", horizontal: "right" }}
+          >
+            {languages.map((lang) => (
+              <MenuItem
+                key={lang.code}
+                selected={language === lang.code}
+                onClick={() => {
+                  onLanguageChange(lang.code);
+                  void i18n
+                    .reloadResources([lang.code], ["common", "chat"])
+                    .then(() => i18n.changeLanguage(lang.code));
+                  setLangMenuAnchor(null);
+                }}
+              >
+                {lang.name}
+              </MenuItem>
+            ))}
+          </Menu>
+          <Tooltip
+            title={
+              mode === "dark"
+                ? t("theme.light", {
+                    ns: "common",
+                    defaultValue: "Switch to light mode",
+                  })
+                : t("theme.dark", {
+                    ns: "common",
+                    defaultValue: "Switch to dark mode",
+                  })
+            }
+          >
+            <IconButton size="small" onClick={toggleMode}>
+              {mode === "dark" ? (
+                <LightModeIcon fontSize="small" />
+              ) : (
+                <DarkModeIcon fontSize="small" />
+              )}
+            </IconButton>
+          </Tooltip>
+        </Box>
       </Box>
 
       {/* Messages area */}
@@ -253,7 +324,7 @@ export default function ChatWindow({
                     display: "block",
                   }}
                 >
-                  Error
+                  {t("error_label", { ns: "chat", defaultValue: "Error" })}
                 </Typography>
                 <Typography
                   variant="body2"
@@ -270,7 +341,7 @@ export default function ChatWindow({
                     onClick={retry}
                     sx={{ textTransform: "none", borderRadius: 2 }}
                   >
-                    Retry
+                    {t("retry", { ns: "chat", defaultValue: "Retry" })}
                   </Button>
                 </Box>
               </Box>

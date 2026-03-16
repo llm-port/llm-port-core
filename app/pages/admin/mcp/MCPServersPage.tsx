@@ -100,6 +100,19 @@ export default function MCPServersPage() {
   const [scanError, setScanError] = useState<string | null>(null);
   const [registeringUrl, setRegisteringUrl] = useState<string | null>(null);
 
+  function normalizeScanHost(rawHost: string): string {
+    const trimmed = rawHost.trim();
+    if (!trimmed) return "";
+
+    const correctedTypos = trimmed.replace(
+      /host\.docker\.internel/gi,
+      "host.docker.internal",
+    );
+
+    const noScheme = correctedTypos.replace(/^https?:\/\//i, "");
+    return noScheme.split("/")[0] ?? noScheme;
+  }
+
   function openCreate() {
     setNewName("");
     setNewTransport("streamable_http");
@@ -164,7 +177,7 @@ export default function MCPServersPage() {
   }
 
   function openScan() {
-    setScanHost("");
+    setScanHost("host.docker.internal");
     setScanPortStart(8000);
     setScanPortEnd(9000);
     setScanResults([]);
@@ -175,12 +188,14 @@ export default function MCPServersPage() {
   }
 
   async function handleScan() {
+    const host = normalizeScanHost(scanHost);
+    setScanHost(host);
     setScanning(true);
     setScanError(null);
     setScanResults([]);
     setScanDone(false);
     try {
-      const result = await scanForServers(scanHost, scanPortStart, scanPortEnd);
+      const result = await scanForServers(host, scanPortStart, scanPortEnd);
       setScanResults(result.discovered);
       setScanDone(true);
     } catch (err: unknown) {

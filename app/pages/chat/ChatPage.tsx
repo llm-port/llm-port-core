@@ -3,23 +3,25 @@
  *
  * Route: /chat (welcome) and /chat/:sessionId (active session).
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  useNavigate,
-  useParams,
-  useOutletContext,
-  useLocation,
-} from "react-router";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate, useParams, useOutletContext } from "react-router";
 import Box from "@mui/material/Box";
+import Dialog from "@mui/material/Dialog";
+import DialogTitle from "@mui/material/DialogTitle";
+import DialogContent from "@mui/material/DialogContent";
+import IconButton from "@mui/material/IconButton";
+import CloseIcon from "@mui/icons-material/Close";
 import useMediaQuery from "@mui/material/useMediaQuery";
 import { useTheme } from "@mui/material/styles";
 
 import { chatApi, type ChatSession, type ChatProject } from "~/api/chatClient";
-import type { AuthUser } from "~/api/auth";
+import { auth, type AuthUser } from "~/api/auth";
+import { listLanguages, type UiLanguage } from "~/api/i18n";
 import type { InitialMessageState } from "./components/ChatWelcome";
 import ChatSidebar from "./components/ChatSidebar";
 import ChatWelcome from "./components/ChatWelcome";
 import ChatWindow from "./components/ChatWindow";
+import ProfilePage from "../admin/ProfilePage";
 
 const SIDEBAR_WIDTH = 260;
 const SIDEBAR_COLLAPSED_WIDTH = 0;
@@ -36,6 +38,9 @@ export default function ChatPage() {
   const [projects, setProjects] = useState<ChatProject[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(!isMobile);
   const [selectedModel, setSelectedModel] = useState<string>("");
+  const [languages, setLanguages] = useState<UiLanguage[]>([]);
+  const [language, setLanguage] = useState<string>("en");
+  const [profileOpen, setProfileOpen] = useState(false);
 
   // Refs
   const loadedRef = useRef(false);
@@ -58,6 +63,9 @@ export default function ChatPage() {
     if (!loadedRef.current) {
       loadedRef.current = true;
       refreshSidebar();
+      listLanguages()
+        .then(setLanguages)
+        .catch(() => {});
     }
   }, [refreshSidebar]);
 
@@ -139,6 +147,15 @@ export default function ChatPage() {
     [],
   );
 
+  const handleLogout = useCallback(async () => {
+    await auth.logout();
+    navigate("/");
+  }, [navigate]);
+
+  const handleLanguageChange = useCallback((code: string) => {
+    setLanguage(code);
+  }, []);
+
   const handleSessionUpdated = useCallback((updated: ChatSession) => {
     setSessions((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
   }, []);
@@ -163,6 +180,9 @@ export default function ChatPage() {
         onMoveSession={handleMoveSession}
         width={SIDEBAR_WIDTH}
         isMobile={isMobile}
+        currentUserEmail={user.email}
+        onLogout={handleLogout}
+        onProfileOpen={() => setProfileOpen(true)}
       />
 
       {/* Main content */}
@@ -187,6 +207,10 @@ export default function ChatPage() {
             onSessionUpdated={handleSessionUpdated}
             onToggleSidebar={() => setSidebarOpen((v) => !v)}
             sidebarOpen={sidebarOpen}
+            languages={languages}
+            language={language}
+            onLanguageChange={handleLanguageChange}
+            isSuperuser={user.is_superuser}
           />
         ) : (
           <ChatWelcome
@@ -195,9 +219,37 @@ export default function ChatPage() {
             onSessionCreated={handleSessionCreated}
             onToggleSidebar={() => setSidebarOpen((v) => !v)}
             sidebarOpen={sidebarOpen}
+            languages={languages}
+            language={language}
+            onLanguageChange={handleLanguageChange}
+            isSuperuser={user.is_superuser}
           />
         )}
       </Box>
+
+      {/* Profile overlay */}
+      <Dialog
+        open={profileOpen}
+        onClose={() => setProfileOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          {""}
+          <IconButton size="small" onClick={() => setProfileOpen(false)}>
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent>
+          <ProfilePage />
+        </DialogContent>
+      </Dialog>
     </Box>
   );
 }

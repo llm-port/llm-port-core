@@ -1,6 +1,6 @@
 # llM.Port Frontend
 
- This is the React-based admin console for llm.port, providing a unified UI to manage containers and LLM infrastructure, configure system settings and initialization workflows, monitor logs/traces, and operate the centralized OpenAI-compatible gateway through backend APIs.
+This is the React-based admin console for llm.port, providing a unified UI to manage containers and LLM infrastructure, configure system settings and initialization workflows, monitor logs/traces, and operate the centralized OpenAI-compatible gateway through backend APIs.
 
 ## Getting Started
 
@@ -21,6 +21,28 @@ npm run dev
 ```
 
 Your application will be available at `http://localhost:5173`.
+
+If your backend runs on another host, set the API proxy target before starting dev server:
+
+```bash
+# PowerShell
+$env:VITE_API_PROXY_TARGET="http://192.168.1.6:8000"
+npm run dev
+```
+
+For chat-only API override at build/runtime config time, set:
+
+```bash
+VITE_CHAT_API_BASE=http://192.168.1.6:8000/api/chat
+```
+
+Or set a shared API base for all API modules that support it:
+
+```bash
+VITE_API_BASE=http://192.168.1.6:8000/api
+```
+
+Use one of these when `/api/chat/*` is not reverse-proxied on the frontend origin.
 
 ## Building for Production
 

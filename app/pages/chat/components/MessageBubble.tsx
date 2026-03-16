@@ -13,6 +13,7 @@ import PersonIcon from "@mui/icons-material/Person";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
+import { useTranslation } from "react-i18next";
 
 import type { TokenUsage } from "~/api/chatTypes";
 import TokenUsageBadge from "./TokenUsageBadge";
@@ -35,6 +36,7 @@ export default function MessageBubble({
   streaming = false,
 }: Props) {
   const theme = useTheme();
+  const { t } = useTranslation();
   const isUser = role === "user";
 
   return (
@@ -189,7 +191,13 @@ export default function MessageBubble({
             {usage && <TokenUsageBadge usage={usage} />}
             {/* Info icon with model details */}
             <Tooltip
-              title={modelAlias || "Unknown model"}
+              title={
+                modelAlias ||
+                t("unknown_model", {
+                  ns: "chat",
+                  defaultValue: "Unknown model",
+                })
+              }
               arrow
               placement="top"
             >

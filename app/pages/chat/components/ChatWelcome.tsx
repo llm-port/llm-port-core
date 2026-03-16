@@ -15,9 +15,16 @@ import MenuIcon from "@mui/icons-material/Menu";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import LightModeIcon from "@mui/icons-material/LightMode";
 import DarkModeIcon from "@mui/icons-material/DarkMode";
+import TranslateIcon from "@mui/icons-material/Translate";
+import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router";
 
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
 import type { ChatSession } from "~/api/chatTypes";
+import type { UiLanguage } from "~/api/i18n";
+import i18n from "~/i18n";
 import { chatApi } from "~/api/chatClient";
 import { useThemeMode } from "~/theme-mode";
 import ChatInput from "./ChatInput";
@@ -31,6 +38,10 @@ interface Props {
   ) => void;
   onToggleSidebar: () => void;
   sidebarOpen: boolean;
+  languages: UiLanguage[];
+  language: string;
+  onLanguageChange: (code: string) => void;
+  isSuperuser: boolean;
 }
 
 /** Navigation state passed to ChatWindow for first-message auto-send. */
@@ -40,24 +51,44 @@ export interface InitialMessageState {
   initialFiles?: File[];
 }
 
-const SUGGESTIONS = [
-  "Explain quantum computing in simple terms",
-  "Write a Python function to merge two sorted lists",
-  "Summarize the key points of a research paper",
-  "Help me brainstorm ideas for a startup",
-];
-
 export default function ChatWelcome({
   selectedModel,
   onModelChange,
   onSessionCreated,
   onToggleSidebar,
   sidebarOpen,
+  languages,
+  language,
+  onLanguageChange,
+  isSuperuser,
 }: Props) {
   const { t } = useTranslation();
   const theme = useTheme();
+  const navigate = useNavigate();
   const { mode, toggleMode } = useThemeMode();
   const [sending, setSending] = useState(false);
+  const [langMenuAnchor, setLangMenuAnchor] = useState<HTMLElement | null>(
+    null,
+  );
+
+  const suggestions = [
+    t("suggestion_1", {
+      ns: "chat",
+      defaultValue: "Explain quantum computing in simple terms",
+    }),
+    t("suggestion_2", {
+      ns: "chat",
+      defaultValue: "Write a Python function to merge two sorted lists",
+    }),
+    t("suggestion_3", {
+      ns: "chat",
+      defaultValue: "Summarize the key points of a research paper",
+    }),
+    t("suggestion_4", {
+      ns: "chat",
+      defaultValue: "Help me brainstorm ideas for a startup",
+    }),
+  ];
 
   const handleSend = async (text: string, files: File[]) => {
     if (sending) return;
@@ -107,15 +138,67 @@ export default function ChatWelcome({
             </IconButton>
           )}
         </Box>
-        <Tooltip title={mode === "dark" ? "Light mode" : "Dark mode"}>
-          <IconButton size="small" onClick={toggleMode}>
-            {mode === "dark" ? (
-              <LightModeIcon fontSize="small" />
-            ) : (
-              <DarkModeIcon fontSize="small" />
-            )}
-          </IconButton>
-        </Tooltip>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+          {isSuperuser && (
+            <Tooltip title={t("nav.admin", { defaultValue: "Admin panel" })}>
+              <IconButton size="small" onClick={() => navigate("/admin")}>
+                <AdminPanelSettingsIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
+          <Tooltip title={t("language.label", { defaultValue: "Language" })}>
+            <IconButton
+              size="small"
+              onClick={(e) => setLangMenuAnchor(e.currentTarget)}
+            >
+              <TranslateIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+          <Menu
+            anchorEl={langMenuAnchor}
+            open={Boolean(langMenuAnchor)}
+            onClose={() => setLangMenuAnchor(null)}
+            anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+            transformOrigin={{ vertical: "top", horizontal: "right" }}
+          >
+            {languages.map((lang) => (
+              <MenuItem
+                key={lang.code}
+                selected={language === lang.code}
+                onClick={() => {
+                  onLanguageChange(lang.code);
+                  void i18n
+                    .reloadResources([lang.code], ["common", "chat"])
+                    .then(() => i18n.changeLanguage(lang.code));
+                  setLangMenuAnchor(null);
+                }}
+              >
+                {lang.name}
+              </MenuItem>
+            ))}
+          </Menu>
+          <Tooltip
+            title={
+              mode === "dark"
+                ? t("theme.light", {
+                    ns: "common",
+                    defaultValue: "Switch to light mode",
+                  })
+                : t("theme.dark", {
+                    ns: "common",
+                    defaultValue: "Switch to dark mode",
+                  })
+            }
+          >
+            <IconButton size="small" onClick={toggleMode}>
+              {mode === "dark" ? (
+                <LightModeIcon fontSize="small" />
+              ) : (
+                <DarkModeIcon fontSize="small" />
+              )}
+            </IconButton>
+          </Tooltip>
+        </Box>
       </Box>
 
       {/* Centred hero area */}
@@ -157,7 +240,7 @@ export default function ChatWelcome({
             maxWidth: 600,
           }}
         >
-          {SUGGESTIONS.map((s) => (
+          {suggestions.map((s) => (
             <Chip
               key={s}
               label={s}

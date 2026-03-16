@@ -4,6 +4,7 @@
  */
 import { useState, useCallback } from "react";
 import Box from "@mui/material/Box";
+import Chip from "@mui/material/Chip";
 import Drawer from "@mui/material/Drawer";
 import List from "@mui/material/List";
 import ListItemButton from "@mui/material/ListItemButton";
@@ -21,10 +22,13 @@ import MenuItem from "@mui/material/MenuItem";
 import Collapse from "@mui/material/Collapse";
 import { useTheme } from "@mui/material/styles";
 import AddIcon from "@mui/icons-material/Add";
+import AccountCircleIcon from "@mui/icons-material/AccountCircle";
 import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import FolderIcon from "@mui/icons-material/Folder";
 import CreateNewFolderIcon from "@mui/icons-material/CreateNewFolder";
+import LogoutIcon from "@mui/icons-material/Logout";
+import ManageAccountsIcon from "@mui/icons-material/ManageAccounts";
 import MenuIcon from "@mui/icons-material/Menu";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
@@ -69,6 +73,10 @@ interface Props {
   onMoveSession: (sessionId: string, projectId: string | null) => void;
   width: number;
   isMobile: boolean;
+  // User
+  currentUserEmail: string;
+  onLogout: () => void;
+  onProfileOpen: () => void;
 }
 
 export default function ChatSidebar({
@@ -86,6 +94,9 @@ export default function ChatSidebar({
   onMoveSession,
   width,
   isMobile,
+  currentUserEmail,
+  onLogout,
+  onProfileOpen,
 }: Props) {
   const { t } = useTranslation();
   const theme = useTheme();
@@ -94,6 +105,10 @@ export default function ChatSidebar({
   const [newProjectName, setNewProjectName] = useState("");
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(
     new Set(),
+  );
+  // User dropdown menu state
+  const [userMenuAnchor, setUserMenuAnchor] = useState<HTMLElement | null>(
+    null,
   );
   // Move-to-project menu state
   const [moveAnchor, setMoveAnchor] = useState<{
@@ -392,6 +407,70 @@ export default function ChatSidebar({
           </DragOverlay>
         </DndContext>
       </Box>
+
+      {/* Bottom user section */}
+      <Divider />
+      <Box
+        sx={{
+          px: 1.5,
+          py: 1,
+          display: "flex",
+          alignItems: "center",
+        }}
+      >
+        <Chip
+          icon={<AccountCircleIcon />}
+          label={currentUserEmail}
+          variant="outlined"
+          size="small"
+          onClick={(e) => setUserMenuAnchor(e.currentTarget)}
+          sx={{
+            cursor: "pointer",
+            maxWidth: "100%",
+            "& .MuiChip-label": {
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            },
+          }}
+        />
+      </Box>
+
+      {/* User dropdown menu */}
+      <Menu
+        anchorEl={userMenuAnchor}
+        open={Boolean(userMenuAnchor)}
+        onClose={() => setUserMenuAnchor(null)}
+        anchorOrigin={{ vertical: "top", horizontal: "left" }}
+        transformOrigin={{ vertical: "bottom", horizontal: "left" }}
+        slotProps={{ paper: { sx: { minWidth: 180 } } }}
+      >
+        <MenuItem
+          onClick={() => {
+            setUserMenuAnchor(null);
+            onProfileOpen();
+          }}
+        >
+          <ListItemIcon>
+            <ManageAccountsIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>
+            {t("profile.manage_profile", { defaultValue: "Profile" })}
+          </ListItemText>
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            setUserMenuAnchor(null);
+            onLogout();
+          }}
+        >
+          <ListItemIcon>
+            <LogoutIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>
+            {t("profile.logout", { defaultValue: "Logout" })}
+          </ListItemText>
+        </MenuItem>
+      </Menu>
 
       {/* Move-to-project popover menu */}
       <Menu

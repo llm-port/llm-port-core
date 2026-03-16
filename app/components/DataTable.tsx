@@ -503,7 +503,14 @@ export function DataTable<T>({
           variant="outlined"
           sx={{ flexGrow: 1, overflow: "auto" }}
         >
-          <Table size="small" stickyHeader style={{ minWidth: table.getCenterTotalSize(), tableLayout: "fixed" }}>
+          <Table
+            size="small"
+            stickyHeader
+            style={{
+              minWidth: table.getCenterTotalSize(),
+              tableLayout: "fixed",
+            }}
+          >
             <TableHead>
               {table.getHeaderGroups().map((headerGroup) => (
                 <TableRow key={headerGroup.id}>
@@ -526,6 +533,10 @@ export function DataTable<T>({
                           width: header.getSize(),
                           minWidth: meta?.minWidth,
                           userSelect: "none",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          position: "relative",
                         }}
                       >
                         {canSort ? (
@@ -632,6 +643,13 @@ export function DataTable<T>({
                               | "right"
                           }
                           style={{ width: cell.column.getSize() }}
+                          sx={{
+                            maxWidth: cell.column.getSize(),
+                            overflow: "hidden",
+                            whiteSpace: "normal",
+                            overflowWrap: "anywhere",
+                            wordBreak: "break-word",
+                          }}
                         >
                           {flexRender(
                             cell.column.columnDef.cell,

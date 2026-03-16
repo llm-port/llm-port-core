@@ -28,9 +28,89 @@ export type {
   StreamDelta,
 };
 
-const BASE = "/api/chat";
+const CONFIGURED_BASE = (
+  import.meta.env.VITE_CHAT_API_BASE as string | undefined
+)?.replace(/\/$/, "");
+const CONFIGURED_API_BASE = (
+  import.meta.env.VITE_API_BASE as string | undefined
+)?.replace(/\/$/, "");
+
+const BASE =
+  CONFIGURED_BASE ??
+  (CONFIGURED_API_BASE ? `${CONFIGURED_API_BASE}/chat` : "/api/chat");
 
 // ── Helpers ──────────────────────────────────────────────────────
+
+function parseApiErrorMessage(payload: unknown, status: number): string | null {
+  if (!payload || typeof payload !== "object") return null;
+
+  const record = payload as Record<string, unknown>;
+  const detail =
+    record.detail && typeof record.detail === "object"
+      ? (record.detail as Record<string, unknown>)
+      : null;
+  const error =
+    detail?.error && typeof detail.error === "object"
+      ? (detail.error as Record<string, unknown>)
+      : record.error && typeof record.error === "object"
+        ? (record.error as Record<string, unknown>)
+        : null;
+
+  const code =
+    typeof error?.code === "string"
+      ? error.code
+      : typeof detail?.code === "string"
+        ? detail.code
+        : null;
+  const type =
+    typeof error?.type === "string"
+      ? error.type
+      : typeof detail?.type === "string"
+        ? detail.type
+        : null;
+  const message =
+    typeof error?.message === "string"
+      ? error.message
+      : typeof detail?.message === "string"
+        ? detail.message
+        : typeof record.message === "string"
+          ? record.message
+          : null;
+
+  if (
+    status === 429 ||
+    code === "rate_limit_error" ||
+    code === "rate_limit_rpm" ||
+    code === "rate_limit_tpm" ||
+    type === "rate_limit_error"
+  ) {
+    return message
+      ? `Rate limit reached (429): ${message}`
+      : "Rate limit reached (429). Please wait and retry, or choose another model/provider.";
+  }
+
+  return message;
+}
+
+async function buildApiError(res: Response): Promise<Error> {
+  let text = res.statusText;
+  try {
+    const raw = await res.text();
+    text = raw || res.statusText;
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      const parsedMessage = parseApiErrorMessage(parsed, res.status);
+      if (parsedMessage) {
+        return new Error(parsedMessage);
+      }
+    } catch {
+      // keep raw text fallback
+    }
+  } catch {
+    // keep statusText fallback
+  }
+  return new Error(`API ${res.status}: ${text}`);
+}
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
@@ -44,9 +124,9 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     },
     credentials: "include",
   });
+
   if (!res.ok) {
-    const text = await res.text().catch(() => res.statusText);
-    throw new Error(`API ${res.status}: ${text}`);
+    throw await buildApiError(res);
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
@@ -81,8 +161,7 @@ export function streamChat(payload: Record<string, unknown>): StreamHandle {
     });
 
     if (!res.ok) {
-      const text = await res.text().catch(() => res.statusText);
-      throw new Error(`API ${res.status}: ${text}`);
+      throw await buildApiError(res);
     }
 
     const reader = res.body?.getReader();
@@ -111,7 +190,9 @@ export function streamChat(payload: Record<string, unknown>): StreamHandle {
 
           // Detect error payloads from the gateway
           if (parsed.error) {
+            const apiMessage = parseApiErrorMessage(parsed, 500);
             const msg =
+              apiMessage ||
               parsed.error.message ||
               parsed.error.type ||
               "Unknown streaming error";
@@ -233,8 +314,16 @@ export function resumeStream(sessionId: string): StreamHandle {
 
 export const chatApi = {
   // Models
-  listModels: () =>
-    request<{ data: ModelAlias[] }>("/models").then((r) => r.data),
+  listModels: async () => {
+    const payload = await request<
+      { data?: ModelAlias[]; models?: ModelAlias[] } | ModelAlias[]
+    >("/models");
+
+    if (Array.isArray(payload)) return payload;
+    if (Array.isArray(payload.data)) return payload.data;
+    if (Array.isArray(payload.models)) return payload.models;
+    return [];
+  },
 
   // Capacity
   getCapacity: () => request<Capacity>("/capacity"),
@@ -321,8 +410,7 @@ export const chatApi = {
       body: form,
     });
     if (!res.ok) {
-      const text = await res.text().catch(() => res.statusText);
-      throw new Error(`API ${res.status}: ${text}`);
+      throw await buildApiError(res);
     }
     return res.json() as Promise<ChatAttachment>;
   },
