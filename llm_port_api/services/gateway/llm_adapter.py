@@ -65,6 +65,11 @@ def _build_litellm_model_name(
     prefix = litellm_provider or _PROVIDER_PREFIX.get(provider_type, "openai")
     model = litellm_model or requested_model
 
+    # Google's API returns model names with a "models/" prefix
+    # (e.g. "models/gemini-2.0-flash-lite") — strip it for LiteLLM.
+    if model.startswith("models/"):
+        model = model[len("models/"):]
+
     # For local engines the model name alone suffices (LiteLLM resolves
     # via api_base).  For remote cloud providers we need provider/model.
     if provider_type in (
