@@ -59,7 +59,7 @@ class StreamClient:
         log.info("Connecting node stream to %s", ws_url)
         async with websockets.connect(
             ws_url,
-            extra_headers=headers,
+            additional_headers=headers,
             open_timeout=self._config.request_timeout_sec,
             ping_interval=20,
             ping_timeout=20,
