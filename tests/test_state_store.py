@@ -1,5 +1,7 @@
 from pathlib import Path
+from unittest.mock import patch
 
+from llm_port_node_agent.config import _default_state_path
 from llm_port_node_agent.state_store import StateStore
 
 
@@ -18,3 +20,19 @@ def test_state_store_roundtrip(tmp_path: Path) -> None:
     assert store2.state.tx_seq == 1
     assert store2.workload("runtime-1") == {"container_name": "c1"}
     assert store2.get_command_result("cmd-1") == {"success": True, "result": {"ok": True}}
+
+
+@patch("llm_port_node_agent.config.sys")
+def test_default_state_path_linux(mock_sys) -> None:
+    mock_sys.platform = "linux"
+    assert _default_state_path() == "/var/lib/llm-port-node-agent/state.json"
+
+
+@patch("llm_port_node_agent.config.sys")
+@patch.dict("os.environ", {"PROGRAMDATA": r"C:\ProgramData"})
+def test_default_state_path_windows(mock_sys) -> None:
+    mock_sys.platform = "win32"
+    result = _default_state_path()
+    assert "llm-port-node-agent" in result
+    assert result.endswith("state.json")
+    assert "ProgramData" in result

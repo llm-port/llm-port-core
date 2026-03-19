@@ -3,10 +3,17 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
+import stat
+import subprocess
+import sys
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -29,6 +36,7 @@ class StateStore:
     def __init__(self, path: Path) -> None:
         self.path = path
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._secure_directory(self.path.parent)
         self.state = AgentState()
         self.load()
 
@@ -64,15 +72,25 @@ class StateStore:
             "updated_at": self.state.updated_at,
         }
         tmp = self.path.with_suffix(".tmp")
-        with tmp.open("w", encoding="utf-8") as handle:
-            json.dump(payload, handle, indent=2, sort_keys=True)
+        if sys.platform == "win32":
+            with open(tmp, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle, indent=2, sort_keys=True)
+        else:
+            fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle, indent=2, sort_keys=True)
         tmp.replace(self.path)
+        if sys.platform == "win32":
+            _win_restrict_file(self.path)
 
     def next_seq(self) -> int:
         """Return next monotonic tx sequence for stream messages."""
         self.state.tx_seq += 1
-        self.save()
         return self.state.tx_seq
+
+    def flush_seq(self) -> None:
+        """Persist current tx_seq to disk (called periodically, not per-message)."""
+        self.save()
 
     def remember_command_result(self, command_id: str, payload: dict[str, Any]) -> None:
         """Persist completed command result for idempotent replay."""
@@ -108,3 +126,66 @@ class StateStore:
         if not isinstance(row, dict):
             return None
         return dict(row)
+
+    @staticmethod
+    def _secure_directory(directory: Path) -> None:
+        """Restrict directory permissions to owner-only."""
+        if sys.platform == "win32":
+            _win_restrict_directory(directory)
+        else:
+            try:
+                directory.chmod(stat.S_IRWXU)  # 0o700
+            except OSError:
+                pass  # insufficient perms
+
+
+def _win_restrict_file(path: Path) -> None:
+    """Use icacls to restrict file to current user + SYSTEM only (Windows)."""
+    try:
+        target = str(path)
+        username = os.environ.get("USERNAME", "")
+        if not username:
+            return
+        subprocess.run(
+            ["icacls", target, "/inheritance:r"],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["icacls", target, "/grant:r", f"{username}:(F)"],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["icacls", target, "/grant:r", "SYSTEM:(F)"],
+            check=True,
+            capture_output=True,
+        )
+    except Exception:
+        log.warning("Could not restrict permissions on %s", path)
+
+
+def _win_restrict_directory(directory: Path) -> None:
+    """Use icacls to restrict directory to current user + SYSTEM only (Windows)."""
+    try:
+        target = str(directory)
+        username = os.environ.get("USERNAME", "")
+        if not username:
+            return
+        subprocess.run(
+            ["icacls", target, "/inheritance:r"],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["icacls", target, "/grant:r", f"{username}:(OI)(CI)(F)"],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["icacls", target, "/grant:r", "SYSTEM:(OI)(CI)(F)"],
+            check=True,
+            capture_output=True,
+        )
+    except Exception:
+        log.warning("Could not restrict permissions on %s", directory)

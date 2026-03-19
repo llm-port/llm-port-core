@@ -24,6 +24,16 @@ class RuntimeManager:
         "ollama": "ollama/ollama:latest",
     }
 
+    _DENIED_DOCKER_FLAGS = {
+        "--privileged",
+        "--cap-add",
+        "--pid",
+        "--security-opt",
+        "--device",
+        "--userns",
+        "--ipc=host",
+    }
+
     def __init__(
         self,
         *,
@@ -66,6 +76,20 @@ class RuntimeManager:
         elif isinstance(command_override, str) and command_override.strip():
             cmd = shlex.split(command_override)
 
+        self._sanitize_command_args(cmd)
+
+        # GPU passthrough
+        gpu_request = str(payload.get("gpu_request") or provider_config.get("gpu_request") or "").strip()
+
+        # Resource limits
+        container_port = str(payload.get("container_port") or provider_config.get("container_port") or "8000").strip()
+        memory_limit = str(payload.get("memory_limit") or provider_config.get("memory_limit") or "").strip()
+        cpu_limit = str(payload.get("cpu_limit") or provider_config.get("cpu_limit") or "").strip()
+        shm_size = str(payload.get("shm_size") or provider_config.get("shm_size") or "").strip()
+        # Default --shm-size=1g for GPU workloads (required by vLLM/TGI)
+        if not shm_size and gpu_request:
+            shm_size = "1g"
+
         args = [
             "run",
             "-d",
@@ -74,17 +98,24 @@ class RuntimeManager:
             "--restart",
             "unless-stopped",
             "-p",
-            "8000",
+            container_port,
             "-e",
             f"LLM_PORT_RUNTIME_ID={runtime_id}",
             "-e",
             f"LLM_PORT_PROVIDER_TYPE={provider_type}",
-            image,
-            *cmd,
         ]
+        if gpu_request:
+            args.extend(["--gpus", gpu_request])
+        if memory_limit:
+            args.extend(["--memory", memory_limit])
+        if cpu_limit:
+            args.extend(["--cpus", cpu_limit])
+        if shm_size:
+            args.extend(["--shm-size", shm_size])
+        args.extend([image, *cmd])
         _, out, _ = await self._docker(*args, timeout_sec=120)
         container_id = out.strip().splitlines()[0] if out.strip() else ""
-        endpoint = await self._resolve_endpoint(container_name)
+        endpoint = await self._resolve_endpoint(container_name, container_port=container_port)
 
         self._state.set_workload(
             runtime_id,
@@ -94,6 +125,7 @@ class RuntimeManager:
                 "container_id": container_id,
                 "provider_type": provider_type,
                 "image": image,
+                "container_port": container_port,
                 "endpoint_url": endpoint,
             },
         )
@@ -183,11 +215,11 @@ class RuntimeManager:
         if code == 0:
             await self._docker("rm", "-f", container_name, timeout_sec=45)
 
-    async def _resolve_endpoint(self, container_name: str) -> str | None:
+    async def _resolve_endpoint(self, container_name: str, *, container_port: str = "8000") -> str | None:
         code, out, _ = await self._docker(
             "port",
             container_name,
-            "8000/tcp",
+            f"{container_port}/tcp",
             timeout_sec=10,
             raise_on_error=False,
         )
@@ -234,7 +266,28 @@ class RuntimeManager:
         slug = "".join(ch for ch in slug if ch.isalnum() or ch == "-").strip("-")
         if not slug:
             slug = runtime_id
-        return f"llm-port-{slug[:32]}-{runtime_id.replace('-', '')[:8]}"
+        return f"llm-port-{slug[:32]}-{runtime_id.replace('-', '')[-12:]}"
+
+    @classmethod
+    def _sanitize_command_args(cls, args: list[str]) -> None:
+        """Reject command args containing dangerous Docker flags."""
+        for arg in args:
+            normalized = arg.strip().lower()
+            for denied in cls._DENIED_DOCKER_FLAGS:
+                if normalized == denied or normalized.startswith(denied + "="):
+                    raise RuntimeManagerError(
+                        f"Blocked Docker flag in command override: {arg}"
+                    )
+            if normalized.startswith("-v") or normalized.startswith("--volume"):
+                raise RuntimeManagerError(
+                    f"Volume mounts in command override are not allowed: {arg}"
+                )
+            if normalized == "--network=host" or (
+                normalized == "--network" and "host" in args
+            ):
+                raise RuntimeManagerError(
+                    f"Host network mode in command override is not allowed: {arg}"
+                )
 
     def _lookup_container(
         self,

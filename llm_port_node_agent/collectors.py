@@ -3,10 +3,20 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import shutil
+import sys
+from pathlib import Path
 from typing import Any
 
 import psutil
+
+
+def _disk_root() -> str:
+    """Return the root filesystem path for the current platform."""
+    if sys.platform == "win32":
+        return os.environ.get("SystemDrive", "C:") + os.sep
+    return "/"
 
 
 async def _run(*args: str, timeout_sec: float = 6) -> tuple[int, str, str]:
@@ -69,11 +79,15 @@ async def collect_gpu_snapshot() -> dict[str, Any]:
     }
 
 
-async def collect_inventory(static_capabilities: dict[str, Any]) -> dict[str, Any]:
+async def collect_inventory(
+    static_capabilities: dict[str, Any],
+    *,
+    gpu_snapshot: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Collect mostly-static hardware inventory."""
     vm = psutil.virtual_memory()
-    du = psutil.disk_usage("/")
-    gpu = await collect_gpu_snapshot()
+    du = psutil.disk_usage(_disk_root())
+    gpu = gpu_snapshot if gpu_snapshot is not None else await collect_gpu_snapshot()
     return {
         "cpu_count_logical": psutil.cpu_count(logical=True) or 0,
         "cpu_count_physical": psutil.cpu_count(logical=False) or 0,
@@ -86,13 +100,16 @@ async def collect_inventory(static_capabilities: dict[str, Any]) -> dict[str, An
     }
 
 
-async def collect_utilization() -> dict[str, Any]:
+async def collect_utilization(
+    *,
+    gpu_snapshot: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Collect changing utilization metrics."""
     cpu = psutil.cpu_percent(interval=None)
     vm = psutil.virtual_memory()
-    du = psutil.disk_usage("/")
+    du = psutil.disk_usage(_disk_root())
     net = psutil.net_io_counters()
-    gpu = await collect_gpu_snapshot()
+    gpu = gpu_snapshot if gpu_snapshot is not None else await collect_gpu_snapshot()
     return {
         "cpu_percent": cpu,
         "memory_used_bytes": vm.used,

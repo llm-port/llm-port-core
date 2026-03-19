@@ -24,11 +24,13 @@ class CommandDispatcher:
         runtime_manager: RuntimeManager,
         policy_guard: PolicyGuard,
         events: EventBuffer,
+        on_refresh_inventory: Callable[[], None] | None = None,
     ) -> None:
         self._state = state_store
         self._runtime = runtime_manager
         self._guard = policy_guard
         self._events = events
+        self._on_refresh_inventory = on_refresh_inventory
 
     async def handle(self, command: dict[str, Any], emit_progress: ProgressEmitter) -> dict[str, Any]:
         """Execute command and return normalized result payload."""
@@ -88,6 +90,13 @@ class CommandDispatcher:
         return normalized
 
     async def _execute(self, *, command_type: str, payload: dict[str, Any]) -> dict[str, Any]:
+        if command_type in {
+            NodeCommandType.DEPLOY_WORKLOAD.value,
+            NodeCommandType.UPDATE_WORKLOAD.value,
+        }:
+            image = self._resolve_image(payload)
+            if image:
+                self._guard.validate_image(image)
         if command_type == NodeCommandType.DEPLOY_WORKLOAD.value:
             return await self._runtime.deploy_workload(payload)
         if command_type == NodeCommandType.START_WORKLOAD.value:
@@ -101,6 +110,8 @@ class CommandDispatcher:
         if command_type == NodeCommandType.UPDATE_WORKLOAD.value:
             return await self._runtime.update_workload(payload)
         if command_type == NodeCommandType.REFRESH_INVENTORY.value:
+            if self._on_refresh_inventory:
+                self._on_refresh_inventory()
             return {"refresh_requested": True}
         if command_type == NodeCommandType.COLLECT_DIAGNOSTICS.value:
             return await self._runtime.collect_diagnostics()
@@ -123,3 +134,14 @@ class CommandDispatcher:
                 "reason": "host_op not enabled by default on agent.",
             }
         raise RuntimeManagerError(f"Unsupported command type: {command_type}")
+
+    @staticmethod
+    def _resolve_image(payload: dict[str, Any]) -> str:
+        """Extract image string from deploy/update payload."""
+        image = str(payload.get("image") or "").strip()
+        if image:
+            return image
+        provider_config = payload.get("provider_config")
+        if isinstance(provider_config, dict):
+            return str(provider_config.get("image") or "").strip()
+        return ""

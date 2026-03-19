@@ -2,10 +2,22 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import socket
+import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+log = logging.getLogger(__name__)
+
+
+def _default_state_path() -> str:
+    """Return a platform-appropriate default path for agent state."""
+    if sys.platform == "win32":
+        base = os.environ.get("PROGRAMDATA", r"C:\ProgramData")
+        return str(Path(base) / "llm-port-node-agent" / "state.json")
+    return "/var/lib/llm-port-node-agent/state.json"
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -33,6 +45,7 @@ class AgentConfig:
     request_timeout_sec: float
     verify_tls: bool
     log_level: str
+    image_allowlist: list[str]
 
     @classmethod
     def from_env(cls) -> AgentConfig:
@@ -43,7 +56,7 @@ class AgentConfig:
         advertise_scheme = os.getenv("LLM_PORT_NODE_AGENT_ADVERTISE_SCHEME", "http").strip().lower() or "http"
         if advertise_scheme not in {"http", "https"}:
             advertise_scheme = "http"
-        return cls(
+        instance = cls(
             backend_url=os.getenv("LLM_PORT_NODE_AGENT_BACKEND_URL", "http://127.0.0.1:8000").rstrip("/"),
             agent_id=os.getenv("LLM_PORT_NODE_AGENT_AGENT_ID", hostname),
             host=host,
@@ -53,7 +66,7 @@ class AgentConfig:
             state_path=Path(
                 os.getenv(
                     "LLM_PORT_NODE_AGENT_STATE_PATH",
-                    "/var/lib/llm-port-node-agent/state.json",
+                    _default_state_path(),
                 ),
             ),
             heartbeat_interval_sec=int(os.getenv("LLM_PORT_NODE_AGENT_HEARTBEAT_INTERVAL_SEC", "15")),
@@ -63,4 +76,12 @@ class AgentConfig:
             request_timeout_sec=float(os.getenv("LLM_PORT_NODE_AGENT_REQUEST_TIMEOUT_SEC", "20")),
             verify_tls=_env_bool("LLM_PORT_NODE_AGENT_VERIFY_TLS", True),
             log_level=os.getenv("LLM_PORT_NODE_AGENT_LOG_LEVEL", "INFO").upper(),
+            image_allowlist=[
+                prefix.strip()
+                for prefix in os.getenv("LLM_PORT_NODE_AGENT_IMAGE_ALLOWLIST", "").split(",")
+                if prefix.strip()
+            ],
         )
+        if not instance.verify_tls:
+            log.warning("TLS verification is disabled — connections are vulnerable to MITM.")
+        return instance

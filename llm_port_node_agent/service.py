@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
+import psutil
 from websockets.exceptions import InvalidStatusCode
 
 from llm_port_node_agent.backend_client import BackendClient
@@ -27,6 +28,7 @@ class NodeAgentService:
         self._config = config
         self._state_store = StateStore(config.state_path)
         self._client = BackendClient(config)
+        self._stream: StreamClient | None = None
 
     async def run_forever(self) -> None:
         """Run agent forever with reconnect and re-enrollment handling."""
@@ -35,6 +37,9 @@ class NodeAgentService:
         if not bool(static_capabilities.get("docker_available")):
             log.warning("Docker is not available; runtime commands will fail until daemon is reachable.")
 
+        # Prime cpu_percent so first utilization report is non-zero
+        psutil.cpu_percent()
+
         events = EventBuffer()
         runtime_manager = RuntimeManager(
             state_store=self._state_store,
@@ -42,19 +47,23 @@ class NodeAgentService:
             advertise_host=self._config.advertise_host,
             advertise_scheme=self._config.advertise_scheme,
         )
-        dispatcher = CommandDispatcher(
-            state_store=self._state_store,
-            runtime_manager=runtime_manager,
-            policy_guard=PolicyGuard(),
-            events=events,
-        )
         stream = StreamClient(
             config=self._config,
             state_store=self._state_store,
-            dispatcher=dispatcher,
+            dispatcher=None,  # type: ignore[arg-type]  # set below
             static_capabilities=static_capabilities,
             events=events,
+            backend_client=self._client,
         )
+        dispatcher = CommandDispatcher(
+            state_store=self._state_store,
+            runtime_manager=runtime_manager,
+            policy_guard=PolicyGuard(image_allowlist=self._config.image_allowlist),
+            events=events,
+            on_refresh_inventory=stream.trigger_inventory,
+        )
+        stream._dispatcher = dispatcher
+        self._stream = stream
 
         backoff = self._config.reconnect_min_sec
         while True:
@@ -80,11 +89,16 @@ class NodeAgentService:
             backoff = min(backoff * 2, self._config.reconnect_max_sec)
 
     async def close(self) -> None:
-        """Close outbound HTTP resources."""
+        """Close outbound HTTP resources and flush state."""
+        self._state_store.flush_seq()
         await self._client.close()
 
     async def _ensure_credential(self, capabilities: dict) -> None:
         if self._state_store.state.credential:
+            if self._config.enrollment_token:
+                log.warning(
+                    "Enrollment token is still configured after enrollment — consider removing it from env."
+                )
             return
         token = self._config.enrollment_token
         if not token:

@@ -12,10 +12,17 @@ import websockets
 from websockets.exceptions import ConnectionClosed
 
 from llm_port_node_agent import __version__
-from llm_port_node_agent.collectors import collect_inventory, collect_utilization
+from llm_port_node_agent.collectors import collect_gpu_snapshot, collect_inventory, collect_utilization
+from llm_port_node_agent.command_verifier import (
+    derive_signing_key,
+    validate_command_age,
+    verify_command_signature,
+)
+from llm_port_node_agent.backend_client import BackendClient
 from llm_port_node_agent.config import AgentConfig
 from llm_port_node_agent.dispatcher import CommandDispatcher
 from llm_port_node_agent.event_buffer import EventBuffer
+from llm_port_node_agent.health_supervisor import HealthSupervisor
 from llm_port_node_agent.state_store import StateStore
 
 log = logging.getLogger(__name__)
@@ -32,16 +39,21 @@ class StreamClient:
         dispatcher: CommandDispatcher,
         static_capabilities: dict[str, Any],
         events: EventBuffer,
+        backend_client: BackendClient | None = None,
     ) -> None:
         self._config = config
         self._state = state_store
         self._dispatcher = dispatcher
         self._static_capabilities = static_capabilities
         self._events = events
+        self._backend_client = backend_client
         self._send_lock = asyncio.Lock()
+        self._inventory_trigger = asyncio.Event()
+        self._health_supervisor = HealthSupervisor(state_store=state_store, events=events)
 
     async def run(self, *, credential: str) -> None:
         """Open stream and process commands until disconnected."""
+        self._signing_key = derive_signing_key(credential)
         ws_url = self._ws_url()
         headers = {"Authorization": f"Bearer {credential}"}
         log.info("Connecting node stream to %s", ws_url)
@@ -59,6 +71,9 @@ class StreamClient:
                 asyncio.create_task(self._heartbeat_loop(ws), name="heartbeat"),
                 asyncio.create_task(self._inventory_loop(ws), name="inventory"),
                 asyncio.create_task(self._event_flush_loop(ws), name="event_flush"),
+                asyncio.create_task(self._seq_flush_loop(), name="seq_flush"),
+                asyncio.create_task(self._health_supervisor.run_forever(), name="health"),
+                asyncio.create_task(self._credential_rotation_loop(), name="cred_rotate"),
             }
             done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
             for task in pending:
@@ -115,8 +130,9 @@ class StreamClient:
     async def _inventory_loop(self, ws: websockets.WebSocketClientProtocol) -> None:
         interval = max(self._config.inventory_interval_sec, 15)
         while True:
-            inventory = await collect_inventory(self._static_capabilities)
-            utilization = await collect_utilization()
+            gpu_snapshot = await collect_gpu_snapshot()
+            inventory = await collect_inventory(self._static_capabilities, gpu_snapshot=gpu_snapshot)
+            utilization = await collect_utilization(gpu_snapshot=gpu_snapshot)
             await self._send_json(
                 ws,
                 {
@@ -125,7 +141,12 @@ class StreamClient:
                     "utilization": utilization,
                 },
             )
-            await asyncio.sleep(interval)
+            # Wait for trigger or timeout
+            try:
+                await asyncio.wait_for(self._inventory_trigger.wait(), timeout=interval)
+                self._inventory_trigger.clear()
+            except TimeoutError:
+                pass
 
     async def _event_flush_loop(self, ws: websockets.WebSocketClientProtocol) -> None:
         while True:
@@ -145,6 +166,39 @@ class StreamClient:
             return
         command_type = str(command.get("command_type") or "").strip().lower()
         correlation_id = str(command.get("correlation_id") or command_id)
+
+        # Verify HMAC signature when present in command
+        if "signature" in command and not verify_command_signature(command, self._signing_key):
+            log.warning("Rejected command %s: invalid signature.", command_id)
+            await self._send_json(
+                ws,
+                {
+                    "type": "command_result",
+                    "command_id": command_id,
+                    "correlation_id": correlation_id,
+                    "success": False,
+                    "error_code": "signature_invalid",
+                    "error_message": "Command signature verification failed.",
+                },
+            )
+            return
+
+        # Reject expired commands
+        if not validate_command_age(command):
+            log.warning("Rejected command %s: expired issued_at.", command_id)
+            await self._send_json(
+                ws,
+                {
+                    "type": "command_result",
+                    "command_id": command_id,
+                    "correlation_id": correlation_id,
+                    "success": False,
+                    "error_code": "command_expired",
+                    "error_message": "Command issued_at is too old.",
+                },
+            )
+            return
+
         await self._send_json(
             ws,
             {
@@ -182,6 +236,39 @@ class StreamClient:
             envelope = dict(payload)
             envelope["seq"] = self._state.next_seq()
             await ws.send(json.dumps(envelope))
+
+    async def _seq_flush_loop(self) -> None:
+        """Periodically persist tx_seq to disk instead of per-message."""
+        while True:
+            await asyncio.sleep(30)
+            self._state.flush_seq()
+
+    def trigger_inventory(self) -> None:
+        """Signal the inventory loop to run immediately."""
+        self._inventory_trigger.set()
+
+    async def _credential_rotation_loop(self) -> None:
+        """Rotate credential periodically (every 12 hours)."""
+        interval = 12 * 3600
+        while True:
+            await asyncio.sleep(interval)
+            if not self._backend_client:
+                continue
+            credential = self._state.state.credential
+            if not credential:
+                continue
+            try:
+                result = await self._backend_client.rotate_credential(credential=credential)
+                new_credential = result.get("credential")
+                if isinstance(new_credential, str) and new_credential:
+                    self._state.state.credential = new_credential
+                    self._state.save()
+                    self._signing_key = derive_signing_key(new_credential)
+                    log.info("Credential rotated successfully.")
+                else:
+                    log.warning("Credential rotation response missing new credential.")
+            except Exception:
+                log.warning("Credential rotation failed; continuing with current credential.", exc_info=True)
 
     @staticmethod
     def _parse_message(raw: str | bytes) -> dict[str, Any] | None:
