@@ -31,6 +31,9 @@ class RoutedInstance:
     litellm_provider: str | None = None
     litellm_model: str | None = None
     extra_params: dict | None = None
+    node_id: uuid.UUID | None = None
+    node_metadata: dict | None = None
+    capacity_hints: dict | None = None
 
 
 class GatewayDAO:
@@ -136,6 +139,9 @@ class GatewayDAO:
                     litellm_provider=instance.litellm_provider,
                     litellm_model=instance.litellm_model,
                     extra_params=instance.extra_params,
+                    node_id=instance.node_id,
+                    node_metadata=instance.node_metadata,
+                    capacity_hints=instance.capacity_hints,
                 ),
             )
         return candidates
