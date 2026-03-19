@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,7 @@ from llm_port_backend.db.dao.llm_dao import (
     ProviderDAO,
     RuntimeDAO,
 )
+from llm_port_backend.db.dao.node_control_dao import NodeControlDAO
 from llm_port_backend.db.models.llm import (
     DownloadJob,
     LLMModel,
@@ -32,11 +34,13 @@ from llm_port_backend.db.models.llm import (
     ProviderType,
     RuntimeStatus,
 )
+from llm_port_backend.db.models.node_control import InfraNode, NodeCommandType
 from llm_port_backend.services.docker.client import DockerService
 from llm_port_backend.services.llm.base import ContainerSpec
 from llm_port_backend.services.llm.gateway_sync import GatewaySyncService, _normalize_base_url
 from llm_port_backend.services.llm.registry import get_adapter
 from llm_port_backend.services.llm.scanner import scan_model_directory
+from llm_port_backend.services.nodes import NodeControlService
 from llm_port_backend.settings import settings
 
 log = logging.getLogger(__name__)
@@ -325,6 +329,8 @@ class LLMService:
         generic_config: dict[str, Any] | None = None,
         provider_config: dict[str, Any] | None = None,
         openai_compat: bool = True,
+        target_node_id: uuid.UUID | None = None,
+        placement_hints: dict[str, Any] | None = None,
     ) -> LLMRuntime:
         """Create a runtime, validate compatibility, and start the container."""
         # Fetch references
@@ -387,6 +393,48 @@ class LLMService:
                 litellm_model=provider.litellm_model,
                 extra_params=provider.extra_params,
             )
+            return runtime
+
+        # ── Node cluster mode (backend scheduler + node commands) ─────────
+        if settings.node_cluster_enabled:
+            node_service = self._build_node_control_service(runtime_dao.session)
+            selected_node, explain = await self._select_node_for_runtime(
+                node_service=node_service,
+                provider=provider,
+                runtime=runtime,
+                target_node_id=target_node_id,
+            )
+            runtime.execution_target = "node"
+            runtime.assigned_node_id = selected_node.id
+            runtime.desired_state = "running"
+            runtime.placement_explain_json = explain | {"placement_hints": placement_hints or {}}
+            await node_service.upsert_workload_assignment(
+                runtime_id=runtime.id,
+                node_id=selected_node.id,
+                desired_state=runtime.desired_state,
+                actual_state="pending",
+            )
+            command = await node_service.issue_command(
+                node_id=selected_node.id,
+                command_type=NodeCommandType.DEPLOY_WORKLOAD.value,
+                payload={
+                    "runtime_id": str(runtime.id),
+                    "runtime_name": runtime.name,
+                    "provider_id": str(provider.id),
+                    "provider_type": provider.type.value,
+                    "model_id": str(model.id),
+                    "generic_config": generic_config or {},
+                    "provider_config": provider_config or {},
+                    "openai_compat": openai_compat,
+                    "placement_hints": placement_hints or {},
+                },
+                issued_by=None,
+                correlation_id=str(runtime.id),
+                timeout_sec=settings.node_command_default_timeout_sec,
+                idempotency_key=f"runtime:{runtime.id}:deploy",
+            )
+            runtime.last_command_id = command.id
+            await runtime_dao.set_status(runtime.id, RuntimeStatus.STARTING)
             return runtime
 
         # ── Local Docker providers — build and start container ───────
@@ -459,6 +507,21 @@ class LLMService:
         if runtime is None:
             raise ValueError(f"Runtime {runtime_id} not found")
 
+        if settings.node_cluster_enabled and runtime.execution_target == "node" and runtime.assigned_node_id:
+            node_service = self._build_node_control_service(runtime_dao.session)
+            command = await node_service.issue_command(
+                node_id=runtime.assigned_node_id,
+                command_type=NodeCommandType.START_WORKLOAD.value,
+                payload={"runtime_id": str(runtime.id), "runtime_name": runtime.name},
+                issued_by=None,
+                correlation_id=str(runtime.id),
+                timeout_sec=settings.node_command_default_timeout_sec,
+                idempotency_key=f"runtime:{runtime.id}:start",
+            )
+            runtime.last_command_id = command.id
+            await runtime_dao.set_status(runtime_id, RuntimeStatus.STARTING)
+            return runtime
+
         # Remote runtimes have no container — just mark as running
         if not runtime.container_ref:
             await runtime_dao.set_status(runtime_id, RuntimeStatus.RUNNING)
@@ -480,6 +543,21 @@ class LLMService:
         runtime = await runtime_dao.get(runtime_id)
         if runtime is None:
             raise ValueError(f"Runtime {runtime_id} not found")
+
+        if settings.node_cluster_enabled and runtime.execution_target == "node" and runtime.assigned_node_id:
+            node_service = self._build_node_control_service(runtime_dao.session)
+            command = await node_service.issue_command(
+                node_id=runtime.assigned_node_id,
+                command_type=NodeCommandType.STOP_WORKLOAD.value,
+                payload={"runtime_id": str(runtime.id), "runtime_name": runtime.name},
+                issued_by=None,
+                correlation_id=str(runtime.id),
+                timeout_sec=settings.node_command_default_timeout_sec,
+                idempotency_key=f"runtime:{runtime.id}:stop",
+            )
+            runtime.last_command_id = command.id
+            await runtime_dao.set_status(runtime_id, RuntimeStatus.STOPPING)
+            return runtime
 
         # Remote runtimes have no container — just mark as stopped
         if not runtime.container_ref:
@@ -508,6 +586,21 @@ class LLMService:
         if runtime is None:
             raise ValueError(f"Runtime {runtime_id} not found")
 
+        if settings.node_cluster_enabled and runtime.execution_target == "node" and runtime.assigned_node_id:
+            node_service = self._build_node_control_service(runtime_dao.session)
+            command = await node_service.issue_command(
+                node_id=runtime.assigned_node_id,
+                command_type=NodeCommandType.RESTART_WORKLOAD.value,
+                payload={"runtime_id": str(runtime.id), "runtime_name": runtime.name},
+                issued_by=None,
+                correlation_id=str(runtime.id),
+                timeout_sec=settings.node_command_default_timeout_sec,
+                idempotency_key=f"runtime:{runtime.id}:restart",
+            )
+            runtime.last_command_id = command.id
+            await runtime_dao.set_status(runtime_id, RuntimeStatus.STARTING)
+            return runtime
+
         # Remote runtimes have no container — just toggle status
         if not runtime.container_ref:
             await runtime_dao.set_status(runtime_id, RuntimeStatus.RUNNING)
@@ -530,6 +623,8 @@ class LLMService:
         generic_config: dict | None = ...,
         provider_config: dict | None = ...,
         openai_compat: bool | None = None,
+        target_node_id: uuid.UUID | None = None,
+        placement_hints: dict[str, Any] | None = None,
     ) -> LLMRuntime:
         """Update runtime config, tear down the old container, and start a new one."""
         runtime = await runtime_dao.get(runtime_id)
@@ -544,6 +639,44 @@ class LLMService:
             provider_config=provider_config,
             openai_compat=openai_compat,
         )
+        if runtime is None:
+            raise ValueError(f"Runtime {runtime_id} not found")
+
+        if settings.node_cluster_enabled and runtime.execution_target == "node":
+            node_service = self._build_node_control_service(runtime_dao.session)
+            if target_node_id is not None:
+                runtime.assigned_node_id = target_node_id
+            if runtime.assigned_node_id is None:
+                provider = await provider_dao.get(runtime.provider_id)
+                if provider is None:
+                    raise ValueError(f"Provider {runtime.provider_id} not found")
+                selected_node, explain = await self._select_node_for_runtime(
+                    node_service=node_service,
+                    provider=provider,
+                    runtime=runtime,
+                    target_node_id=target_node_id,
+                )
+                runtime.assigned_node_id = selected_node.id
+                runtime.placement_explain_json = explain | {"placement_hints": placement_hints or {}}
+            command = await node_service.issue_command(
+                node_id=runtime.assigned_node_id,
+                command_type=NodeCommandType.UPDATE_WORKLOAD.value,
+                payload={
+                    "runtime_id": str(runtime.id),
+                    "runtime_name": runtime.name,
+                    "generic_config": runtime.generic_config or {},
+                    "provider_config": runtime.provider_config or {},
+                    "openai_compat": runtime.openai_compat,
+                    "placement_hints": placement_hints or {},
+                },
+                issued_by=None,
+                correlation_id=str(runtime.id),
+                timeout_sec=settings.node_command_default_timeout_sec,
+                idempotency_key=f"runtime:{runtime.id}:update",
+            )
+            runtime.last_command_id = command.id
+            await runtime_dao.set_status(runtime.id, RuntimeStatus.STARTING)
+            return runtime
 
         # Remote runtimes — just mark running, nothing else to do
         provider = await provider_dao.get(runtime.provider_id)
@@ -608,6 +741,20 @@ class LLMService:
         runtime = await runtime_dao.get(runtime_id)
         if runtime is None:
             raise ValueError(f"Runtime {runtime_id} not found")
+        if settings.node_cluster_enabled and runtime.execution_target == "node" and runtime.assigned_node_id:
+            node_service = self._build_node_control_service(runtime_dao.session)
+            await node_service.issue_command(
+                node_id=runtime.assigned_node_id,
+                command_type=NodeCommandType.REMOVE_WORKLOAD.value,
+                payload={"runtime_id": str(runtime.id), "runtime_name": runtime.name},
+                issued_by=None,
+                correlation_id=str(runtime.id),
+                timeout_sec=settings.node_command_default_timeout_sec,
+                idempotency_key=f"runtime:{runtime.id}:remove",
+            )
+            await self.gateway_sync.unpublish_runtime(runtime_id=runtime_id, alias=runtime.name)
+            await runtime_dao.delete(runtime_id)
+            return
         # Flush pending work and release the idle transaction before
         # slow Docker teardown.
         await runtime_dao.session.commit()
@@ -812,6 +959,43 @@ class LLMService:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    def _build_node_control_service(self, session) -> NodeControlService:
+        """Construct node control service from the current request session."""
+        dao = NodeControlDAO(session)
+        return NodeControlService(
+            dao=dao,
+            pepper=settings.settings_master_key,
+            enrollment_ttl_minutes=settings.node_enrollment_ttl_minutes,
+            default_command_timeout_sec=settings.node_command_default_timeout_sec,
+            gateway_sync=self.gateway_sync,
+        )
+
+    async def _select_node_for_runtime(
+        self,
+        *,
+        node_service: NodeControlService,
+        provider: LLMProvider,
+        runtime: LLMRuntime,
+        target_node_id: uuid.UUID | None,
+    ) -> tuple[InfraNode, dict[str, Any]]:
+        """Select node by pinning or backend scheduler."""
+        if target_node_id is not None:
+            node = await node_service.get_node_record(node_id=target_node_id)
+            if node is None:
+                raise ValueError(f"Target node {target_node_id} not found")
+            return node, {
+                "selected_node_id": str(node.id),
+                "selection_mode": "pinned",
+                "runtime_name": runtime.name,
+                "ts": datetime.now(tz=UTC).isoformat(),
+            }
+        node, explain = await node_service.schedule_node_for_runtime(
+            provider=provider,
+            runtime_name=runtime.name,
+        )
+        explain["selection_mode"] = "scheduler"
+        return node, explain
 
     @staticmethod
     def _extract_endpoint(container_info: dict[str, Any]) -> str | None:

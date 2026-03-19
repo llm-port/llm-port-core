@@ -287,6 +287,20 @@ class LLMRuntime(Base):
     generic_config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     provider_config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     container_ref: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    execution_target: Mapped[str] = mapped_column(String(32), nullable=False, default="local")
+    assigned_node_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("infra_node.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    desired_state: Mapped[str] = mapped_column(String(64), nullable=False, default="running")
+    placement_explain_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    last_command_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("infra_node_command.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

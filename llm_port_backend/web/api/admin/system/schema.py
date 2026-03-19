@@ -133,6 +133,119 @@ class AgentApplyResponse(BaseModel):
     agent_id: str
 
 
+class NodeEnrollmentTokenCreateRequest(BaseModel):
+    """Create one-time node enrollment token."""
+
+    note: str | None = None
+
+
+class NodeEnrollmentTokenCreateResponse(BaseModel):
+    """Response with plaintext enrollment token (returned once)."""
+
+    id: str
+    token: str
+    expires_at: str
+    note: str | None = None
+
+
+class NodeEnrollRequest(BaseModel):
+    """Agent enrollment request using one-time token."""
+
+    enrollment_token: str
+    agent_id: str
+    host: str
+    capabilities: dict[str, Any] = Field(default_factory=dict)
+    version: str | None = None
+
+
+class NodeEnrollResponse(BaseModel):
+    """Enrollment result for node agent."""
+
+    node_id: str
+    agent_id: str
+    credential: str
+    status: str
+    host: str
+
+
+class NodeRotateCredentialResponse(BaseModel):
+    """Credential rotation response for node agent."""
+
+    node_id: str
+    credential: str
+
+
+class NodeDTO(BaseModel):
+    """Node control-plane DTO."""
+
+    id: str
+    agent_id: str
+    host: str
+    status: str
+    version: str | None = None
+    labels: dict[str, Any] = Field(default_factory=dict)
+    capabilities: dict[str, Any] = Field(default_factory=dict)
+    maintenance_mode: bool = False
+    draining: bool = False
+    scheduler_eligible: bool = True
+    last_seen: str | None = None
+    created_at: str
+    updated_at: str
+    latest_inventory: dict[str, Any] | None = None
+    latest_utilization: dict[str, Any] | None = None
+
+
+class NodeMaintenanceRequest(BaseModel):
+    """Enable or disable node maintenance mode."""
+
+    enabled: bool
+    reason: str | None = None
+
+
+class NodeDrainRequest(BaseModel):
+    """Enable or disable node draining mode."""
+
+    enabled: bool
+
+
+class NodeCommandIssueRequest(BaseModel):
+    """Issue command to one node."""
+
+    command_type: str
+    payload: dict[str, Any] = Field(default_factory=dict)
+    idempotency_key: str | None = None
+    correlation_id: str | None = None
+    timeout_sec: int | None = None
+
+
+class NodeCommandDTO(BaseModel):
+    """Node command DTO."""
+
+    id: str
+    node_id: str
+    command_type: str
+    status: str
+    correlation_id: str | None = None
+    idempotency_key: str
+    payload: dict[str, Any] = Field(default_factory=dict)
+    result: dict[str, Any] | None = None
+    timeout_sec: int | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+    issued_at: str
+    dispatched_at: str | None = None
+    acked_at: str | None = None
+    started_at: str | None = None
+    completed_at: str | None = None
+
+
+class NodeCommandTimelineDTO(BaseModel):
+    """Command DTO with ordered timeline."""
+
+    command: NodeCommandDTO
+    events: list[dict[str, Any]] = Field(default_factory=list)
+
+
 class GrafanaAlertItemDTO(BaseModel):
     """Subset of Grafana alert item payload fields."""
 

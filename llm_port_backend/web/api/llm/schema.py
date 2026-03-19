@@ -194,6 +194,8 @@ class RuntimeCreateRequest(BaseModel):
     generic_config: dict | None = None
     provider_config: dict | None = None
     openai_compat: bool = True
+    target_node_id: uuid.UUID | None = None
+    placement_hints: dict | None = None
 
 
 class RuntimeUpdateRequest(BaseModel):
@@ -203,6 +205,8 @@ class RuntimeUpdateRequest(BaseModel):
     generic_config: dict | None = None
     provider_config: dict | None = None
     openai_compat: bool | None = None
+    target_node_id: uuid.UUID | None = None
+    placement_hints: dict | None = None
 
 
 class RuntimeDTO(BaseModel):
@@ -218,6 +222,11 @@ class RuntimeDTO(BaseModel):
     generic_config: dict | None = None
     provider_config: dict | None = None
     container_ref: str | None = None
+    execution_target: str = "local"
+    assigned_node_id: uuid.UUID | None = None
+    desired_state: str = "running"
+    placement_explain_json: dict | None = None
+    last_command_id: uuid.UUID | None = None
     created_at: datetime
     updated_at: datetime
 

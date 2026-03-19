@@ -62,6 +62,8 @@ async def create_runtime(
             generic_config=body.generic_config,
             provider_config=body.provider_config,
             openai_compat=body.openai_compat,
+            target_node_id=body.target_node_id,
+            placement_hints=body.placement_hints,
         )
     except ValueError as exc:
         raise HTTPException(
@@ -223,6 +225,8 @@ async def update_runtime(
             generic_config=body.generic_config,
             provider_config=body.provider_config,
             openai_compat=body.openai_compat,
+            target_node_id=body.target_node_id,
+            placement_hints=body.placement_hints,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -119,6 +119,9 @@ class GatewaySyncService:
         litellm_provider: str | None = None,
         litellm_model: str | None = None,
         extra_params: dict[str, Any] | None = None,
+        node_id: uuid.UUID | str | None = None,
+        node_metadata: dict[str, Any] | None = None,
+        capacity_hints: dict[str, Any] | None = None,
     ) -> None:
         """Create or update gateway routing records for a runtime.
 
@@ -152,11 +155,13 @@ class GatewaySyncService:
                         INSERT INTO llm_provider_instance
                             (id, type, base_url, enabled, weight, max_concurrency,
                              health_status, api_key_encrypted, litellm_provider,
-                             litellm_model, extra_params, created_at, updated_at)
+                             litellm_model, extra_params, node_id, node_metadata,
+                             capacity_hints, created_at, updated_at)
                         VALUES
                             (:id, :type, :base_url, TRUE, :weight, :max_concurrency,
                              :health, :api_key, :litellm_provider,
-                             :litellm_model, :extra_params, NOW(), NOW())
+                             :litellm_model, :extra_params, :node_id, :node_metadata,
+                             :capacity_hints, NOW(), NOW())
                         ON CONFLICT (id) DO UPDATE
                             SET base_url        = EXCLUDED.base_url,
                                 type            = EXCLUDED.type,
@@ -168,6 +173,9 @@ class GatewaySyncService:
                                 litellm_provider  = EXCLUDED.litellm_provider,
                                 litellm_model     = EXCLUDED.litellm_model,
                                 extra_params      = EXCLUDED.extra_params,
+                                node_id         = EXCLUDED.node_id,
+                                node_metadata   = EXCLUDED.node_metadata,
+                                capacity_hints  = EXCLUDED.capacity_hints,
                                 updated_at      = NOW()
                     """),
                     {
@@ -181,6 +189,9 @@ class GatewaySyncService:
                         "litellm_provider": litellm_provider,
                         "litellm_model": litellm_model,
                         "extra_params": json.dumps(extra_params) if extra_params else None,
+                        "node_id": node_id,
+                        "node_metadata": json.dumps(node_metadata) if node_metadata else None,
+                        "capacity_hints": json.dumps(capacity_hints) if capacity_hints else None,
                     },
                 )
 

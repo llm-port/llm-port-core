@@ -214,6 +214,10 @@ class Settings(BaseSettings):
     system_compose_file: str = "../llm_port_shared/docker-compose.yaml"
     system_agent_enabled: bool = False
     system_agent_token: str | None = None
+    node_cluster_enabled: bool = False
+    node_enrollment_ttl_minutes: int = 30
+    node_command_default_timeout_sec: int = 900
+    node_stream_idle_timeout_sec: int = 120
 
     @property
     def db_url(self) -> URL:

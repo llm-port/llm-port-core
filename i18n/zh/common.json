@@ -50,6 +50,7 @@
     "pinned": "固定",
     "reset_nav_order": "重置导航顺序",
     "security_map": "数据驻留",
+    "nodes": "节点",
     "scheduler": "调度器"
   },
   "auth": {

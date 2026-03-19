@@ -2,19 +2,21 @@
 
 from __future__ import annotations
 
-import secrets
+import asyncio
 import uuid
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
 from starlette import status
 
 from llm_port_backend.db.dao.audit_dao import AuditDAO
+from llm_port_backend.db.dao.node_control_dao import NodeControlDAO
 from llm_port_backend.db.dao.system_settings_dao import SystemSettingsDAO
 from llm_port_backend.db.models.containers import AuditResult
 from llm_port_backend.db.models.system_settings import InfraAgentStatus
 from llm_port_backend.db.models.users import User
 from llm_port_backend.services.docker.client import DockerService
+from llm_port_backend.services.nodes import NodeControlService
 from llm_port_backend.services.system_settings import SettingsCrypto, SystemSettingsService
 from llm_port_backend.services.system_settings.executors import AgentApplyExecutor, LocalApplyExecutor
 from llm_port_backend.settings import settings
@@ -28,6 +30,17 @@ from llm_port_backend.web.api.admin.system.schema import (
     ApplyJobResponse,
     GrafanaWebhookPayloadDTO,
     GrafanaWebhookResponseDTO,
+    NodeCommandDTO,
+    NodeCommandIssueRequest,
+    NodeCommandTimelineDTO,
+    NodeDTO,
+    NodeDrainRequest,
+    NodeEnrollRequest,
+    NodeEnrollResponse,
+    NodeEnrollmentTokenCreateRequest,
+    NodeEnrollmentTokenCreateResponse,
+    NodeMaintenanceRequest,
+    NodeRotateCredentialResponse,
     SettingsSchemaItemDTO,
     SettingsValuesResponse,
     SettingUpdateRequest,
@@ -62,6 +75,22 @@ def get_system_settings_service(
         local_executor=local_executor,
         agent_executor=agent_executor,
         agent_enabled=settings.system_agent_enabled,
+    )
+
+
+def get_node_control_service(
+    request: Request,
+    dao: NodeControlDAO = Depends(),
+) -> NodeControlService:
+    """Build request-scoped node control service."""
+    llm_service = getattr(request.app.state, "llm_service", None)
+    gateway_sync = getattr(llm_service, "gateway_sync", None)
+    return NodeControlService(
+        dao=dao,
+        pepper=settings.settings_master_key,
+        enrollment_ttl_minutes=settings.node_enrollment_ttl_minutes,
+        default_command_timeout_sec=settings.node_command_default_timeout_sec,
+        gateway_sync=gateway_sync,
     )
 
 
@@ -354,6 +383,318 @@ async def system_agent_job_status(
     if payload is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Apply job not found.")
     return payload
+
+
+@router.post(
+    "/nodes/enrollment-tokens",
+    response_model=NodeEnrollmentTokenCreateResponse,
+    name="system_node_enrollment_token_create",
+)
+async def system_node_enrollment_token_create(
+    body: NodeEnrollmentTokenCreateRequest,
+    user: Annotated[User, Depends(require_permission("system.nodes", "manage"))],
+    service: NodeControlService = Depends(get_node_control_service),
+) -> NodeEnrollmentTokenCreateResponse:
+    """Create one-time enrollment token for a node agent."""
+    payload = await service.create_enrollment_token(issued_by=user.id, note=body.note)
+    return NodeEnrollmentTokenCreateResponse(**payload)
+
+
+@router.post("/nodes/enroll", response_model=NodeEnrollResponse, name="system_node_enroll")
+async def system_node_enroll(
+    body: NodeEnrollRequest,
+    service: NodeControlService = Depends(get_node_control_service),
+) -> NodeEnrollResponse:
+    """Exchange enrollment token for node credentials."""
+    try:
+        payload = await service.enroll_node(
+            enrollment_token=body.enrollment_token,
+            agent_id=body.agent_id,
+            host=body.host,
+            capabilities=body.capabilities,
+            version=body.version,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+    return NodeEnrollResponse(**payload)
+
+
+@router.post(
+    "/nodes/credentials/rotate",
+    response_model=NodeRotateCredentialResponse,
+    name="system_node_rotate_credential",
+)
+async def system_node_rotate_credential(
+    request: Request,
+    service: NodeControlService = Depends(get_node_control_service),
+) -> NodeRotateCredentialResponse:
+    """Rotate node credential using current credential bearer token."""
+    try:
+        payload = await service.rotate_credential(authorization=request.headers.get("Authorization"))
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+    return NodeRotateCredentialResponse(**payload)
+
+
+@router.get("/nodes", response_model=list[NodeDTO], name="system_nodes_list")
+async def system_nodes_list(
+    _user: Annotated[User, Depends(require_permission("system.nodes", "read"))],
+    service: NodeControlService = Depends(get_node_control_service),
+) -> list[NodeDTO]:
+    """List managed nodes."""
+    return [NodeDTO(**item) for item in await service.list_nodes()]
+
+
+@router.get("/nodes/{node_id}", response_model=NodeDTO, name="system_node_get")
+async def system_node_get(
+    node_id: str,
+    _user: Annotated[User, Depends(require_permission("system.nodes", "read"))],
+    service: NodeControlService = Depends(get_node_control_service),
+) -> NodeDTO:
+    """Get one node with latest inventory/utilization snapshot."""
+    try:
+        parsed = uuid.UUID(node_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid node id.") from exc
+    payload = await service.get_node(node_id=parsed)
+    if payload is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Node not found.")
+    return NodeDTO(**payload)
+
+
+@router.post("/nodes/{node_id}/maintenance", response_model=NodeDTO, name="system_node_maintenance")
+async def system_node_maintenance(
+    node_id: str,
+    body: NodeMaintenanceRequest,
+    user: Annotated[User, Depends(require_permission("system.node_maintenance", "manage"))],
+    service: NodeControlService = Depends(get_node_control_service),
+) -> NodeDTO:
+    """Toggle maintenance mode for one node."""
+    try:
+        parsed = uuid.UUID(node_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid node id.") from exc
+    try:
+        payload = await service.set_node_maintenance(
+            node_id=parsed,
+            enabled=body.enabled,
+            reason=body.reason,
+            requested_by=user.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return NodeDTO(**payload)
+
+
+@router.post("/nodes/{node_id}/drain", response_model=NodeDTO, name="system_node_drain")
+async def system_node_drain(
+    node_id: str,
+    body: NodeDrainRequest,
+    _user: Annotated[User, Depends(require_permission("system.node_maintenance", "manage"))],
+    service: NodeControlService = Depends(get_node_control_service),
+) -> NodeDTO:
+    """Toggle draining state for one node."""
+    try:
+        parsed = uuid.UUID(node_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid node id.") from exc
+    try:
+        payload = await service.set_node_draining(node_id=parsed, enabled=body.enabled)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return NodeDTO(**payload)
+
+
+@router.post("/nodes/{node_id}/commands", response_model=NodeCommandDTO, name="system_node_command_issue")
+async def system_node_command_issue(
+    node_id: str,
+    body: NodeCommandIssueRequest,
+    user: Annotated[User, Depends(require_permission("system.node_commands", "manage"))],
+    service: NodeControlService = Depends(get_node_control_service),
+) -> NodeCommandDTO:
+    """Issue a command to one node."""
+    try:
+        parsed = uuid.UUID(node_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid node id.") from exc
+    try:
+        command = await service.issue_command(
+            node_id=parsed,
+            command_type=body.command_type,
+            payload=body.payload,
+            issued_by=user.id,
+            correlation_id=body.correlation_id,
+            timeout_sec=body.timeout_sec,
+            idempotency_key=body.idempotency_key,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return NodeCommandDTO(**service.serialize_command(command))
+
+
+@router.get("/nodes/{node_id}/commands", response_model=list[NodeCommandDTO], name="system_node_commands_list")
+async def system_node_commands_list(
+    node_id: str,
+    _user: Annotated[User, Depends(require_permission("system.node_commands", "read"))],
+    dao: NodeControlDAO = Depends(),
+    service: NodeControlService = Depends(get_node_control_service),
+) -> list[NodeCommandDTO]:
+    """List commands for one node."""
+    try:
+        parsed = uuid.UUID(node_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid node id.") from exc
+    rows = await dao.list_node_commands(node_id=parsed)
+    return [NodeCommandDTO(**service.serialize_command(item)) for item in rows]
+
+
+@router.get(
+    "/nodes/{node_id}/commands/{command_id}",
+    response_model=NodeCommandTimelineDTO,
+    name="system_node_command_timeline",
+)
+async def system_node_command_timeline(
+    node_id: str,
+    command_id: str,
+    _user: Annotated[User, Depends(require_permission("system.node_commands", "read"))],
+    service: NodeControlService = Depends(get_node_control_service),
+) -> NodeCommandTimelineDTO:
+    """Get one command timeline."""
+    try:
+        parsed_node = uuid.UUID(node_id)
+        parsed_command = uuid.UUID(command_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid id.") from exc
+    payload = await service.get_command_timeline(command_id=parsed_command)
+    if payload is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Command not found.")
+    command_node_id = payload.get("command", {}).get("node_id")
+    if command_node_id != str(parsed_node):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Command not found.")
+    return NodeCommandTimelineDTO(**payload)
+
+
+@router.websocket("/nodes/stream")
+async def system_node_stream(websocket: WebSocket) -> None:
+    """Persistent outbound stream channel used by node agents."""
+    session_factory = getattr(websocket.app.state, "db_session_factory", None)
+    if session_factory is None:
+        await websocket.close(code=1011)
+        return
+
+    session = session_factory()
+    dao = NodeControlDAO(session)
+    service = NodeControlService(
+        dao=dao,
+        pepper=settings.settings_master_key,
+        enrollment_ttl_minutes=settings.node_enrollment_ttl_minutes,
+        default_command_timeout_sec=settings.node_command_default_timeout_sec,
+        gateway_sync=getattr(getattr(websocket.app.state, "llm_service", None), "gateway_sync", None),
+    )
+    stream_session = None
+    try:
+        node, credential = await service.authenticate_agent(
+            authorization=websocket.headers.get("authorization"),
+        )
+    except PermissionError:
+        await websocket.close(code=4401)
+        await session.close()
+        return
+
+    await websocket.accept()
+    try:
+        stream_session = await service.create_stream_session(node=node, credential=credential)
+        commands = await service.list_commands_for_dispatch(node_id=node.id)
+        await websocket.send_json(
+            {
+                "type": "hello_ack",
+                "session_id": str(stream_session.id),
+                "node_id": str(node.id),
+                "commands": commands,
+            },
+        )
+        await session.commit()
+
+        idle_timeout_sec = max(settings.node_stream_idle_timeout_sec, 5)
+        while True:
+            try:
+                payload = await asyncio.wait_for(
+                    websocket.receive_json(),
+                    timeout=idle_timeout_sec,
+                )
+            except asyncio.TimeoutError:
+                await websocket.close(code=4408, reason="Idle timeout")
+                break
+
+            seq_raw = payload.get("seq")
+            if isinstance(seq_raw, int):
+                accepted = await service.update_stream_offset(
+                    session=stream_session,
+                    offset=seq_raw,
+                )
+                if not accepted:
+                    continue
+
+            message_type = str(payload.get("type") or "").strip().lower()
+            if message_type == "heartbeat":
+                status_value = str(payload.get("status") or "healthy")
+                capabilities_payload = payload.get("capabilities")
+                capabilities = capabilities_payload if isinstance(capabilities_payload, dict) else None
+                version = payload.get("version") if isinstance(payload.get("version"), str) else None
+                await service.heartbeat_node(
+                    node=node,
+                    status=status_value,
+                    capabilities=capabilities,
+                    version=version,
+                )
+            elif message_type == "inventory":
+                inventory_payload = payload.get("inventory")
+                utilization_payload = payload.get("utilization")
+                inventory = inventory_payload if isinstance(inventory_payload, dict) else {}
+                utilization = utilization_payload if isinstance(utilization_payload, dict) else {}
+                await service.record_inventory(node=node, inventory=inventory, utilization=utilization)
+            elif message_type == "command_ack":
+                try:
+                    command_id = uuid.UUID(str(payload.get("command_id")))
+                except ValueError:
+                    continue
+                await service.record_command_ack(node_id=node.id, command_id=command_id, payload=payload)
+            elif message_type == "command_progress":
+                try:
+                    command_id = uuid.UUID(str(payload.get("command_id")))
+                except ValueError:
+                    continue
+                await service.record_command_progress(node_id=node.id, command_id=command_id, payload=payload)
+            elif message_type == "command_result":
+                try:
+                    command_id = uuid.UUID(str(payload.get("command_id")))
+                except ValueError:
+                    continue
+                await service.record_command_result(node_id=node.id, command_id=command_id, payload=payload)
+            elif message_type == "event_batch":
+                events = payload.get("events")
+                if isinstance(events, list):
+                    normalized = [item for item in events if isinstance(item, dict)]
+                    if normalized:
+                        await service.record_node_events(node_id=node.id, events=normalized)
+
+            dispatch_items = await service.list_commands_for_dispatch(node_id=node.id)
+            if dispatch_items:
+                await websocket.send_json({"type": "commands", "items": dispatch_items})
+            await session.commit()
+    except WebSocketDisconnect:
+        await session.rollback()
+    except Exception:
+        await session.rollback()
+        raise
+    finally:
+        if stream_session is not None:
+            try:
+                await service.close_stream_session(session=stream_session)
+                await session.commit()
+            except Exception:
+                await session.rollback()
+        await session.close()
 
 
 @router.post(
