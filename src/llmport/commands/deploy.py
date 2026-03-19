@@ -127,6 +127,48 @@ def _find_shared_dir(workspace: Path) -> Path | None:
     "--yes", "-y", is_flag=True,
     help="Auto-confirm all prompts.",
 )
+@click.option(
+    "--local-node",
+    is_flag=True,
+    help="Provision llm_port_node_agent locally or over SSH during deployment.",
+)
+@click.option(
+    "--local-node-host",
+    default="",
+    help="SSH host for node-agent provisioning (example: ubuntu@10.0.0.12).",
+)
+@click.option(
+    "--local-node-workdir",
+    default="",
+    help="Install directory for node-agent repo on target host.",
+)
+@click.option(
+    "--local-node-branch",
+    default="",
+    help="Git branch for llm-port-node-agent (default: config dev.branch).",
+)
+@click.option(
+    "--local-node-backend-url",
+    default="http://127.0.0.1:8000",
+    show_default=True,
+    help="Backend URL written to node-agent environment.",
+)
+@click.option(
+    "--local-node-advertise-host",
+    default="",
+    help="Host/IP that node agent advertises for runtime endpoints.",
+)
+@click.option(
+    "--local-node-enrollment-token",
+    default="",
+    help="Optional one-time enrollment token for initial node onboarding.",
+)
+@click.option(
+    "--local-node-sudo/--local-node-no-sudo",
+    default=True,
+    show_default=True,
+    help="Use sudo for systemd installation in node-agent provisioning.",
+)
 def deploy_cmd(
     install_dir: str | None,
     *,
@@ -136,6 +178,14 @@ def deploy_cmd(
     force_env: bool,
     skip_doctor: bool,
     yes: bool,
+    local_node: bool,
+    local_node_host: str,
+    local_node_workdir: str,
+    local_node_branch: str,
+    local_node_backend_url: str,
+    local_node_advertise_host: str,
+    local_node_enrollment_token: str,
+    local_node_sudo: bool,
 ) -> None:
     """Deploy llm.port to a local production environment.
 
@@ -343,8 +393,35 @@ def deploy_cmd(
         sys.exit(rc)
     success("All services started.")
 
+    # ── 6. Optional local-node provisioning ───────────────────────
+    if local_node:
+        console.print("\n[bold cyan]Step 6: Local node-agent provisioning…[/bold cyan]")
+        from llmport.core.local_node import provision_local_node_agent  # noqa: PLC0415
+
+        branch = local_node_branch.strip() or (cfg.dev.branch if cfg.dev and cfg.dev.branch else "master")
+        method = cfg.dev.clone_method if cfg.dev and cfg.dev.clone_method else "https"
+        github_token = cfg.dev.github_token if cfg.dev else ""
+        remote_host = local_node_host.strip() or None
+        workspace_for_node = shared_dir.parent
+
+        ok = provision_local_node_agent(
+            workspace=workspace_for_node,
+            branch=branch,
+            backend_url=local_node_backend_url,
+            advertise_host=local_node_advertise_host,
+            enrollment_token=local_node_enrollment_token,
+            remote_host=remote_host,
+            use_sudo=local_node_sudo,
+            method=method,
+            github_token=github_token,
+            workdir_override=local_node_workdir.strip() or None,
+        )
+        if not ok:
+            error("Local-node provisioning failed.")
+            sys.exit(1)
+
     # ── 7. Initial admin setup ────────────────────────────────────
-    console.print("\n[bold cyan]Step 6: Initial admin setup…[/bold cyan]")
+    console.print("\n[bold cyan]Step 7: Initial admin setup…[/bold cyan]")
 
     from llmport.core.bootstrap import bootstrap_interactive, wait_for_backend  # noqa: PLC0415
 

@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import os
 import platform
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -127,6 +126,48 @@ def _stop_old_workers() -> None:
 @click.option("--skip-infra", is_flag=True, help="Skip shared infrastructure check.")
 @click.option("--skip-deps", is_flag=True, help="Skip dependency installation.")
 @click.option("--skip-migrations", is_flag=True, help="Skip Alembic migrations.")
+@click.option(
+    "--local-node",
+    is_flag=True,
+    help="Provision llm_port_node_agent locally or over SSH before launching dev services.",
+)
+@click.option(
+    "--local-node-host",
+    default="",
+    help="SSH host for node-agent provisioning (example: ubuntu@10.0.0.12).",
+)
+@click.option(
+    "--local-node-workdir",
+    default="",
+    help="Install directory for node-agent repo on target host.",
+)
+@click.option(
+    "--local-node-branch",
+    default="",
+    help="Git branch for llm-port-node-agent (default: config dev.branch).",
+)
+@click.option(
+    "--local-node-backend-url",
+    default="http://127.0.0.1:8000",
+    show_default=True,
+    help="Backend URL written to node-agent environment.",
+)
+@click.option(
+    "--local-node-advertise-host",
+    default="",
+    help="Host/IP that node agent advertises for runtime endpoints.",
+)
+@click.option(
+    "--local-node-enrollment-token",
+    default="",
+    help="Optional one-time enrollment token for initial node onboarding.",
+)
+@click.option(
+    "--local-node-sudo/--local-node-no-sudo",
+    default=True,
+    show_default=True,
+    help="Use sudo for systemd installation in node-agent provisioning.",
+)
 def dev_up(
     *,
     backend_only: bool,
@@ -134,6 +175,14 @@ def dev_up(
     skip_infra: bool,
     skip_deps: bool,
     skip_migrations: bool,
+    local_node: bool,
+    local_node_host: str,
+    local_node_workdir: str,
+    local_node_branch: str,
+    local_node_backend_url: str,
+    local_node_advertise_host: str,
+    local_node_enrollment_token: str,
+    local_node_sudo: bool,
 ) -> None:
     """Start backend, worker, and frontend dev servers.
 
@@ -146,6 +195,7 @@ def dev_up(
       • Worker    → uv run taskiq worker …       (task processing)
       • Frontend  → npm run dev                  (http://localhost:5173)
     """
+    cfg = load_config()
     workspace = _find_workspace()
     backend_dir = workspace / "llm_port_backend"
     frontend_dir = workspace / "llm_port_frontend"
@@ -191,6 +241,31 @@ def dev_up(
     if not skip_migrations and not frontend_only and backend_dir.exists():
         from llmport.commands.dev.dev_init import _run_migrations
         _run_migrations(backend_dir)
+
+    # ── Optional local-node provisioning ─────────────────────────
+    if local_node:
+        from llmport.core.local_node import provision_local_node_agent
+
+        branch = local_node_branch.strip() or (cfg.dev.branch if cfg.dev and cfg.dev.branch else "master")
+        remote_host = local_node_host.strip() or None
+        method = cfg.dev.clone_method if cfg.dev and cfg.dev.clone_method else "https"
+        github_token = cfg.dev.github_token if cfg.dev else ""
+
+        ok = provision_local_node_agent(
+            workspace=workspace,
+            branch=branch,
+            backend_url=local_node_backend_url,
+            advertise_host=local_node_advertise_host,
+            enrollment_token=local_node_enrollment_token,
+            remote_host=remote_host,
+            use_sudo=local_node_sudo,
+            method=method,
+            github_token=github_token,
+            workdir_override=local_node_workdir.strip() or None,
+        )
+        if not ok:
+            error("Local-node provisioning failed.")
+            sys.exit(1)
 
     # ── Launch backend ────────────────────────────────────────────
     if not frontend_only:
