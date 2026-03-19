@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { nodesApi, type ManagedNode } from "~/api/nodes";
 import { DataTable, type ColumnDef } from "~/components/DataTable";
 import { useAsyncData } from "~/lib/useAsyncData";
+import NodeOnboardingDrawer from "./NodeOnboardingPage";
 
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
@@ -46,6 +47,7 @@ export default function NodeFleetPage() {
     { initialValue: [] as ManagedNode[] },
   );
   const [actionBusyKey, setActionBusyKey] = useState<string | null>(null);
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
 
   async function runAction(key: string, action: () => Promise<void>) {
     setActionBusyKey(key);
@@ -202,6 +204,7 @@ export default function NodeFleetPage() {
   ];
 
   return (
+    <>
     <DataTable
       title="Node Fleet"
       rows={data}
@@ -214,12 +217,14 @@ export default function NodeFleetPage() {
       searchPlaceholder="Search host or agent id"
       onRowClick={(row) => navigate(`/admin/nodes/${row.id}`)}
       toolbarActions={
-        <Button variant="contained" onClick={() => navigate("/admin/nodes/onboarding")}>
+        <Button variant="contained" onClick={() => setOnboardingOpen(true)}>
           Add Node
         </Button>
       }
       pagination={25}
       columnVisibilityKey="dt-node-fleet"
     />
+    <NodeOnboardingDrawer open={onboardingOpen} onClose={() => setOnboardingOpen(false)} />
+    </>
   );
 }

@@ -23,6 +23,7 @@ import StorageIcon from "@mui/icons-material/Storage";
 import DnsIcon from "@mui/icons-material/Dns";
 import ViewInArIcon from "@mui/icons-material/ViewInAr";
 import LayersIcon from "@mui/icons-material/Layers";
+import ExtensionIcon from "@mui/icons-material/Extension";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import DashboardIcon from "@mui/icons-material/Dashboard";
 import SecurityIcon from "@mui/icons-material/Security";
@@ -32,6 +33,7 @@ import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import HubIcon from "@mui/icons-material/Hub";
 import DescriptionIcon from "@mui/icons-material/Description";
 import LlmIcon from "~/components/LlmIcon";
+import SettingsRemoteIcon from "@mui/icons-material/SettingsRemote";
 import ModelTrainingIcon from "@mui/icons-material/ModelTraining";
 import DownloadIcon from "@mui/icons-material/Download";
 import ScheduleIcon from "@mui/icons-material/Schedule";
@@ -268,7 +270,7 @@ export const NAV: NavEntry[] = [
     kind: "leaf",
     to: "/admin/nodes",
     labelKey: "nav.nodes",
-    icon: <HubIcon />,
+    icon: <SettingsRemoteIcon />,
     permission: "system.nodes:read",
   },
   {
@@ -410,7 +412,7 @@ export const NAV: NavEntry[] = [
     id: "extensions",
     kind: "group",
     labelKey: "nav.extensions_group",
-    icon: <HubIcon />,
+    icon: <ExtensionIcon />,
     children: [
       {
         to: "/admin/mcp/servers",

@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { useNavigate } from "react-router";
 import { nodesApi, type NodeEnrollmentToken } from "~/api/nodes";
 
 import Alert from "@mui/material/Alert";
@@ -7,12 +6,20 @@ import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Card from "@mui/material/Card";
 import CardContent from "@mui/material/CardContent";
+import Drawer from "@mui/material/Drawer";
+import IconButton from "@mui/material/IconButton";
 import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 
-export default function NodeOnboardingPage() {
-  const navigate = useNavigate();
+import CloseIcon from "@mui/icons-material/Close";
+
+interface NodeOnboardingDrawerProps {
+  open: boolean;
+  onClose: () => void;
+}
+
+export default function NodeOnboardingDrawer({ open, onClose }: NodeOnboardingDrawerProps) {
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,13 +46,25 @@ export default function NodeOnboardingPage() {
     }
   }
 
+  function handleClose() {
+    setNote("");
+    setError(null);
+    setToken(null);
+    onClose();
+  }
+
   return (
-    <Box sx={{ maxWidth: 900 }}>
+    <Drawer
+      anchor="right"
+      open={open}
+      onClose={handleClose}
+      PaperProps={{ sx: { width: { xs: "100%", sm: 480 }, p: 3 } }}
+    >
       <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-        <Typography variant="h5">Node Onboarding</Typography>
-        <Button variant="outlined" onClick={() => navigate("/admin/nodes")}>
-          Back To Fleet
-        </Button>
+        <Typography variant="h6">Node Onboarding</Typography>
+        <IconButton onClick={handleClose} size="small" aria-label="close">
+          <CloseIcon />
+        </IconButton>
       </Stack>
 
       <Card variant="outlined" sx={{ mb: 2 }}>
@@ -56,7 +75,7 @@ export default function NodeOnboardingPage() {
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             Token is single-use and exchanged by a new node agent for long-lived credentials.
           </Typography>
-          <Stack direction={{ xs: "column", md: "row" }} spacing={1}>
+          <Stack spacing={1}>
             <TextField
               label="Note"
               value={note}
@@ -65,7 +84,7 @@ export default function NodeOnboardingPage() {
               size="small"
               placeholder="Optional host or rack note"
             />
-            <Button variant="contained" onClick={createToken} disabled={loading}>
+            <Button variant="contained" onClick={createToken} disabled={loading} fullWidth>
               {loading ? "Creating..." : "Create Token"}
             </Button>
           </Stack>
@@ -105,15 +124,15 @@ export default function NodeOnboardingPage() {
           <Typography variant="subtitle1" sx={{ mb: 1 }}>
             Agent Enrollment Steps
           </Typography>
-          <Typography component="pre" sx={{ fontFamily: "monospace", fontSize: "0.8rem", m: 0, whiteSpace: "pre-wrap" }}>
-{`1. Install llm_port_node_agent service on the target Linux host.
-2. Set agent_id, host, and the enrollment token from this page.
+          <Box component="pre" sx={{ fontFamily: "monospace", fontSize: "0.8rem", m: 0, whiteSpace: "pre-wrap" }}>
+{`1. Install llm_port_node_agent on the target host.
+2. Set agent_id, host, and the enrollment token.
 3. Start the agent service.
-4. Agent calls POST /api/admin/system/nodes/enroll once.
-5. Agent stores returned credential and opens /api/admin/system/nodes/stream.`}
-          </Typography>
+4. Agent calls POST /api/admin/system/nodes/enroll.
+5. Agent stores credential and opens the stream.`}
+          </Box>
         </CardContent>
       </Card>
-    </Box>
+    </Drawer>
   );
 }
