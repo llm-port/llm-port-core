@@ -1,0 +1,125 @@
+"""Node command dispatcher."""
+
+from __future__ import annotations
+
+from collections.abc import Awaitable, Callable
+from typing import Any
+
+from llm_port_node_agent.event_buffer import EventBuffer
+from llm_port_node_agent.models import NodeCommandType
+from llm_port_node_agent.policy_guard import PolicyGuard, PolicyViolationError
+from llm_port_node_agent.runtime_manager import RuntimeManager, RuntimeManagerError
+from llm_port_node_agent.state_store import StateStore
+
+ProgressEmitter = Callable[[dict[str, Any]], Awaitable[None]]
+
+
+class CommandDispatcher:
+    """Dispatch backend commands to local handlers."""
+
+    def __init__(
+        self,
+        *,
+        state_store: StateStore,
+        runtime_manager: RuntimeManager,
+        policy_guard: PolicyGuard,
+        events: EventBuffer,
+    ) -> None:
+        self._state = state_store
+        self._runtime = runtime_manager
+        self._guard = policy_guard
+        self._events = events
+
+    async def handle(self, command: dict[str, Any], emit_progress: ProgressEmitter) -> dict[str, Any]:
+        """Execute command and return normalized result payload."""
+        command_id = str(command.get("id") or "").strip()
+        command_type = str(command.get("command_type") or "").strip().lower()
+        payload = command.get("payload")
+        payload = payload if isinstance(payload, dict) else {}
+
+        if not command_id:
+            return {
+                "success": False,
+                "error_code": "invalid_command",
+                "error_message": "Missing command id.",
+            }
+
+        cached = self._state.get_command_result(command_id)
+        if cached is not None:
+            replayed = dict(cached)
+            replayed.setdefault("result", {})
+            replayed["result"]["replayed"] = True
+            return replayed
+
+        try:
+            self._guard.validate(command_type=command_type, state=self._state.state)
+            await emit_progress({"message": f"Executing {command_type}"})
+            result = await self._execute(command_type=command_type, payload=payload)
+            normalized = {"success": True, "result": result}
+        except PolicyViolationError as exc:
+            normalized = {
+                "success": False,
+                "error_code": "policy_violation",
+                "error_message": str(exc),
+                "result": {},
+            }
+        except RuntimeManagerError as exc:
+            normalized = {
+                "success": False,
+                "error_code": "runtime_error",
+                "error_message": str(exc),
+                "result": {},
+            }
+        except Exception as exc:
+            normalized = {
+                "success": False,
+                "error_code": "internal_error",
+                "error_message": str(exc),
+                "result": {},
+            }
+
+        self._state.remember_command_result(command_id, normalized)
+        self._events.add(
+            event_type="command.finished",
+            severity="info" if normalized.get("success") else "error",
+            payload={"command_id": command_id, "command_type": command_type, **normalized},
+            correlation_id=command_id,
+        )
+        return normalized
+
+    async def _execute(self, *, command_type: str, payload: dict[str, Any]) -> dict[str, Any]:
+        if command_type == NodeCommandType.DEPLOY_WORKLOAD.value:
+            return await self._runtime.deploy_workload(payload)
+        if command_type == NodeCommandType.START_WORKLOAD.value:
+            return await self._runtime.start_workload(payload)
+        if command_type == NodeCommandType.STOP_WORKLOAD.value:
+            return await self._runtime.stop_workload(payload)
+        if command_type == NodeCommandType.RESTART_WORKLOAD.value:
+            return await self._runtime.restart_workload(payload)
+        if command_type == NodeCommandType.REMOVE_WORKLOAD.value:
+            return await self._runtime.remove_workload(payload)
+        if command_type == NodeCommandType.UPDATE_WORKLOAD.value:
+            return await self._runtime.update_workload(payload)
+        if command_type == NodeCommandType.REFRESH_INVENTORY.value:
+            return {"refresh_requested": True}
+        if command_type == NodeCommandType.COLLECT_DIAGNOSTICS.value:
+            return await self._runtime.collect_diagnostics()
+        if command_type == NodeCommandType.SET_MAINTENANCE_MODE.value:
+            enabled = bool(payload.get("enabled", True))
+            self._state.state.maintenance_mode = enabled
+            self._state.save()
+            return {"maintenance_mode": enabled}
+        if command_type == NodeCommandType.DRAIN_NODE.value:
+            self._state.state.draining = True
+            self._state.save()
+            return {"draining": True}
+        if command_type == NodeCommandType.RESUME_NODE.value:
+            self._state.state.draining = False
+            self._state.save()
+            return {"draining": False}
+        if command_type == NodeCommandType.HOST_OP.value:
+            return {
+                "accepted": False,
+                "reason": "host_op not enabled by default on agent.",
+            }
+        raise RuntimeManagerError(f"Unsupported command type: {command_type}")

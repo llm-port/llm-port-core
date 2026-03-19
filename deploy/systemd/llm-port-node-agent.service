@@ -1,0 +1,17 @@
+[Unit]
+Description=llm-port node agent
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+EnvironmentFile=-/etc/llm-port-node-agent.env
+ExecStart=/usr/local/bin/llm-port-node-agent
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
