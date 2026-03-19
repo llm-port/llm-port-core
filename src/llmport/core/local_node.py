@@ -170,14 +170,18 @@ def _provision_local(
         return _start_agent_foreground(repo_dir, env_lines)
 
     if not use_sudo:
-        warning("Skipped systemd install (--local-node-no-sudo).")
-        warning("Manual run: llm-port-node-agent")
-        return True
+        info("No sudo — starting node agent as user background process.")
+        return _start_agent_foreground(repo_dir, env_lines)
 
     service_file = repo_dir / "deploy" / "systemd" / "llm-port-node-agent.service"
     if not service_file.exists():
         error(f"Systemd service file missing: {service_file}")
         return False
+
+    # Pre-check: verify sudo access before attempting systemd install.
+    if _run(["sudo", "-n", "true"], check=False) != 0:
+        warning("sudo not available — falling back to user background process.")
+        return _start_agent_foreground(repo_dir, env_lines)
 
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as handle:
         handle.write("\n".join(env_lines))
@@ -230,6 +234,13 @@ def _start_agent_foreground(repo_dir: Path, env_lines: list[str]) -> bool:
         if "=" in line:
             k, v = line.split("=", 1)
             proc_env[k] = v
+
+    # When running as a non-root user, override the default state path
+    # (/var/lib/...) to a writable location inside the repo dir.
+    if "LLM_PORT_NODE_AGENT_STATE_PATH" not in proc_env:
+        state_dir = repo_dir / ".agent-state"
+        state_dir.mkdir(parents=True, exist_ok=True)
+        proc_env["LLM_PORT_NODE_AGENT_STATE_PATH"] = str(state_dir / "state.json")
 
     # Launch as detached background process
     cmd = [str(venv_python), "-m", "llm_port_node_agent"]
@@ -409,6 +420,16 @@ def _clone_or_update_repo(*, repo_dir: Path, repo_url: str, branch: str) -> bool
 
     repo_dir.parent.mkdir(parents=True, exist_ok=True)
     if (repo_dir / ".git").exists():
+        if _run([git, "-C", str(repo_dir), "fetch", "--all", "--prune"]) != 0:
+            return False
+    elif repo_dir.exists() and any(repo_dir.iterdir()):
+        # Directory exists but is not a git repo (e.g. rsynced without .git/).
+        # Initialise in-place and add the remote.
+        info("Directory exists without .git — initialising repo in-place.")
+        if _run([git, "-C", str(repo_dir), "init"]) != 0:
+            return False
+        if _run([git, "-C", str(repo_dir), "remote", "add", "origin", repo_url]) != 0:
+            return False
         if _run([git, "-C", str(repo_dir), "fetch", "--all", "--prune"]) != 0:
             return False
     else:

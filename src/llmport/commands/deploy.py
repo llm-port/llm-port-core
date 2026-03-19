@@ -105,6 +105,33 @@ def _find_shared_dir(workspace: Path) -> Path | None:
     return None
 
 
+def _login_for_api_token(backend_url: str, email: str) -> str | None:
+    """Prompt for password, login via the auth endpoint, and return an access token."""
+    import click  # noqa: PLC0415
+
+    import httpx  # noqa: PLC0415
+
+    from llmport.core.console import error, success  # noqa: PLC0415
+
+    password = click.prompt(f"  Password for {email}", hide_input=True, show_default=False)
+    try:
+        resp = httpx.post(
+            f"{backend_url.rstrip('/')}/api/auth/jwt/login",
+            data={"username": email, "password": password},
+            timeout=15,
+        )
+        if resp.status_code == 200:  # noqa: PLR2004
+            token = resp.json().get("access_token", "")
+            if token:
+                success("Logged in — creating enrollment token…")
+                return token
+        error(f"Login failed (HTTP {resp.status_code})")
+        return None
+    except httpx.HTTPError as exc:
+        error(f"Could not reach backend for login: {exc}")
+        return None
+
+
 @click.command("deploy")
 @click.argument(
     "install_dir",
@@ -150,9 +177,8 @@ def _find_shared_dir(workspace: Path) -> Path | None:
 )
 @click.option(
     "--local-node-backend-url",
-    default="http://127.0.0.1:8000",
-    show_default=True,
-    help="Backend URL written to node-agent environment.",
+    default="",
+    help="Backend URL written to node-agent environment. Default: same as deploy target.",
 )
 @click.option(
     "--local-node-advertise-host",
@@ -481,6 +507,12 @@ def deploy_cmd(
             info("No enrollment token provided — creating one automatically…")
             enrollment_token = create_enrollment_token(backend_url, creds["api_token"]) or ""
         if not enrollment_token.strip():
+            # Bootstrap already happened — try logging in to get a token.
+            info("No API token from bootstrap — attempting login…")
+            api_token = _login_for_api_token(backend_url, cfg.admin_email)
+            if api_token:
+                enrollment_token = create_enrollment_token(backend_url, api_token) or ""
+        if not enrollment_token.strip():
             warning(
                 "No enrollment token available. Provide one with"
                 " --local-node-enrollment-token or re-run after bootstrap."
@@ -492,10 +524,13 @@ def deploy_cmd(
         remote_host = local_node_host.strip() or None
         workspace_for_node = shared_dir.parent
 
+        # Default to the resolved backend URL (via nginx) if not explicitly set.
+        node_backend = local_node_backend_url.strip() or backend_url
+
         ok = provision_local_node_agent(
             workspace=workspace_for_node,
             branch=branch,
-            backend_url=local_node_backend_url,
+            backend_url=node_backend,
             advertise_host=local_node_advertise_host,
             enrollment_token=enrollment_token,
             remote_host=remote_host,
