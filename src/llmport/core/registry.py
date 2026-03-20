@@ -34,6 +34,7 @@ REPOS: list[RepoInfo] = [
     RepoInfo("llm-port-api", "llm_port_api", "LLM Gateway API"),
     RepoInfo("llm-port-pii", "llm_port_pii", "PII redaction service"),
     RepoInfo("llm-port-mcp", "llm_port_mcp", "MCP Tool Registry"),
+    RepoInfo("llm-port-skills", "llm_port_skills", "Skills Registry"),
     RepoInfo("llm-port-shared", "llm_port_shared", "Shared infra (compose)"),
     RepoInfo("llm-port-cli", "llm_port_cli", "CLI"),
 ]
@@ -88,6 +89,19 @@ MODULES: dict[str, ModuleInfo] = {
             ("LLM_PORT_BACKEND_MCP_SERVICE_URL", "http://llm-port-mcp:8000"),
         ),
     ),
+    "skills": ModuleInfo(
+        name="skills",
+        profile="skills",
+        description="Skills Registry (reusable LLM instruction sets)",
+        container="llm-port-skills",
+        port=8008,
+        service_url="http://llm-port-skills:8000",
+        env_vars=(
+            ("LLM_PORT_API_SKILLS_ENABLED", "true"),
+            ("LLM_PORT_BACKEND_SKILLS_ENABLED", "true"),
+            ("LLM_PORT_BACKEND_SKILLS_SERVICE_URL", "http://llm-port-skills:8000"),
+        ),
+    ),
 }
 
 # Legacy dict-of-dicts shape consumed by commands/module.py
@@ -117,6 +131,7 @@ KNOWN_PORTS: list[tuple[int, str]] = [
     (8001, "API Gateway"),
     (8003, "PII Service"),
     (8007, "MCP Tool Registry"),
+    (8008, "Skills Registry"),
     # Tools
     (5050, "pgAdmin"),
     (3000, "Langfuse"),
@@ -132,6 +147,7 @@ DATABASES: list[str] = [
     "llm_api",
     "pii",
     "llm_mcp",
+    "llm_skills",
     "langfuse",
 ]
 
