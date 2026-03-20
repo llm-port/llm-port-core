@@ -80,18 +80,22 @@ def remove_local_node_agent(*, workspace: Path, use_sudo: bool = True) -> bool:
     # ── Kill any running agent process (cross-platform) ───────
     if platform.system() == "Windows":
         # Best-effort: kill by process name
-        subprocess.run(  # noqa: S603
+        kill_result = subprocess.run(  # noqa: S603
             ["taskkill", "/F", "/IM", "llm-port-node-agent.exe"],
             capture_output=True, text=True,
         )
+        if kill_result.returncode == 0:
+            removed_anything = True
     else:
-        subprocess.run(  # noqa: S603
+        kill_result = subprocess.run(  # noqa: S603
             ["pkill", "-f", "llm.port.node.agent"],
             capture_output=True, text=True,
         )
+        if kill_result.returncode == 0:
+            removed_anything = True
 
     if removed_anything:
-        success("Local node agent stopped and service removed.")
+        success("Local node agent stopped.")
     else:
         info("No local node agent service found to remove.")
     return True
@@ -343,11 +347,15 @@ USE_SUDO={use_sudo_int}
 mkdir -p "$(dirname "$WORKDIR")"
 if [ -d "$WORKDIR/.git" ]; then
   git -C "$WORKDIR" fetch --all --prune
+elif [ -d "$WORKDIR" ] && [ -n "$(ls -A "$WORKDIR" 2>/dev/null)" ]; then
+  # Directory exists but is not a git repo (e.g. rsynced without .git/).
+  # Skip clone — use the existing source tree as-is.
+  echo "Directory $WORKDIR exists without .git — using existing source."
 else
   git clone "$REPO_URL" "$WORKDIR"
 fi
 
-if [ -n "$BRANCH" ]; then
+if [ -d "$WORKDIR/.git" ] && [ -n "$BRANCH" ]; then
   git -C "$WORKDIR" checkout "$BRANCH" || git -C "$WORKDIR" checkout -b "$BRANCH" "origin/$BRANCH" || true
   git -C "$WORKDIR" pull --ff-only origin "$BRANCH" || true
 fi
@@ -420,25 +428,22 @@ def _clone_or_update_repo(*, repo_dir: Path, repo_url: str, branch: str) -> bool
 
     repo_dir.parent.mkdir(parents=True, exist_ok=True)
     if (repo_dir / ".git").exists():
-        if _run([git, "-C", str(repo_dir), "fetch", "--all", "--prune"]) != 0:
-            return False
+        # Repo already cloned — try to fetch latest, but don't abort
+        # if it fails (the existing code is sufficient to run).
+        if _run([git, "-C", str(repo_dir), "fetch", "--all", "--prune"], check=False) != 0:
+            warning("git fetch failed — continuing with existing source.")
     elif repo_dir.exists() and any(repo_dir.iterdir()):
         # Directory exists but is not a git repo (e.g. rsynced without .git/).
-        # Initialise in-place and add the remote.
-        info("Directory exists without .git — initialising repo in-place.")
-        if _run([git, "-C", str(repo_dir), "init"]) != 0:
-            return False
-        if _run([git, "-C", str(repo_dir), "remote", "add", "origin", repo_url]) != 0:
-            return False
-        if _run([git, "-C", str(repo_dir), "fetch", "--all", "--prune"]) != 0:
-            return False
+        # Use the existing source tree as-is — no clone needed.
+        info("Directory exists without .git — using existing source.")
     else:
         if _run([git, "clone", repo_url, str(repo_dir)]) != 0:
             return False
 
-    if _run([git, "-C", str(repo_dir), "checkout", branch], check=False) != 0:
-        _run([git, "-C", str(repo_dir), "checkout", "-b", branch, f"origin/{branch}"], check=False)
-    _run([git, "-C", str(repo_dir), "pull", "--ff-only", "origin", branch], check=False)
+    if (repo_dir / ".git").exists():
+        if _run([git, "-C", str(repo_dir), "checkout", branch], check=False) != 0:
+            _run([git, "-C", str(repo_dir), "checkout", "-b", branch, f"origin/{branch}"], check=False)
+        _run([git, "-C", str(repo_dir), "pull", "--ff-only", "origin", branch], check=False)
     return True
 
 
@@ -461,11 +466,13 @@ def _install_agent_dependencies(repo_dir: Path) -> bool:
 
 
 def _run(cmd: list[str], *, cwd: Path | None = None, check: bool = True) -> int:
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
     proc = subprocess.run(  # noqa: S603
         cmd,
         cwd=str(cwd) if cwd else None,
         capture_output=True,
         text=True,
+        env=env,
     )
     if check and proc.returncode != 0:
         detail = (proc.stderr or proc.stdout or "").strip()
