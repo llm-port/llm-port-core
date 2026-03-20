@@ -51,7 +51,8 @@
     "reset_nav_order": "Restablecer orden de navegación",
     "security_map": "Residencia de datos",
     "nodes": "Nodos",
-    "scheduler": "Planificador"
+    "scheduler": "Planificador",
+    "utilities_group": "Utilidades"
   },
   "auth": {
     "logout": "Cerrar sesion",

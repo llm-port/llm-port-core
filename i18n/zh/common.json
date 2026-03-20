@@ -51,7 +51,8 @@
     "reset_nav_order": "重置导航顺序",
     "security_map": "数据驻留",
     "nodes": "节点",
-    "scheduler": "调度器"
+    "scheduler": "调度器",
+    "utilities_group": "实用工具"
   },
   "auth": {
     "logout": "退出登录",

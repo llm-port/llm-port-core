@@ -51,7 +51,8 @@
     "reset_nav_order": "Navigationsreihenfolge zurücksetzen",
     "security_map": "Datenresidenz",
     "nodes": "Knoten",
-    "scheduler": "Scheduler"
+    "scheduler": "Scheduler",
+    "utilities_group": "Dienstprogramme"
   },
   "auth": {
     "logout": "Abmelden",
