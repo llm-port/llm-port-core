@@ -181,7 +181,27 @@
       "services_stacks": "服务 / 堆栈",
       "db_users": "数据库 / 用户",
       "gpu_runtimes": "GPU / 运行时"
-    }
+    },
+    "customize": "自定义",
+    "reset_layout": "重置布局",
+    "show_section": "显示区域",
+    "hide_section": "隐藏区域",
+    "section_gauges": "系统仪表",
+    "section_node_fleet": "节点船队",
+    "section_stat_cards": "统计数据",
+    "section_grafana": "Grafana",
+    "section_dependency_health": "依赖健康",
+    "section_module_status": "模块状态",
+    "section_data_residency": "数据驻留",
+    "section_top_containers": "顶部容器",
+    "section_quick_links": "快速链接",
+    "node_fleet_empty": "无已注册节点",
+    "node_fleet_onboard": "注册节点",
+    "node_refresh": "刷新此节点",
+    "node_last_seen": "最近见到",
+    "node_cpu": "CPU",
+    "node_ram": "RAM",
+    "node_gpu_vram": "GPU VRAM"
   },
   "errors": {
     "oops": "哎呀！",

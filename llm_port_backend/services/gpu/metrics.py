@@ -30,7 +30,7 @@ def collect_gpu_metrics() -> GpuMetrics:
     # Strategy 1: NVIDIA pynvml
     with contextlib.suppress(ImportError, Exception):
         result = _metrics_nvidia()
-        if result.util_percent is not None:
+        if result.util_percent is not None or result.vram_total_bytes is not None:
             return result
 
     # Strategy 2: AMD ROCm sysfs (Linux)
@@ -54,7 +54,13 @@ def collect_gpu_metrics() -> GpuMetrics:
 
 
 def _metrics_nvidia() -> GpuMetrics:
-    """Collect NVIDIA GPU metrics via pynvml."""
+    """Collect NVIDIA GPU metrics via pynvml.
+
+    On unified-memory architectures (e.g. Grace Hopper / DGX Spark)
+    ``nvmlDeviceGetUtilizationRates`` may be unsupported.  Each metric
+    is collected independently so one failing field does not discard the
+    rest.
+    """
     import pynvml  # noqa: PLC0415
 
     pynvml.nvmlInit()
@@ -63,22 +69,42 @@ def _metrics_nvidia() -> GpuMetrics:
         if count == 0:
             return GpuMetrics()
 
-        total_util = 0.0
+        util_samples: list[float] = []
         total_vram_used = 0
         total_vram_total = 0
+        got_mem = False
+
         for i in range(count):
             handle = pynvml.nvmlDeviceGetHandleByIndex(i)
-            util = pynvml.nvmlDeviceGetUtilizationRates(handle)
-            mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
-            total_util += float(util.gpu)
-            total_vram_used += int(mem.used)
-            total_vram_total += int(mem.total)
 
-        return GpuMetrics(
-            util_percent=round(total_util / count, 1),
-            vram_used_bytes=total_vram_used,
-            vram_total_bytes=total_vram_total,
-        )
+            # Utilization — may throw on unified-memory architectures.
+            with contextlib.suppress(Exception):
+                util = pynvml.nvmlDeviceGetUtilizationRates(handle)
+                util_samples.append(float(util.gpu))
+
+            # Memory — prefer v2 (reports reserved memory separately on
+            # Grace Hopper), fall back to v1.
+            mem = None
+            with contextlib.suppress(Exception):
+                mem = pynvml.nvmlDeviceGetMemoryInfo_v2(handle)  # type: ignore[attr-defined]
+            if mem is None:
+                with contextlib.suppress(Exception):
+                    mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
+            if mem is not None and int(mem.total) > 0:
+                total_vram_used += int(mem.used)
+                total_vram_total += int(mem.total)
+                got_mem = True
+
+        avg_util = round(sum(util_samples) / len(util_samples), 1) if util_samples else None
+
+        # Return as long as we got at least utilization or memory.
+        if avg_util is not None or got_mem:
+            return GpuMetrics(
+                util_percent=avg_util,
+                vram_used_bytes=total_vram_used if got_mem else None,
+                vram_total_bytes=total_vram_total if got_mem else None,
+            )
+        return GpuMetrics()
     finally:
         pynvml.nvmlShutdown()
 

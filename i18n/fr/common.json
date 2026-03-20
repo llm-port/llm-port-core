@@ -186,7 +186,27 @@
       "services_stacks": "Services / Piles",
       "db_users": "BD / Utilisateurs",
       "gpu_runtimes": "GPU / Environnements"
-    }
+    },
+    "customize": "Personnaliser",
+    "reset_layout": "Réinitialiser la disposition",
+    "show_section": "Afficher la section",
+    "hide_section": "Masquer la section",
+    "section_gauges": "Jauges système",
+    "section_node_fleet": "Flotte de nœuds",
+    "section_stat_cards": "Statistiques",
+    "section_grafana": "Grafana",
+    "section_dependency_health": "Santé des dépendances",
+    "section_module_status": "Statut des modules",
+    "section_data_residency": "Résidence des données",
+    "section_top_containers": "Top conteneurs",
+    "section_quick_links": "Liens rapides",
+    "node_fleet_empty": "Aucun nœud enregistré",
+    "node_fleet_onboard": "Intégrer un nœud",
+    "node_refresh": "Actualiser ce nœud",
+    "node_last_seen": "Vu",
+    "node_cpu": "CPU",
+    "node_ram": "RAM",
+    "node_gpu_vram": "GPU VRAM"
   },
   "common": {
     "name": "Nom",

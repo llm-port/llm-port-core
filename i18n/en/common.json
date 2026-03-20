@@ -186,7 +186,27 @@
       "services_stacks": "Services / Stacks",
       "db_users": "DB / Users",
       "gpu_runtimes": "GPU / Runtimes"
-    }
+    },
+    "customize": "Customize",
+    "reset_layout": "Reset layout",
+    "show_section": "Show section",
+    "hide_section": "Hide section",
+    "section_gauges": "System Gauges",
+    "section_node_fleet": "Node Fleet",
+    "section_stat_cards": "Statistics",
+    "section_grafana": "Grafana",
+    "section_dependency_health": "Dependency Health",
+    "section_module_status": "Module Status",
+    "section_data_residency": "Data Residency",
+    "section_top_containers": "Top Containers",
+    "section_quick_links": "Quick Links",
+    "node_fleet_empty": "No registered nodes",
+    "node_fleet_onboard": "Onboard a node",
+    "node_refresh": "Refresh this node",
+    "node_last_seen": "Seen",
+    "node_cpu": "CPU",
+    "node_ram": "RAM",
+    "node_gpu_vram": "GPU VRAM"
   },
   "common": {
     "name": "Name",

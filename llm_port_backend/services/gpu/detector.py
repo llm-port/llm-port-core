@@ -142,13 +142,21 @@ def _detect_nvidia() -> list[GpuDevice]:
                 name = pynvml.nvmlDeviceGetName(handle)
                 if isinstance(name, bytes):
                     name = name.decode()
-                mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
+                # Prefer v2 memory info (reports unified memory correctly
+                # on Grace Hopper / DGX Spark), fall back to v1.
+                mem = None
+                with contextlib.suppress(Exception):
+                    mem = pynvml.nvmlDeviceGetMemoryInfo_v2(handle)  # type: ignore[attr-defined]
+                if mem is None:
+                    with contextlib.suppress(Exception):
+                        mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
+                vram = int(mem.total) if mem is not None else 0
                 devices.append(
                     GpuDevice(
                         index=i,
                         vendor=GpuVendor.NVIDIA,
                         model=name,
-                        vram_bytes=int(mem.total),
+                        vram_bytes=vram,
                         driver_version=driver if isinstance(driver, str) else driver.decode(),
                         compute_api=GpuComputeApi.CUDA,
                     )

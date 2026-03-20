@@ -181,7 +181,27 @@
       "services_stacks": "Servicios / Stacks",
       "db_users": "BD / Usuarios",
       "gpu_runtimes": "GPU / Runtimes"
-    }
+    },
+    "customize": "Personalizar",
+    "reset_layout": "Restablecer diseño",
+    "show_section": "Mostrar sección",
+    "hide_section": "Ocultar sección",
+    "section_gauges": "Indicadores del sistema",
+    "section_node_fleet": "Flota de nodos",
+    "section_stat_cards": "Estadísticas",
+    "section_grafana": "Grafana",
+    "section_dependency_health": "Salud de dependencias",
+    "section_module_status": "Estado de módulos",
+    "section_data_residency": "Residencia de datos",
+    "section_top_containers": "Top contenedores",
+    "section_quick_links": "Accesos rápidos",
+    "node_fleet_empty": "No hay nodos registrados",
+    "node_fleet_onboard": "Registrar un nodo",
+    "node_refresh": "Actualizar este nodo",
+    "node_last_seen": "Visto",
+    "node_cpu": "CPU",
+    "node_ram": "RAM",
+    "node_gpu_vram": "GPU VRAM"
   },
   "errors": {
     "oops": "Ups!",
