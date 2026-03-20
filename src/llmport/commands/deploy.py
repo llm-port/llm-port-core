@@ -352,9 +352,18 @@ def deploy_cmd(
     if "HF_CACHE_DIR" not in existing:
         hf_default = Path.home() / ".cache" / "huggingface" / "hub"
         if hf_default.is_dir():
+            # Docker Desktop on Windows needs POSIX-style paths
+            # (e.g. /c/Users/…) because ':' is used as the volume
+            # mount delimiter in compose files.
+            hf_str = str(hf_default)
+            if sys.platform == "win32":
+                hf_str = hf_default.as_posix()
+                # C:/Users/… → /c/Users/…
+                if len(hf_str) >= 2 and hf_str[1] == ":":
+                    hf_str = "/" + hf_str[0].lower() + hf_str[2:]
             with env_path.open("a", encoding="utf-8") as f:
                 f.write("\n# HuggingFace cache — auto-detected, mount into backend\n")
-                f.write(f"HF_CACHE_DIR={hf_default}\n")
+                f.write(f"HF_CACHE_DIR={hf_str}\n")
             info(f"Auto-detected HF cache: {hf_default}")
     # Ensure empty fallback directory exists for compose
     fallback_dir = shared_dir / ".empty-hf-cache"
