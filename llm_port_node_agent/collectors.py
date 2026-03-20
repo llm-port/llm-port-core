@@ -52,12 +52,27 @@ async def collect_gpu_snapshot() -> dict[str, Any]:
         parts = [chunk.strip() for chunk in row.split(",")]
         if len(parts) < 4:
             continue
+        # Parse each field independently — on unified-memory
+        # architectures (Grace Hopper / DGX Spark) nvidia-smi may
+        # return "[N/A]" for individual fields.
         try:
             total = int(parts[0])
-            used = int(parts[1])
-            util = int(parts[2])
-            temp = int(parts[3])
         except ValueError:
+            total = 0
+        try:
+            used = int(parts[1])
+        except ValueError:
+            used = 0
+        try:
+            util: int | None = int(parts[2])
+        except ValueError:
+            util = None
+        try:
+            temp: int | None = int(parts[3])
+        except ValueError:
+            temp = None
+        # Skip only if we got nothing useful at all.
+        if total == 0 and used == 0 and util is None and temp is None:
             continue
         total_mib += total
         used_mib += used
