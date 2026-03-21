@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "llm-port-node-agent"
+name = "llmport-agent"
 version = "0.1.1"
 description = "Node execution agent for llm-port cluster-managed runtimes."
 readme = "README.md"

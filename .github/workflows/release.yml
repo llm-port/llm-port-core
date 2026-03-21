@@ -1,13 +1,18 @@
-# Build and release llm-port-node-agent standalone executables.
+# Publish llmport-agent to PyPI and build standalone executables.
 #
-# Produces single-file binaries for Linux (x86_64), Windows (x86_64),
-# and macOS (universal2) via PyInstaller.
+# Produces:
+#   - Python package on PyPI (pip install llmport-agent)
+#   - Single-file binaries for Linux, Windows, macOS
 #
 # Usage:
 #   1. Bump version in pyproject.toml + __init__.py
 #   2. Commit: git commit -am "release: node-agent v0.2.0"
 #   3. Tag:    git tag -a node-agent-v0.2.0 -m "Release node-agent v0.2.0"
 #   4. Push:   git push origin master --tags
+#
+# Prerequisites:
+#   Add a repository secret named PYPI_API_TOKEN with a PyPI API token
+#   scoped to the llmport-agent project.
 
 name: Release
 
@@ -20,18 +25,40 @@ permissions:
   contents: write
 
 jobs:
-  # ── Create GitHub Release (once) ────────────────────────────────
-  release:
+  # ── Publish Python package to PyPI ──────────────────────────────
+  publish:
     runs-on: ubuntu-latest
+
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools
+        run: pip install --upgrade build twine
+
+      - name: Build sdist + wheel
+        run: python -m build
+
+      - name: Publish to PyPI
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: twine upload dist/*
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+          files: dist/*
 
   # ── Build standalone executables per platform ───────────────────
   executables:
-    needs: release
+    needs: publish
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
