@@ -16,8 +16,8 @@ def _default_state_path() -> str:
     """Return a platform-appropriate default path for agent state."""
     if sys.platform == "win32":
         base = os.environ.get("PROGRAMDATA", r"C:\ProgramData")
-        return str(Path(base) / "llm-port-node-agent" / "state.json")
-    return "/var/lib/llm-port-node-agent/state.json"
+        return str(Path(base) / "llmport-agent" / "state.json")
+    return "/var/lib/llmport-agent/state.json"
 
 
 def _env_bool(name: str, default: bool) -> bool:
