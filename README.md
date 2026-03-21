@@ -25,7 +25,7 @@ The agent responsibilities are:
    - `LLM_PORT_NODE_AGENT_AGENT_ID`
    - `LLM_PORT_NODE_AGENT_HOST`
 3. Start service:
-   - `llm-port-node-agent`
+   - `llmport-agent`
 
 ## Environment Variables
 
@@ -35,7 +35,7 @@ The agent responsibilities are:
 - `LLM_PORT_NODE_AGENT_ADVERTISE_HOST` default `LLM_PORT_NODE_AGENT_HOST`
 - `LLM_PORT_NODE_AGENT_ADVERTISE_SCHEME` default `http` (allowed: `http`, `https`)
 - `LLM_PORT_NODE_AGENT_ENROLLMENT_TOKEN` one-time token for initial enrollment
-- `LLM_PORT_NODE_AGENT_STATE_PATH` default `/var/lib/llm-port-node-agent/state.json`
+- `LLM_PORT_NODE_AGENT_STATE_PATH` default `/var/lib/llmport-agent/state.json`
 - `LLM_PORT_NODE_AGENT_HEARTBEAT_INTERVAL_SEC` default `15`
 - `LLM_PORT_NODE_AGENT_INVENTORY_INTERVAL_SEC` default `60`
 - `LLM_PORT_NODE_AGENT_RECONNECT_MIN_SEC` default `2`
@@ -55,8 +55,8 @@ for Linux (x86_64), Windows (x86_64), and macOS (universal).
 ### Linux
 
 ```bash
-curl -fLO https://github.com/llm-port/llm-port-node-agent/releases/latest/download/llm-port-node-agent-linux-x86_64
-sudo install -m 0755 llm-port-node-agent-linux-x86_64 /usr/local/bin/llm-port-node-agent
+curl -fLO https://github.com/llm-port/llm-port-node-agent/releases/latest/download/llmport-agent-linux-x86_64
+sudo install -m 0755 llmport-agent-linux-x86_64 /usr/local/bin/llmport-agent
 ```
 
 Then install the systemd service (see below) or run directly:
@@ -64,27 +64,27 @@ Then install the systemd service (see below) or run directly:
 ```bash
 export LLM_PORT_NODE_AGENT_BACKEND_URL=http://your-backend:8000
 export LLM_PORT_NODE_AGENT_ENROLLMENT_TOKEN=tok_xxx
-llm-port-node-agent
+llmport-agent
 ```
 
 ### Windows
 
-Download `llm-port-node-agent-windows-x86_64.exe` from the releases page and run:
+Download `llmport-agent-windows-x86_64.exe` from the releases page and run:
 
 ```powershell
 $env:LLM_PORT_NODE_AGENT_BACKEND_URL = "http://your-backend:8000"
 $env:LLM_PORT_NODE_AGENT_ENROLLMENT_TOKEN = "tok_xxx"
-.\llm-port-node-agent-windows-x86_64.exe
+.\llmport-agent-windows-x86_64.exe
 ```
 
 ### macOS
 
 ```bash
-curl -fLO https://github.com/llm-port/llm-port-node-agent/releases/latest/download/llm-port-node-agent-macos-universal
-chmod +x llm-port-node-agent-macos-universal
+curl -fLO https://github.com/llm-port/llm-port-node-agent/releases/latest/download/llmport-agent-macos-universal
+chmod +x llmport-agent-macos-universal
 export LLM_PORT_NODE_AGENT_BACKEND_URL=http://your-backend:8000
 export LLM_PORT_NODE_AGENT_ENROLLMENT_TOKEN=tok_xxx
-./llm-port-node-agent-macos-universal
+./llmport-agent-macos-universal
 ```
 
 ### Via CLI
@@ -100,4 +100,4 @@ uses them instead of cloning + setting up a Python venv.
 
 A unit file template is available at:
 
-- `deploy/systemd/llm-port-node-agent.service`
+- `deploy/systemd/llmport-agent.service`

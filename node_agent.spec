@@ -1,12 +1,12 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec for llm-port-node-agent single-file executable.
+"""PyInstaller spec for llmport-agent single-file executable.
 
 Build:
     pyinstaller node_agent.spec
 
 Output:
-    dist/llm-port-node-agent       (Linux/macOS)
-    dist/llm-port-node-agent.exe   (Windows)
+    dist/llmport-agent       (Linux/macOS)
+    dist/llmport-agent.exe   (Windows)
 """
 
 import sys
@@ -64,7 +64,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="llm-port-node-agent",
+    name="llmport-agent",
     debug=False,
     bootloader_ignore_signals=False,
     strip=sys.platform != "win32",  # strip symbols on Linux/macOS

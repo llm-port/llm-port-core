@@ -8,8 +8,8 @@ Type=simple
 User=llm-port-agent
 Group=llm-port-agent
 SupplementaryGroups=docker
-EnvironmentFile=-/etc/llm-port-node-agent.env
-ExecStart=/usr/local/bin/llm-port-node-agent
+EnvironmentFile=-/etc/llmport-agent.env
+ExecStart=/usr/local/bin/llmport-agent
 Restart=always
 RestartSec=5
 TimeoutStopSec=30
@@ -18,7 +18,7 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=true
-ReadWritePaths=/var/lib/llm-port-node-agent
+ReadWritePaths=/var/lib/llmport-agent
 CapabilityBoundingSet=
 
 [Install]

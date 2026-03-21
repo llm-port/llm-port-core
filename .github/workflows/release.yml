@@ -65,11 +65,11 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            artifact: llm-port-node-agent-linux-x86_64
+            artifact: llmport-agent-linux-x86_64
           - os: windows-latest
-            artifact: llm-port-node-agent-windows-x86_64.exe
+            artifact: llmport-agent-windows-x86_64.exe
           - os: macos-latest
-            artifact: llm-port-node-agent-macos-universal
+            artifact: llmport-agent-macos-universal
 
     steps:
       - name: Checkout

@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.scripts]
-llm-port-node-agent = "llm_port_node_agent.__main__:main"
+llmport-agent = "llm_port_node_agent.__main__:main"
 
 [project.optional-dependencies]
 build = [
