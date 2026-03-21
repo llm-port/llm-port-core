@@ -171,6 +171,18 @@ class NodeControlDAO:
     async def close_session(self, session: InfraNodeSession) -> None:
         session.disconnected_at = datetime.now(tz=UTC)
 
+    async def count_active_sessions(self, *, node_id: uuid.UUID) -> int:
+        """Return the number of stream sessions still connected for a node."""
+        result = await self.session.execute(
+            select(func.count())
+            .select_from(InfraNodeSession)
+            .where(
+                InfraNodeSession.node_id == node_id,
+                InfraNodeSession.disconnected_at.is_(None),
+            ),
+        )
+        return result.scalar_one()
+
     async def upsert_inventory_snapshot(
         self,
         *,

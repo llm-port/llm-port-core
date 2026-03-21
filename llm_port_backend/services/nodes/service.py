@@ -17,6 +17,7 @@ from llm_port_backend.db.models.node_control import (
     InfraNodeSession,
     NodeCommandStatus,
     NodeCommandType,
+    NodeHealthStatus,
 )
 from llm_port_backend.services.llm.gateway_sync import GatewaySyncService
 from llm_port_backend.services.nodes.auth import constant_time_equal, hash_with_pepper, random_secret
@@ -164,6 +165,13 @@ class NodeControlService:
 
     async def close_stream_session(self, *, session: InfraNodeSession) -> None:
         await self._dao.close_session(session)
+        # Mark the node offline when its only stream disconnects.
+        node = await self._dao.get_node_by_id(session.node_id)
+        if node is not None:
+            # Check if the node has any other active sessions.
+            active = await self._dao.count_active_sessions(node_id=node.id)
+            if active == 0:
+                node.status = NodeHealthStatus.OFFLINE
 
     async def update_stream_offset(self, *, session: InfraNodeSession, offset: int) -> bool:
         if offset <= session.last_rx_offset:
@@ -547,13 +555,23 @@ class NodeControlService:
             },
         )
 
+    _STALE_THRESHOLD = timedelta(minutes=2)
+
     @staticmethod
     def serialize_node(node: InfraNode) -> dict[str, Any]:
+        status = node.status
+        # Safety net: if last_seen is stale, override to offline.
+        if (
+            status not in {NodeHealthStatus.OFFLINE, NodeHealthStatus.MAINTENANCE}
+            and node.last_seen is not None
+            and (datetime.now(tz=UTC) - node.last_seen) > NodeControlService._STALE_THRESHOLD
+        ):
+            status = NodeHealthStatus.OFFLINE
         return {
             "id": str(node.id),
             "agent_id": node.agent_id,
             "host": node.host,
-            "status": node.status,
+            "status": status,
             "version": node.version,
             "labels": node.labels_json,
             "capabilities": node.capabilities_json,
