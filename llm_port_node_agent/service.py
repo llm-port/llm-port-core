@@ -12,6 +12,8 @@ from llm_port_node_agent.backend_client import BackendClient
 from llm_port_node_agent.config import AgentConfig
 from llm_port_node_agent.dispatcher import CommandDispatcher
 from llm_port_node_agent.event_buffer import EventBuffer
+from llm_port_node_agent.log_collector import LogCollector
+from llm_port_node_agent.loki_client import LokiClient
 from llm_port_node_agent.policy_guard import PolicyGuard
 from llm_port_node_agent.preflight import build_static_capabilities
 from llm_port_node_agent.runtime_manager import RuntimeManager
@@ -29,6 +31,7 @@ class NodeAgentService:
         self._state_store = StateStore(config.state_path)
         self._client = BackendClient(config)
         self._stream: StreamClient | None = None
+        self._loki: LokiClient | None = None
 
     async def run_forever(self) -> None:
         """Run agent forever with reconnect and re-enrollment handling."""
@@ -65,6 +68,24 @@ class NodeAgentService:
         stream._dispatcher = dispatcher
         self._stream = stream
 
+        # Start log collection → Loki push loop if configured
+        log_task: asyncio.Task[None] | None = None
+        if self._config.loki_url:
+            loki_client = LokiClient(
+                loki_url=self._config.loki_url,
+                labels={"job": "node-agent", "host": self._config.host},
+                verify_tls=self._config.verify_tls,
+            )
+            self._loki = loki_client
+            collector = LogCollector(max_lines=self._config.log_batch_size)
+            log_task = asyncio.create_task(
+                self._log_push_loop(collector, loki_client),
+                name="log_push",
+            )
+            log.info("System log collection enabled → %s", self._config.loki_url)
+        else:
+            log.info("LLM_PORT_NODE_AGENT_LOKI_URL not set — system log collection disabled.")
+
         backoff = self._config.reconnect_min_sec
         while True:
             try:
@@ -92,6 +113,26 @@ class NodeAgentService:
         """Close outbound HTTP resources and flush state."""
         self._state_store.flush_seq()
         await self._client.close()
+        if self._loki:
+            await self._loki.flush()
+            await self._loki.close()
+
+    async def _log_push_loop(
+        self,
+        collector: LogCollector,
+        loki: LokiClient,
+    ) -> None:
+        """Collect system logs and push to Loki on a timer."""
+        interval = max(self._config.log_flush_interval_sec, 2)
+        while True:
+            try:
+                entries = await collector.collect()
+                if entries:
+                    loki.add_many(entries)
+                await loki.flush()
+            except Exception:
+                log.warning("Log push cycle failed.", exc_info=True)
+            await asyncio.sleep(interval)
 
     async def _ensure_credential(self, capabilities: dict) -> None:
         if self._state_store.state.credential:

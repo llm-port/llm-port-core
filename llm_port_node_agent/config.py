@@ -46,6 +46,9 @@ class AgentConfig:
     verify_tls: bool
     log_level: str
     image_allowlist: list[str]
+    loki_url: str | None
+    log_batch_size: int
+    log_flush_interval_sec: int
 
     @classmethod
     def from_env(cls) -> AgentConfig:
@@ -81,6 +84,9 @@ class AgentConfig:
                 for prefix in os.getenv("LLM_PORT_NODE_AGENT_IMAGE_ALLOWLIST", "").split(",")
                 if prefix.strip()
             ],
+            loki_url=os.getenv("LLM_PORT_NODE_AGENT_LOKI_URL") or None,
+            log_batch_size=int(os.getenv("LLM_PORT_NODE_AGENT_LOG_BATCH_SIZE", "100")),
+            log_flush_interval_sec=int(os.getenv("LLM_PORT_NODE_AGENT_LOG_FLUSH_INTERVAL_SEC", "5")),
         )
         if not instance.verify_tls:
             log.warning("TLS verification is disabled — connections are vulnerable to MITM.")

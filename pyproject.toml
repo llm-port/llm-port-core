@@ -17,5 +17,10 @@ dependencies = [
 [project.scripts]
 llm-port-node-agent = "llm_port_node_agent.__main__:main"
 
+[project.optional-dependencies]
+build = [
+  "pyinstaller>=6.0,<7.0",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["llm_port_node_agent"]
