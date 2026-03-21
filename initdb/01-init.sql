@@ -33,6 +33,7 @@ $$;
 
 GRANT CONNECT ON DATABASE llm_api TO llm_user;
 GRANT CONNECT ON DATABASE llm_mcp TO llm_user;
+GRANT CONNECT ON DATABASE llm_skills TO llm_user;
 GRANT CONNECT ON DATABASE llm_port_backend TO llm_port_backend;
 GRANT ALL PRIVILEGES ON DATABASE llm_port_backend TO llm_port_backend;
 

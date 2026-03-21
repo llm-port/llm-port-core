@@ -1,0 +1,37 @@
+{
+  "users": [
+    {
+      "name": "admin",
+      "password_hash": "",
+      "hashing_algorithm": "rabbit_password_hashing_sha256",
+      "tags": "administrator"
+    },
+    {
+      "name": "llmport-backend",
+      "password_hash": "",
+      "hashing_algorithm": "rabbit_password_hashing_sha256",
+      "tags": ""
+    },
+    {
+      "name": "llmport-api",
+      "password_hash": "",
+      "hashing_algorithm": "rabbit_password_hashing_sha256",
+      "tags": ""
+    },
+    {
+      "name": "llmport-pii",
+      "password_hash": "",
+      "hashing_algorithm": "rabbit_password_hashing_sha256",
+      "tags": ""
+    }
+  ],
+  "vhosts": [
+    {"name": "/"}
+  ],
+  "permissions": [
+    {"user": "admin", "vhost": "/", "configure": ".*", "write": ".*", "read": ".*"},
+    {"user": "llmport-backend", "vhost": "/", "configure": ".*", "write": ".*", "read": ".*"},
+    {"user": "llmport-api", "vhost": "/", "configure": ".*", "write": ".*", "read": ".*"},
+    {"user": "llmport-pii", "vhost": "/", "configure": ".*", "write": ".*", "read": ".*"}
+  ]
+}
