@@ -7,3 +7,5 @@ build/
 *.egg-info/
 state/
 logs/
+.env
+.agent-state/
