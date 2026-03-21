@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+from urllib.parse import urlparse
 
 import httpx
 
@@ -101,6 +102,48 @@ def remove_local_node_agent(*, workspace: Path, use_sudo: bool = True) -> bool:
     return True
 
 
+def _derive_loki_url(backend_url: str) -> str:
+    """Derive Loki push URL from the backend URL (same host, port 3100)."""
+    parsed = urlparse(backend_url)
+    host = parsed.hostname or "127.0.0.1"
+    scheme = parsed.scheme or "http"
+    return f"{scheme}://{host}:3100"
+
+
+def _build_env_lines(
+    backend_url: str,
+    advertise_host: str,
+    enrollment_token: str,
+) -> list[str]:
+    """Build the common env lines for all provisioning paths."""
+    loki_url = _derive_loki_url(backend_url)
+    lines = [
+        f"LLM_PORT_NODE_AGENT_BACKEND_URL={backend_url}",
+        f"LLM_PORT_NODE_AGENT_LOKI_URL={loki_url}",
+    ]
+    if advertise_host:
+        lines.append(f"LLM_PORT_NODE_AGENT_ADVERTISE_HOST={advertise_host}")
+    if enrollment_token:
+        lines.append(f"LLM_PORT_NODE_AGENT_ENROLLMENT_TOKEN={enrollment_token}")
+    else:
+        warning("No enrollment token provided. Agent will require later onboarding.")
+    return lines
+
+
+def _find_agent_binary(workspace: Path) -> Path | None:
+    """Locate a pre-built node agent binary in the workspace."""
+    candidates = [
+        workspace / _NODE_AGENT_DIR / "dist" / "llm-port-node-agent",
+        workspace / _NODE_AGENT_DIR / "dist" / "llm-port-node-agent.exe",
+        workspace / "dist" / "llm-port-node-agent",
+        workspace / "dist" / "llm-port-node-agent.exe",
+    ]
+    for path in candidates:
+        if path.is_file():
+            return path
+    return None
+
+
 def provision_local_node_agent(
     *,
     workspace: Path,
@@ -132,6 +175,19 @@ def provision_local_node_agent(
             use_sudo=use_sudo,
             workdir_override=workdir_override,
         )
+
+    # Try binary-first: if a pre-built executable exists, skip clone/venv.
+    binary = _find_agent_binary(workspace)
+    if binary:
+        return _provision_local_binary(
+            binary=binary,
+            workspace=workspace,
+            backend_url=backend_url,
+            advertise_host=advertise_host,
+            enrollment_token=enrollment_token,
+            use_sudo=use_sudo,
+        )
+
     return _provision_local(
         workspace=workspace,
         repo_url=repo_url,
@@ -161,14 +217,7 @@ def _provision_local(
     if not _install_agent_dependencies(repo_dir):
         return False
 
-    # Build the env lines shared by all platforms.
-    env_lines = [f"LLM_PORT_NODE_AGENT_BACKEND_URL={backend_url}"]
-    if advertise_host:
-        env_lines.append(f"LLM_PORT_NODE_AGENT_ADVERTISE_HOST={advertise_host}")
-    if enrollment_token:
-        env_lines.append(f"LLM_PORT_NODE_AGENT_ENROLLMENT_TOKEN={enrollment_token}")
-    else:
-        warning("No enrollment token provided. Agent will require later onboarding.")
+    env_lines = _build_env_lines(backend_url, advertise_host, enrollment_token)
 
     if platform.system() != "Linux":
         return _start_agent_foreground(repo_dir, env_lines)
@@ -208,6 +257,108 @@ def _provision_local(
             pass
 
     success("Local node agent installed and started via systemd.")
+    return True
+
+
+def _provision_local_binary(
+    *,
+    binary: Path,
+    workspace: Path,
+    backend_url: str,
+    advertise_host: str,
+    enrollment_token: str,
+    use_sudo: bool,
+) -> bool:
+    """Install a pre-built node agent binary (no Python/venv required)."""
+    info(f"Found pre-built binary: {binary}")
+    env_lines = _build_env_lines(backend_url, advertise_host, enrollment_token)
+
+    is_linux = platform.system() == "Linux"
+    install_path = Path("/usr/local/bin/llm-port-node-agent") if is_linux else binary
+
+    if is_linux and use_sudo:
+        # Install binary to /usr/local/bin
+        if _run(["sudo", "-n", "true"], check=False) != 0:
+            warning("sudo not available — running binary in foreground.")
+            return _start_binary_foreground(binary, env_lines)
+
+        if _run(["sudo", "install", "-m", "0755", str(binary), str(install_path)]) != 0:
+            return False
+        info(f"Installed binary to {install_path}")
+
+        # Write env file
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as handle:
+            handle.write("\n".join(env_lines) + "\n")
+            temp_env = Path(handle.name)
+
+        # Install systemd service (use the template from workspace if available)
+        service_src = workspace / _NODE_AGENT_DIR / "deploy" / "systemd" / "llm-port-node-agent.service"
+        if not service_src.exists():
+            # Write a minimal service file inline
+            with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, suffix=".service") as sf:
+                sf.write(
+                    "[Unit]\n"
+                    "Description=llm-port node agent\n"
+                    "After=network-online.target docker.service\n"
+                    "Wants=network-online.target\n\n"
+                    "[Service]\n"
+                    "Type=simple\n"
+                    "EnvironmentFile=-/etc/llm-port-node-agent.env\n"
+                    f"ExecStart={install_path}\n"
+                    "Restart=always\n"
+                    "RestartSec=5\n\n"
+                    "[Install]\n"
+                    "WantedBy=multi-user.target\n"
+                )
+                service_src = Path(sf.name)
+
+        try:
+            if _run(["sudo", "install", "-m", "0644", str(service_src), "/etc/systemd/system/llm-port-node-agent.service"]) != 0:
+                return False
+            if _run(["sudo", "install", "-m", "0644", str(temp_env), "/etc/llm-port-node-agent.env"]) != 0:
+                return False
+            if _run(["sudo", "systemctl", "daemon-reload"]) != 0:
+                return False
+            if _run(["sudo", "systemctl", "enable", "--now", "llm-port-node-agent"]) != 0:
+                return False
+        finally:
+            try:
+                temp_env.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+        success("Node agent binary installed and started via systemd.")
+        return True
+
+    return _start_binary_foreground(binary, env_lines)
+
+
+def _start_binary_foreground(binary: Path, env_lines: list[str]) -> bool:
+    """Start a pre-built binary as a detached background process."""
+    proc_env = {**os.environ}
+    for line in env_lines:
+        if "=" in line:
+            k, v = line.split("=", 1)
+            proc_env[k] = v
+
+    if platform.system() == "Windows":
+        creationflags = 0x00000008 | 0x00000200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+        proc = subprocess.Popen(  # noqa: S603
+            [str(binary)],
+            env=proc_env,
+            creationflags=creationflags,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    else:
+        proc = subprocess.Popen(  # noqa: S603
+            [str(binary)],
+            env=proc_env,
+            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    success(f"Node agent binary started (PID {proc.pid}).")
     return True
 
 
@@ -394,9 +545,15 @@ else
   install -m 0644 "$WORKDIR/deploy/systemd/llm-port-node-agent.service" /etc/systemd/system/llm-port-node-agent.service
 fi
 
+# Derive Loki URL from backend (same host, port 3100)
+BACKEND_HOST=$(echo "$BACKEND_URL" | sed -E 's|^https?://([^:/]+).*|\1|')
+BACKEND_SCHEME=$(echo "$BACKEND_URL" | sed -E 's|^(https?)://.*|\1|')
+LOKI_URL="${{BACKEND_SCHEME}}://${{BACKEND_HOST}}:3100"
+
 TMP_ENV="$(mktemp)"
 {{
   printf "LLM_PORT_NODE_AGENT_BACKEND_URL=%s\\n" "$BACKEND_URL"
+  printf "LLM_PORT_NODE_AGENT_LOKI_URL=%s\\n" "$LOKI_URL"
   if [ -n "$ADVERTISE_HOST" ]; then
     printf "LLM_PORT_NODE_AGENT_ADVERTISE_HOST=%s\\n" "$ADVERTISE_HOST"
   fi

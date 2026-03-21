@@ -98,6 +98,7 @@ MODULES: dict[str, ModuleInfo] = {
         service_url="http://llm-port-skills:8000",
         env_vars=(
             ("LLM_PORT_API_SKILLS_ENABLED", "true"),
+            ("LLM_PORT_API_SKILLS_SERVICE_URL", "http://llm-port-skills:8000"),
             ("LLM_PORT_BACKEND_SKILLS_ENABLED", "true"),
             ("LLM_PORT_BACKEND_SKILLS_SERVICE_URL", "http://llm-port-skills:8000"),
         ),

@@ -26,6 +26,7 @@ from llmport.core.compose import (
 )
 from llmport.core.console import console, error, info, success, warning
 from llmport.core.settings import load_config
+from llmport.commands.deploy import _sync_postgres_password
 
 
 @click.command("restore")
@@ -110,6 +111,12 @@ def restore_cmd(
         for msg in result.errors:
             error(msg)
         sys.exit(1)
+
+    # ── Sync Postgres password with restored .env ─────────────
+    if result.env_restored:
+        info("Syncing Postgres password with restored .env…")
+        env_path = ctx.env_file or Path(ctx.project_dir) / ".env"
+        _sync_postgres_password(ctx, env_path)
 
     # ── Restart all services ──────────────────────────────────
     console.print("\n[bold cyan]Restarting all services…[/bold cyan]")

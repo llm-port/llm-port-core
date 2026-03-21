@@ -31,8 +31,8 @@ from llmport.core.settings import load_config
 # while resolving to the actual compose service name.
 SERVICE_ALIASES: dict[str, list[str]] = {
     "frontend": ["llm-port-frontend"],
-    "backend": ["llm-port-backend", "llm-port-backend-worker"],
-    "api": ["llm-port-api"],
+    "backend": ["llm-port-backend-migrator", "llm-port-backend", "llm-port-backend-worker"],
+    "api": ["llm-port-api-migrator", "llm-port-api"],
     "mcp": ["llm-port-mcp"],
     "pii": ["llm-port-pii", "llm-port-pii-worker"],
     "rag": ["llm-port-rag"],
@@ -41,6 +41,13 @@ SERVICE_ALIASES: dict[str, list[str]] = {
     "docling": ["llm-port-docling"],
     "nginx": ["llm-port-nginx"],
 }
+
+# Services that don't have a build context (they reuse another service's image).
+# compose_build() skips these; they just need their container recreated.
+_NO_BUILD_SERVICES: frozenset[str] = frozenset({
+    "llm-port-backend-migrator",
+    "llm-port-api-migrator",
+})
 
 
 def _resolve_services(names: tuple[str, ...]) -> list[str]:
@@ -107,13 +114,27 @@ def rebuild_cmd(
         target_services = _resolve_services(services)
         info(f"Rebuilding: {', '.join(target_services)}")
 
-    # Step 1: Build
+    # Step 1: Build (skip migrators — they share the parent service image)
+    build_services = (
+        [s for s in target_services if s not in _NO_BUILD_SERVICES]
+        if target_services
+        else None
+    )
     console.print("\n[bold cyan]Building images…[/bold cyan]")
-    rc = compose_build(ctx, services=target_services, no_cache=no_cache)
+    rc = compose_build(ctx, services=build_services or None, no_cache=no_cache)
     if rc != 0:
         error(f"Build failed (exit code {rc}).")
         sys.exit(rc)
     success("Images built.")
+
+    # Step 1b: Sync Postgres password if .env credentials differ from
+    # what the running Postgres volume was initialised with (e.g. after
+    # deploy-remote.sh updated the .env or a manual edit).
+    env_path = ctx.env_file
+    if env_path and env_path.exists():
+        from llmport.commands.deploy import _sync_postgres_password  # noqa: PLC0415
+
+        _sync_postgres_password(ctx, env_path)
 
     # Step 2: Recreate containers (picks up new image + new .env)
     console.print("\n[bold cyan]Recreating containers…[/bold cyan]")
