@@ -158,6 +158,21 @@ class LLMProviderInstance(Base):
         JSON, nullable=True,
         doc="Provider-specific params (region, project_id, api_version, custom headers).",
     )
+    node_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        nullable=True,
+        doc="Optional backend-assigned node id for node-managed local runtimes.",
+    )
+    node_metadata: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON,
+        nullable=True,
+        doc="Node execution metadata (execution_target, desired_state, labels).",
+    )
+    capacity_hints: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON,
+        nullable=True,
+        doc="Backend-provided placement/capacity hints for future routing heuristics.",
+    )
     last_seen_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True,
     )
