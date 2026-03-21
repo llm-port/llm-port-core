@@ -67,14 +67,14 @@ def remove_local_node_agent(*, workspace: Path, use_sudo: bool = True) -> bool:
         if systemctl:
             # Check if the service unit exists before trying to stop it
             probe = subprocess.run(  # noqa: S603
-                ["systemctl", "list-unit-files", "llm-port-node-agent.service"],
+                ["systemctl", "list-unit-files", "llmport-agent.service"],
                 capture_output=True, text=True,
             )
-            if "llm-port-node-agent.service" in (probe.stdout or ""):
-                info("Stopping llm-port-node-agent systemd service…")
-                _run(["sudo", "systemctl", "disable", "--now", "llm-port-node-agent"], check=False)
-                _run(["sudo", "rm", "-f", "/etc/systemd/system/llm-port-node-agent.service"], check=False)
-                _run(["sudo", "rm", "-f", "/etc/llm-port-node-agent.env"], check=False)
+            if "llmport-agent.service" in (probe.stdout or ""):
+                info("Stopping llmport-agent systemd service…")
+                _run(["sudo", "systemctl", "disable", "--now", "llmport-agent"], check=False)
+                _run(["sudo", "rm", "-f", "/etc/systemd/system/llmport-agent.service"], check=False)
+                _run(["sudo", "rm", "-f", "/etc/llmport-agent.env"], check=False)
                 _run(["sudo", "systemctl", "daemon-reload"], check=False)
                 removed_anything = True
 
@@ -82,7 +82,7 @@ def remove_local_node_agent(*, workspace: Path, use_sudo: bool = True) -> bool:
     if platform.system() == "Windows":
         # Best-effort: kill by process name
         kill_result = subprocess.run(  # noqa: S603
-            ["taskkill", "/F", "/IM", "llm-port-node-agent.exe"],
+            ["taskkill", "/F", "/IM", "llmport-agent.exe"],
             capture_output=True, text=True,
         )
         if kill_result.returncode == 0:
@@ -133,10 +133,10 @@ def _build_env_lines(
 def _find_agent_binary(workspace: Path) -> Path | None:
     """Locate a pre-built node agent binary in the workspace."""
     candidates = [
-        workspace / _NODE_AGENT_DIR / "dist" / "llm-port-node-agent",
-        workspace / _NODE_AGENT_DIR / "dist" / "llm-port-node-agent.exe",
-        workspace / "dist" / "llm-port-node-agent",
-        workspace / "dist" / "llm-port-node-agent.exe",
+        workspace / _NODE_AGENT_DIR / "dist" / "llmport-agent",
+        workspace / _NODE_AGENT_DIR / "dist" / "llmport-agent.exe",
+        workspace / "dist" / "llmport-agent",
+        workspace / "dist" / "llmport-agent.exe",
     ]
     for path in candidates:
         if path.is_file():
@@ -226,7 +226,7 @@ def _provision_local(
         info("No sudo — starting node agent as user background process.")
         return _start_agent_foreground(repo_dir, env_lines)
 
-    service_file = repo_dir / "deploy" / "systemd" / "llm-port-node-agent.service"
+    service_file = repo_dir / "deploy" / "systemd" / "llmport-agent.service"
     if not service_file.exists():
         error(f"Systemd service file missing: {service_file}")
         return False
@@ -242,13 +242,13 @@ def _provision_local(
         temp_env = Path(handle.name)
 
     try:
-        if _run(["sudo", "install", "-m", "0644", str(service_file), "/etc/systemd/system/llm-port-node-agent.service"]) != 0:
+        if _run(["sudo", "install", "-m", "0644", str(service_file), "/etc/systemd/system/llmport-agent.service"]) != 0:
             return False
-        if _run(["sudo", "install", "-m", "0644", str(temp_env), "/etc/llm-port-node-agent.env"]) != 0:
+        if _run(["sudo", "install", "-m", "0644", str(temp_env), "/etc/llmport-agent.env"]) != 0:
             return False
         if _run(["sudo", "systemctl", "daemon-reload"]) != 0:
             return False
-        if _run(["sudo", "systemctl", "enable", "--now", "llm-port-node-agent"]) != 0:
+        if _run(["sudo", "systemctl", "enable", "--now", "llmport-agent"]) != 0:
             return False
     finally:
         try:
@@ -274,7 +274,7 @@ def _provision_local_binary(
     env_lines = _build_env_lines(backend_url, advertise_host, enrollment_token)
 
     is_linux = platform.system() == "Linux"
-    install_path = Path("/usr/local/bin/llm-port-node-agent") if is_linux else binary
+    install_path = Path("/usr/local/bin/llmport-agent") if is_linux else binary
 
     if is_linux and use_sudo:
         # Install binary to /usr/local/bin
@@ -292,7 +292,7 @@ def _provision_local_binary(
             temp_env = Path(handle.name)
 
         # Install systemd service (use the template from workspace if available)
-        service_src = workspace / _NODE_AGENT_DIR / "deploy" / "systemd" / "llm-port-node-agent.service"
+        service_src = workspace / _NODE_AGENT_DIR / "deploy" / "systemd" / "llmport-agent.service"
         if not service_src.exists():
             # Write a minimal service file inline
             with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, suffix=".service") as sf:
@@ -303,7 +303,7 @@ def _provision_local_binary(
                     "Wants=network-online.target\n\n"
                     "[Service]\n"
                     "Type=simple\n"
-                    "EnvironmentFile=-/etc/llm-port-node-agent.env\n"
+                    "EnvironmentFile=-/etc/llmport-agent.env\n"
                     f"ExecStart={install_path}\n"
                     "Restart=always\n"
                     "RestartSec=5\n\n"
@@ -313,13 +313,13 @@ def _provision_local_binary(
                 service_src = Path(sf.name)
 
         try:
-            if _run(["sudo", "install", "-m", "0644", str(service_src), "/etc/systemd/system/llm-port-node-agent.service"]) != 0:
+            if _run(["sudo", "install", "-m", "0644", str(service_src), "/etc/systemd/system/llmport-agent.service"]) != 0:
                 return False
-            if _run(["sudo", "install", "-m", "0644", str(temp_env), "/etc/llm-port-node-agent.env"]) != 0:
+            if _run(["sudo", "install", "-m", "0644", str(temp_env), "/etc/llmport-agent.env"]) != 0:
                 return False
             if _run(["sudo", "systemctl", "daemon-reload"]) != 0:
                 return False
-            if _run(["sudo", "systemctl", "enable", "--now", "llm-port-node-agent"]) != 0:
+            if _run(["sudo", "systemctl", "enable", "--now", "llmport-agent"]) != 0:
                 return False
         finally:
             try:
@@ -540,9 +540,9 @@ if [ -n "$SUDO_BIN" ]; then
 fi
 
 if [ -n "$SUDO_BIN" ]; then
-  $SUDO_BIN install -m 0644 "$WORKDIR/deploy/systemd/llm-port-node-agent.service" /etc/systemd/system/llm-port-node-agent.service
+  $SUDO_BIN install -m 0644 "$WORKDIR/deploy/systemd/llmport-agent.service" /etc/systemd/system/llmport-agent.service
 else
-  install -m 0644 "$WORKDIR/deploy/systemd/llm-port-node-agent.service" /etc/systemd/system/llm-port-node-agent.service
+  install -m 0644 "$WORKDIR/deploy/systemd/llmport-agent.service" /etc/systemd/system/llmport-agent.service
 fi
 
 # Derive Loki URL from backend (same host, port 3100)
@@ -563,13 +563,13 @@ TMP_ENV="$(mktemp)"
 }} >"$TMP_ENV"
 
 if [ -n "$SUDO_BIN" ]; then
-  $SUDO_BIN install -m 0644 "$TMP_ENV" /etc/llm-port-node-agent.env
+  $SUDO_BIN install -m 0644 "$TMP_ENV" /etc/llmport-agent.env
   $SUDO_BIN systemctl daemon-reload
-  $SUDO_BIN systemctl enable --now llm-port-node-agent
+  $SUDO_BIN systemctl enable --now llmport-agent
 else
-  install -m 0644 "$TMP_ENV" /etc/llm-port-node-agent.env
+  install -m 0644 "$TMP_ENV" /etc/llmport-agent.env
   systemctl daemon-reload
-  systemctl enable --now llm-port-node-agent
+  systemctl enable --now llmport-agent
 fi
 rm -f "$TMP_ENV"
 
