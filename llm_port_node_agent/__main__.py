@@ -50,14 +50,26 @@ def _require_linux() -> None:
 
 
 def _sudo_prefix() -> list[str]:
-    return ["sudo"] if os.getuid() != 0 else []
+    if os.getuid() == 0:
+        return []
+    # Verify non-interactive sudo; prompt user if needed
+    probe = subprocess.run(  # noqa: S603
+        ["sudo", "-n", "true"], capture_output=True,
+    )
+    if probe.returncode != 0:
+        print("sudo access required. You may be prompted for your password.")
+    return ["sudo"]
 
 
-def _run_cmd(cmd: list[str], *, check: bool = True) -> int:
-    result = subprocess.run(cmd, capture_output=True, text=True)  # noqa: S603
+def _run_cmd(cmd: list[str], *, check: bool = True, quiet: bool = False) -> int:
+    kwargs: dict = {}
+    if quiet:
+        kwargs["capture_output"] = True
+        kwargs["text"] = True
+    result = subprocess.run(cmd, **kwargs)  # noqa: S603
     if result.returncode != 0 and check:
         print(f"ERROR: {' '.join(cmd)}", file=sys.stderr)
-        if result.stderr:
+        if quiet and getattr(result, "stderr", None):
             print(result.stderr.strip(), file=sys.stderr)
     return result.returncode
 
@@ -144,7 +156,7 @@ def cmd_start() -> None:
             sys.exit(1)
         if _run_cmd([*sudo, "install", "-m", "0600", tmp_env, f"/etc/{SERVICE_NAME}.env"]) != 0:
             sys.exit(1)
-        _run_cmd([*sudo, "mkdir", "-p", "/var/lib/llmport-agent"], check=False)
+        _run_cmd([*sudo, "mkdir", "-p", "/var/lib/llmport-agent"], check=False, quiet=True)
         if _run_cmd([*sudo, "systemctl", "daemon-reload"]) != 0:
             sys.exit(1)
         if _run_cmd([*sudo, "systemctl", "enable", "--now", SERVICE_NAME]) != 0:
