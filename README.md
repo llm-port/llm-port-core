@@ -25,7 +25,17 @@ The agent responsibilities are:
    - `LLM_PORT_NODE_AGENT_AGENT_ID`
    - `LLM_PORT_NODE_AGENT_HOST`
 3. Start service:
-   - `llmport-agent`
+   - `llmport-agent` (foreground, for testing)
+   - `llmport-agent start` (install as systemd service)
+
+## Commands
+
+| Command | Description |
+|---------|-----------|
+| `llmport-agent` | Run in foreground (test connectivity, Ctrl+C to stop) |
+| `llmport-agent start` | Install and start as a systemd service (picks up `LLM_PORT_NODE_AGENT_*` env vars) |
+| `llmport-agent stop` | Stop and disable the systemd service |
+| `llmport-agent status` | Show systemd service status |
 
 ## Environment Variables
 
@@ -64,7 +74,12 @@ Then install the systemd service (see below) or run directly:
 ```bash
 export LLM_PORT_NODE_AGENT_BACKEND_URL=http://your-backend:8000
 export LLM_PORT_NODE_AGENT_ENROLLMENT_TOKEN=tok_xxx
+
+# Test connectivity first (foreground, Ctrl+C to stop)
 llmport-agent
+
+# Once working, install as a service
+llmport-agent start
 ```
 
 ### Windows
