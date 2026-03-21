@@ -25,7 +25,10 @@ SECRET_KEYS: frozenset[str] = frozenset({
     "MINIO_ROOT_PASSWORD",
     "CLICKHOUSE_PASSWORD",
     "GRAFANA_ADMIN_PASSWORD",
-    "RABBITMQ_PASS",
+    "RABBITMQ_ADMIN_PASS",
+    "RABBITMQ_BACKEND_PASS",
+    "RABBITMQ_API_PASS",
+    "RABBITMQ_PII_PASS",
     "LANGFUSE_NEXTAUTH_SECRET",
     "LANGFUSE_SALT",
     "LANGFUSE_ENCRYPTION_KEY",
@@ -99,9 +102,12 @@ def dev_env_vars(
         "MINIO_ROOT_PASSWORD": pw,
         "LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT": "http://minio:9000",
         "LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT": "http://minio:9000",
-        # RabbitMQ
-        "RABBITMQ_USER": "guest",
-        "RABBITMQ_PASS": pw,
+        # RabbitMQ — admin for management console, per-service for AMQP
+        "RABBITMQ_ADMIN_USER": "admin",
+        "RABBITMQ_ADMIN_PASS": pw,
+        "RABBITMQ_BACKEND_PASS": pw,
+        "RABBITMQ_API_PASS": pw,
+        "RABBITMQ_PII_PASS": pw,
         # Settings master key — used to encrypt/decrypt secrets stored in the DB.
         # Must match LLM_PORT_BACKEND_SETTINGS_MASTER_KEY in the backend .env.
         # JWT secrets are seeded automatically in the DB on first startup.
@@ -169,9 +175,12 @@ def default_env_vars(
         # MinIO
         "MINIO_ROOT_USER": "minio",
         "MINIO_ROOT_PASSWORD": minio_password,
-        # RabbitMQ
-        "RABBITMQ_USER": "admin",
-        "RABBITMQ_PASS": _random_password(24),
+        # RabbitMQ — admin for management console, per-service for AMQP
+        "RABBITMQ_ADMIN_USER": "admin",
+        "RABBITMQ_ADMIN_PASS": _random_password(24),
+        "RABBITMQ_BACKEND_PASS": _random_password(24),
+        "RABBITMQ_API_PASS": _random_password(24),
+        "RABBITMQ_PII_PASS": _random_password(24),
         # Settings master key — used to encrypt/decrypt secrets stored in the DB.
         # JWT secrets are seeded automatically in the DB on first startup.
         "LLM_PORT_BACKEND_SETTINGS_MASTER_KEY": _random_secret(),

@@ -34,6 +34,7 @@ SERVICE_ALIASES: dict[str, list[str]] = {
     "backend": ["llm-port-backend-migrator", "llm-port-backend", "llm-port-backend-worker"],
     "api": ["llm-port-api-migrator", "llm-port-api"],
     "mcp": ["llm-port-mcp"],
+    "skills": ["llm-port-skills"],
     "pii": ["llm-port-pii", "llm-port-pii-worker"],
     "rag": ["llm-port-rag"],
     "auth": ["llm-port-auth"],

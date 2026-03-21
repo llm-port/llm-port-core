@@ -92,7 +92,7 @@ MODULES: dict[str, ModuleInfo] = {
     "skills": ModuleInfo(
         name="skills",
         profile="skills",
-        description="Skills Registry (reusable LLM instruction sets)",
+        description="Skills Registry (centralized LLM instruction sets)",
         container="llm-port-skills",
         port=8008,
         service_url="http://llm-port-skills:8000",
@@ -221,6 +221,7 @@ DEV_ENDPOINTS: list[tuple[str, str]] = [
     ("RabbitMQ", "http://localhost:15672"),
     ("LLM API", "http://localhost:8001"),
     ("MCP Registry", "http://localhost:8007"),
+    ("Skills Registry", "http://localhost:8008"),
 ]
 
 

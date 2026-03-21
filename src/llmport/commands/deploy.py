@@ -27,9 +27,26 @@ from llmport.core.compose import (
 )
 from llmport.core.console import console, error, info, success, warning
 from llmport.core.detect import detect_docker
-from llmport.core.env_gen import default_env_vars, write_env_file
+from llmport.core.env_gen import default_env_vars, read_env_file, write_env_file
 from llmport.core.registry import MODULES_COMPAT as KNOWN_MODULES
+from llmport.core.rmq import write_definitions as write_rmq_definitions
 from llmport.core.settings import LlmportConfig, load_config, save_config
+
+
+def _regenerate_rmq_definitions(
+    shared_dir: Path,
+    env_vars: dict[str, str],
+    profiles: set[str] | list[str],
+) -> None:
+    """Write ``rabbitmq/definitions.json`` from current env vars."""
+    write_rmq_definitions(
+        shared_dir,
+        admin_user=env_vars.get("RABBITMQ_ADMIN_USER", "admin"),
+        admin_pass=env_vars.get("RABBITMQ_ADMIN_PASS", "guest"),
+        backend_pass=env_vars.get("RABBITMQ_BACKEND_PASS", "guest"),
+        api_pass=env_vars.get("RABBITMQ_API_PASS", "guest"),
+        pii_pass=env_vars.get("RABBITMQ_PII_PASS") if "pii" in set(profiles) else None,
+    )
 
 
 def _sync_postgres_password(ctx: ComposeContext, env_path: Path) -> None:
@@ -345,29 +362,46 @@ def deploy_cmd(
         write_env_file(env_path, env_vars, preserve_secrets=not force_env)
         success(f"Environment file written to {env_path}")
 
-    # Auto-detect host HuggingFace cache and write to .env
-    from llmport.core.env_gen import read_env_file  # noqa: PLC0415
-
+    # Ensure host HuggingFace cache directory exists and is configured
     existing = read_env_file(env_path)
     if "HF_CACHE_DIR" not in existing:
         hf_default = Path.home() / ".cache" / "huggingface" / "hub"
-        if hf_default.is_dir():
-            # Docker Desktop on Windows needs POSIX-style paths
-            # (e.g. /c/Users/…) because ':' is used as the volume
-            # mount delimiter in compose files.
-            hf_str = str(hf_default)
-            if sys.platform == "win32":
-                hf_str = hf_default.as_posix()
-                # C:/Users/… → /c/Users/…
-                if len(hf_str) >= 2 and hf_str[1] == ":":
-                    hf_str = "/" + hf_str[0].lower() + hf_str[2:]
-            with env_path.open("a", encoding="utf-8") as f:
-                f.write("\n# HuggingFace cache — auto-detected, mount into backend\n")
-                f.write(f"HF_CACHE_DIR={hf_str}\n")
-            info(f"Auto-detected HF cache: {hf_default}")
+        hf_default.mkdir(parents=True, exist_ok=True)
+        # Docker Desktop on Windows needs POSIX-style paths
+        # (e.g. /c/Users/…) because ':' is used as the volume
+        # mount delimiter in compose files.
+        hf_str = str(hf_default)
+        if sys.platform == "win32":
+            hf_str = hf_default.as_posix()
+            # C:/Users/… → /c/Users/…
+            if len(hf_str) >= 2 and hf_str[1] == ":":
+                hf_str = "/" + hf_str[0].lower() + hf_str[2:]
+        with env_path.open("a", encoding="utf-8") as f:
+            f.write("\n# HuggingFace cache — mount into backend\n")
+            f.write(f"HF_CACHE_DIR={hf_str}\n")
+        info(f"HF cache directory: {hf_default}")
     # Ensure empty fallback directory exists for compose
     fallback_dir = shared_dir / ".empty-hf-cache"
     fallback_dir.mkdir(exist_ok=True)
+
+    # ── 3b. Migrate old single-credential RabbitMQ env vars ───────
+    existing = read_env_file(env_path)
+    if "RABBITMQ_BACKEND_PASS" not in existing:
+        from llmport.core.env_gen import _random_password  # noqa: PLC0415
+
+        info("Migrating RabbitMQ credentials to per-service format…")
+        existing["RABBITMQ_ADMIN_USER"] = existing.pop("RABBITMQ_USER", "admin")
+        existing["RABBITMQ_ADMIN_PASS"] = existing.pop("RABBITMQ_PASS", _random_password(24))
+        existing["RABBITMQ_BACKEND_PASS"] = _random_password(24)
+        existing["RABBITMQ_API_PASS"] = _random_password(24)
+        existing["RABBITMQ_PII_PASS"] = _random_password(24)
+        write_env_file(env_path, existing)
+        success("RabbitMQ credentials migrated to per-service format.")
+
+    # ── 3c. Generate RabbitMQ definitions.json ─────────────────────
+    existing = read_env_file(env_path)
+    _regenerate_rmq_definitions(shared_dir, existing, profiles)
+    success("RabbitMQ definitions.json generated.")
 
     # ── 4. Save config ────────────────────────────────────────────
     cfg.install_dir = str(shared_dir)
@@ -430,6 +464,19 @@ def deploy_cmd(
     # everything else.
     _sync_postgres_password(ctx, env_path)
 
+    # Start infrastructure services and wait for them to become healthy
+    # BEFORE starting application containers.  This avoids a race
+    # condition where workers start before Docker's embedded DNS has
+    # registered the RMQ container, causing permanent AMQP connection
+    # failures.
+    infra_services = ["redis", "llm-port-rmq", "minio"]
+    info("Starting infrastructure services (Redis, RabbitMQ, MinIO)…")
+    rc = compose_up(ctx, services=infra_services, detach=True, wait=True, timeout=60)
+    if rc != 0:
+        error(f"Infrastructure services failed to start (exit code {rc}).")
+        sys.exit(rc)
+    success("Infrastructure services healthy.")
+
     rc = compose_up(ctx, detach=True, build=False, pull="missing", wait=True, timeout=180)
     if rc != 0:
         error(f"docker compose up failed (exit code {rc}).")
@@ -465,13 +512,16 @@ def deploy_cmd(
             save_config(cfg)
 
             # ── Sync credentials to Grafana, Langfuse & RabbitMQ ──
-            from llmport.core.env_gen import read_env_file  # noqa: PLC0415
             from llmport.core.compose import up as compose_up_svc  # noqa: PLC0415
 
             env_vars = read_env_file(env_path)
             env_vars["GRAFANA_ADMIN_USER"] = creds["email"]
             env_vars["GRAFANA_ADMIN_PASSWORD"] = creds["password"]
-            env_vars["RABBITMQ_PASS"] = creds["password"]
+            # Only the management/admin password is synced to the admin
+            # credential.  Per-service AMQP passwords (RABBITMQ_BACKEND_PASS,
+            # etc.) are never overwritten — they are stable random secrets
+            # set during env generation.
+            env_vars["RABBITMQ_ADMIN_PASS"] = creds["password"]
             env_vars["LANGFUSE_INIT_USER_EMAIL"] = creds["email"]
             env_vars["LANGFUSE_INIT_USER_PASSWORD"] = creds["password"]
             env_vars["LANGFUSE_INIT_USER_NAME"] = "Admin"
@@ -483,10 +533,14 @@ def deploy_cmd(
             write_env_file(env_path, env_vars)
             info("Synced admin credentials to Grafana, Langfuse & RabbitMQ.")
 
+            # Regenerate definitions.json with the new admin password.
+            _regenerate_rmq_definitions(shared_dir, env_vars, profiles)
+
             # Force-recreate so containers pick up the new env vars.
-            # RabbitMQ only reads RABBITMQ_DEFAULT_USER/PASS on first
-            # boot of a fresh mnesia DB — recreating the container
-            # (which has no named volume) resets the DB.
+            # RabbitMQ loads definitions.json on startup which now
+            # includes the admin password.  Service workers are NOT
+            # recreated because their per-service passwords have not
+            # changed.
             recreate_services = ["grafana", "langfuse-web", "llm-port-rmq"]
             compose_up_svc(
                 ctx,
