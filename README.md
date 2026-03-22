@@ -30,12 +30,12 @@ The agent responsibilities are:
 
 ## Commands
 
-| Command | Description |
-|---------|-----------|
-| `llmport-agent` | Run in foreground (test connectivity, Ctrl+C to stop) |
-| `llmport-agent start` | Install and start as a systemd service (picks up `LLM_PORT_NODE_AGENT_*` env vars) |
-| `llmport-agent stop` | Stop and disable the systemd service |
-| `llmport-agent status` | Show systemd service status |
+| Command                | Description                                                                        |
+| ---------------------- | ---------------------------------------------------------------------------------- |
+| `llmport-agent`        | Run in foreground (test connectivity, Ctrl+C to stop)                              |
+| `llmport-agent start`  | Install and start as a systemd service (picks up `LLM_PORT_NODE_AGENT_*` env vars) |
+| `llmport-agent stop`   | Stop and disable the systemd service                                               |
+| `llmport-agent status` | Show systemd service status                                                        |
 
 ## Environment Variables
 
