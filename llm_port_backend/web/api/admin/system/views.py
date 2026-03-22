@@ -21,6 +21,14 @@ from llm_port_backend.services.nodes import NodeControlService
 from llm_port_backend.services.system_settings import SettingsCrypto, SystemSettingsService
 from llm_port_backend.services.system_settings.executors import AgentApplyExecutor, LocalApplyExecutor
 from llm_port_backend.settings import settings
+from llm_port_backend.web.api.admin.hardware.schema import (
+    GpuDeviceDTO,
+    GpuInventoryDTO,
+    GpuMetricsDTO,
+    HardwareDTO,
+    VllmImagePresetDTO,
+)
+from llm_port_backend.web.api.admin.hardware.views import _build_presets, _VLLM_IMAGES
 from llm_port_backend.web.api.admin.dependencies import audit_action, get_root_mode_active
 from llm_port_backend.web.api.admin.system.schema import (
     AgentApplyRequest,
@@ -461,6 +469,99 @@ async def system_node_get(
     if payload is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Node not found.")
     return NodeDTO(**payload)
+
+
+@router.get(
+    "/nodes/{node_id}/hardware",
+    response_model=HardwareDTO,
+    name="system_node_hardware",
+    summary="Get GPU hardware info for a specific node",
+)
+async def system_node_hardware(
+    node_id: str,
+    _user: Annotated[User, Depends(require_permission("system.nodes", "read"))],
+    service: NodeControlService = Depends(get_node_control_service),
+) -> HardwareDTO:
+    """Return GPU inventory and vLLM image presets for a remote node.
+
+    Transforms the node agent's ``latest_inventory`` into the same
+    ``HardwareDTO`` schema used by the local ``/admin/hardware``
+    endpoint so the provider wizard can treat local and node
+    deployments identically.
+    """
+    try:
+        parsed = uuid.UUID(node_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid node id.") from exc
+
+    payload = await service.get_node(node_id=parsed)
+    if payload is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Node not found.")
+
+    inventory: dict[str, Any] = payload.get("latest_inventory") or {}
+    utilization: dict[str, Any] = payload.get("latest_utilization") or {}
+    gpu_raw: dict[str, Any] = inventory.get("gpu") or {}
+
+    gpu_count: int = int(gpu_raw.get("count", 0))
+    total_vram_bytes: int = int(gpu_raw.get("total_vram_bytes", 0))
+    has_gpu = gpu_count > 0
+
+    # Build device list from node agent format → GpuDeviceDTO
+    devices: list[GpuDeviceDTO] = []
+    for idx, dev in enumerate(gpu_raw.get("devices") or []):
+        vram_mib = int(dev.get("memory_total_mib", 0))
+        devices.append(
+            GpuDeviceDTO(
+                index=idx,
+                vendor="nvidia",  # node agent only detects NVIDIA via nvidia-smi
+                model=dev.get("model", f"GPU {idx}"),
+                vram_bytes=vram_mib * 1024 * 1024,
+                driver_version=dev.get("driver_version", ""),
+                compute_api="cuda",
+            ),
+        )
+
+    primary_vendor = "nvidia" if has_gpu else "unknown"
+    primary_compute_api = "cuda" if has_gpu else "unknown"
+
+    gpu_dto = GpuInventoryDTO(
+        devices=devices,
+        primary_vendor=primary_vendor,
+        primary_compute_api=primary_compute_api,
+        has_gpu=has_gpu,
+        device_count=gpu_count,
+        total_vram_bytes=total_vram_bytes,
+    )
+
+    # Utilization metrics from latest snapshot
+    gpu_util_raw: dict[str, Any] = utilization.get("gpu") or {}
+    used_vram: int | None = int(gpu_util_raw.get("used_vram_bytes", 0)) if has_gpu else None
+    avg_util: float | None = None
+    if has_gpu:
+        utils = [
+            d.get("utilization_pct")
+            for d in (gpu_util_raw.get("devices") or [])
+            if d.get("utilization_pct") is not None
+        ]
+        if utils:
+            avg_util = sum(utils) / len(utils)
+
+    metrics_dto = GpuMetricsDTO(
+        util_percent=avg_util,
+        vram_used_bytes=used_vram,
+        vram_total_bytes=total_vram_bytes if has_gpu else None,
+    )
+
+    recommended_image = _VLLM_IMAGES.get(primary_vendor)
+    presets = _build_presets(primary_vendor)
+
+    return HardwareDTO(
+        gpu=gpu_dto,
+        gpu_metrics=metrics_dto,
+        recommended_vllm_image=recommended_image,
+        legacy_vllm_image=settings.default_vllm_legacy_image,
+        vllm_image_presets=presets,
+    )
 
 
 @router.delete("/nodes/{node_id}", status_code=status.HTTP_204_NO_CONTENT, name="system_node_delete")
