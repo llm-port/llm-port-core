@@ -17,6 +17,11 @@ from llm_port_backend.db.models.system_settings import (
 )
 from llm_port_backend.services.system_settings.crypto import SettingsCrypto
 from llm_port_backend.services.system_settings.executors import ApplyAction, ApplyExecutor
+from llm_port_backend.services.system_settings.runtime_mapping import (
+    register_runtime_secret_key,
+    register_runtime_value_key,
+    resolve_runtime_attr,
+)
 from llm_port_backend.services.system_settings.registry import (
     SETTINGS_REGISTRY,
     SettingDefinition,
@@ -26,39 +31,6 @@ from llm_port_backend.services.system_settings.registry import (
 from llm_port_backend.settings import settings
 
 log = logging.getLogger(__name__)
-
-_RUNTIME_VALUE_KEY_MAP: dict[str, str] = {
-    "llm_port_api.pii_enabled": "pii_enabled",
-    "llm_port_api.pii_service_url": "pii_service_url",
-    "llm_port_api.mcp_enabled": "mcp_enabled",
-    "llm_port_api.mcp_service_url": "mcp_service_url",
-    "llm_port_api.skills_enabled": "skills_enabled",
-    "llm_port_api.skills_service_url": "skills_service_url",
-    "llm_port_api.sessions_enabled": "sessions_enabled",
-    "rag_lite.enabled": "rag_lite_enabled",
-    "rag_lite.embedding_provider_id": "rag_lite_embedding_provider_id",
-    "rag_lite.embedding_model": "rag_lite_embedding_model",
-    "rag_lite.embedding_dim": "rag_lite_embedding_dim",
-    "rag_lite.chunk_max_tokens": "rag_lite_chunk_max_tokens",
-    "rag_lite.chunk_overlap_tokens": "rag_lite_chunk_overlap_tokens",
-    "rag_lite.file_store_root": "rag_lite_file_store_root",
-    "rag_lite.upload_max_file_mb": "rag_lite_upload_max_file_mb",
-}
-_RUNTIME_SECRET_KEY_MAP: dict[str, str] = {
-    "llm_port_backend.users_secret": "users_secret",
-    "llm_port_api.mcp_service_token": "mcp_service_token",
-    "llm_port_api.skills_service_token": "skills_service_token",
-}
-
-
-def register_runtime_value_key(key: str, attr: str) -> None:
-    """Register an additional runtime value key mapping (used by EE plugins)."""
-    _RUNTIME_VALUE_KEY_MAP[key] = attr
-
-
-def register_runtime_secret_key(key: str, attr: str) -> None:
-    """Register an additional runtime secret key mapping (used by EE plugins)."""
-    _RUNTIME_SECRET_KEY_MAP[key] = attr
 
 
 @dataclass(frozen=True)
@@ -469,7 +441,7 @@ class SystemSettingsService:
 
     @staticmethod
     def _apply_runtime_override(key: str, value: object) -> None:
-        attr_name = _RUNTIME_VALUE_KEY_MAP.get(key) or _RUNTIME_SECRET_KEY_MAP.get(key)
+        attr_name = resolve_runtime_attr(key)
         if not attr_name:
             return
         object.__setattr__(settings, attr_name, value)

@@ -38,6 +38,12 @@ from llm_port_backend.services.notifications import (
     NotificationDispatcher,
 )
 from llm_port_backend.services.rabbit.lifespan import init_rabbit, shutdown_rabbit
+from llm_port_backend.services.system_settings.runtime_mapping import (
+    get_runtime_secret_key_map,
+    get_runtime_value_key_map,
+    register_runtime_secret_key,
+    register_runtime_value_key,
+)
 from llm_port_backend.settings import settings
 from llm_port_backend.tkq import broker
 
@@ -53,38 +59,14 @@ except ImportError:  # pragma: no cover
     _EE_AVAILABLE = False
 # ──────────────────────────────────────────────────────────────────
 
-_RUNTIME_VALUE_KEYS: dict[str, str] = {
-    "llm_port_api.pii_enabled": "pii_enabled",
-    "llm_port_api.pii_service_url": "pii_service_url",
-    "llm_port_api.mcp_enabled": "mcp_enabled",
-    "llm_port_api.mcp_service_url": "mcp_service_url",
-    "llm_port_api.skills_enabled": "skills_enabled",
-    "llm_port_api.skills_service_url": "skills_service_url",
-    "llm_port_api.sessions_enabled": "sessions_enabled",
-    "rag_lite.enabled": "rag_lite_enabled",
-    "rag_lite.file_store_root": "rag_lite_file_store_root",
-    "rag_lite.embedding_provider_id": "rag_lite_embedding_provider_id",
-    "rag_lite.embedding_model": "rag_lite_embedding_model",
-    "rag_lite.embedding_dim": "rag_lite_embedding_dim",
-    "rag_lite.chunk_max_tokens": "rag_lite_chunk_max_tokens",
-    "rag_lite.chunk_overlap_tokens": "rag_lite_chunk_overlap_tokens",
-    "rag_lite.upload_max_file_mb": "rag_lite_upload_max_file_mb",
-}
-_RUNTIME_SECRET_KEYS: dict[str, str] = {
-    "llm_port_backend.users_secret": "users_secret",
-    "llm_port_api.mcp_service_token": "mcp_service_token",
-    "llm_port_api.skills_service_token": "skills_service_token",
-}
-
-
 def register_hydration_key(key: str, attr: str) -> None:
     """Register an additional runtime value key for DB hydration (used by EE plugins)."""
-    _RUNTIME_VALUE_KEYS[key] = attr
+    register_runtime_value_key(key, attr)
 
 
 def register_hydration_secret(key: str, attr: str) -> None:
     """Register an additional runtime secret key for DB hydration (used by EE plugins)."""
-    _RUNTIME_SECRET_KEYS[key] = attr
+    register_runtime_secret_key(key, attr)
 
 
 def _setup_db(app: FastAPI) -> None:  # pragma: no cover
@@ -269,12 +251,13 @@ async def _load_runtime_settings_from_db(app: FastAPI) -> None:  # pragma: no co
         from sqlalchemy import text  # noqa: PLC0415
 
         try:
+            runtime_value_keys = get_runtime_value_key_map()
             rows = await session.execute(
                 text("SELECT key, value_json FROM system_setting_value"),
             )
             for row in rows.mappings():
                 db_key = str(row["key"])
-                attr_name = _RUNTIME_VALUE_KEYS.get(db_key)
+                attr_name = runtime_value_keys.get(db_key)
                 if attr_name is None:
                     continue
                 # Explicit env-var overrides take precedence over DB values.
@@ -300,12 +283,13 @@ async def _load_runtime_settings_from_db(app: FastAPI) -> None:  # pragma: no co
 
         crypto = SettingsCrypto(settings.settings_master_key)
         try:
+            runtime_secret_keys = get_runtime_secret_key_map()
             rows = await session.execute(
                 text("SELECT key, ciphertext FROM system_setting_secret"),
             )
             for row in rows.mappings():
                 db_key = str(row["key"])
-                attr_name = _RUNTIME_SECRET_KEYS.get(db_key)
+                attr_name = runtime_secret_keys.get(db_key)
                 if attr_name is None:
                     continue
                 try:
