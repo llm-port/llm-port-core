@@ -47,6 +47,29 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
     reset_password_token_secret = settings.users_secret
     verification_token_secret = settings.users_secret
 
+    async def on_after_register(self, user: User, request: Request | None = None) -> None:
+        """Assign default RBAC role to newly registered non-superusers."""
+        if user.is_superuser:
+            return
+
+        session = getattr(self.user_db, "session", None)
+        if not isinstance(session, AsyncSession):
+            log.warning("on_after_register skipped: SQLAlchemy session unavailable")
+            return
+
+        try:
+            from llm_port_backend.db.dao.rbac_dao import RbacDAO  # noqa: PLC0415
+
+            rbac_dao = RbacDAO(session)
+            default_role = await rbac_dao.get_role_by_name("default_user")
+            if default_role is None:
+                log.warning("on_after_register skipped: default_user role not found")
+                return
+            await rbac_dao.assign_role(user.id, default_role.id)
+            await session.flush()
+        except Exception:
+            log.exception("Failed to assign default_user role after registration")
+
     async def on_after_forgot_password(
         self,
         user: User,

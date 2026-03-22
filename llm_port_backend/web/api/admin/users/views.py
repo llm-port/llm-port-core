@@ -298,6 +298,11 @@ async def create_user(
     if payload.role_ids:
         await rbac_dao.set_user_roles(new_user.id, payload.role_ids)
         await session.flush()
+    elif not payload.is_superuser:
+        default_role = await rbac_dao.get_role_by_name("default_user")
+        if default_role is not None:
+            await rbac_dao.assign_role(new_user.id, default_role.id)
+            await session.flush()
 
     return await _build_admin_user_dto(new_user, rbac_dao)
 

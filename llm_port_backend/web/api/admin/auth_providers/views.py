@@ -572,6 +572,12 @@ async def _process_oauth_login(
             if role_ids:
                 await rbac_dao.set_user_roles(user.id, role_ids)
                 await session.flush()
+        else:
+            rbac_dao = RbacDAO(session)
+            default_role = await rbac_dao.get_role_by_name("default_user")
+            if default_role is not None:
+                await rbac_dao.assign_role(user.id, default_role.id)
+                await session.flush()
 
     # Upsert OAuth account record
     await session.execute(

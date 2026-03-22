@@ -145,6 +145,17 @@ _DEFAULT_ROLES: dict[str, dict[str, list[str]]] = {
         "rag.jobs": ["read"],
         "rag.search": ["read"],
     },
+    "default_user": {
+        "chat.projects": ["create", "read", "update", "delete"],
+        "chat.sessions": ["create", "read", "update", "delete"],
+        "chat.attachments": ["create", "read", "delete"],
+        "rag.runtime": ["read"],
+        "rag.containers": ["create", "read", "update", "delete"],
+        "rag.assets": ["create", "read", "update", "delete"],
+        "rag.publish": ["execute", "read"],
+        "rag.jobs": ["read"],
+        "rag.search": ["read", "write"],
+    },
 }
 
 
