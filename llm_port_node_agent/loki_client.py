@@ -111,3 +111,49 @@ class LokiClient:
         except httpx.HTTPError as exc:
             log.warning("Loki push failed: %s", exc)
             return False
+
+    async def push_streams(
+        self,
+        *,
+        labels: dict[str, str],
+        entries: list[tuple[int, str]],
+    ) -> bool:
+        """Push a batch of entries with caller-supplied labels.
+
+        Unlike :meth:`add` + :meth:`flush` which use the client's
+        static labels, this sends a one-shot push with the given
+        labels — useful for container-specific log streams.
+        """
+        if not entries:
+            return True
+
+        payload: dict[str, Any] = {
+            "streams": [
+                {
+                    "stream": labels,
+                    "values": [[str(ts), line] for ts, line in entries],
+                }
+            ],
+        }
+        try:
+            resp = await self._http.post(
+                self._url,
+                json=payload,
+                headers={"Content-Type": "application/json"},
+            )
+            if resp.status_code in {200, 204}:
+                log.debug(
+                    "Pushed %d container log entries to Loki (%s).",
+                    len(entries),
+                    labels.get("container", "?"),
+                )
+                return True
+            log.warning(
+                "Loki push_streams returned %d: %s",
+                resp.status_code,
+                resp.text[:200],
+            )
+            return False
+        except httpx.HTTPError as exc:
+            log.warning("Loki push_streams failed: %s", exc)
+            return False

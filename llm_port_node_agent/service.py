@@ -10,10 +10,13 @@ from websockets.exceptions import InvalidStatusCode
 
 from llm_port_node_agent.backend_client import BackendClient
 from llm_port_node_agent.config import AgentConfig
+from llm_port_node_agent.container_log_forwarder import ContainerLogForwarder
 from llm_port_node_agent.dispatcher import CommandDispatcher
 from llm_port_node_agent.event_buffer import EventBuffer
 from llm_port_node_agent.log_collector import LogCollector
 from llm_port_node_agent.loki_client import LokiClient
+from llm_port_node_agent.image_loader import load_image_from_backend
+from llm_port_node_agent.model_puller import pull_model
 from llm_port_node_agent.policy_guard import PolicyGuard
 from llm_port_node_agent.preflight import build_static_capabilities
 from llm_port_node_agent.runtime_manager import RuntimeManager
@@ -44,11 +47,38 @@ class NodeAgentService:
         psutil.cpu_percent()
 
         events = EventBuffer()
+
+        async def _pull_model(*, model_sync: dict) -> None:
+            """Pull model files from the backend using the node credential."""
+            credential = self._state_store.state.credential
+            if not credential:
+                raise RuntimeError("No credential available for model pull.")
+            await pull_model(
+                client=self._client.http,
+                credential=credential,
+                model_sync=model_sync,
+                model_store_root=self._config.model_store_root,
+            )
+
+        async def _load_image(*, image: str) -> None:
+            """Stream image tarball from backend and load via docker."""
+            credential = self._state_store.state.credential
+            if not credential:
+                raise RuntimeError("No credential available for image transfer.")
+            await load_image_from_backend(
+                client=self._client.http,
+                credential=credential,
+                image=image,
+            )
+
         runtime_manager = RuntimeManager(
             state_store=self._state_store,
             events=events,
             advertise_host=self._config.advertise_host,
             advertise_scheme=self._config.advertise_scheme,
+            model_store_root=self._config.model_store_root,
+            model_puller=_pull_model,
+            image_loader=_load_image,
         )
         stream = StreamClient(
             config=self._config,
@@ -81,6 +111,16 @@ class NodeAgentService:
             log_task = asyncio.create_task(
                 self._log_push_loop(collector, loki_client),
                 name="log_push",
+            )
+            # Container log forwarding — tails docker logs for tracked workloads
+            container_log_task = asyncio.create_task(
+                ContainerLogForwarder(
+                    state_store=self._state_store,
+                    loki=loki_client,
+                    host=self._config.host,
+                    interval_sec=self._config.log_flush_interval_sec,
+                ).run_forever(),
+                name="container_log_forwarder",
             )
             log.info("System log collection enabled → %s", self._config.loki_url)
         else:

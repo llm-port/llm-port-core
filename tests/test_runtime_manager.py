@@ -121,3 +121,32 @@ async def test_deploy_workload_custom_port(manager: RuntimeManager) -> None:
         "container_port": "3000",
     })
     assert "3000" in captured_args
+
+
+@pytest.mark.asyncio()
+async def test_deploy_workload_ipc_mode_default(manager: RuntimeManager) -> None:
+    """vLLM with GPU defaults to --ipc host."""
+    captured_args: list[str] = []
+
+    async def fake_docker(*args: str, timeout_sec: float = 30, raise_on_error: bool = True) -> tuple[int, str, str]:
+        captured_args.extend(args)
+        if args[0] == "inspect":
+            return (1, "", "")
+        if args[0] == "run":
+            return (0, "cid\n", "")
+        if args[0] == "port":
+            return (0, "0.0.0.0:32003\n", "")
+        return (0, "", "")
+
+    manager._docker = fake_docker  # type: ignore[assignment]
+
+    await manager.deploy_workload({
+        "runtime_id": "rt-003",
+        "provider_type": "vllm",
+        "image": "vllm/vllm-openai:latest",
+    })
+    # gpu defaults to all for vllm, ipc defaults to host for vllm+gpu
+    assert "--gpus" in captured_args
+    assert "--ipc" in captured_args
+    idx = captured_args.index("--ipc")
+    assert captured_args[idx + 1] == "host"

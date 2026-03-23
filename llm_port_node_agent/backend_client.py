@@ -24,6 +24,11 @@ class BackendClient:
         """Close underlying HTTP client."""
         await self._client.aclose()
 
+    @property
+    def http(self) -> httpx.AsyncClient:
+        """Expose the underlying httpx client for streaming downloads."""
+        return self._client
+
     async def enroll(
         self,
         *,

@@ -20,6 +20,8 @@ class NodeCommandType(enum.StrEnum):
     DRAIN_NODE = "drain_node"
     RESUME_NODE = "resume_node"
     COLLECT_DIAGNOSTICS = "collect_diagnostics"
+    SYNC_MODEL = "sync_model"
+    FETCH_CONTAINER_LOGS = "fetch_container_logs"
     HOST_OP = "host_op"
 
 

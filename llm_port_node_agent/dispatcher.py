@@ -55,8 +55,8 @@ class CommandDispatcher:
 
         try:
             self._guard.validate(command_type=command_type, state=self._state.state)
-            await emit_progress({"message": f"Executing {command_type}"})
-            result = await self._execute(command_type=command_type, payload=payload)
+            await emit_progress({"phase": "dispatched", "message": f"Executing {command_type}"})
+            result = await self._execute(command_type=command_type, payload=payload, emit_progress=emit_progress)
             normalized = {"success": True, "result": result}
         except PolicyViolationError as exc:
             normalized = {
@@ -89,7 +89,9 @@ class CommandDispatcher:
         )
         return normalized
 
-    async def _execute(self, *, command_type: str, payload: dict[str, Any]) -> dict[str, Any]:
+    async def _execute(
+        self, *, command_type: str, payload: dict[str, Any], emit_progress: ProgressEmitter,
+    ) -> dict[str, Any]:
         if command_type in {
             NodeCommandType.DEPLOY_WORKLOAD.value,
             NodeCommandType.UPDATE_WORKLOAD.value,
@@ -98,7 +100,7 @@ class CommandDispatcher:
             if image:
                 self._guard.validate_image(image)
         if command_type == NodeCommandType.DEPLOY_WORKLOAD.value:
-            return await self._runtime.deploy_workload(payload)
+            return await self._runtime.deploy_workload(payload, emit_progress=emit_progress)
         if command_type == NodeCommandType.START_WORKLOAD.value:
             return await self._runtime.start_workload(payload)
         if command_type == NodeCommandType.STOP_WORKLOAD.value:
@@ -108,13 +110,17 @@ class CommandDispatcher:
         if command_type == NodeCommandType.REMOVE_WORKLOAD.value:
             return await self._runtime.remove_workload(payload)
         if command_type == NodeCommandType.UPDATE_WORKLOAD.value:
-            return await self._runtime.update_workload(payload)
+            return await self._runtime.update_workload(payload, emit_progress=emit_progress)
         if command_type == NodeCommandType.REFRESH_INVENTORY.value:
             if self._on_refresh_inventory:
                 self._on_refresh_inventory()
             return {"refresh_requested": True}
         if command_type == NodeCommandType.COLLECT_DIAGNOSTICS.value:
             return await self._runtime.collect_diagnostics()
+        if command_type == NodeCommandType.SYNC_MODEL.value:
+            return await self._runtime.sync_model(payload)
+        if command_type == NodeCommandType.FETCH_CONTAINER_LOGS.value:
+            return await self._runtime.fetch_container_logs(payload)
         if command_type == NodeCommandType.SET_MAINTENANCE_MODE.value:
             enabled = bool(payload.get("enabled", True))
             self._state.state.maintenance_mode = enabled

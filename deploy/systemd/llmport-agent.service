@@ -18,7 +18,7 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=true
-ReadWritePaths=/var/lib/llmport-agent
+ReadWritePaths=/var/lib/llmport-agent /srv/llm-port/models
 CapabilityBoundingSet=
 
 [Install]

@@ -46,6 +46,7 @@ class AgentConfig:
     verify_tls: bool
     log_level: str
     image_allowlist: list[str]
+    model_store_root: str
     loki_url: str | None
     log_batch_size: int
     log_flush_interval_sec: int
@@ -84,6 +85,7 @@ class AgentConfig:
                 for prefix in os.getenv("LLM_PORT_NODE_AGENT_IMAGE_ALLOWLIST", "").split(",")
                 if prefix.strip()
             ],
+            model_store_root=os.getenv("LLM_PORT_NODE_AGENT_MODEL_STORE", "/srv/llm-port/models"),
             loki_url=os.getenv("LLM_PORT_NODE_AGENT_LOKI_URL") or None,
             log_batch_size=int(os.getenv("LLM_PORT_NODE_AGENT_LOG_BATCH_SIZE", "100")),
             log_flush_interval_sec=int(os.getenv("LLM_PORT_NODE_AGENT_LOG_FLUSH_INTERVAL_SEC", "5")),
