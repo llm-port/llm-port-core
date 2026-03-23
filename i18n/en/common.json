@@ -507,7 +507,12 @@
     "start_download": "Start Download",
     "display_name": "Display Name",
     "path_on_host": "Path on host",
-    "register": "Register"
+    "register": "Register",
+    "deployed_on": "Deployed On",
+    "not_deployed": "Not deployed",
+    "in_use_title": "Model In Use",
+    "in_use_message": "\"{{model}}\" cannot be deleted because it is currently used by one or more active providers.",
+    "go_to_provider": "Go to Provider"
   },
   "llm_model_detail": {
     "failed_load": "Failed to load model.",

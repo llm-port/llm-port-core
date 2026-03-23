@@ -237,6 +237,29 @@ class ModelDAO:
         )
         return result.scalar_one_or_none() is not None
 
+    async def is_used_by_any_runtime(self, model_id: uuid.UUID) -> bool:
+        """Check if *any* runtime references this model (regardless of status)."""
+        result = await self.session.execute(
+            select(LLMRuntime.id)
+            .where(LLMRuntime.model_id == model_id)
+            .limit(1),
+        )
+        return result.scalar_one_or_none() is not None
+
+    async def find_by_display_name(
+        self,
+        display_name: str,
+        *,
+        status_filter: ModelStatus | None = None,
+    ) -> LLMModel | None:
+        """Find the first model matching *display_name* (case-sensitive)."""
+        query = select(LLMModel).where(LLMModel.display_name == display_name)
+        if status_filter:
+            query = query.where(LLMModel.status == status_filter)
+        query = query.order_by(LLMModel.created_at).limit(1)
+        result = await self.session.execute(query)
+        return result.scalar_one_or_none()
+
 
 # -----------------------------------------------------------------------
 # Artifact DAO
@@ -407,6 +430,25 @@ class RuntimeDAO:
             return False
         await self.session.delete(runtime)
         return True
+
+    async def list_grouped_by_model(
+        self,
+    ) -> list[tuple[LLMRuntime, LLMProvider, "InfraNode | None"]]:
+        """Return all runtimes joined with their provider and (optional) node.
+
+        Used by the enriched models listing to show where each model is
+        deployed without N+1 queries.
+        """
+        from llm_port_backend.db.models.node_control import InfraNode  # noqa: PLC0415
+
+        stmt = (
+            select(LLMRuntime, LLMProvider, InfraNode)
+            .join(LLMProvider, LLMRuntime.provider_id == LLMProvider.id)
+            .outerjoin(InfraNode, LLMRuntime.assigned_node_id == InfraNode.id)
+            .order_by(LLMRuntime.created_at)
+        )
+        result = await self.session.execute(stmt)
+        return list(result.all())  # type: ignore[return-value]
 
 
 # -----------------------------------------------------------------------

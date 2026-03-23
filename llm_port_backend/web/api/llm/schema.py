@@ -156,6 +156,26 @@ class ModelDTO(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ModelInstanceDTO(BaseModel):
+    """Where a model is deployed — one entry per runtime."""
+
+    runtime_id: uuid.UUID
+    runtime_name: str
+    runtime_status: RuntimeStatus
+    provider_id: uuid.UUID
+    provider_name: str
+    provider_type: ProviderType
+    execution_target: str  # "local" | "node"
+    node_id: uuid.UUID | None = None
+    node_host: str | None = None
+
+
+class ModelWithInstancesDTO(ModelDTO):
+    """Model DTO enriched with its running instances (locations)."""
+
+    instances: list[ModelInstanceDTO] = Field(default_factory=list)
+
+
 class DownloadResponseDTO(BaseModel):
     """Response for the download endpoint — includes dispatch status."""
 
@@ -196,6 +216,16 @@ class RuntimeCreateRequest(BaseModel):
     openai_compat: bool = True
     target_node_id: uuid.UUID | None = None
     placement_hints: dict | None = None
+    model_source: str | None = Field(
+        None,
+        pattern=r"^(sync_from_server|download_from_hf)$",
+        description="How the model reaches the remote node.",
+    )
+    image_source: str | None = Field(
+        None,
+        pattern=r"^(pull_from_registry|transfer_from_server)$",
+        description="How the container image reaches the remote node.",
+    )
 
 
 class RuntimeUpdateRequest(BaseModel):

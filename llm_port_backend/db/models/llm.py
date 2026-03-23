@@ -35,6 +35,7 @@ class ProviderType(enum.StrEnum):
     LLAMACPP = "llamacpp"
     TGI = "tgi"
     OLLAMA = "ollama"
+    CLOUD = "cloud"
 
 
 class ProviderTarget(enum.StrEnum):
@@ -50,6 +51,7 @@ class ModelSource(enum.StrEnum):
     HUGGINGFACE = "huggingface"
     LOCAL_PATH = "local_path"
     ARCHIVE_IMPORT = "archive_import"
+    REMOTE = "remote"
 
 
 class ModelStatus(enum.StrEnum):

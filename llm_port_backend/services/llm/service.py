@@ -331,6 +331,8 @@ class LLMService:
         openai_compat: bool = True,
         target_node_id: uuid.UUID | None = None,
         placement_hints: dict[str, Any] | None = None,
+        model_source: str | None = None,
+        image_source: str | None = None,
     ) -> LLMRuntime:
         """Create a runtime, validate compatibility, and start the container."""
         # Fetch references
@@ -340,15 +342,21 @@ class LLMService:
         model = await model_dao.get(model_id)
         if model is None:
             raise ValueError(f"Model {model_id} not found")
-        if model.status != ModelStatus.AVAILABLE:
+
+        # When the remote node will download from HuggingFace directly,
+        # the model record may still be in "downloading" state on the
+        # server — that's fine because the node fetches it independently.
+        node_downloads_model = model_source == "download_from_hf"
+        if not node_downloads_model and model.status != ModelStatus.AVAILABLE:
             raise ValueError(f"Model {model_id} is not available (status={model.status})")
 
         artifacts = await artifact_dao.list_by_model(model_id)
         adapter = get_adapter(provider.type)
 
         # Validate compatibility — skip for remote providers (no local
-        # artifacts, model lives on the remote endpoint).
-        if provider.target != ProviderTarget.REMOTE_ENDPOINT:
+        # artifacts, model lives on the remote endpoint) and for
+        # node-side HF downloads (artifacts don't exist locally yet).
+        if provider.target != ProviderTarget.REMOTE_ENDPOINT and not node_downloads_model:
             compat = adapter.validate_model(model, artifacts)
             if not compat.compatible:
                 raise ValueError(f"Model not compatible with {provider.type}: {compat.reason}")
@@ -396,7 +404,7 @@ class LLMService:
             return runtime
 
         # ── Node cluster mode (backend scheduler + node commands) ─────────
-        if settings.node_cluster_enabled:
+        if settings.node_cluster_enabled or target_node_id:
             node_service = self._build_node_control_service(runtime_dao.session)
             selected_node, explain = await self._select_node_for_runtime(
                 node_service=node_service,
@@ -414,6 +422,14 @@ class LLMService:
                 desired_state=runtime.desired_state,
                 actual_state="pending",
             )
+            # Derive GPU request — vLLM and TGI always need GPU access
+            gpu_request = (provider_config or {}).get("gpu_request", "")
+            if not gpu_request and provider.type.value in ("vllm", "tgi"):
+                gpu_request = "all"
+            ipc_mode = (provider_config or {}).get("ipc_mode", "")
+            if not ipc_mode and gpu_request and provider.type.value in ("vllm", "tgi"):
+                ipc_mode = "host"
+
             command = await node_service.issue_command(
                 node_id=selected_node.id,
                 command_type=NodeCommandType.DEPLOY_WORKLOAD.value,
@@ -427,6 +443,16 @@ class LLMService:
                     "provider_config": provider_config or {},
                     "openai_compat": openai_compat,
                     "placement_hints": placement_hints or {},
+                    "model_sync": self._build_model_sync_payload(
+                        model, source=model_source or "sync_from_server",
+                    ),
+                    "image_source": image_source,
+                    "gpu_request": gpu_request,
+                    "ipc_mode": ipc_mode,
+                    "shm_size": (provider_config or {}).get("shm_size", ""),
+                    "memory_limit": (provider_config or {}).get("memory_limit", ""),
+                    "cpu_limit": (provider_config or {}).get("cpu_limit", ""),
+                    "container_port": (provider_config or {}).get("container_port", ""),
                 },
                 issued_by=None,
                 correlation_id=str(runtime.id),
@@ -507,7 +533,7 @@ class LLMService:
         if runtime is None:
             raise ValueError(f"Runtime {runtime_id} not found")
 
-        if settings.node_cluster_enabled and runtime.execution_target == "node" and runtime.assigned_node_id:
+        if runtime.execution_target == "node" and runtime.assigned_node_id:
             node_service = self._build_node_control_service(runtime_dao.session)
             command = await node_service.issue_command(
                 node_id=runtime.assigned_node_id,
@@ -544,7 +570,7 @@ class LLMService:
         if runtime is None:
             raise ValueError(f"Runtime {runtime_id} not found")
 
-        if settings.node_cluster_enabled and runtime.execution_target == "node" and runtime.assigned_node_id:
+        if runtime.execution_target == "node" and runtime.assigned_node_id:
             node_service = self._build_node_control_service(runtime_dao.session)
             command = await node_service.issue_command(
                 node_id=runtime.assigned_node_id,
@@ -586,7 +612,7 @@ class LLMService:
         if runtime is None:
             raise ValueError(f"Runtime {runtime_id} not found")
 
-        if settings.node_cluster_enabled and runtime.execution_target == "node" and runtime.assigned_node_id:
+        if runtime.execution_target == "node" and runtime.assigned_node_id:
             node_service = self._build_node_control_service(runtime_dao.session)
             command = await node_service.issue_command(
                 node_id=runtime.assigned_node_id,
@@ -642,14 +668,15 @@ class LLMService:
         if runtime is None:
             raise ValueError(f"Runtime {runtime_id} not found")
 
-        if settings.node_cluster_enabled and runtime.execution_target == "node":
+        if runtime.execution_target == "node":
             node_service = self._build_node_control_service(runtime_dao.session)
+            provider = await provider_dao.get(runtime.provider_id)
+            if provider is None:
+                raise ValueError(f"Provider {runtime.provider_id} not found")
+            model = await model_dao.get(runtime.model_id)
             if target_node_id is not None:
                 runtime.assigned_node_id = target_node_id
             if runtime.assigned_node_id is None:
-                provider = await provider_dao.get(runtime.provider_id)
-                if provider is None:
-                    raise ValueError(f"Provider {runtime.provider_id} not found")
                 selected_node, explain = await self._select_node_for_runtime(
                     node_service=node_service,
                     provider=provider,
@@ -658,16 +685,38 @@ class LLMService:
                 )
                 runtime.assigned_node_id = selected_node.id
                 runtime.placement_explain_json = explain | {"placement_hints": placement_hints or {}}
+            prov_config = runtime.provider_config or {}
+            gpu_request = prov_config.get("gpu_request", "")
+            if not gpu_request and provider.type.value in ("vllm", "tgi"):
+                gpu_request = "all"
+            ipc_mode = prov_config.get("ipc_mode", "")
+            if not ipc_mode and gpu_request and provider.type.value in ("vllm", "tgi"):
+                ipc_mode = "host"
+            model_source = prov_config.get("model_source") or "sync_from_server"
+            image_source = prov_config.get("image_source") or "pull_from_registry"
             command = await node_service.issue_command(
                 node_id=runtime.assigned_node_id,
                 command_type=NodeCommandType.UPDATE_WORKLOAD.value,
                 payload={
                     "runtime_id": str(runtime.id),
                     "runtime_name": runtime.name,
+                    "provider_id": str(provider.id),
+                    "provider_type": provider.type.value,
+                    "model_id": str(runtime.model_id),
                     "generic_config": runtime.generic_config or {},
-                    "provider_config": runtime.provider_config or {},
+                    "provider_config": prov_config,
                     "openai_compat": runtime.openai_compat,
                     "placement_hints": placement_hints or {},
+                    "model_sync": self._build_model_sync_payload(
+                        model, source=model_source,
+                    ) if model else {},
+                    "image_source": image_source,
+                    "gpu_request": gpu_request,
+                    "ipc_mode": ipc_mode,
+                    "shm_size": prov_config.get("shm_size", ""),
+                    "memory_limit": prov_config.get("memory_limit", ""),
+                    "cpu_limit": prov_config.get("cpu_limit", ""),
+                    "container_port": prov_config.get("container_port", ""),
                 },
                 issued_by=None,
                 correlation_id=str(runtime.id),
@@ -741,7 +790,7 @@ class LLMService:
         runtime = await runtime_dao.get(runtime_id)
         if runtime is None:
             raise ValueError(f"Runtime {runtime_id} not found")
-        if settings.node_cluster_enabled and runtime.execution_target == "node" and runtime.assigned_node_id:
+        if runtime.execution_target == "node" and runtime.assigned_node_id:
             node_service = self._build_node_control_service(runtime_dao.session)
             await node_service.issue_command(
                 node_id=runtime.assigned_node_id,
@@ -770,14 +819,22 @@ class LLMService:
         provider_dao: ProviderDAO,
         runtime_dao: RuntimeDAO,
         provider_id: uuid.UUID,
+        *,
+        model_dao: ModelDAO | None = None,
     ) -> None:
-        """Cascade-delete: stop & remove runtimes, then delete the provider."""
+        """Cascade-delete: stop & remove runtimes, then delete the provider.
+
+        Auto-provisioned placeholder models that become orphaned (no
+        remaining runtimes reference them) are cleaned up as well.
+        """
         provider = await provider_dao.get(provider_id)
         if provider is None:
             raise ValueError(f"Provider {provider_id} not found")
 
         # Tear down every runtime that belongs to this provider.
         runtimes = await runtime_dao.list_by_provider(provider_id)
+        # Collect model_ids so we can check for orphans after removal.
+        orphan_candidate_ids: set[uuid.UUID] = {rt.model_id for rt in runtimes}
         # Flush pending work before slow Docker teardown.
         await runtime_dao.session.commit()
         for rt in runtimes:
@@ -789,6 +846,24 @@ class LLMService:
             await runtime_dao.delete(rt.id)
 
         await provider_dao.delete(provider_id)
+
+        # ── Clean up orphaned auto-provisioned models ─────────────
+        if model_dao is not None:
+            for mid in orphan_candidate_ids:
+                model = await model_dao.get(mid)
+                if model is None:
+                    continue
+                # Only auto-clean models that were machine-created, not
+                # user-managed models (downloaded from HF, registered, etc.).
+                if not (model.tags and "auto-provisioned" in model.tags):
+                    continue
+                if await model_dao.is_used_by_any_runtime(mid):
+                    continue
+                log.info(
+                    "Cleaning up orphaned auto-provisioned model %s (%s)",
+                    mid, model.display_name,
+                )
+                await model_dao.delete(mid)
 
     async def _teardown_runtime(self, runtime: LLMRuntime) -> None:
         """Stop and remove the Docker container for a runtime (best-effort)."""
@@ -1013,3 +1088,47 @@ class LLMService:
         except Exception:
             log.warning("Could not extract endpoint from container info")
         return None
+
+    @staticmethod
+    def _build_model_sync_payload(
+        model: LLMModel,
+        *,
+        source: str = "sync_from_server",
+    ) -> dict[str, Any] | None:
+        """Build the ``model_sync`` dict for remote node deployment.
+
+        *source* controls how the model reaches the node:
+
+        - ``"sync_from_server"`` — include the full blob manifest so
+          the agent pulls from this backend's file server.
+        - ``"download_from_hf"`` — include only the ``hf_repo_id`` so
+          the agent's container can download directly from HuggingFace.
+        """
+        if not model.hf_repo_id:
+            return None
+
+        base: dict[str, Any] = {
+            "model_id": str(model.id),
+            "hf_repo_id": model.hf_repo_id,
+            "source": source,
+        }
+
+        if source == "download_from_hf":
+            # The node has internet — just tell the agent which repo to fetch.
+            return base
+
+        # sync_from_server — include full cache manifest
+        from llm_port_backend.web.api.node_files.views import (
+            _build_cache_manifest,
+            _model_cache_dir,
+        )
+
+        model_dir = _model_cache_dir(model.hf_repo_id)
+        if model_dir is None:
+            return None
+
+        manifest = _build_cache_manifest(model_dir)
+        if not manifest["blobs"]:
+            return None
+
+        return base | manifest

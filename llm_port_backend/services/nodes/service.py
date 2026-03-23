@@ -384,6 +384,10 @@ class NodeControlService:
             ],
         }
 
+    async def get_command(self, *, command_id: uuid.UUID) -> InfraNodeCommand | None:
+        """Return a command record by ID."""
+        return await self._dao.get_command(command_id)
+
     async def get_node_record(self, *, node_id: uuid.UUID) -> InfraNode | None:
         """Return raw node row for internal orchestration paths."""
         return await self._dao.get_node_by_id(node_id)

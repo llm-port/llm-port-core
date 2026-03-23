@@ -2,18 +2,23 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import PlainTextResponse, StreamingResponse
 from starlette import status
 
 from llm_port_backend.db.dao.audit_dao import AuditDAO
 from llm_port_backend.db.dao.llm_dao import ArtifactDAO, ModelDAO, ProviderDAO, RuntimeDAO
+from llm_port_backend.db.dao.node_control_dao import NodeControlDAO
 from llm_port_backend.db.models.containers import AuditResult
+from llm_port_backend.db.models.node_control import NodeCommandStatus, NodeCommandType
 from llm_port_backend.db.models.users import User
 from llm_port_backend.services.docker.client import DockerService
 from llm_port_backend.services.llm.service import LLMService
+from llm_port_backend.services.nodes.service import NodeControlService
+from llm_port_backend.settings import settings
 from llm_port_backend.web.api.admin.dependencies import audit_action, get_docker
 from llm_port_backend.web.api.llm.dependencies import get_llm_service
 from llm_port_backend.web.api.llm.schema import (
@@ -25,6 +30,21 @@ from llm_port_backend.web.api.llm.schema import (
 from llm_port_backend.web.api.rbac import require_permission
 
 router = APIRouter()
+
+
+def _get_node_control_service(
+    request: Request,
+    dao: NodeControlDAO = Depends(),
+) -> NodeControlService:
+    llm_service = getattr(request.app.state, "llm_service", None)
+    gateway_sync = getattr(llm_service, "gateway_sync", None)
+    return NodeControlService(
+        dao=dao,
+        pepper=settings.settings_master_key,
+        enrollment_ttl_minutes=settings.node_enrollment_ttl_minutes,
+        default_command_timeout_sec=settings.node_command_default_timeout_sec,
+        gateway_sync=gateway_sync,
+    )
 
 
 @router.get("/", response_model=list[RuntimeDTO])
@@ -64,6 +84,8 @@ async def create_runtime(
             openai_compat=body.openai_compat,
             target_node_id=body.target_node_id,
             placement_hints=body.placement_hints,
+            model_source=body.model_source,
+            image_source=body.image_source,
         )
     except ValueError as exc:
         raise HTTPException(
@@ -263,7 +285,7 @@ async def runtime_health(
     return RuntimeHealthDTO(**result)
 
 
-@router.get("/{runtime_id}/logs")
+@router.get("/{runtime_id}/logs", response_class=StreamingResponse)
 async def runtime_logs(
     runtime_id: uuid.UUID,
     tail: int = 200,
@@ -271,14 +293,51 @@ async def runtime_logs(
     user: User = Depends(require_permission("llm.runtimes", "read")),
     runtime_dao: RuntimeDAO = Depends(),
     docker: DockerService = Depends(get_docker),
-) -> StreamingResponse:
-    """Stream logs from the runtime's container."""
+    node_service: NodeControlService = Depends(_get_node_control_service),
+):
+    """Stream logs from the runtime's container (local or remote node)."""
     runtime = await runtime_dao.get(runtime_id)
     if runtime is None:
         raise HTTPException(status_code=404, detail="Runtime not found")
     if not runtime.container_ref:
         raise HTTPException(status_code=400, detail="Runtime has no container")
 
+    # Remote node runtime — fetch logs via node command
+    if runtime.container_ref.startswith("node:"):
+        node_id_str = runtime.assigned_node_id
+        if not node_id_str:
+            raise HTTPException(status_code=400, detail="Runtime assigned to node but no node_id")
+        command = await node_service.issue_command(
+            node_id=uuid.UUID(str(node_id_str)),
+            command_type=NodeCommandType.FETCH_CONTAINER_LOGS.value,
+            payload={"runtime_id": str(runtime_id), "runtime_name": runtime.name, "tail": tail},
+            issued_by=user.id,
+            correlation_id=f"logs-{runtime_id}",
+            timeout_sec=30,
+            idempotency_key=None,  # always fresh
+        )
+        # Commit so the WebSocket handler's session can see the new command
+        command_id = command.id
+        await node_service._dao.session.commit()
+        # Poll for result (agent typically responds in <2s)
+        for _ in range(15):
+            await asyncio.sleep(1)
+            # Expire cached state so we see changes from the WebSocket handler's session
+            node_service._dao.session.expire_all()
+            cmd = await node_service.get_command(command_id=command_id)
+            if cmd and cmd.status in (
+                NodeCommandStatus.SUCCEEDED.value,
+                NodeCommandStatus.FAILED.value,
+                NodeCommandStatus.TIMED_OUT.value,
+            ):
+                if cmd.status == NodeCommandStatus.SUCCEEDED.value:
+                    logs_text = (cmd.result_json or {}).get("logs", "")
+                    return PlainTextResponse(logs_text)
+                detail = cmd.error_message or "Failed to fetch logs from node agent."
+                raise HTTPException(status_code=502, detail=detail)
+        raise HTTPException(status_code=504, detail="Timed out waiting for node agent to return logs.")
+
+    # Local container — stream directly from Docker
     async def _stream():  # type: ignore[return]
         async for line in docker.logs(runtime.container_ref, tail=tail, follow=follow):
             yield line

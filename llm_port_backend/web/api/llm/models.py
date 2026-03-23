@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import uuid
+from collections import defaultdict
 
 from fastapi import APIRouter, Depends, HTTPException
 from starlette import status
 
 from llm_port_backend.db.dao.audit_dao import AuditDAO
-from llm_port_backend.db.dao.llm_dao import ArtifactDAO, DownloadJobDAO, ModelDAO
+from llm_port_backend.db.dao.llm_dao import ArtifactDAO, DownloadJobDAO, ModelDAO, RuntimeDAO
 from llm_port_backend.db.models.containers import AuditResult
 from llm_port_backend.db.models.users import User
 from llm_port_backend.services.llm.service import LLMService
@@ -21,21 +22,49 @@ from llm_port_backend.web.api.llm.schema import (
     HFCacheScanResultDTO,
     ModelDownloadRequest,
     ModelDTO,
+    ModelInstanceDTO,
     ModelRegisterRequest,
+    ModelWithInstancesDTO,
 )
 from llm_port_backend.web.api.rbac import require_permission
 
 router = APIRouter()
 
 
-@router.get("/", response_model=list[ModelDTO])
+@router.get("/", response_model=list[ModelWithInstancesDTO])
 async def list_models(
     user: User = Depends(require_permission("llm.models", "read")),
     model_dao: ModelDAO = Depends(),
-) -> list[ModelDTO]:
-    """List all models."""
+    runtime_dao: RuntimeDAO = Depends(),
+) -> list[ModelWithInstancesDTO]:
+    """List all models with their deployed instances (locations)."""
     models = await model_dao.list_all()
-    return [ModelDTO.model_validate(m) for m in models]
+    rows = await runtime_dao.list_grouped_by_model()
+
+    # Group runtime rows by model_id
+    instances_by_model: dict[uuid.UUID, list[ModelInstanceDTO]] = defaultdict(list)
+    for rt, prov, node in rows:
+        instances_by_model[rt.model_id].append(
+            ModelInstanceDTO(
+                runtime_id=rt.id,
+                runtime_name=rt.name,
+                runtime_status=rt.status,
+                provider_id=prov.id,
+                provider_name=prov.name,
+                provider_type=prov.type,
+                execution_target=rt.execution_target,
+                node_id=node.id if node else None,
+                node_host=node.host if node else None,
+            ),
+        )
+
+    return [
+        ModelWithInstancesDTO(
+            **ModelDTO.model_validate(m).model_dump(),
+            instances=instances_by_model.get(m.id, []),
+        )
+        for m in models
+    ]
 
 
 @router.get("/{model_id}", response_model=ModelDTO)

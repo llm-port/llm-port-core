@@ -32,7 +32,7 @@ def get_adapter(provider_type: ProviderType | str) -> ProviderAdapter:
 
 def _auto_register() -> None:
     """Import adapters so they self-register on module load."""
-    from llm_port_backend.services.llm.adapters import llamacpp, ollama, tgi, vllm  # noqa: F401, PLC0415
+    from llm_port_backend.services.llm.adapters import cloud, llamacpp, ollama, tgi, vllm  # noqa: F401, PLC0415
 
 
 _auto_register()

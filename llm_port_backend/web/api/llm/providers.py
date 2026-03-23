@@ -349,12 +349,19 @@ async def create_provider(
         if not alias_name:
             alias_name = body.name.strip()
 
-        placeholder_model = await model_dao.create(
-            display_name=alias_name,
-            source=ModelSource.LOCAL_PATH,      # lightweight placeholder
-            status=ModelStatus.AVAILABLE,
-            tags=["remote", "auto-provisioned"],
+        # Reuse an existing model with the same display_name when one
+        # already exists (avoids duplicates when the same model is
+        # served from multiple providers / remote nodes).
+        placeholder_model = await model_dao.find_by_display_name(
+            alias_name, status_filter=ModelStatus.AVAILABLE,
         )
+        if placeholder_model is None:
+            placeholder_model = await model_dao.create(
+                display_name=alias_name,
+                source=ModelSource.REMOTE,
+                status=ModelStatus.AVAILABLE,
+                tags=["remote", "auto-provisioned"],
+            )
         try:
             await llm_service.create_runtime(
                 runtime_dao,
@@ -457,12 +464,15 @@ async def delete_provider(
     user: User = Depends(require_permission("llm.providers", "delete")),
     provider_dao: ProviderDAO = Depends(),
     runtime_dao: RuntimeDAO = Depends(),
+    model_dao: ModelDAO = Depends(),
     llm_service: LLMService = Depends(get_llm_service),
     audit_dao: AuditDAO = Depends(),
 ) -> None:
     """Delete a provider, cascade-deleting any associated runtimes."""
     try:
-        await llm_service.delete_provider(provider_dao, runtime_dao, provider_id)
+        await llm_service.delete_provider(
+            provider_dao, runtime_dao, provider_id, model_dao=model_dao,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     await audit_action(
