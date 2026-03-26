@@ -40,6 +40,10 @@ from llm_port_backend.web.api.admin.system.schema import (
     GrafanaWebhookPayloadDTO,
     GrafanaWebhookResponseDTO,
     NodeCommandDTO,
+    NodeProfileAssignRequest,
+    NodeProfileCreateRequest,
+    NodeProfileDTO,
+    NodeProfileUpdateRequest,
     NodeCommandIssueRequest,
     NodeCommandTimelineDTO,
     NodeDTO,
@@ -737,12 +741,14 @@ async def system_node_stream(websocket: WebSocket) -> None:
         # heartbeat which carries advertise_host from the agent.
         stream_session = await service.create_stream_session(node=node, credential=credential)
         commands = await service.list_commands_for_dispatch(node_id=_node_id)
+        profile_payload = await service.get_node_profile(node_id=_node_id)
         await websocket.send_json(
             {
                 "type": "hello_ack",
                 "session_id": str(stream_session.id),
                 "node_id": str(node.id),
                 "commands": commands,
+                "profile": profile_payload,
             },
         )
         await session.commit()
@@ -858,3 +864,129 @@ async def system_grafana_webhook(
             "Install llm-port-ee to enable this endpoint."
         ),
     )
+
+
+# ── Node profiles ──────────────────────────────────────────
+
+
+@router.post("/node-profiles", response_model=NodeProfileDTO, status_code=status.HTTP_201_CREATED, name="system_node_profile_create")
+async def system_node_profile_create(
+    body: NodeProfileCreateRequest,
+    _user: Annotated[User, Depends(require_permission("system.node_profiles", "manage"))],
+    service: NodeControlService = Depends(get_node_control_service),
+) -> NodeProfileDTO:
+    """Create a node profile."""
+    payload = await service.create_profile(
+        name=body.name,
+        description=body.description,
+        is_default=body.is_default,
+        runtime_config=body.runtime_config,
+        gpu_config=body.gpu_config,
+        storage_config=body.storage_config,
+        network_config=body.network_config,
+        logging_config=body.logging_config,
+        security_config=body.security_config,
+        update_config=body.update_config,
+    )
+    return NodeProfileDTO(**payload)
+
+
+@router.get("/node-profiles", response_model=list[NodeProfileDTO], name="system_node_profiles_list")
+async def system_node_profiles_list(
+    _user: Annotated[User, Depends(require_permission("system.node_profiles", "read"))],
+    service: NodeControlService = Depends(get_node_control_service),
+) -> list[NodeProfileDTO]:
+    """List all node profiles."""
+    return [NodeProfileDTO(**p) for p in await service.list_profiles()]
+
+
+@router.get("/node-profiles/{profile_id}", response_model=NodeProfileDTO, name="system_node_profile_get")
+async def system_node_profile_get(
+    profile_id: str,
+    _user: Annotated[User, Depends(require_permission("system.node_profiles", "read"))],
+    service: NodeControlService = Depends(get_node_control_service),
+) -> NodeProfileDTO:
+    """Get a node profile."""
+    try:
+        parsed = uuid.UUID(profile_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid profile id.") from exc
+    payload = await service.get_profile(profile_id=parsed)
+    if payload is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile not found.")
+    return NodeProfileDTO(**payload)
+
+
+@router.put("/node-profiles/{profile_id}", response_model=NodeProfileDTO, name="system_node_profile_update")
+async def system_node_profile_update(
+    profile_id: str,
+    body: NodeProfileUpdateRequest,
+    _user: Annotated[User, Depends(require_permission("system.node_profiles", "manage"))],
+    service: NodeControlService = Depends(get_node_control_service),
+) -> NodeProfileDTO:
+    """Update a node profile."""
+    try:
+        parsed = uuid.UUID(profile_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid profile id.") from exc
+    updates = body.model_dump(exclude_unset=True)
+    try:
+        payload = await service.update_profile(profile_id=parsed, **updates)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return NodeProfileDTO(**payload)
+
+
+@router.delete("/node-profiles/{profile_id}", status_code=status.HTTP_204_NO_CONTENT, name="system_node_profile_delete")
+async def system_node_profile_delete(
+    profile_id: str,
+    _user: Annotated[User, Depends(require_permission("system.node_profiles", "manage"))],
+    service: NodeControlService = Depends(get_node_control_service),
+) -> None:
+    """Delete a node profile."""
+    try:
+        parsed = uuid.UUID(profile_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid profile id.") from exc
+    try:
+        await service.delete_profile(profile_id=parsed)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.put("/nodes/{node_id}/profile", response_model=NodeDTO, name="system_node_profile_assign")
+async def system_node_profile_assign(
+    node_id: str,
+    body: NodeProfileAssignRequest,
+    _user: Annotated[User, Depends(require_permission("system.node_profiles", "manage"))],
+    service: NodeControlService = Depends(get_node_control_service),
+) -> NodeDTO:
+    """Assign a profile to a node."""
+    try:
+        parsed_node = uuid.UUID(node_id)
+        parsed_profile = uuid.UUID(body.profile_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid id.") from exc
+    try:
+        payload = await service.assign_profile_to_node(node_id=parsed_node, profile_id=parsed_profile)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return NodeDTO(**payload)
+
+
+@router.delete("/nodes/{node_id}/profile", response_model=NodeDTO, name="system_node_profile_unassign")
+async def system_node_profile_unassign(
+    node_id: str,
+    _user: Annotated[User, Depends(require_permission("system.node_profiles", "manage"))],
+    service: NodeControlService = Depends(get_node_control_service),
+) -> NodeDTO:
+    """Unassign the profile from a node."""
+    try:
+        parsed = uuid.UUID(node_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid node id.") from exc
+    try:
+        payload = await service.unassign_profile_from_node(node_id=parsed)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return NodeDTO(**payload)
