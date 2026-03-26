@@ -115,7 +115,11 @@ class NodeAgentService:
         if self._config.loki_url:
             loki_client = LokiClient(
                 loki_url=self._config.loki_url,
-                labels={"job": "node-agent", "host": self._config.host},
+                labels={
+                    "job": "node-agent",
+                    "host": self._config.host,
+                    "container": f"node-{self._config.agent_id}",
+                },
                 verify_tls=self._config.verify_tls,
             )
             self._loki = loki_client
