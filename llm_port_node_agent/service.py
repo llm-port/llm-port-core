@@ -40,7 +40,7 @@ class NodeAgentService:
 
     async def run_forever(self) -> None:
         """Run agent forever with reconnect and re-enrollment handling."""
-        runtime = detect_runtime()
+        runtime = detect_runtime(preferred=self._config.container_runtime)
         log.info("Detected container runtime: %s", runtime.name)
 
         gpu_collector = detect_gpu()

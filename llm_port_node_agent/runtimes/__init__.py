@@ -111,14 +111,17 @@ def detect_runtime(*, preferred: str | None = None) -> ContainerRuntime:
         Falls back to auto-detection if the preferred CLI is absent.
     """
     from llm_port_node_agent.runtimes.docker import DockerRuntime  # noqa: E402 — late import avoids cycles
+    from llm_port_node_agent.runtimes.podman import PodmanRuntime  # noqa: E402
 
     candidates: list[tuple[str, type[ContainerRuntime]]] = [
         ("docker", DockerRuntime),
+        ("podman", PodmanRuntime),
     ]
 
     if preferred:
         preferred = preferred.strip().lower()
-        candidates.sort(key=lambda c: c[0] != preferred)
+        if preferred != "auto":
+            candidates.sort(key=lambda c: c[0] != preferred)
 
     for cli_name, cls in candidates:
         if shutil.which(cli_name) is not None:
