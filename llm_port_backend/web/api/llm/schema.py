@@ -257,6 +257,7 @@ class RuntimeDTO(BaseModel):
     desired_state: str = "running"
     placement_explain_json: dict | None = None
     last_command_id: uuid.UUID | None = None
+    status_message: str | None = None
     created_at: datetime
     updated_at: datetime
 

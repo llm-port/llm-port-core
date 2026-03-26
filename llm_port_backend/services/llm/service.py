@@ -160,10 +160,9 @@ class LLMService:
         )
         job = await job_dao.create(model.id)
 
-        # The download task uses model_store_root/hf as the HF hub
-        # cache_dir.  Files land in the standard HF cache layout so
-        # vLLM can resolve models by repo ID.
-        target_dir = f"{settings.model_store_root}/hf"
+        # Files land in the standard HF cache layout directly under
+        # model_store_root so vLLM can resolve models by repo ID.
+        target_dir = settings.model_store_root
 
         # Dispatch async task — non-fatal if RabbitMQ is temporarily
         # unreachable; the user can retry from the Jobs page.
@@ -235,7 +234,7 @@ class LLMService:
     ) -> list[LLMModel]:
         """Scan HF cache directories and auto-import any new models.
 
-        Scans the app-managed cache (``model_store_root/hf``), the
+        Scans the app-managed cache (``model_store_root``), the
         default HuggingFace cache (``~/.cache/huggingface/hub``), and
         the host-mounted HF cache (``host_hf_cache_dir``) if configured.
         Models whose ``hf_repo_id`` is already registered are skipped.
@@ -252,7 +251,7 @@ class LLMService:
         # Directories to scan -- deduplicated by resolved path
         cache_dirs: list[Path] = []
         seen_resolved: set[Path] = set()
-        app_cache = Path(settings.model_store_root, "hf")
+        app_cache = Path(settings.model_store_root)
         default_cache = Path.home() / ".cache" / "huggingface" / "hub"
 
         candidates = [app_cache, default_cache]
@@ -869,6 +868,10 @@ class LLMService:
         """Stop and remove the Docker container for a runtime (best-effort)."""
         if not runtime.container_ref:
             return
+        # Node runtimes are cleaned up via REMOVE_WORKLOAD command, not
+        # local Docker — skip here to avoid bogus warnings.
+        if runtime.execution_target == "node":
+            return
         try:
             await self.docker.stop(runtime.container_ref)
         except Exception:
@@ -892,6 +895,11 @@ class LLMService:
         """
         # Remote runtimes (no container) — nothing to reconcile
         if not runtime.container_ref:
+            return runtime
+
+        # Node-deployed runtimes are managed by the remote agent, not
+        # the local Docker daemon — skip local container inspection.
+        if runtime.execution_target == "node":
             return runtime
 
         # Only reconcile transient statuses
@@ -923,6 +931,7 @@ class LLMService:
             elif docker_status in ("exited", "dead", "removing"):
                 # Container has crashed / stopped unexpectedly
                 exit_code = state.get("ExitCode", -1)
+                runtime.status_message = f"Container {docker_status} (exit code {exit_code})"
                 await runtime_dao.set_status(runtime.id, RuntimeStatus.ERROR)
                 log.warning(
                     "Runtime %r container %s is %s (exit=%s) — marking ERROR",
@@ -937,6 +946,7 @@ class LLMService:
         except Exception:
             # Container doesn't exist at all — mark as error
             if runtime.status in (RuntimeStatus.CREATING, RuntimeStatus.STARTING):
+                runtime.status_message = f"Container {runtime.container_ref} not found"
                 await runtime_dao.set_status(runtime.id, RuntimeStatus.ERROR)
                 log.warning(
                     "Runtime %r container %s not found — marking ERROR",

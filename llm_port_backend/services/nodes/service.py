@@ -226,7 +226,19 @@ class NodeControlService:
         key = idempotency_key or str(uuid.uuid4())
         existing = await self._dao.get_command_by_idempotency_key(node_id=node_id, idempotency_key=key)
         if existing is not None:
-            return existing
+            # Only deduplicate against commands still in-flight.
+            # Terminal states (failed/succeeded/canceled/timed_out) should
+            # not block a retry — suffix the old key to free ours.
+            terminal = {
+                NodeCommandStatus.SUCCEEDED.value,
+                NodeCommandStatus.FAILED.value,
+                NodeCommandStatus.CANCELED.value,
+                NodeCommandStatus.TIMED_OUT.value,
+            }
+            if existing.status not in terminal:
+                return existing
+            # Retire the old key so the new command can take it
+            existing.idempotency_key = f"{key}::retired::{existing.id}"
         command = await self._dao.create_command(
             node_id=node_id,
             command_type=command_type,
@@ -508,6 +520,7 @@ class NodeControlService:
         runtime.assigned_node_id = command.node_id
 
         if success:
+            runtime.status_message = None
             if command.command_type in {
                 NodeCommandType.DEPLOY_WORKLOAD.value,
                 NodeCommandType.START_WORKLOAD.value,
@@ -530,6 +543,7 @@ class NodeControlService:
                     await self._gateway_sync.unpublish_runtime(runtime_id=runtime.id, alias=runtime.name)
         else:
             runtime.status = RuntimeStatus.ERROR
+            runtime.status_message = str(payload.get("error_message") or payload.get("error_code") or "Command failed")
 
         await self._dao.upsert_workload_assignment(
             runtime_id=runtime.id,

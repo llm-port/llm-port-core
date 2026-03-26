@@ -303,6 +303,7 @@ class LLMRuntime(Base):
         ForeignKey("infra_node_command.id", ondelete="SET NULL"),
         nullable=True,
     )
+    status_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

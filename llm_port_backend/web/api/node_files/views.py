@@ -75,7 +75,7 @@ async def _authenticate_node(request: Request) -> InfraNode:
 
 def _model_cache_dir(hf_repo_id: str) -> Path | None:
     """Return the ``models--org--name`` cache directory, or *None*."""
-    cache_root = Path(settings.model_store_root) / "hf"
+    cache_root = Path(settings.model_store_root)
     dir_name = f"models--{hf_repo_id.replace('/', '--')}"
     model_dir = cache_root / dir_name
     return model_dir if model_dir.is_dir() else None

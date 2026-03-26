@@ -216,14 +216,11 @@ class VLLMAdapter(ProviderAdapter):
         }
 
         # ── Volume mount — expose the HF cache to the container ──────
-        # The download task uses ``cache_dir=model_store_root/hf``
-        # which creates the standard HF cache layout under
-        # model_store_root/hf (models--org--model/snapshots/...).
-        # We mount that directory into the container and explicitly set
-        # HF_HUB_CACHE to point to it, so vLLM's snapshot_download()
-        # resolves models there regardless of default cache paths.
+        # model_store_root IS the HF cache (standard layout with
+        # models--org--model/snapshots/...).  We mount it into the
+        # container and set HF_HUB_CACHE so vLLM resolves models there.
         hf_cache_mount = "/data/hf-cache"
-        volumes = [f"{model_store_root}/hf:{hf_cache_mount}"]
+        volumes = [f"{model_store_root}:{hf_cache_mount}"]
 
         # GPU devices
         gpu_devices = gc.get("gpu_devices", "all")

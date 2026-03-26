@@ -410,6 +410,8 @@ async def update_provider(
     body: ProviderUpdateRequest,
     user: User = Depends(require_permission("llm.providers", "update")),
     provider_dao: ProviderDAO = Depends(),
+    runtime_dao: RuntimeDAO = Depends(),
+    model_dao: ModelDAO = Depends(),
     audit_dao: AuditDAO = Depends(),
 ) -> ProviderDTO:
     """Patch writable fields on a provider."""
@@ -423,13 +425,20 @@ async def update_provider(
         next_capabilities = dict(body.capabilities)
         capabilities_changed = True
 
+    # Track the old remote_model so we can cascade the rename.
+    old_remote_model: str | None = None
+    new_remote_model: str | None = None
+
     if "remote_model" in body.model_fields_set:
         if next_capabilities is None:
             base = existing.capabilities if isinstance(existing.capabilities, dict) else {}
             next_capabilities = dict(base)
+        old_caps = existing.capabilities if isinstance(existing.capabilities, dict) else {}
+        old_remote_model = (old_caps.get("remote_model") or "").strip() or None
         remote_model = body.remote_model.strip() if isinstance(body.remote_model, str) else None
         if remote_model:
             next_capabilities["remote_model"] = remote_model
+            new_remote_model = remote_model
         else:
             next_capabilities.pop("remote_model", None)
         capabilities_changed = True
@@ -446,6 +455,28 @@ async def update_provider(
     )
     if provider is None:
         raise HTTPException(status_code=404, detail="Provider not found")
+
+    # ── Cascade remote_model rename to auto-provisioned model + runtime ──
+    if (
+        new_remote_model
+        and old_remote_model
+        and new_remote_model != old_remote_model
+        and existing.target == ProviderTarget.REMOTE_ENDPOINT
+    ):
+        rts = await runtime_dao.list_by_provider(provider_id)
+        for rt in rts:
+            model = await model_dao.get(rt.model_id)
+            if (
+                model
+                and model.tags
+                and "auto-provisioned" in model.tags
+                and model.display_name == old_remote_model
+            ):
+                model.display_name = new_remote_model
+            # Also rename the runtime if it still matches the old model name
+            if rt.name == old_remote_model:
+                rt.name = new_remote_model
+
     await audit_action(
         action="llm.provider.update",
         target_type="llm_provider",

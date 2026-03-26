@@ -376,6 +376,8 @@ class RuntimeDAO:
         if runtime is None:
             return None
         runtime.status = status
+        if status != RuntimeStatus.ERROR:
+            runtime.status_message = None
         return runtime
 
     async def set_container_ref(
