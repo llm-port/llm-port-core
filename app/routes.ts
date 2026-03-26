@@ -39,6 +39,7 @@ export default [
     route("/admin/llm/runtimes", "pages/admin/llm/RuntimesPage.tsx"),
     route("/admin/llm/runtimes/:id", "pages/admin/llm/RuntimeDetailPage.tsx"),
     route("/admin/nodes", "pages/admin/nodes/NodeFleetPage.tsx"),
+    route("/admin/nodes/profiles", "pages/admin/nodes/NodeProfilesPage.tsx"),
     route("/admin/nodes/:id", "pages/admin/nodes/NodeDetailPage.tsx"),
     route("/admin/scheduler", "pages/admin/SchedulerPage.tsx"),
     route("/admin/llm/agent-trace", "pages/admin/llm/GraphPage.tsx"),

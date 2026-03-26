@@ -59,6 +59,7 @@ import ForumIcon from "@mui/icons-material/Forum";
 import AttachFileIcon from "@mui/icons-material/AttachFile";
 import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
 import BuildIcon from "@mui/icons-material/Build";
+import TuneIcon from "@mui/icons-material/Tune";
 
 // ── Drawer sizing ────────────────────────────────────────────────
 export const DRAWER_WIDTH_OPEN = 240;
@@ -285,6 +286,12 @@ export const NAV: NavEntry[] = [
         permission: "system.nodes:read",
       },
       {
+        to: "/admin/nodes/profiles",
+        labelKey: "nav.node_profiles",
+        icon: <TuneIcon />,
+        permission: "system.node_profiles:read",
+      },
+      {
         to: "/admin/scheduler",
         labelKey: "nav.scheduler",
         icon: <ScheduleIcon />,
@@ -481,6 +488,7 @@ export function adminPageTitle(
   if (pathname.startsWith("/admin/llm/runtimes"))
     return t("llm_providers.title");
   if (pathname.startsWith("/admin/nodes/onboarding")) return "Node Onboarding";
+  if (pathname.startsWith("/admin/nodes/profiles")) return "Node Profiles";
   if (pathname.startsWith("/admin/nodes")) return "Node Fleet";
   if (pathname.startsWith("/admin/llm/jobs")) return t("scheduler.title");
   if (pathname.startsWith("/admin/scheduler")) return t("scheduler.title");

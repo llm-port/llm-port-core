@@ -23,8 +23,51 @@ export interface ManagedNode {
   last_seen?: string | null;
   created_at: string;
   updated_at: string;
+  profile_id?: string | null;
   latest_inventory?: Record<string, unknown> | null;
   latest_utilization?: Record<string, unknown> | null;
+}
+
+export interface NodeProfile {
+  id: string;
+  name: string;
+  description?: string | null;
+  is_default: boolean;
+  runtime_config: Record<string, unknown>;
+  gpu_config: Record<string, unknown>;
+  storage_config: Record<string, unknown>;
+  network_config: Record<string, unknown>;
+  logging_config: Record<string, unknown>;
+  security_config: Record<string, unknown>;
+  update_config: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NodeProfileCreatePayload {
+  name: string;
+  description?: string | null;
+  is_default?: boolean;
+  runtime_config?: Record<string, unknown>;
+  gpu_config?: Record<string, unknown>;
+  storage_config?: Record<string, unknown>;
+  network_config?: Record<string, unknown>;
+  logging_config?: Record<string, unknown>;
+  security_config?: Record<string, unknown>;
+  update_config?: Record<string, unknown>;
+}
+
+export interface NodeProfileUpdatePayload {
+  name?: string;
+  description?: string | null;
+  is_default?: boolean;
+  runtime_config?: Record<string, unknown>;
+  gpu_config?: Record<string, unknown>;
+  storage_config?: Record<string, unknown>;
+  network_config?: Record<string, unknown>;
+  logging_config?: Record<string, unknown>;
+  security_config?: Record<string, unknown>;
+  update_config?: Record<string, unknown>;
 }
 
 export interface NodeCommand {
@@ -150,6 +193,52 @@ export const nodesApi = {
   hardware(nodeId: string) {
     return request<HardwareInfo>(
       `/nodes/${encodeURIComponent(nodeId)}/hardware`,
+    );
+  },
+
+  // ── Node Profiles ──────────────────────────────────────────
+
+  listProfiles() {
+    return request<NodeProfile[]>("/node-profiles");
+  },
+
+  getProfile(profileId: string) {
+    return request<NodeProfile>(
+      `/node-profiles/${encodeURIComponent(profileId)}`,
+    );
+  },
+
+  createProfile(payload: NodeProfileCreatePayload) {
+    return request<NodeProfile>("/node-profiles", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+
+  updateProfile(profileId: string, payload: NodeProfileUpdatePayload) {
+    return request<NodeProfile>(
+      `/node-profiles/${encodeURIComponent(profileId)}`,
+      { method: "PUT", body: JSON.stringify(payload) },
+    );
+  },
+
+  deleteProfile(profileId: string) {
+    return request<void>(`/node-profiles/${encodeURIComponent(profileId)}`, {
+      method: "DELETE",
+    });
+  },
+
+  assignProfile(nodeId: string, profileId: string) {
+    return request<ManagedNode>(
+      `/nodes/${encodeURIComponent(nodeId)}/profile`,
+      { method: "PUT", body: JSON.stringify({ profile_id: profileId }) },
+    );
+  },
+
+  unassignProfile(nodeId: string) {
+    return request<ManagedNode>(
+      `/nodes/${encodeURIComponent(nodeId)}/profile`,
+      { method: "DELETE" },
     );
   },
 };

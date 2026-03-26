@@ -7,6 +7,7 @@ import {
   type NodeCommand,
   type NodeCommandTimeline,
   type NodeEnrollmentToken,
+  type NodeProfile,
 } from "~/api/nodes";
 import { logsApi, type LogStream } from "~/api/logs";
 import { NodeDeploymentProgress } from "~/pages/admin/llm/RuntimeDetailPage";
@@ -21,6 +22,8 @@ import CircularProgress from "@mui/material/CircularProgress";
 import Collapse from "@mui/material/Collapse";
 import Grid from "@mui/material/Grid";
 import IconButton from "@mui/material/IconButton";
+import MenuItem from "@mui/material/MenuItem";
+import Select from "@mui/material/Select";
 import Stack from "@mui/material/Stack";
 import Switch from "@mui/material/Switch";
 import Tooltip from "@mui/material/Tooltip";
@@ -37,7 +40,9 @@ import InvertColorsOffIcon from "@mui/icons-material/InvertColorsOff";
 import InventoryIcon from "@mui/icons-material/Inventory";
 import PauseCircleOutlineIcon from "@mui/icons-material/PauseCircleOutline";
 import RefreshIcon from "@mui/icons-material/Refresh";
+import SystemUpdateAltIcon from "@mui/icons-material/SystemUpdateAlt";
 import VpnKeyIcon from "@mui/icons-material/VpnKey";
+import SystemUpdateDialog from "~/pages/admin/nodes/SystemUpdateDialog";
 
 import GaugeCard from "~/components/GaugeCard";
 
@@ -169,7 +174,10 @@ export default function NodeDetailPage() {
     null,
   );
   const [enrollBusy, setEnrollBusy] = useState(false);
+  const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [enrollCopied, setEnrollCopied] = useState(false);
+  const [profiles, setProfiles] = useState<NodeProfile[]>([]);
+  const [profileBusy, setProfileBusy] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const sortedCommands = useMemo(
@@ -187,12 +195,14 @@ export default function NodeDetailPage() {
     setLoading(true);
     setError(null);
     try {
-      const [nodeRes, commandRes] = await Promise.all([
+      const [nodeRes, commandRes, profilesRes] = await Promise.all([
         nodesApi.get(id),
         nodesApi.listCommands(id),
+        nodesApi.listProfiles().catch(() => [] as NodeProfile[]),
       ]);
       setNode(nodeRes);
       setCommands(commandRes);
+      setProfiles(profilesRes);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to load node.");
     } finally {
@@ -304,6 +314,25 @@ export default function NodeDetailPage() {
       setEnrollCopied(true);
     } catch {
       setError("Failed to copy token to clipboard.");
+    }
+  }
+
+  async function handleProfileChange(profileId: string) {
+    if (!id) return;
+    setProfileBusy(true);
+    try {
+      if (profileId === "") {
+        await nodesApi.unassignProfile(id);
+      } else {
+        await nodesApi.assignProfile(id, profileId);
+      }
+      await silentRefresh();
+    } catch (err: unknown) {
+      setError(
+        err instanceof Error ? err.message : "Failed to change profile.",
+      );
+    } finally {
+      setProfileBusy(false);
     }
   }
 
@@ -587,6 +616,18 @@ export default function NodeDetailPage() {
             <RefreshIcon fontSize="small" />
           </IconButton>
         </Tooltip>
+        <Tooltip title={t("system_updates.tooltip")}>
+          <span>
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<SystemUpdateAltIcon />}
+              onClick={() => setUpdateDialogOpen(true)}
+            >
+              {t("system_updates.button")}
+            </Button>
+          </span>
+        </Tooltip>
         <Tooltip title="Generate a one-time enrollment token for this node">
           <span>
             <Button
@@ -601,6 +642,42 @@ export default function NodeDetailPage() {
           </span>
         </Tooltip>
       </Stack>
+
+      {/* ── Profile Assignment ───────────────────────────────────── */}
+      <Card variant="outlined">
+        <CardContent sx={{ py: 1.5, "&:last-child": { pb: 1.5 } }}>
+          <Stack direction="row" spacing={2} alignItems="center">
+            <Typography variant="subtitle2" sx={{ minWidth: 100 }}>
+              {t("node_profiles.profile")}
+            </Typography>
+            <Select
+              size="small"
+              value={node.profile_id ?? ""}
+              onChange={(e) => void handleProfileChange(e.target.value)}
+              disabled={profileBusy}
+              displayEmpty
+              sx={{ minWidth: 240 }}
+            >
+              <MenuItem value="">
+                <em>{t("node_profiles.none")}</em>
+              </MenuItem>
+              {profiles.map((p) => (
+                <MenuItem key={p.id} value={p.id}>
+                  {p.name}
+                  {p.is_default ? ` (${t("node_profiles.default")})` : ""}
+                </MenuItem>
+              ))}
+            </Select>
+            {profileBusy && <CircularProgress size={18} />}
+            {node.profile_id && (
+              <Typography variant="caption" color="text.secondary">
+                {profiles.find((p) => p.id === node.profile_id)?.description ??
+                  ""}
+              </Typography>
+            )}
+          </Stack>
+        </CardContent>
+      </Card>
 
       {/* ── Enrollment Token (shown after generation) ────────────── */}
       <Collapse in={!!enrollToken}>
@@ -1140,6 +1217,13 @@ llmport-agent run`}
           </Collapse>
         </CardContent>
       </Card>
+
+      {/* ── System Update Dialog ──────────────────────────────── */}
+      <SystemUpdateDialog
+        open={updateDialogOpen}
+        nodeId={id}
+        onClose={() => setUpdateDialogOpen(false)}
+      />
     </Box>
   );
 }
