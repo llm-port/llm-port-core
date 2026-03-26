@@ -147,6 +147,12 @@ class CommandDispatcher:
                 "accepted": False,
                 "reason": "host_op not enabled by default on agent.",
             }
+        if command_type == NodeCommandType.SYNC_NODE_PROFILE.value:
+            profile = payload.get("profile")
+            self._state.state.profile = profile if isinstance(profile, dict) else None
+            self._state.save()
+            log.info("Node profile synced: %s", profile.get("name") if isinstance(profile, dict) else None)
+            return {"synced": True}
         raise RuntimeManagerError(f"Unsupported command type: {command_type}")
 
     @staticmethod

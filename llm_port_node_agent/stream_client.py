@@ -108,6 +108,12 @@ class StreamClient:
                 if isinstance(node_id, str) and node_id:
                     self._state.state.node_id = node_id
                     self._state.save()
+                # Sync profile from hello_ack
+                if msg_type == "hello_ack":
+                    profile = payload.get("profile")
+                    if isinstance(profile, dict) or profile is None:
+                        self._state.state.profile = profile
+                        self._state.save()
             elif msg_type == "command":
                 command = payload.get("command")
                 if isinstance(command, dict):

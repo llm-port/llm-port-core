@@ -23,6 +23,7 @@ class NodeCommandType(enum.StrEnum):
     SYNC_MODEL = "sync_model"
     FETCH_CONTAINER_LOGS = "fetch_container_logs"
     HOST_OP = "host_op"
+    SYNC_NODE_PROFILE = "sync_node_profile"
 
 
 class CommandResult(TypedDict, total=False):
