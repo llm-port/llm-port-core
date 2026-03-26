@@ -35,8 +35,11 @@ class StateStore:
 
     def __init__(self, path: Path) -> None:
         self.path = path
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._secure_directory(self.path.parent)
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self._secure_directory(self.path.parent)
+        except OSError as exc:
+            log.warning("Cannot create state directory %s: %s", self.path.parent, exc)
         self.state = AgentState()
         self.load()
 
@@ -45,8 +48,12 @@ class StateStore:
         if not self.path.exists():
             self.save()
             return
-        with self.path.open("r", encoding="utf-8") as handle:
-            raw = json.load(handle)
+        try:
+            with self.path.open("r", encoding="utf-8") as handle:
+                raw = json.load(handle)
+        except (OSError, json.JSONDecodeError) as exc:
+            log.warning("Cannot read state from %s: %s", self.path, exc)
+            return
         self.state = AgentState(
             node_id=raw.get("node_id"),
             credential=raw.get("credential"),
@@ -72,16 +79,19 @@ class StateStore:
             "updated_at": self.state.updated_at,
         }
         tmp = self.path.with_suffix(".tmp")
-        if sys.platform == "win32":
-            with open(tmp, "w", encoding="utf-8") as handle:
-                json.dump(payload, handle, indent=2, sort_keys=True)
-        else:
-            fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                json.dump(payload, handle, indent=2, sort_keys=True)
-        tmp.replace(self.path)
-        if sys.platform == "win32":
-            _win_restrict_file(self.path)
+        try:
+            if sys.platform == "win32":
+                with open(tmp, "w", encoding="utf-8") as handle:
+                    json.dump(payload, handle, indent=2, sort_keys=True)
+            else:
+                fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                    json.dump(payload, handle, indent=2, sort_keys=True)
+            tmp.replace(self.path)
+            if sys.platform == "win32":
+                _win_restrict_file(self.path)
+        except OSError as exc:
+            log.warning("Cannot persist state to %s: %s", self.path, exc)
 
     def next_seq(self) -> int:
         """Return next monotonic tx sequence for stream messages."""

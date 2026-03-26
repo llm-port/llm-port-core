@@ -124,6 +124,7 @@ class StreamClient:
                     "status": status,
                     "version": __version__,
                     "capabilities": self._static_capabilities,
+                    "advertise_host": self._config.advertise_host,
                 },
             )
 

@@ -86,7 +86,7 @@ class RuntimeManager:
         await _progress("validate", f"Validated payload — image={image}, provider={provider_type}")
 
         runtime_name = str(payload.get("runtime_name") or runtime_id)
-        container_name = self._container_name(runtime_id, runtime_name=runtime_name)
+        container_name = str(payload.get("container_name") or "").strip() or self._container_name(runtime_id, runtime_name=runtime_name)
 
         await _progress("remove_stale", f"Removing stale container {container_name} (if exists)")
         await self._remove_container_if_exists(container_name)
@@ -239,10 +239,16 @@ class RuntimeManager:
             "files_synced": len(model_sync.get("files", [])),
         }
 
-    async def start_workload(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """Start an existing workload container."""
+    async def start_workload(
+        self, payload: dict[str, Any], *, emit_progress: ProgressEmitter | None = None,
+    ) -> dict[str, Any]:
+        """Start an existing workload container (deploy if missing)."""
         runtime_id = self._require_runtime_id(payload)
-        container_name = self._lookup_container(runtime_id, payload)
+        container_name = self._lookup_container(runtime_id, payload, allow_missing=True)
+        # If no container exists yet, fall back to a full deploy
+        if not container_name or not await self._container_exists(container_name):
+            log.info("Container not found for %s — falling back to deploy", runtime_id)
+            return await self.deploy_workload(payload, emit_progress=emit_progress)
         await self._docker("start", container_name, timeout_sec=30)
         endpoint = await self._resolve_endpoint(container_name)
         self._events.add(
@@ -264,10 +270,15 @@ class RuntimeManager:
         )
         return {"runtime_id": runtime_id, "container_name": container_name}
 
-    async def restart_workload(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """Restart a workload container."""
+    async def restart_workload(
+        self, payload: dict[str, Any], *, emit_progress: ProgressEmitter | None = None,
+    ) -> dict[str, Any]:
+        """Restart a workload container (deploy if missing)."""
         runtime_id = self._require_runtime_id(payload)
-        container_name = self._lookup_container(runtime_id, payload)
+        container_name = self._lookup_container(runtime_id, payload, allow_missing=True)
+        if not container_name or not await self._container_exists(container_name):
+            log.info("Container not found for %s — falling back to deploy", runtime_id)
+            return await self.deploy_workload(payload, emit_progress=emit_progress)
         await self._docker("restart", container_name, timeout_sec=45)
         endpoint = await self._resolve_endpoint(container_name)
         self._events.add(
@@ -333,6 +344,11 @@ class RuntimeManager:
         if code == 0:
             await self._docker("rm", "-f", container_name, timeout_sec=45)
 
+    async def _container_exists(self, container_name: str) -> bool:
+        """Return True if a Docker container with *container_name* exists."""
+        code, _, _ = await self._docker("inspect", container_name, timeout_sec=8, raise_on_error=False)
+        return code == 0
+
     async def _load_image_from_backend(self, image: str, payload: dict) -> None:
         """Download image tarball from backend and load via ``docker load``."""
         if self._image_loader is None:
@@ -389,8 +405,8 @@ class RuntimeManager:
         slug = (runtime_name or runtime_id).replace("_", "-").replace("/", "-").replace(" ", "-").lower()
         slug = "".join(ch for ch in slug if ch.isalnum() or ch == "-").strip("-")
         if not slug:
-            slug = runtime_id
-        return f"llm-port-{slug[:32]}-{runtime_id.replace('-', '')[-12:]}"
+            slug = runtime_id.replace("-", "")
+        return f"llm-port-{slug[:48]}"
 
     @classmethod
     def _sanitize_command_args(cls, args: list[str]) -> None:
@@ -423,6 +439,10 @@ class RuntimeManager:
         row = self._state.workload(runtime_id)
         if row and isinstance(row.get("container_name"), str):
             return str(row["container_name"])
+        # Prefer backend-provided container name over auto-generation
+        explicit = payload.get("container_name")
+        if isinstance(explicit, str) and explicit.strip():
+            return explicit.strip()
         runtime_name = payload.get("runtime_name")
         if isinstance(runtime_name, str) and runtime_name.strip():
             return self._container_name(runtime_id, runtime_name=runtime_name)

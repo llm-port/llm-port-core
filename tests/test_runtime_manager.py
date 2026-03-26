@@ -56,12 +56,13 @@ def test_sanitize_allows_clean_args() -> None:
     RuntimeManager._sanitize_command_args(["--model", "/models/llama.gguf", "--port", "8080"])
 
 
-def test_container_name_uses_last_12_chars() -> None:
+def test_container_name_is_deterministic() -> None:
     runtime_id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
     name = RuntimeManager._container_name(runtime_id, runtime_name="test-model")
-    # Should use last 12 chars of runtime_id (with dashes stripped)
-    stripped = runtime_id.replace("-", "")
-    assert name.endswith(stripped[-12:])
+    assert name == "llm-port-test-model"
+    # Same name regardless of runtime_id
+    name2 = RuntimeManager._container_name("11111111-2222-3333-4444-555555555555", runtime_name="test-model")
+    assert name == name2
 
 
 @pytest.mark.asyncio()

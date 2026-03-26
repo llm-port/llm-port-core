@@ -24,6 +24,20 @@ def _default_state_path() -> str:
     return str(Path.home() / ".local" / "share" / "llmport-agent" / "state.json")
 
 
+def _detect_routable_ip(backend_url: str) -> str | None:
+    """Determine the local IP that routes to the backend (no traffic sent)."""
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(backend_url)
+        target_host = parsed.hostname or "127.0.0.1"
+        target_port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect((target_host, target_port))
+            return s.getsockname()[0]
+    except Exception:
+        return None
+
+
 def _env_bool(name: str, default: bool) -> bool:
     raw = os.getenv(name)
     if raw is None:
@@ -59,7 +73,9 @@ class AgentConfig:
     def from_env(cls) -> AgentConfig:
         """Load config using LLM_PORT_NODE_AGENT_* environment vars."""
         hostname = socket.gethostname()
-        host = os.getenv("LLM_PORT_NODE_AGENT_HOST", hostname)
+        backend_url = os.getenv("LLM_PORT_NODE_AGENT_BACKEND_URL", "http://127.0.0.1:8000").rstrip("/")
+        routable_ip = _detect_routable_ip(backend_url) or hostname
+        host = os.getenv("LLM_PORT_NODE_AGENT_HOST", routable_ip)
         advertise_host = os.getenv("LLM_PORT_NODE_AGENT_ADVERTISE_HOST", host).strip()
         advertise_scheme = os.getenv("LLM_PORT_NODE_AGENT_ADVERTISE_SCHEME", "http").strip().lower() or "http"
         if advertise_scheme not in {"http", "https"}:

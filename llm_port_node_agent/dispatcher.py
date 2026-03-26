@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -12,6 +13,8 @@ from llm_port_node_agent.runtime_manager import RuntimeManager, RuntimeManagerEr
 from llm_port_node_agent.state_store import StateStore
 
 ProgressEmitter = Callable[[dict[str, Any]], Awaitable[None]]
+
+log = logging.getLogger(__name__)
 
 
 class CommandDispatcher:
@@ -80,7 +83,10 @@ class CommandDispatcher:
                 "result": {},
             }
 
-        self._state.remember_command_result(command_id, normalized)
+        try:
+            self._state.remember_command_result(command_id, normalized)
+        except OSError:
+            log.warning("Failed to persist command result for %s (filesystem error)", command_id)
         self._events.add(
             event_type="command.finished",
             severity="info" if normalized.get("success") else "error",
@@ -95,6 +101,8 @@ class CommandDispatcher:
         if command_type in {
             NodeCommandType.DEPLOY_WORKLOAD.value,
             NodeCommandType.UPDATE_WORKLOAD.value,
+            NodeCommandType.START_WORKLOAD.value,
+            NodeCommandType.RESTART_WORKLOAD.value,
         }:
             image = self._resolve_image(payload)
             if image:
@@ -102,11 +110,11 @@ class CommandDispatcher:
         if command_type == NodeCommandType.DEPLOY_WORKLOAD.value:
             return await self._runtime.deploy_workload(payload, emit_progress=emit_progress)
         if command_type == NodeCommandType.START_WORKLOAD.value:
-            return await self._runtime.start_workload(payload)
+            return await self._runtime.start_workload(payload, emit_progress=emit_progress)
         if command_type == NodeCommandType.STOP_WORKLOAD.value:
             return await self._runtime.stop_workload(payload)
         if command_type == NodeCommandType.RESTART_WORKLOAD.value:
-            return await self._runtime.restart_workload(payload)
+            return await self._runtime.restart_workload(payload, emit_progress=emit_progress)
         if command_type == NodeCommandType.REMOVE_WORKLOAD.value:
             return await self._runtime.remove_workload(payload)
         if command_type == NodeCommandType.UPDATE_WORKLOAD.value:

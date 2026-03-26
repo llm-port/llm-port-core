@@ -41,7 +41,7 @@ def _env_file_path() -> Path:
         return _WIN_ENV_FILE
     if os.getuid() == 0:  # type: ignore[attr-defined]
         return _LINUX_SYSTEM_ENV_FILE
-    if _LINUX_SYSTEM_ENV_FILE.exists():
+    if _LINUX_SYSTEM_ENV_FILE.exists() and os.access(_LINUX_SYSTEM_ENV_FILE, os.W_OK):
         return _LINUX_SYSTEM_ENV_FILE
     return _LINUX_USER_ENV_FILE
 
@@ -106,7 +106,14 @@ def _parse_env_file(path: Path) -> dict[str, str]:
     result: dict[str, str] = {}
     if not path.exists():
         return result
-    for line in path.read_text(encoding="utf-8").splitlines():
+    try:
+        text = path.read_text(encoding="utf-8")
+    except PermissionError:
+        logging.getLogger(__name__).warning(
+            "Cannot read %s (permission denied) — skipping", path,
+        )
+        return result
+    for line in text.splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
@@ -682,16 +689,29 @@ def _build_service_content(agent_bin: str) -> str:
     # Determine model_store from current env (may differ from default)
     merged = _load_env_file()
     model_store = merged.get(f"{_ENV_PREFIX}MODEL_STORE", "/srv/llm-port/models")
-    state_dir = "/var/lib/llmport-agent"
+    state_dir = merged.get(
+        f"{_ENV_PREFIX}STATE_PATH",
+        f"/var/lib/llmport-agent" if svc_user == "root" else f"{home_dir}/.local/share/llmport-agent",
+    )
+    # STATE_PATH points to the file; we need its parent directory
+    if state_dir.endswith(".json"):
+        state_dir = str(Path(state_dir).parent)
 
     # Collect writable paths — deduplicate
     rw_paths_set: set[str] = {state_dir, model_store}
-    # If model store is under the user's home, we need home access
+    # If model store or state dir is under the user's home, we need home access
     is_home_model = model_store.startswith(home_dir)
-    protect_home = "read-only" if is_home_model else "yes"
+    is_home_state = state_dir.startswith(home_dir)
+    needs_home = is_home_model or is_home_state
+    protect_home = "read-only" if needs_home else "yes"
     if is_home_model:
         rw_paths_set.add(model_store)
-    # The user-local config dir should also be readable
+    if is_home_state:
+        rw_paths_set.add(state_dir)
+    # The user-local config dir should also be writable
+    user_config_dir = str(Path(home_dir) / ".config" / SERVICE_NAME)
+    if needs_home:
+        rw_paths_set.add(user_config_dir)
     rw_paths = " ".join(sorted(rw_paths_set))
 
     replacements = {
