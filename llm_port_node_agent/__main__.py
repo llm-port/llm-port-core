@@ -24,13 +24,26 @@ _IS_WINDOWS = platform.system() == "Windows"
 _ENV_PREFIX = "LLM_PORT_NODE_AGENT_"
 
 # ── Env-file paths (per-platform) ────────────────────────────────
-_LINUX_ENV_FILE = Path(f"/etc/{SERVICE_NAME}.env")
+_LINUX_SYSTEM_ENV_FILE = Path(f"/etc/{SERVICE_NAME}.env")
+_LINUX_USER_ENV_FILE = Path.home() / ".config" / SERVICE_NAME / "agent.env"
 _WIN_DATA_DIR = Path(os.environ.get("LOCALAPPDATA", os.path.expanduser("~"))) / "llmport-agent"
 _WIN_ENV_FILE = _WIN_DATA_DIR / "agent.env"
 
 
 def _env_file_path() -> Path:
-    return _WIN_ENV_FILE if _IS_WINDOWS else _LINUX_ENV_FILE
+    """Return the env-file path for saving.
+
+    On Linux, prefer the system-wide ``/etc`` file when running as root or
+    when it already exists (agent running as a service).  Otherwise fall
+    back to ``~/.config/llmport-agent/agent.env`` for unprivileged users.
+    """
+    if _IS_WINDOWS:
+        return _WIN_ENV_FILE
+    if os.getuid() == 0:  # type: ignore[attr-defined]
+        return _LINUX_SYSTEM_ENV_FILE
+    if _LINUX_SYSTEM_ENV_FILE.exists():
+        return _LINUX_SYSTEM_ENV_FILE
+    return _LINUX_USER_ENV_FILE
 
 
 def _configure_logging(level: str) -> None:
@@ -40,7 +53,20 @@ def _configure_logging(level: str) -> None:
     )
 
 
+def _inject_env_file() -> None:
+    """Load the env file and inject values into ``os.environ``.
+
+    Values already present in the real environment take precedence,
+    so the file acts as a set of defaults.
+    """
+    file_env = _load_env_file()
+    for key, value in file_env.items():
+        if key not in os.environ:
+            os.environ[key] = value
+
+
 async def _run() -> None:
+    _inject_env_file()
     config = AgentConfig.from_env()
     _configure_logging(config.log_level)
     service = NodeAgentService(config)
@@ -75,9 +101,8 @@ def _collect_env_lines() -> list[str]:
     ]
 
 
-def _load_env_file() -> dict[str, str]:
-    """Load KEY=VALUE pairs from the platform env file (if it exists)."""
-    path = _env_file_path()
+def _parse_env_file(path: Path) -> dict[str, str]:
+    """Parse KEY=VALUE pairs from a single file."""
     result: dict[str, str] = {}
     if not path.exists():
         return result
@@ -92,6 +117,20 @@ def _load_env_file() -> dict[str, str]:
     return result
 
 
+def _load_env_file() -> dict[str, str]:
+    """Load KEY=VALUE pairs, merging system + user files on Linux.
+
+    User-local values take precedence over the system file so that
+    non-root ``configure --set`` always wins.
+    """
+    if _IS_WINDOWS:
+        return _parse_env_file(_WIN_ENV_FILE)
+    # System-wide first, then overlay user-local
+    merged = _parse_env_file(_LINUX_SYSTEM_ENV_FILE)
+    merged.update(_parse_env_file(_LINUX_USER_ENV_FILE))
+    return merged
+
+
 def _save_env_file(env: dict[str, str]) -> Path:
     """Write env dict to the platform env file."""
     path = _env_file_path()
@@ -100,19 +139,38 @@ def _save_env_file(env: dict[str, str]) -> Path:
     if _IS_WINDOWS:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
-    else:
-        # On Linux the env file lives in /etc — may need sudo
+        return path
+
+    # Linux — try direct write first
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        os.chmod(str(path), 0o600)
+        return path
+    except PermissionError:
+        pass
+
+    # Try sudo for system-wide path
+    if path == _LINUX_SYSTEM_ENV_FILE:
+        with tempfile.NamedTemporaryFile("w", delete=False, suffix=".env") as f:
+            f.write(content)
+            tmp = f.name
         try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(content, encoding="utf-8")
-            os.chmod(str(path), 0o600)
-        except PermissionError:
-            with tempfile.NamedTemporaryFile("w", delete=False, suffix=".env") as f:
-                f.write(content)
-                tmp = f.name
             sudo = _sudo_prefix()
-            _run_cmd([*sudo, "install", "-m", "0600", tmp, str(path)])
-            os.unlink(tmp)
+            rc = _run_cmd([*sudo, "install", "-m", "0600", tmp, str(path)])
+            if rc == 0:
+                return path
+        finally:
+            Path(tmp).unlink(missing_ok=True)
+
+        # sudo failed — fall back to user-local file
+        _warn(f"Cannot write to {path} (no sudo). Saving to user config instead.")
+        path = _LINUX_USER_ENV_FILE
+
+    # Write to user-local path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    os.chmod(str(path), 0o600)
     return path
 
 
@@ -166,14 +224,20 @@ def _show_config() -> dict[str, str]:
     live_env = {k: v for k, v in os.environ.items() if k.startswith(_ENV_PREFIX)}
     merged = {**file_env, **live_env}
 
-    env_path = _env_file_path()
-
     _section("Current Configuration")
 
-    if env_path.exists():
-        _ok(f"Config file: {env_path}")
+    if _IS_WINDOWS:
+        config_paths = [_WIN_ENV_FILE]
     else:
-        _warn(f"No config file found at {env_path}")
+        config_paths = [_LINUX_SYSTEM_ENV_FILE, _LINUX_USER_ENV_FILE]
+
+    found_any = False
+    for cp in config_paths:
+        if cp.exists():
+            _ok(f"Config file: {cp}")
+            found_any = True
+    if not found_any:
+        _warn(f"No config file found (checked {', '.join(str(p) for p in config_paths)})")
 
     import socket
     hostname = socket.gethostname()
@@ -306,6 +370,72 @@ def cmd_configure_set(pairs: list[str]) -> None:
     _ok(f"Saved to {saved}")
 
 
+# ── HF cache detection ──────────────────────────────────────────
+
+
+def _count_hf_models(path: Path) -> int:
+    """Count ``models--*`` directories in *path*."""
+    if not path.is_dir():
+        return 0
+    return sum(1 for d in path.iterdir() if d.is_dir() and d.name.startswith("models--"))
+
+
+def _detect_hf_caches() -> list[tuple[Path, int]]:
+    """Scan well-known locations for existing HuggingFace caches.
+
+    Returns a list of ``(path, model_count)`` tuples, sorted by model
+    count descending.  Only paths with at least one ``models--*``
+    directory are returned.
+    """
+    candidates: list[Path] = []
+
+    # 1. Environment variables (highest priority)
+    for var in ("HF_HUB_CACHE", "HUGGINGFACE_HUB_CACHE"):
+        val = os.environ.get(var)
+        if val:
+            candidates.append(Path(val))
+
+    hf_home = os.environ.get("HF_HOME")
+    if hf_home:
+        candidates.append(Path(hf_home) / "hub")
+
+    # 2. Platform defaults
+    if _IS_WINDOWS:
+        candidates.append(Path.home() / ".cache" / "huggingface" / "hub")
+        local = os.environ.get("LOCALAPPDATA")
+        if local:
+            candidates.append(Path(local) / "huggingface" / "hub")
+    else:
+        candidates.append(Path.home() / ".cache" / "huggingface" / "hub")
+        # Common server-side paths
+        candidates.append(Path("/srv/llm-port/models"))
+        candidates.append(Path("/data/hf-cache"))
+
+    # 3. Current model store (if already configured)
+    existing = _load_env_file()
+    cur_store = existing.get(f"{_ENV_PREFIX}MODEL_STORE")
+    if cur_store:
+        candidates.append(Path(cur_store))
+
+    # Deduplicate by resolved path, count models
+    seen: set[Path] = set()
+    results: list[tuple[Path, int]] = []
+    for c in candidates:
+        try:
+            resolved = c.resolve()
+        except OSError:
+            continue
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        count = _count_hf_models(resolved)
+        if count > 0:
+            results.append((c, count))
+
+    results.sort(key=lambda x: x[1], reverse=True)
+    return results
+
+
 def cmd_configure() -> None:
     """Interactive configuration wizard."""
     _banner()
@@ -353,8 +483,35 @@ def cmd_configure() -> None:
 
     _section("Model Storage")
 
+    # Auto-detect existing HuggingFace caches
+    detected_caches = _detect_hf_caches()
     default_store = "/srv/llm-port/models" if not _IS_WINDOWS else r"C:\llm-port\models"
-    model_store = _prompt("Model store path", default=_cur("MODEL_STORE") or default_store)
+    current_store = _cur("MODEL_STORE")
+
+    if detected_caches:
+        print(f"  {_GREEN}Found HuggingFace cache(s):{_RESET}")
+        for idx, (path, count) in enumerate(detected_caches, 1):
+            print(f"    [{idx}] {path} ({count} model{'s' if count != 1 else ''})")
+        print(f"    [{len(detected_caches) + 1}] Enter a custom path")
+        print()
+
+        try:
+            choice = input(f"  {_BOLD}Select [1-{len(detected_caches) + 1}]:{_RESET} ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            sys.exit(0)
+
+        try:
+            idx = int(choice)
+            if 1 <= idx <= len(detected_caches):
+                model_store = str(detected_caches[idx - 1][0])
+            else:
+                model_store = _prompt("Model store path", default=current_store or default_store)
+        except ValueError:
+            model_store = _prompt("Model store path", default=current_store or default_store)
+    else:
+        model_store = _prompt("Model store path", default=current_store or default_store)
+
     env[f"{_ENV_PREFIX}MODEL_STORE"] = model_store
 
     _section("Logging & Monitoring")
@@ -492,30 +649,97 @@ def _find_service_template() -> Path | None:
     return None
 
 
+def _resolve_service_user() -> tuple[str, str, str]:
+    """Return ``(username, group, home_dir)`` for the service.
+
+    When the invoking user is root and a ``llm-port-agent`` system user
+    exists, use that dedicated user.  Otherwise run as the invoking user
+    (or ``SUDO_USER`` when invoked via sudo).
+    """
+    import grp  # noqa: PLC0415
+    import pwd  # noqa: PLC0415
+
+    # If invoked via sudo, prefer the real user behind sudo
+    real_user = os.environ.get("SUDO_USER", "")
+    if real_user:
+        try:
+            pw = pwd.getpwnam(real_user)
+            gr = grp.getgrgid(pw.pw_gid)
+            return pw.pw_name, gr.gr_name, pw.pw_dir
+        except KeyError:
+            pass
+
+    uid = os.getuid()  # type: ignore[attr-defined]
+    pw = pwd.getpwuid(uid)
+    gr = grp.getgrgid(pw.pw_gid)
+    return pw.pw_name, gr.gr_name, pw.pw_dir
+
+
 def _build_service_content(agent_bin: str) -> str:
+    svc_user, svc_group, home_dir = _resolve_service_user()
+    user_env_file = Path(home_dir) / ".config" / SERVICE_NAME / "agent.env"
+
+    # Determine model_store from current env (may differ from default)
+    merged = _load_env_file()
+    model_store = merged.get(f"{_ENV_PREFIX}MODEL_STORE", "/srv/llm-port/models")
+    state_dir = "/var/lib/llmport-agent"
+
+    # Collect writable paths — deduplicate
+    rw_paths_set: set[str] = {state_dir, model_store}
+    # If model store is under the user's home, we need home access
+    is_home_model = model_store.startswith(home_dir)
+    protect_home = "read-only" if is_home_model else "yes"
+    if is_home_model:
+        rw_paths_set.add(model_store)
+    # The user-local config dir should also be readable
+    rw_paths = " ".join(sorted(rw_paths_set))
+
+    replacements = {
+        "@@USER@@": svc_user,
+        "@@GROUP@@": svc_group,
+        "@@USER_ENV_FILE@@": str(user_env_file),
+        "@@PROTECT_HOME@@": protect_home,
+        "@@READ_WRITE_PATHS@@": rw_paths,
+    }
+
     template = _find_service_template()
     if template:
         content = template.read_text(encoding="utf-8")
-        return re.sub(
+        content = re.sub(
             r"^ExecStart=.*$",
             f"ExecStart={agent_bin} run",
             content,
             flags=re.MULTILINE,
         )
-    return (
-        "[Unit]\n"
-        "Description=llm-port node agent\n"
-        "After=network-online.target docker.service\n"
-        "Wants=network-online.target\n\n"
-        "[Service]\n"
-        "Type=simple\n"
-        f"EnvironmentFile=-/etc/{SERVICE_NAME}.env\n"
-        f"ExecStart={agent_bin} run\n"
-        "Restart=always\n"
-        "RestartSec=5\n\n"
-        "[Install]\n"
-        "WantedBy=multi-user.target\n"
-    )
+    else:
+        content = (
+            "[Unit]\n"
+            "Description=llm-port node agent\n"
+            "After=network-online.target docker.service\n"
+            "Wants=network-online.target\n\n"
+            "[Service]\n"
+            "Type=simple\n"
+            f"User=@@USER@@\n"
+            f"Group=@@GROUP@@\n"
+            "SupplementaryGroups=docker\n"
+            f"EnvironmentFile=-/etc/{SERVICE_NAME}.env\n"
+            f"EnvironmentFile=-@@USER_ENV_FILE@@\n"
+            f"ExecStart={agent_bin} run\n"
+            "Restart=always\n"
+            "RestartSec=5\n\n"
+            "NoNewPrivileges=true\n"
+            "ProtectSystem=strict\n"
+            f"ProtectHome=@@PROTECT_HOME@@\n"
+            "PrivateTmp=true\n"
+            f"ReadWritePaths=@@READ_WRITE_PATHS@@\n"
+            "CapabilityBoundingSet=\n\n"
+            "[Install]\n"
+            "WantedBy=multi-user.target\n"
+        )
+
+    for placeholder, value in replacements.items():
+        content = content.replace(placeholder, value)
+    return content
 
 
 # ── Windows helpers ───────────────────────────────────────────────
@@ -610,8 +834,14 @@ def _cmd_start_linux(agent_bin: str, env_lines: list[str]) -> None:
     _require_linux()
     sudo = _sudo_prefix()
 
+    svc_user, svc_group, _ = _resolve_service_user()
     service_content = _build_service_content(agent_bin)
     env_content = "\n".join(env_lines) + "\n"
+
+    # Resolve model_store to ensure state/model dirs exist with correct ownership
+    merged = _load_env_file()
+    model_store = merged.get(f"{_ENV_PREFIX}MODEL_STORE", "/srv/llm-port/models")
+    state_dir = "/var/lib/llmport-agent"
 
     tmp_svc = tmp_env = None
     try:
@@ -624,9 +854,18 @@ def _cmd_start_linux(agent_bin: str, env_lines: list[str]) -> None:
 
         if _run_cmd([*sudo, "install", "-m", "0644", tmp_svc, f"/etc/systemd/system/{SERVICE_NAME}.service"]) != 0:
             sys.exit(1)
-        if _run_cmd([*sudo, "install", "-m", "0600", tmp_env, str(_LINUX_ENV_FILE)]) != 0:
+        if _run_cmd([*sudo, "install", "-m", "0600", tmp_env, str(_LINUX_SYSTEM_ENV_FILE)]) != 0:
             sys.exit(1)
-        _run_cmd([*sudo, "mkdir", "-p", "/var/lib/llmport-agent"], check=False, quiet=True)
+
+        # Ensure state and model dirs exist with correct ownership
+        _run_cmd([*sudo, "mkdir", "-p", state_dir], check=False, quiet=True)
+        _run_cmd([*sudo, "chown", f"{svc_user}:{svc_group}", state_dir], check=False, quiet=True)
+        _run_cmd([*sudo, "mkdir", "-p", model_store], check=False, quiet=True)
+        _run_cmd([*sudo, "chown", f"{svc_user}:{svc_group}", model_store], check=False, quiet=True)
+
+        # Ensure the service user is in the docker group
+        _run_cmd([*sudo, "usermod", "-aG", "docker", svc_user], check=False, quiet=True)
+
         if _run_cmd([*sudo, "systemctl", "daemon-reload"]) != 0:
             sys.exit(1)
         if _run_cmd([*sudo, "systemctl", "enable", "--now", SERVICE_NAME]) != 0:
@@ -638,6 +877,7 @@ def _cmd_start_linux(agent_bin: str, env_lines: list[str]) -> None:
             os.unlink(tmp_env)
 
     print(f"\n  {SERVICE_NAME} service installed and started.")
+    print(f"  Running as: {svc_user}:{svc_group}")
     print(f"  View logs:  journalctl -u {SERVICE_NAME} -f")
     print(f"  Stop:       llmport-agent stop")
 
@@ -729,6 +969,58 @@ def cmd_run() -> None:
     asyncio.run(_run())
 
 
+def cmd_scan() -> None:
+    """Scan and display models in the configured model store."""
+    _banner()
+    merged = {**_load_env_file(), **{k: v for k, v in os.environ.items() if k.startswith(_ENV_PREFIX)}}
+    store = merged.get(f"{_ENV_PREFIX}MODEL_STORE", "/srv/llm-port/models")
+    store_path = Path(store)
+
+    _section(f"Model Cache: {store}")
+
+    if not store_path.is_dir():
+        _warn(f"Directory does not exist: {store}")
+        return
+
+    # Try huggingface_hub.scan_cache_dir for rich output
+    try:
+        from huggingface_hub import scan_cache_dir  # noqa: PLC0415
+
+        info = scan_cache_dir(store_path)
+        if not info.repos:
+            _warn("No models found in cache.")
+            return
+
+        models = [r for r in info.repos if r.repo_type == "model"]
+        for repo in sorted(models, key=lambda r: r.repo_id):
+            refs = ", ".join(sorted(repo.refs)) or "(detached)"
+            _kv(repo.repo_id, f"{repo.size_on_disk_str}  {repo.nb_files} files  refs: {refs}")
+
+        print()
+        _ok(f"{len(models)} model(s), {info.size_on_disk_str} total")
+        if info.warnings:
+            _warn(f"{len(info.warnings)} corrupted cache entries skipped")
+        return
+    except ImportError:
+        pass  # fall through to basic scan
+    except Exception as exc:
+        _warn(f"scan_cache_dir failed: {exc} — falling back to basic scan")
+
+    # Basic fallback: just list models--* directories
+    model_dirs = sorted(d for d in store_path.iterdir() if d.is_dir() and d.name.startswith("models--"))
+    if not model_dirs:
+        _warn("No models found in cache.")
+        return
+
+    for d in model_dirs:
+        repo_id = d.name.split("--", 1)[1].replace("--", "/") if "--" in d.name else d.name
+        blob_count = sum(1 for _ in (d / "blobs").iterdir()) if (d / "blobs").is_dir() else 0
+        _kv(repo_id, f"{blob_count} blobs")
+
+    print()
+    _ok(f"{len(model_dirs)} model(s)")
+
+
 # ── Main ──────────────────────────────────────────────────────────
 
 
@@ -748,6 +1040,7 @@ def main() -> None:
         help="Set a single config key (repeatable). E.g.: --set BACKEND_URL=http://host:8000",
     )
     sub.add_parser("show", help="Show current configuration")
+    sub.add_parser("scan", help="Scan and list models in the model cache")
     sub.add_parser("run", help="Run agent in the foreground")
     sub.add_parser("start", help="Install and start as a background service")
     sub.add_parser("stop", help="Stop and remove the background service")
@@ -759,6 +1052,8 @@ def main() -> None:
         cmd_interactive()
     elif args.command == "show":
         cmd_show()
+    elif args.command == "scan":
+        cmd_scan()
     elif args.command == "configure":
         if args.set_pairs:
             cmd_configure_set(args.set_pairs)

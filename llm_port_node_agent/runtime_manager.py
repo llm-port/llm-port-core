@@ -173,7 +173,7 @@ class RuntimeManager:
 
         # ── Mount model cache if model was synced ─────────────────
         if hf_cache_mount:
-            host_hf_path = f"{self._model_store_root}/hf"
+            host_hf_path = self._model_store_root
             args.extend(["-v", f"{host_hf_path}:{hf_cache_mount}"])
             args.extend(["-e", f"HF_HUB_CACHE={hf_cache_mount}"])
             if hf_offline:

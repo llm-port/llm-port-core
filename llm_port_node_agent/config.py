@@ -17,7 +17,11 @@ def _default_state_path() -> str:
     if sys.platform == "win32":
         base = os.environ.get("PROGRAMDATA", r"C:\ProgramData")
         return str(Path(base) / "llmport-agent" / "state.json")
-    return "/var/lib/llmport-agent/state.json"
+    # Prefer system path when running as root, user-local otherwise.
+    uid = getattr(os, "getuid", lambda: -1)()
+    if uid == 0:
+        return "/var/lib/llmport-agent/state.json"
+    return str(Path.home() / ".local" / "share" / "llmport-agent" / "state.json")
 
 
 def _env_bool(name: str, default: bool) -> bool:

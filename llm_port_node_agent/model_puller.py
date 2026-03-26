@@ -59,7 +59,7 @@ async def pull_model(
 
     Returns
     -------
-    Path to the local HF cache root (``{model_store_root}/hf``).
+    Path to the local HF cache root (``model_store_root``).
     """
     model_id = model_sync["model_id"]
     model_dir_name = model_sync["model_dir_name"]
@@ -68,7 +68,7 @@ async def pull_model(
     snapshot_entries: list[dict[str, Any]] = model_sync.get("snapshots", [])
     total_size = model_sync.get("total_size", 0)
 
-    hf_cache_root = Path(model_store_root) / "hf"
+    hf_cache_root = Path(model_store_root)
     model_dir = hf_cache_root / model_dir_name
     blobs_dir = model_dir / "blobs"
     refs_dir = model_dir / "refs"
