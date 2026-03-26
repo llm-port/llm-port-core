@@ -19,6 +19,7 @@ from llm_port_node_agent.image_loader import load_image_from_backend
 from llm_port_node_agent.model_puller import pull_model
 from llm_port_node_agent.policy_guard import PolicyGuard
 from llm_port_node_agent.preflight import build_static_capabilities
+from llm_port_node_agent.runtimes import detect_runtime
 from llm_port_node_agent.runtime_manager import RuntimeManager
 from llm_port_node_agent.state_store import StateStore
 from llm_port_node_agent.stream_client import StreamClient
@@ -38,10 +39,13 @@ class NodeAgentService:
 
     async def run_forever(self) -> None:
         """Run agent forever with reconnect and re-enrollment handling."""
-        static_capabilities = await build_static_capabilities()
+        runtime = detect_runtime()
+        log.info("Detected container runtime: %s", runtime.name)
+
+        static_capabilities = await build_static_capabilities(runtime)
         log.info("Static capabilities: %s", static_capabilities)
         if not bool(static_capabilities.get("docker_available")):
-            log.warning("Docker is not available; runtime commands will fail until daemon is reachable.")
+            log.warning("Container runtime is not available; runtime commands will fail until daemon is reachable.")
 
         # Prime cpu_percent so first utilization report is non-zero
         psutil.cpu_percent()
@@ -61,7 +65,7 @@ class NodeAgentService:
             )
 
         async def _load_image(*, image: str) -> None:
-            """Stream image tarball from backend and load via docker."""
+            """Stream image tarball from backend and load via runtime."""
             credential = self._state_store.state.credential
             if not credential:
                 raise RuntimeError("No credential available for image transfer.")
@@ -69,9 +73,11 @@ class NodeAgentService:
                 client=self._client.http,
                 credential=credential,
                 image=image,
+                runtime=runtime,
             )
 
         runtime_manager = RuntimeManager(
+            runtime=runtime,
             state_store=self._state_store,
             events=events,
             advertise_host=self._config.advertise_host,
@@ -82,6 +88,7 @@ class NodeAgentService:
         )
         stream = StreamClient(
             config=self._config,
+            runtime=runtime,
             state_store=self._state_store,
             dispatcher=None,  # type: ignore[arg-type]  # set below
             static_capabilities=static_capabilities,
@@ -115,6 +122,7 @@ class NodeAgentService:
             # Container log forwarding — tails docker logs for tracked workloads
             container_log_task = asyncio.create_task(
                 ContainerLogForwarder(
+                    runtime=runtime,
                     state_store=self._state_store,
                     loki=loki_client,
                     host=self._config.host,

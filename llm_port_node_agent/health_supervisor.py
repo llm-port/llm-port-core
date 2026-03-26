@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from typing import Any
 
 from llm_port_node_agent.event_buffer import EventBuffer
+from llm_port_node_agent.runtimes import ContainerRuntime
 from llm_port_node_agent.state_store import StateStore
 
 log = logging.getLogger(__name__)
@@ -19,7 +19,8 @@ _CRASH_RESTART_THRESHOLD = 5
 class HealthSupervisor:
     """Monitor tracked workload containers for health and crash loops."""
 
-    def __init__(self, *, state_store: StateStore, events: EventBuffer) -> None:
+    def __init__(self, *, runtime: ContainerRuntime, state_store: StateStore, events: EventBuffer) -> None:
+        self._runtime = runtime
         self._state = state_store
         self._events = events
 
@@ -38,18 +39,12 @@ class HealthSupervisor:
 
     async def _check_container(self, runtime_id: str, container_name: str) -> None:
         try:
-            code, out, _ = await self._docker(
-                "inspect",
-                "--format",
-                "{{json .State}}",
-                container_name,
-                timeout_sec=10,
-            )
+            data = await self._runtime.inspect(container_name, format_="{{json .State}}")
         except Exception:
             log.debug("Failed to inspect container %s", container_name)
             return
 
-        if code != 0:
+        if data.get("__missing"):
             self._events.add(
                 event_type="workload.health.missing",
                 severity="warning",
@@ -58,10 +53,7 @@ class HealthSupervisor:
             )
             return
 
-        try:
-            state = json.loads(out.strip())
-        except (json.JSONDecodeError, ValueError):
-            return
+        state = data
 
         status = str(state.get("Status", "")).lower()
         restart_count = int(state.get("RestartCount", 0))
@@ -93,22 +85,4 @@ class HealthSupervisor:
                 correlation_id=runtime_id,
             )
 
-    @staticmethod
-    async def _docker(*args: str, timeout_sec: float = 10) -> tuple[int, str, str]:
-        proc = await asyncio.create_subprocess_exec(
-            "docker",
-            *args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        try:
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout_sec)
-        except TimeoutError:
-            proc.kill()
-            await proc.communicate()
-            return 124, "", "timeout"
-        return (
-            proc.returncode,
-            stdout.decode("utf-8", "replace"),
-            stderr.decode("utf-8", "replace"),
-        )
+

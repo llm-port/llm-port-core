@@ -23,6 +23,7 @@ from llm_port_node_agent.config import AgentConfig
 from llm_port_node_agent.dispatcher import CommandDispatcher
 from llm_port_node_agent.event_buffer import EventBuffer
 from llm_port_node_agent.health_supervisor import HealthSupervisor
+from llm_port_node_agent.runtimes import ContainerRuntime
 from llm_port_node_agent.state_store import StateStore
 
 log = logging.getLogger(__name__)
@@ -35,6 +36,7 @@ class StreamClient:
         self,
         *,
         config: AgentConfig,
+        runtime: ContainerRuntime,
         state_store: StateStore,
         dispatcher: CommandDispatcher,
         static_capabilities: dict[str, Any],
@@ -49,7 +51,7 @@ class StreamClient:
         self._backend_client = backend_client
         self._send_lock = asyncio.Lock()
         self._inventory_trigger = asyncio.Event()
-        self._health_supervisor = HealthSupervisor(state_store=state_store, events=events)
+        self._health_supervisor = HealthSupervisor(runtime=runtime, state_store=state_store, events=events)
 
     async def run(self, *, credential: str) -> None:
         """Open stream and process commands until disconnected."""
