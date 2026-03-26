@@ -13,6 +13,7 @@ from llm_port_node_agent.config import AgentConfig
 from llm_port_node_agent.container_log_forwarder import ContainerLogForwarder
 from llm_port_node_agent.dispatcher import CommandDispatcher
 from llm_port_node_agent.event_buffer import EventBuffer
+from llm_port_node_agent.gpu import detect_gpu
 from llm_port_node_agent.log_collector import LogCollector
 from llm_port_node_agent.loki_client import LokiClient
 from llm_port_node_agent.image_loader import load_image_from_backend
@@ -42,7 +43,10 @@ class NodeAgentService:
         runtime = detect_runtime()
         log.info("Detected container runtime: %s", runtime.name)
 
-        static_capabilities = await build_static_capabilities(runtime)
+        gpu_collector = detect_gpu()
+        log.info("Detected GPU collector: %s", gpu_collector.vendor)
+
+        static_capabilities = await build_static_capabilities(runtime, gpu_collector)
         log.info("Static capabilities: %s", static_capabilities)
         if not bool(static_capabilities.get("docker_available")):
             log.warning("Container runtime is not available; runtime commands will fail until daemon is reachable.")
@@ -94,6 +98,7 @@ class NodeAgentService:
             static_capabilities=static_capabilities,
             events=events,
             backend_client=self._client,
+            gpu_collector=gpu_collector,
         )
         dispatcher = CommandDispatcher(
             state_store=self._state_store,

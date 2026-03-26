@@ -22,6 +22,7 @@ from llm_port_node_agent.backend_client import BackendClient
 from llm_port_node_agent.config import AgentConfig
 from llm_port_node_agent.dispatcher import CommandDispatcher
 from llm_port_node_agent.event_buffer import EventBuffer
+from llm_port_node_agent.gpu import GpuCollector, NullCollector
 from llm_port_node_agent.health_supervisor import HealthSupervisor
 from llm_port_node_agent.runtimes import ContainerRuntime
 from llm_port_node_agent.state_store import StateStore
@@ -42,6 +43,7 @@ class StreamClient:
         static_capabilities: dict[str, Any],
         events: EventBuffer,
         backend_client: BackendClient | None = None,
+        gpu_collector: GpuCollector | None = None,
     ) -> None:
         self._config = config
         self._state = state_store
@@ -49,6 +51,7 @@ class StreamClient:
         self._static_capabilities = static_capabilities
         self._events = events
         self._backend_client = backend_client
+        self._gpu_collector: GpuCollector = gpu_collector or NullCollector()
         self._send_lock = asyncio.Lock()
         self._inventory_trigger = asyncio.Event()
         self._health_supervisor = HealthSupervisor(runtime=runtime, state_store=state_store, events=events)
@@ -133,7 +136,7 @@ class StreamClient:
     async def _inventory_loop(self, ws: websockets.WebSocketClientProtocol) -> None:
         interval = max(self._config.inventory_interval_sec, 15)
         while True:
-            gpu_snapshot = await collect_gpu_snapshot()
+            gpu_snapshot = await collect_gpu_snapshot(self._gpu_collector)
             inventory = await collect_inventory(self._static_capabilities, gpu_snapshot=gpu_snapshot)
             utilization = await collect_utilization(gpu_snapshot=gpu_snapshot)
             await self._send_json(
