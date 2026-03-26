@@ -186,7 +186,10 @@ class NodeControlService:
         status: str,
         capabilities: dict[str, Any] | None = None,
         version: str | None = None,
+        host: str | None = None,
     ) -> dict[str, Any]:
+        if host and host != node.host:
+            node.host = host
         updated = await self._dao.update_node_heartbeat(
             node,
             status=status,
@@ -495,6 +498,24 @@ class NodeControlService:
         }
         return selected_node, explain
 
+    async def _rewrite_endpoint_host(
+        self, endpoint_url: str, *, node_id: uuid.UUID,
+    ) -> str:
+        """Replace the hostname in an agent-reported endpoint with the node's known host."""
+        from urllib.parse import urlparse, urlunparse
+
+        parsed = urlparse(endpoint_url)
+        if not parsed.hostname:
+            return endpoint_url
+        node = await self._dao.get_node_by_id(node_id)
+        if node is None or not node.host:
+            return endpoint_url
+        # Replace hostname, keep port and path
+        new_netloc = node.host
+        if parsed.port:
+            new_netloc = f"{node.host}:{parsed.port}"
+        return urlunparse(parsed._replace(netloc=new_netloc))
+
     async def _apply_runtime_side_effect(
         self,
         *,
@@ -530,7 +551,8 @@ class NodeControlService:
                 result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
                 endpoint_url = result.get("endpoint_url")
                 if isinstance(endpoint_url, str) and endpoint_url.strip():
-                    runtime.endpoint_url = endpoint_url.strip()
+                    endpoint_url = await self._rewrite_endpoint_host(endpoint_url.strip(), node_id=command.node_id)
+                    runtime.endpoint_url = endpoint_url
                     runtime.container_ref = f"node:{command.node_id}:{runtime.id}"
                     await self._publish_runtime_to_gateway(runtime=runtime)
             elif command.command_type == NodeCommandType.STOP_WORKLOAD.value:

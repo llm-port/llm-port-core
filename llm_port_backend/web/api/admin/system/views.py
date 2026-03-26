@@ -721,8 +721,20 @@ async def system_node_stream(websocket: WebSocket) -> None:
         return
 
     _node_id = node.id  # cache before any commit may expire the object
+    # Capture the real client IP for host updates.
+    # Prefer X-Forwarded-For > websocket.client.host, but the
+    # agent-reported advertise_host (sent in heartbeats) takes
+    # final precedence — see heartbeat handling below.
+    _client_ip: str | None = None
+    if websocket.client:
+        _client_ip = websocket.client.host
+    forwarded = websocket.headers.get("x-forwarded-for")
+    if forwarded:
+        _client_ip = forwarded.split(",")[0].strip()
     await websocket.accept()
     try:
+        # Don't overwrite node.host on connect; wait for the first
+        # heartbeat which carries advertise_host from the agent.
         stream_session = await service.create_stream_session(node=node, credential=credential)
         commands = await service.list_commands_for_dispatch(node_id=_node_id)
         await websocket.send_json(
@@ -761,11 +773,17 @@ async def system_node_stream(websocket: WebSocket) -> None:
                 capabilities_payload = payload.get("capabilities")
                 capabilities = capabilities_payload if isinstance(capabilities_payload, dict) else None
                 version = payload.get("version") if isinstance(payload.get("version"), str) else None
+                # Prefer agent-reported advertise_host over connection IP
+                _host_for_hb = _client_ip
+                adv = payload.get("advertise_host")
+                if isinstance(adv, str) and adv.strip():
+                    _host_for_hb = adv.strip()
                 await service.heartbeat_node(
                     node=node,
                     status=status_value,
                     capabilities=capabilities,
                     version=version,
+                    host=_host_for_hb,
                 )
             elif message_type == "inventory":
                 inventory_payload = payload.get("inventory")

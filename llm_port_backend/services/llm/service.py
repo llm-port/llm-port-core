@@ -60,6 +60,58 @@ class LLMService:
         self.gateway_sync = gateway_sync or GatewaySyncService(None)
         self._caps: dict[str, int | None] = _caps if _caps is not None else {}
 
+    @staticmethod
+    def _node_container_name(runtime_name: str) -> str:
+        """Deterministic Docker container name for node-deployed runtimes."""
+        slug = runtime_name.replace("_", "-").replace("/", "-").replace(" ", "-").lower()
+        slug = "".join(ch for ch in slug if ch.isalnum() or ch == "-").strip("-")
+        return f"llm-port-{slug[:48]}" if slug else "llm-port-runtime"
+
+    async def _build_node_deploy_payload(
+        self,
+        runtime: LLMRuntime,
+        session: Any,
+    ) -> dict[str, Any]:
+        """Build a full deploy-compatible payload for a node command.
+
+        Used by start/restart so the node agent can fall back to a fresh
+        ``deploy_workload`` when the container doesn't exist yet.
+        """
+        provider_dao = ProviderDAO(session)
+        model_dao = ModelDAO(session)
+        provider = await provider_dao.get(runtime.provider_id)
+        model = await model_dao.get(runtime.model_id)
+        prov_config = runtime.provider_config or {}
+        gpu_request = prov_config.get("gpu_request", "")
+        if not gpu_request and provider and provider.type.value in ("vllm", "tgi"):
+            gpu_request = "all"
+        ipc_mode = prov_config.get("ipc_mode", "")
+        if not ipc_mode and gpu_request and provider and provider.type.value in ("vllm", "tgi"):
+            ipc_mode = "host"
+        model_source = prov_config.get("model_source") or "sync_from_server"
+        image_source = prov_config.get("image_source") or "pull_from_registry"
+        return {
+            "runtime_id": str(runtime.id),
+            "runtime_name": runtime.name,
+            "container_name": self._node_container_name(runtime.name),
+            "provider_id": str(runtime.provider_id),
+            "provider_type": provider.type.value if provider else "vllm",
+            "model_id": str(runtime.model_id),
+            "generic_config": runtime.generic_config or {},
+            "provider_config": prov_config,
+            "openai_compat": runtime.openai_compat,
+            "model_sync": self._build_model_sync_payload(
+                model, source=model_source,
+            ) if model else {},
+            "image_source": image_source,
+            "gpu_request": gpu_request,
+            "ipc_mode": ipc_mode,
+            "shm_size": prov_config.get("shm_size", ""),
+            "memory_limit": prov_config.get("memory_limit", ""),
+            "cpu_limit": prov_config.get("cpu_limit", ""),
+            "container_port": prov_config.get("container_port", ""),
+        }
+
     # ------------------------------------------------------------------
     # Providers
     # ------------------------------------------------------------------
@@ -435,6 +487,7 @@ class LLMService:
                 payload={
                     "runtime_id": str(runtime.id),
                     "runtime_name": runtime.name,
+                    "container_name": self._node_container_name(runtime.name),
                     "provider_id": str(provider.id),
                     "provider_type": provider.type.value,
                     "model_id": str(model.id),
@@ -534,10 +587,11 @@ class LLMService:
 
         if runtime.execution_target == "node" and runtime.assigned_node_id:
             node_service = self._build_node_control_service(runtime_dao.session)
+            payload = await self._build_node_deploy_payload(runtime, runtime_dao.session)
             command = await node_service.issue_command(
                 node_id=runtime.assigned_node_id,
                 command_type=NodeCommandType.START_WORKLOAD.value,
-                payload={"runtime_id": str(runtime.id), "runtime_name": runtime.name},
+                payload=payload,
                 issued_by=None,
                 correlation_id=str(runtime.id),
                 timeout_sec=settings.node_command_default_timeout_sec,
@@ -574,7 +628,11 @@ class LLMService:
             command = await node_service.issue_command(
                 node_id=runtime.assigned_node_id,
                 command_type=NodeCommandType.STOP_WORKLOAD.value,
-                payload={"runtime_id": str(runtime.id), "runtime_name": runtime.name},
+                payload={
+                    "runtime_id": str(runtime.id),
+                    "runtime_name": runtime.name,
+                    "container_name": self._node_container_name(runtime.name),
+                },
                 issued_by=None,
                 correlation_id=str(runtime.id),
                 timeout_sec=settings.node_command_default_timeout_sec,
@@ -613,10 +671,11 @@ class LLMService:
 
         if runtime.execution_target == "node" and runtime.assigned_node_id:
             node_service = self._build_node_control_service(runtime_dao.session)
+            payload = await self._build_node_deploy_payload(runtime, runtime_dao.session)
             command = await node_service.issue_command(
                 node_id=runtime.assigned_node_id,
                 command_type=NodeCommandType.RESTART_WORKLOAD.value,
-                payload={"runtime_id": str(runtime.id), "runtime_name": runtime.name},
+                payload=payload,
                 issued_by=None,
                 correlation_id=str(runtime.id),
                 timeout_sec=settings.node_command_default_timeout_sec,
@@ -699,6 +758,7 @@ class LLMService:
                 payload={
                     "runtime_id": str(runtime.id),
                     "runtime_name": runtime.name,
+                    "container_name": self._node_container_name(runtime.name),
                     "provider_id": str(provider.id),
                     "provider_type": provider.type.value,
                     "model_id": str(runtime.model_id),
@@ -794,7 +854,11 @@ class LLMService:
             await node_service.issue_command(
                 node_id=runtime.assigned_node_id,
                 command_type=NodeCommandType.REMOVE_WORKLOAD.value,
-                payload={"runtime_id": str(runtime.id), "runtime_name": runtime.name},
+                payload={
+                    "runtime_id": str(runtime.id),
+                    "runtime_name": runtime.name,
+                    "container_name": self._node_container_name(runtime.name),
+                },
                 issued_by=None,
                 correlation_id=str(runtime.id),
                 timeout_sec=settings.node_command_default_timeout_sec,
