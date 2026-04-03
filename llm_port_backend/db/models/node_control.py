@@ -57,6 +57,8 @@ class NodeCommandType(enum.StrEnum):
     FETCH_CONTAINER_LOGS = "fetch_container_logs"
     HOST_OP = "host_op"
     SYNC_NODE_PROFILE = "sync_node_profile"
+    CHECK_SYSTEM_UPDATES = "check_system_updates"
+    APPLY_SYSTEM_UPDATES = "apply_system_updates"
 
 
 class InfraNodeProfile(Base):
