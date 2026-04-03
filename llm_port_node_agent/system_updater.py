@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import platform
 import re
 import shutil
@@ -27,6 +28,18 @@ from typing import Any
 log = logging.getLogger(__name__)
 
 ProgressEmitter = Callable[[dict[str, Any]], Awaitable[None]]
+
+
+def _needs_sudo() -> bool:
+    """Return True if the current process is not running as root."""
+    return sys.platform != "win32" and os.geteuid() != 0
+
+
+def _sudo(cmd: list[str]) -> list[str]:
+    """Prepend ``sudo`` if the process is not already root."""
+    if _needs_sudo():
+        return ["sudo", *cmd]
+    return cmd
 
 
 # ── helpers ─────────────────────────────────────────────────────
@@ -50,18 +63,26 @@ def _has_fwupdmgr() -> bool:
 
 async def _run(cmd: list[str], *, timeout: int = 300) -> tuple[int, str]:
     """Run a subprocess and return (returncode, combined output)."""
+    log.debug("Running: %s", " ".join(cmd))
+    env = {**os.environ, "DCONF_PROFILE": "memory"}
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
+        env=env,
     )
     try:
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except asyncio.TimeoutError:
         proc.kill()
         await proc.wait()
+        log.warning("Command timed out: %s", " ".join(cmd))
         return -1, "Command timed out"
-    return proc.returncode or 0, (stdout or b"").decode("utf-8", errors="replace")
+    output = (stdout or b"").decode("utf-8", errors="replace")
+    code = proc.returncode or 0
+    if code != 0:
+        log.warning("Command failed (exit %d): %s\n%s", code, " ".join(cmd), output[-1000:])
+    return code, output
 
 
 # ── parsers ─────────────────────────────────────────────────────
@@ -208,7 +229,7 @@ async def check_updates(
 
         packages: list[dict[str, str]] = []
         if mgr == "apt":
-            await _run(["apt", "update", "-qq"], timeout=120)
+            await _run(_sudo(["apt", "update", "-qq"]), timeout=120)
             code, output = await _run(["apt", "list", "--upgradable"], timeout=60)
             packages = _parse_apt_upgradable(output) if code == 0 else []
         elif mgr in ("dnf", "yum"):
@@ -248,14 +269,15 @@ async def check_updates(
             "phase": "check_firmware",
             "message": "Refreshing firmware metadata…",
         })
-        await _run(["fwupdmgr", "refresh", "--force"], timeout=120)
+        await _run(_sudo(["fwupdmgr", "refresh", "--force"]), timeout=120)
 
         await emit_progress({
             "phase": "check_firmware",
             "message": "Checking for firmware updates…",
         })
-        code, output = await _run(["fwupdmgr", "get-updates"], timeout=60)
-        devices = _parse_fwupd_updates(output) if code == 0 else []
+        code, output = await _run(_sudo(["fwupdmgr", "get-updates"]), timeout=60)
+        # fwupdmgr exits 2 when no updates are available — not an error
+        devices = _parse_fwupd_updates(output) if code in (0, 2) else []
 
         await emit_progress({
             "phase": "check_firmware",
@@ -318,13 +340,15 @@ async def apply_updates(
         })
 
         if mgr == "apt":
-            await _run(["apt", "update", "-qq"], timeout=120)
+            # apt uses "full-upgrade" (not "dist-upgrade" which is apt-get only)
+            apt_cmd = "full-upgrade" if upgrade_command == "dist-upgrade" else "upgrade"
+            await _run(_sudo(["apt", "update", "-qq"]), timeout=120)
             code, output = await _run(
-                ["apt", upgrade_command, "-y"], timeout=900,
+                _sudo(["apt", apt_cmd, "-y"]), timeout=900,
             )
         elif mgr in ("dnf", "yum"):
             code, output = await _run(
-                [mgr, "upgrade", "-y", "--quiet"], timeout=900,
+                _sudo([mgr, "upgrade", "-y", "--quiet"]), timeout=900,
             )
         elif mgr == "brew":
             code, output = await _run(
@@ -348,6 +372,8 @@ async def apply_updates(
             "exit_code": code,
             "output_tail": output[-2000:] if output else "",
         }
+        if not success:
+            result["error"] = f"System update failed (exit {code})"
 
     # ── firmware ──
     if scope in ("all", "firmware") and _has_fwupdmgr():
@@ -355,16 +381,17 @@ async def apply_updates(
             "phase": "apply_firmware",
             "message": "Refreshing firmware metadata…",
         })
-        await _run(["fwupdmgr", "refresh", "--force"], timeout=120)
+        await _run(_sudo(["fwupdmgr", "refresh", "--force"]), timeout=120)
 
         await emit_progress({
             "phase": "apply_firmware",
             "message": "Applying firmware updates…",
         })
         code, output = await _run(
-            ["fwupdmgr", "update", "-y", "--no-reboot-check"], timeout=600,
+            _sudo(["fwupdmgr", "update", "-y", "--no-reboot-check"]), timeout=600,
         )
-        success = code == 0
+        # fwupdmgr exits 2 when there is nothing to update
+        success = code in (0, 2)
         await emit_progress({
             "phase": "apply_firmware",
             "message": "Firmware updated" if success else f"Firmware update failed (exit {code})",
@@ -374,6 +401,8 @@ async def apply_updates(
             "exit_code": code,
             "output_tail": output[-2000:] if output else "",
         }
+        if not success and "error" not in result:
+            result["error"] = f"Firmware update failed (exit {code})"
 
     # ── reboot check ──
     reboot_required = False

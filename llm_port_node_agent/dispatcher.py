@@ -165,9 +165,12 @@ class CommandDispatcher:
             scope = str(payload.get("scope", "all"))
             if "reboot_policy" in payload:
                 ucfg["reboot_policy"] = payload["reboot_policy"]
-            return await system_updater.apply_updates(
+            result = await system_updater.apply_updates(
                 emit_progress, scope=scope, update_config=ucfg,
             )
+            if result.get("error"):
+                raise RuntimeManagerError(result["error"])
+            return result
         raise RuntimeManagerError(f"Unsupported command type: {command_type}")
 
     @staticmethod
