@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    Numeric,
     String,
     Text,
     func,
@@ -284,11 +285,74 @@ class LLMGatewayRequestLog(Base):
     completion_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     total_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     error_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # Cost estimate columns (populated at write time by PricingService)
+    estimated_input_cost: Mapped[float | None] = mapped_column(
+        Numeric(18, 10), nullable=True,
+    )
+    estimated_output_cost: Mapped[float | None] = mapped_column(
+        Numeric(18, 10), nullable=True,
+    )
+    estimated_total_cost: Mapped[float | None] = mapped_column(
+        Numeric(18, 10), nullable=True,
+    )
+    currency: Mapped[str | None] = mapped_column(
+        String(3), server_default="USD", nullable=True,
+    )
+    price_catalog_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("price_catalog.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    cost_estimate_status: Mapped[str | None] = mapped_column(
+        String(16), nullable=True,
+    )
+    cached_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    stream: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),
         index=True,
+    )
+
+
+class PriceCatalog(Base):
+    """Model pricing catalog for cost estimation."""
+
+    __tablename__ = "price_catalog"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    provider: Mapped[str] = mapped_column(String(128), nullable=False)
+    model: Mapped[str] = mapped_column(String(256), nullable=False)
+    input_price_per_1k: Mapped[float] = mapped_column(
+        Numeric(12, 8), nullable=False,
+    )
+    output_price_per_1k: Mapped[float] = mapped_column(
+        Numeric(12, 8), nullable=False,
+    )
+    currency: Mapped[str] = mapped_column(
+        String(3), server_default="USD", nullable=False,
+    )
+    effective_from: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(),
+    )
+    active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="true",
+    )
+    source: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
     )
 
 

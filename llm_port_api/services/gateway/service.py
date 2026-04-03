@@ -425,6 +425,11 @@ class GatewayService:
                     if fallback_outcome == "fallback_to_local_succeeded"
                     else None
                 ),
+                stream=False,
+                provider_name=(
+                    decision.candidate.litellm_provider
+                    if decision is not None else None
+                ),
             )
 
     async def route_stream_chat(
@@ -692,6 +697,11 @@ class GatewayService:
                         completion_tokens=stats.usage.completion_tokens if stats is not None else None,
                         total_tokens=stats.usage.total_tokens if stats is not None else None,
                         error_code=final_error_code,
+                        stream=True,
+                        provider_name=(
+                            decision.candidate.litellm_provider
+                            if decision is not None else None
+                        ),
                     )
                     if trace_context is not None:
                         self.observability.finalize_stream(
@@ -768,6 +778,11 @@ class GatewayService:
                         "pii_fallback_to_local_succeeded"
                         if fallback_outcome == "fallback_to_local_succeeded"
                         else None
+                    ),
+                    stream=True,
+                    provider_name=(
+                        decision.candidate.litellm_provider
+                        if decision is not None else None
                     ),
                 )
 

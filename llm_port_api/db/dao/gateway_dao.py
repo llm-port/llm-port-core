@@ -163,6 +163,14 @@ class GatewayDAO:
         completion_tokens: int | None,
         total_tokens: int | None,
         error_code: str | None,
+        stream: bool | None = None,
+        cached_tokens: int | None = None,
+        estimated_input_cost: object | None = None,
+        estimated_output_cost: object | None = None,
+        estimated_total_cost: object | None = None,
+        currency: str | None = None,
+        price_catalog_id: uuid.UUID | None = None,
+        cost_estimate_status: str | None = None,
     ) -> LLMGatewayRequestLog:
         """Insert request audit log row."""
         row = LLMGatewayRequestLog(
@@ -180,6 +188,14 @@ class GatewayDAO:
             completion_tokens=completion_tokens,
             total_tokens=total_tokens,
             error_code=error_code,
+            stream=stream,
+            cached_tokens=cached_tokens,
+            estimated_input_cost=estimated_input_cost,
+            estimated_output_cost=estimated_output_cost,
+            estimated_total_cost=estimated_total_cost,
+            currency=currency,
+            price_catalog_id=price_catalog_id,
+            cost_estimate_status=cost_estimate_status,
         )
         self.session.add(row)
         await self.session.flush()

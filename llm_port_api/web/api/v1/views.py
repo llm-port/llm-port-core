@@ -68,7 +68,7 @@ def get_gateway_service(
     )
     proxy = UpstreamProxy(client=request.app.state.http_client)
     limiter = RateLimiter(cache)
-    audit = AuditService(dao)
+    audit = AuditService(dao, pricing_service=getattr(request.app.state, "pricing_service", None))
     observability: GatewayObservability = request.app.state.gateway_observability
 
     # PII client (optional - only when PII module is enabled in registry)

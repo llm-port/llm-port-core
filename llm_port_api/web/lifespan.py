@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from llm_port_api.services.gateway.file_store import LocalFileStore
 from llm_port_api.services.gateway.observability import GatewayObservability
+from llm_port_api.services.gateway.pricing import PricingService
 from llm_port_api.services.gateway.proxy import create_shared_http_client
 from llm_port_api.services.gateway.jwt_secret import load_jwt_secret_from_backend_db
 from llm_port_api.services.gateway.settings_loader import load_system_settings_from_backend_db
@@ -261,6 +262,11 @@ async def lifespan_setup(
     _setup_db(app)
     _setup_gateway_observability(app)
     _setup_service_registry(app)
+    # Pricing service: load cache from DB, start background refresh
+    pricing_service = PricingService()
+    async with app.state.db_session_factory() as session:
+        await pricing_service.load_cache(session)
+    app.state.pricing_service = pricing_service
     app.state.http_client = create_shared_http_client(
         timeout_sec=settings.http_timeout_sec,
     )
@@ -282,7 +288,22 @@ async def lifespan_setup(
     setup_prometheus(app)
     app.middleware_stack = app.build_middleware_stack()
 
+    # Background task: refresh price cache every 30 seconds
+    import asyncio  # noqa: PLC0415
+
+    async def _pricing_refresh_loop() -> None:
+        while True:
+            await asyncio.sleep(30)
+            try:
+                async with app.state.db_session_factory() as session:
+                    await pricing_service.check_invalidation(session)
+            except Exception:
+                log.debug("Price cache refresh failed", exc_info=True)
+
+    pricing_task = asyncio.create_task(_pricing_refresh_loop())
+
     yield
+    pricing_task.cancel()
     if not broker.is_worker_process:
         await broker.shutdown()
     await app.state.http_client.aclose()
