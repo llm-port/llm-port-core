@@ -29,8 +29,12 @@ import CardContent from "@mui/material/CardContent";
 import Chip from "@mui/material/Chip";
 import CircularProgress from "@mui/material/CircularProgress";
 import Collapse from "@mui/material/Collapse";
+import FormControl from "@mui/material/FormControl";
+import InputLabel from "@mui/material/InputLabel";
 import LinearProgress from "@mui/material/LinearProgress";
+import MenuItem from "@mui/material/MenuItem";
 import Alert from "@mui/material/Alert";
+import Select from "@mui/material/Select";
 import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
@@ -242,6 +246,10 @@ export default function RuntimeDetailPage() {
   const [editRemoteModel, setEditRemoteModel] = useState("");
   const [editEndpointUrl, setEditEndpointUrl] = useState("");
   const [editApiKey, setEditApiKey] = useState("");
+  const [editImage, setEditImage] = useState("");
+  const [editModelSource, setEditModelSource] = useState<
+    "sync_from_server" | "download_from_hf"
+  >("sync_from_server");
 
   const isRemoteProvider = provider?.target === "remote_endpoint";
 
@@ -292,6 +300,14 @@ export default function RuntimeDetailPage() {
     setEditRemoteModel(provider?.remote_model ?? "");
     setEditEndpointUrl(provider?.endpoint_url ?? "");
     setEditApiKey("");
+    setEditImage(
+      String((rt.provider_config as Record<string, unknown>)?.image ?? ""),
+    );
+    setEditModelSource(
+      ((rt.provider_config as Record<string, unknown>)?.model_source as
+        | "sync_from_server"
+        | "download_from_hf") ?? "sync_from_server",
+    );
     setEditing(true);
   }
 
@@ -350,9 +366,22 @@ export default function RuntimeDetailPage() {
         }
         // Remove legacy extra_args — everything is in engine_args now
         delete provider_config.extra_args;
-        // When enforce-eager is enabled the adapter auto-selects the correct
-        // image — remove any previously stored image override.
-        if (engineArgs["enforce-eager"]) delete provider_config.image;
+
+        // Image override
+        if (editImage.trim()) {
+          provider_config.image = editImage.trim();
+        } else {
+          delete provider_config.image;
+        }
+
+        // Model source (node deployments only)
+        if (isNodeDeployment) {
+          provider_config.model_source = editModelSource;
+          provider_config.image_source =
+            editModelSource === "download_from_hf"
+              ? "pull_from_registry"
+              : "transfer_from_server";
+        }
 
         // Container resource fields
         if (containerRes.gpuRequest.trim())
@@ -696,6 +725,49 @@ export default function RuntimeDetailPage() {
               ) : (
                 <>
                   {/* Local provider fields */}
+                  {isNodeDeployment && (
+                    <FormControl size="small" fullWidth>
+                      <InputLabel>
+                        {t("llm_providers.model_source", "Model Source")}
+                      </InputLabel>
+                      <Select
+                        value={editModelSource}
+                        label={t("llm_providers.model_source", "Model Source")}
+                        onChange={(e) =>
+                          setEditModelSource(
+                            e.target.value as
+                              | "sync_from_server"
+                              | "download_from_hf",
+                          )
+                        }
+                      >
+                        <MenuItem value="sync_from_server">
+                          {t(
+                            "llm_providers.model_source_sync",
+                            "Sync from this server",
+                          )}
+                        </MenuItem>
+                        <MenuItem value="download_from_hf">
+                          {t(
+                            "llm_providers.model_source_hf",
+                            "Download from HuggingFace",
+                          )}
+                        </MenuItem>
+                      </Select>
+                    </FormControl>
+                  )}
+                  <TextField
+                    label={t("llm_runtimes.container_image")}
+                    size="small"
+                    value={editImage}
+                    onChange={(e) => setEditImage(e.target.value)}
+                    fullWidth
+                    placeholder={t(
+                      "llm_runtimes.image_auto_placeholder",
+                      "Leave blank for auto-detect",
+                    )}
+                    slotProps={{ input: { sx: { fontFamily: "monospace" } } }}
+                  />
                   <VllmEngineArgsPanel
                     values={engineArgs}
                     onChange={setEngineArgs}
