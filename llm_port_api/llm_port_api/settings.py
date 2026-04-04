@@ -1,0 +1,238 @@
+import enum
+import os
+from pathlib import Path
+from tempfile import gettempdir
+from typing import Optional
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from yarl import URL
+
+_CPU_COUNT = os.cpu_count() or 1
+
+TEMP_DIR = Path(gettempdir())
+
+
+class LogLevel(str, enum.Enum):
+    """Possible log levels."""
+
+    NOTSET = "NOTSET"
+    DEBUG = "DEBUG"
+    INFO = "INFO"
+    WARNING = "WARNING"
+    ERROR = "ERROR"
+    FATAL = "FATAL"
+
+
+class Settings(BaseSettings):
+    """
+    Application settings.
+
+    These parameters can be configured
+    with environment variables.
+    """
+
+    host: str = "127.0.0.1"
+    port: int = 8000
+    # quantity of workers for uvicorn
+    workers_count: int = min(_CPU_COUNT, 4)
+    # Enable uvicorn reloading
+    reload: bool = False
+
+    # Current environment
+    environment: str = "dev"
+
+    log_level: LogLevel = LogLevel.INFO
+
+    # Variables for the database
+    db_host: str = "127.0.0.1"
+    db_port: int = 5432
+    db_user: str = "llm_user"
+    db_pass: str = "llm_user"
+    db_base: str = "llm_api"
+    db_echo: bool = False
+    db_pool_size: int = max(5, _CPU_COUNT * 3)
+    db_max_overflow: int = max(10, _CPU_COUNT * 3)
+    db_url_override: str | None = None
+
+    # Variables for Redis (optional — empty host disables Redis)
+    redis_host: str = ""
+    redis_port: int = 6379
+    redis_user: Optional[str] = None
+    redis_pass: Optional[str] = None
+    redis_base: Optional[int] = None
+
+    # Variables for RabbitMQ
+    rabbit_host: str = "llm_port_api-rmq"
+    rabbit_port: int = 5672
+    rabbit_user: str = "guest"
+    rabbit_pass: str = "guest"
+    rabbit_vhost: str = "/"
+
+    rabbit_pool_size: int = 2
+    rabbit_channel_pool_size: int = 10
+
+    # This variable is used to define
+    # multiproc_dir. It's required for [uvi|guni]corn projects.
+    prometheus_dir: Path = TEMP_DIR / "prom"
+
+    # Sentry's configuration.
+    sentry_dsn: Optional[str] = None
+    sentry_sample_rate: float = 1.0
+
+    # Grpc endpoint for opentelemetry.
+    # E.G. http://localhost:4317
+    opentelemetry_endpoint: Optional[str] = None
+
+    # JWT settings (compatible with backend-issued tokens)
+    jwt_secret: str = ""
+    jwt_algorithm: str = "HS256"
+    jwt_audience: str = ""
+    jwt_issuer: str = ""
+
+    # If set, jwt_secret is loaded from backend's system_setting_secret table at startup
+    # (same PostgreSQL host/user/pass, different database).
+    # Defaults match local dev bootstrap values; override in production.
+    backend_db_base: str = "llm_port_backend"
+    settings_master_key: str = "dev-settings-master-key-change-me"
+
+    # Column-level encryption for chat data (empty = disabled / plaintext)
+    encryption_key: str = ""
+
+    # Gateway behavior
+    http_timeout_sec: float = 30.0
+    lease_ttl_sec: int = 90
+    retry_pre_first_token: int = 1
+    request_max_body_bytes: int = 2 * 1024 * 1024
+    stream_idle_timeout_sec: float = 60.0
+
+    # LiteLLM settings
+    litellm_drop_params: bool = True
+    litellm_request_timeout: float = 60.0
+    litellm_verbose: bool = False
+
+    # Langfuse observability
+    langfuse_enabled: bool = False
+    langfuse_host: str | None = None
+    langfuse_public_key: str | None = None
+    langfuse_secret_key: str | None = None
+    langfuse_tracing_enabled: bool = True
+    langfuse_release: str | None = None
+
+    # Optional module: PII service
+    pii_service_url: str | None = None
+    pii_enabled: bool = False
+    pii_default_policy: dict | None = None
+
+    # Optional module: MCP tool registry
+    mcp_service_url: str | None = None
+    mcp_enabled: bool = False
+    mcp_service_token: str = ""
+    mcp_tool_loop_max_iterations: int = 5
+
+    # Optional module: Skills registry
+    skills_service_url: str | None = None
+    skills_enabled: bool = False
+    skills_service_token: str = ""
+
+    # Optional module: External auth service
+    auth_service_url: str | None = None
+    auth_enabled: bool = False
+
+    # Optional module: RAG engine (exposed via backend, status tracked here)
+    rag_service_url: str | None = None
+    rag_enabled: bool = False
+
+    # Optional module: RAG Lite (embedded in backend — uses backend URL for search)
+    rag_lite_enabled: bool = False
+    rag_lite_backend_url: str = "http://127.0.0.1:8000"
+
+    # Optional module: Sessions & Memory
+    sessions_enabled: bool = True
+    session_max_recent_messages: int = 20
+    session_token_budget: int = 4096
+    session_summary_threshold: int = 10
+    session_summarizer_model: str | None = None
+    session_fact_extraction_enabled: bool = False
+    session_fact_extraction_model: str | None = None
+
+    # Chat file attachments
+    chat_file_store_root: str = "/data/llm-port/chat-files"
+    chat_upload_max_file_mb: int = 10
+    chat_upload_allowed_extensions: str = (
+        ".pdf,.docx,.pptx,.xlsx,.csv,.txt,.md,.html,.json,"
+        ".png,.jpg,.jpeg,.gif,.webp"
+    )
+    chat_docling_url: str | None = None
+    chat_max_attachments_per_session: int = 20
+    chat_max_total_attachment_mb: int = 50
+    chat_attachment_max_pages: int = 50
+
+    langfuse_debug: bool = False
+
+    @property
+    def db_url(self) -> URL:
+        """
+        Assemble database URL from settings.
+
+        :return: database URL.
+        """
+        if self.db_url_override:
+            return URL(self.db_url_override)
+        return URL.build(
+            scheme="postgresql+asyncpg",
+            host=self.db_host,
+            port=self.db_port,
+            user=self.db_user,
+            password=self.db_pass,
+            path=f"/{self.db_base}",
+        )
+
+    @property
+    def redis_enabled(self) -> bool:
+        """Return True when a Redis host is configured."""
+        return bool(self.redis_host)
+
+    @property
+    def redis_url(self) -> URL:
+        """
+        Assemble REDIS URL from settings.
+
+        :return: redis URL.
+        """
+        path = ""
+        if self.redis_base is not None:
+            path = f"/{self.redis_base}"
+        return URL.build(
+            scheme="redis",
+            host=self.redis_host,
+            port=self.redis_port,
+            user=self.redis_user,
+            password=self.redis_pass,
+            path=path,
+        )
+
+    @property
+    def rabbit_url(self) -> URL:
+        """
+        Assemble RabbitMQ URL from settings.
+
+        :return: rabbit URL.
+        """
+        return URL.build(
+            scheme="amqp",
+            host=self.rabbit_host,
+            port=self.rabbit_port,
+            user=self.rabbit_user,
+            password=self.rabbit_pass,
+            path=self.rabbit_vhost,
+        )
+
+    model_config = SettingsConfigDict(
+        env_file=(".env", "llm_port_api/.env"),
+        env_prefix="LLM_PORT_API_",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+
+settings = Settings()
