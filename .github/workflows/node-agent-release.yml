@@ -32,7 +32,56 @@ env:
   AGENT_DIR: llm_port_node_agent
 
 jobs:
+  # ── Publish Python package to PyPI ──────────────────────────────
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            llm_port_node_agent
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools
+        run: pip install --upgrade build twine
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        working-directory: ${{ env.AGENT_DIR }}
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          elif [[ "$GITHUB_REF" == refs/tags/node-agent-v* ]]; then
+            echo "version=${GITHUB_REF#refs/tags/node-agent-v}" >> "$GITHUB_OUTPUT"
+          else
+            VER=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+            echo "version=$VER" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build sdist + wheel
+        working-directory: ${{ env.AGENT_DIR }}
+        run: python -m build
+
+      - name: Publish to PyPI
+        working-directory: ${{ env.AGENT_DIR }}
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: twine upload dist/*
+
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+  # ── Build standalone executables per platform ───────────────────
   build:
+    needs: publish
     strategy:
       fail-fast: false
       matrix:
@@ -71,20 +120,6 @@ jobs:
           python -m pip install pyinstaller
           python -m pip install -e .
 
-      - name: Resolve version
-        id: version
-        shell: bash
-        working-directory: ${{ env.AGENT_DIR }}
-        run: |
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
-          elif [[ "$GITHUB_REF" == refs/tags/node-agent-v* ]]; then
-            echo "version=${GITHUB_REF#refs/tags/node-agent-v}" >> "$GITHUB_OUTPUT"
-          else
-            VER=$(python -c "from llm_port_node_agent import __version__; print(__version__)")
-            echo "version=$VER" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Build executable
         working-directory: ${{ env.AGENT_DIR }}
         run: pyinstaller node_agent.spec --noconfirm
@@ -111,11 +146,8 @@ jobs:
           path: ${{ env.AGENT_DIR }}/dist/${{ matrix.asset_name }}
           retention-days: 30
 
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-
   release:
-    needs: build
+    needs: [publish, build]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/node-agent-v') || github.event_name == 'workflow_dispatch'
 
@@ -136,17 +168,19 @@ jobs:
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: node-agent-v${{ needs.build.outputs.version }}
-          name: "Node Agent v${{ needs.build.outputs.version }}"
+          tag_name: node-agent-v${{ needs.publish.outputs.version }}
+          name: "Node Agent v${{ needs.publish.outputs.version }}"
           body: |
-            ## llm-port Node Agent v${{ needs.build.outputs.version }}
+            ## llm-port Node Agent v${{ needs.publish.outputs.version }}
 
             Standalone executables — no Python installation required.
+
+            Also available on PyPI: `pip install llmport-agent==${{ needs.publish.outputs.version }}`
 
             ### Quick start
             ```bash
             # Linux
-            curl -LO https://github.com/${{ github.repository }}/releases/download/node-agent-v${{ needs.build.outputs.version }}/llmport-agent-linux-x86_64
+            curl -LO https://github.com/${{ github.repository }}/releases/download/node-agent-v${{ needs.publish.outputs.version }}/llmport-agent-linux-x86_64
             chmod +x llmport-agent-linux-x86_64
             sudo mv llmport-agent-linux-x86_64 /usr/local/bin/llmport-agent
 
