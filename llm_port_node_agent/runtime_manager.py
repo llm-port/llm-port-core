@@ -101,8 +101,6 @@ class RuntimeManager:
         elif isinstance(command_override, str) and command_override.strip():
             cmd = shlex.split(command_override)
 
-        self._sanitize_command_args(cmd)
-
         # GPU passthrough
         gpu_request = str(payload.get("gpu_request") or provider_config.get("gpu_request") or "").strip()
         # Default to all GPUs for engines that always require a GPU
@@ -111,6 +109,18 @@ class RuntimeManager:
 
         # Resource limits
         container_port = str(payload.get("container_port") or provider_config.get("container_port") or "8000").strip()
+
+        # Build default command for known provider types when none provided
+        entrypoint_override: str | None = None
+        if not cmd:
+            cmd, entrypoint_override = self._build_provider_command(
+                provider_type=provider_type,
+                payload=payload,
+                container_port=container_port,
+            )
+
+        self._sanitize_command_args(cmd)
+
         memory_limit = str(payload.get("memory_limit") or provider_config.get("memory_limit") or "").strip()
         cpu_limit = str(payload.get("cpu_limit") or provider_config.get("cpu_limit") or "").strip()
         shm_size = str(payload.get("shm_size") or provider_config.get("shm_size") or "").strip()
@@ -169,6 +179,12 @@ class RuntimeManager:
             "LLM_PORT_RUNTIME_ID": runtime_id,
             "LLM_PORT_PROVIDER_TYPE": provider_type,
         }
+        # Bypass NGC entrypoint driver-version check when the image ships
+        # CUDA forward-compat libs (e.g. nvcr.io containers).  The compat
+        # libraries handle the actual runtime compatibility; the entrypoint
+        # check is overly strict and blocks valid driver/CUDA combinations.
+        if gpu_request and "nvcr.io" in image:
+            run_env["NVIDIA_DISABLE_REQUIRE"] = "1"
         run_volumes: list[str] = []
         extra_args: list[str] = []
 
@@ -198,6 +214,7 @@ class RuntimeManager:
             gpus=gpu_request or None,
             volumes=run_volumes or None,
             command=cmd or None,
+            entrypoint=entrypoint_override,
             extra_args=extra_args or None,
             timeout_sec=120,
         )
@@ -379,6 +396,102 @@ class RuntimeManager:
                 raise RuntimeManagerError(
                     f"Host network mode in command override is not allowed: {arg}"
                 )
+
+    # ── provider command builders ──────────────────────────────
+
+    def _build_provider_command(
+        self,
+        *,
+        provider_type: str,
+        payload: dict[str, Any],
+        container_port: str,
+    ) -> tuple[list[str], str | None]:
+        """Return ``(cmd, entrypoint_override)`` for *provider_type*.
+
+        Called when no explicit command was supplied in provider_config.
+        The entrypoint override (if any) is passed to the container runtime
+        so the same command works across different base images.
+        """
+        if provider_type == "vllm":
+            return self._build_vllm_command(payload, container_port)
+        return [], None
+
+    @staticmethod
+    def _build_vllm_command(
+        payload: dict[str, Any], container_port: str,
+    ) -> tuple[list[str], str | None]:
+        """Derive a ``vllm serve`` command from the deploy payload."""
+        model_sync = payload.get("model_sync")
+        pc = payload.get("provider_config")
+        pc = pc if isinstance(pc, dict) else {}
+        gc = payload.get("generic_config")
+        gc = gc if isinstance(gc, dict) else {}
+
+        # Determine model identifier
+        model = ""
+        if isinstance(model_sync, dict):
+            model = str(model_sync.get("hf_repo_id", "")).strip()
+        if not model:
+            model = str(gc.get("model", "") or pc.get("model", "")).strip()
+        if not model:
+            log.warning("Cannot build vLLM command — no model identifier found in payload")
+            return [], None
+
+        cmd: list[str] = [
+            "serve", "--model", model,
+            "--host", "0.0.0.0", "--port", container_port,
+        ]
+
+        # Map generic_config keys to CLI flags
+        _GC_FLAGS = {
+            "max_model_len": "--max-model-len",
+            "dtype": "--dtype",
+            "gpu_memory_utilization": "--gpu-memory-utilization",
+            "tensor_parallel_size": "--tensor-parallel-size",
+            "swap_space": "--swap-space",
+        }
+        for key, flag in _GC_FLAGS.items():
+            val = gc.get(key)
+            if val is not None and str(val).strip():
+                cmd.extend([flag, str(val)])
+        if gc.get("enforce_eager"):
+            cmd.append("--enforce-eager")
+
+        # Tool-calling support — enable by default so MCP tools work.
+        # Users can override the parser via engine_args or generic_config.
+        tool_parser = str(gc.get("tool_call_parser", "") or "").strip()
+        if not tool_parser:
+            tool_parser = str(pc.get("tool_call_parser", "") or "").strip()
+        if tool_parser:
+            cmd.extend(["--enable-auto-tool-choice", "--tool-call-parser", tool_parser])
+        else:
+            cmd.extend(["--enable-auto-tool-choice", "--tool-call-parser", "openai"])
+
+        # engine_args from provider_config  ({flag: value} dict)
+        engine_args = pc.get("engine_args")
+        if isinstance(engine_args, dict):
+            existing = {c.lstrip("-") for c in cmd if c.startswith("--")}
+            for flag, val in engine_args.items():
+                if not isinstance(flag, str):
+                    continue
+                clean = flag.replace("-", "").replace("_", "")
+                if not clean.isalnum():
+                    continue
+                if flag in existing:
+                    continue
+                if isinstance(val, bool):
+                    if val:
+                        cmd.append(f"--{flag}")
+                elif val is not None and str(val).strip():
+                    cmd.extend([f"--{flag}", str(val)])
+
+        # extra_args passthrough (raw list)
+        extra = pc.get("extra_args")
+        if isinstance(extra, list):
+            cmd.extend(str(a) for a in extra)
+
+        log.info("Built vLLM command: vllm %s", " ".join(cmd))
+        return cmd, "vllm"
 
     def _lookup_container(
         self,

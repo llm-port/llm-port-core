@@ -184,3 +184,93 @@ async def test_deploy_workload_ipc_mode_default(manager: RuntimeManager, fake_ru
     assert "--ipc" in extra
     idx = extra.index("--ipc")
     assert extra[idx + 1] == "host"
+
+
+# ── vLLM command building ────────────────────────────────────
+
+
+@pytest.mark.asyncio()
+async def test_deploy_vllm_builds_command_from_model_sync(
+    manager: RuntimeManager, fake_runtime: FakeRuntime,
+) -> None:
+    """When no command is provided, vLLM deploys build a serve command."""
+    await manager.deploy_workload({
+        "runtime_id": "rt-vllm-1",
+        "provider_type": "vllm",
+        "image": "nvcr.io/nvidia/vllm:26.01-py3",
+        "model_sync": {"hf_repo_id": "meta-llama/Llama-3-8B", "source": "download_from_hf"},
+    })
+    kw = fake_runtime.run_kwargs()
+    cmd = kw.get("command") or []
+    assert "serve" in cmd
+    assert "--model" in cmd
+    assert "meta-llama/Llama-3-8B" in cmd
+    assert "--host" in cmd
+    assert "0.0.0.0" in cmd
+    # Entrypoint should be overridden to "vllm"
+    assert kw.get("entrypoint") == "vllm"
+
+
+@pytest.mark.asyncio()
+async def test_deploy_vllm_applies_generic_config(
+    manager: RuntimeManager, fake_runtime: FakeRuntime,
+) -> None:
+    """Generic config keys are mapped to vLLM CLI flags."""
+    await manager.deploy_workload({
+        "runtime_id": "rt-vllm-2",
+        "provider_type": "vllm",
+        "image": "nvcr.io/nvidia/vllm:26.01-py3",
+        "model_sync": {"hf_repo_id": "my/model"},
+        "generic_config": {
+            "max_model_len": 4096,
+            "tensor_parallel_size": 2,
+            "enforce_eager": True,
+        },
+    })
+    kw = fake_runtime.run_kwargs()
+    cmd = kw.get("command") or []
+    assert "--max-model-len" in cmd
+    assert "4096" in cmd
+    assert "--tensor-parallel-size" in cmd
+    assert "2" in cmd
+    assert "--enforce-eager" in cmd
+
+
+@pytest.mark.asyncio()
+async def test_deploy_vllm_applies_engine_args(
+    manager: RuntimeManager, fake_runtime: FakeRuntime,
+) -> None:
+    """engine_args from provider_config become CLI flags."""
+    await manager.deploy_workload({
+        "runtime_id": "rt-vllm-3",
+        "provider_type": "vllm",
+        "image": "vllm/vllm-openai:latest",
+        "model_sync": {"hf_repo_id": "my/model"},
+        "provider_config": {
+            "engine_args": {"quantization": "awq", "enable-prefix-caching": True},
+        },
+    })
+    kw = fake_runtime.run_kwargs()
+    cmd = kw.get("command") or []
+    assert "--quantization" in cmd
+    assert "awq" in cmd
+    assert "--enable-prefix-caching" in cmd
+
+
+@pytest.mark.asyncio()
+async def test_deploy_vllm_explicit_command_skips_builder(
+    manager: RuntimeManager, fake_runtime: FakeRuntime,
+) -> None:
+    """An explicit command in provider_config should be used as-is."""
+    await manager.deploy_workload({
+        "runtime_id": "rt-vllm-4",
+        "provider_type": "vllm",
+        "image": "nvcr.io/nvidia/vllm:26.01-py3",
+        "model_sync": {"hf_repo_id": "my/model"},
+        "provider_config": {"command": "vllm serve /data/model --port 8000"},
+    })
+    kw = fake_runtime.run_kwargs()
+    cmd = kw.get("command") or []
+    assert cmd == ["vllm", "serve", "/data/model", "--port", "8000"]
+    # No entrypoint override when explicit command is given
+    assert kw.get("entrypoint") is None

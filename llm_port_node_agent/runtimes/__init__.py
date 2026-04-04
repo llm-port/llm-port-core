@@ -31,6 +31,7 @@ class ContainerRuntime(Protocol):
         gpus: str | None = None,
         volumes: list[str] | None = None,
         command: list[str] | None = None,
+        entrypoint: str | None = None,
         extra_args: list[str] | None = None,
         timeout_sec: float = 120,
     ) -> str:

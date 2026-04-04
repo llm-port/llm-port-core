@@ -6,7 +6,7 @@ import asyncio
 import logging
 
 import psutil
-from websockets.exceptions import InvalidStatusCode
+from websockets.exceptions import InvalidStatus
 
 from llm_port_node_agent.backend_client import BackendClient
 from llm_port_node_agent.config import AgentConfig
@@ -152,14 +152,15 @@ class NodeAgentService:
                     raise RuntimeError("Credential missing after enrollment flow.")
                 await stream.run(credential=credential)
                 backoff = self._config.reconnect_min_sec
-            except InvalidStatusCode as exc:
+            except InvalidStatus as exc:
                 # 401/403 indicate credential no longer valid.
-                if exc.status_code in {401, 403}:
-                    log.warning("Stream auth rejected (%s), clearing credential.", exc.status_code)
+                status = exc.response.status_code
+                if status in {401, 403}:
+                    log.warning("Stream auth rejected (%s), clearing credential.", status)
                     self._state_store.state.credential = None
                     self._state_store.save()
                 else:
-                    log.warning("Stream rejected with status=%s", exc.status_code)
+                    log.warning("Stream rejected with status=%s", status)
             except Exception:
                 log.exception("Node stream loop failed.")
 

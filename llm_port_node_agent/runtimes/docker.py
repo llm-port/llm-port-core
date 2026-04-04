@@ -77,6 +77,7 @@ class DockerRuntime:
         gpus: str | None = None,
         volumes: list[str] | None = None,
         command: list[str] | None = None,
+        entrypoint: str | None = None,
         extra_args: list[str] | None = None,
         timeout_sec: float = 120,
     ) -> str:
@@ -88,6 +89,8 @@ class DockerRuntime:
             args.extend(["-e", f"{k}={v}"])
         if gpus:
             args.extend(["--gpus", gpus])
+        if entrypoint is not None:
+            args.extend(["--entrypoint", entrypoint])
         for vol in volumes or []:
             args.extend(["-v", vol])
         args.extend(extra_args or [])
