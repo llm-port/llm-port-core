@@ -1,0 +1,34 @@
+# GPU support + HuggingFace cache overlay for backend containers.
+#
+# The backend does NOT run GPU compute — it detects host GPUs by
+# querying the Docker daemon via the bind-mounted docker.sock, then
+# passes GPUs to vLLM containers it spawns via Docker API.
+#
+# Prerequisites:
+#   - NVIDIA GPU with drivers installed on the host
+#   - NVIDIA Container Toolkit (nvidia-ctk) on the host
+#
+# Optional .env variables:
+#   HF_CACHE_DIR   — absolute path to the host's HuggingFace cache
+#                    (e.g. /home/user/.cache/huggingface/hub or
+#                     C:\Users\user\.cache\huggingface\hub)
+
+services:
+  llm-port-backend:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    environment:
+      LLM_PORT_BACKEND_HOST_HF_CACHE_DIR: /host-hf-cache
+    volumes:
+      - ${HF_CACHE_DIR:-./.empty-hf-cache}:/host-hf-cache:ro
+
+  llm-port-backend-worker:
+    environment:
+      LLM_PORT_BACKEND_HOST_HF_CACHE_DIR: /host-hf-cache
+    volumes:
+      - ${HF_CACHE_DIR:-./.empty-hf-cache}:/host-hf-cache:ro

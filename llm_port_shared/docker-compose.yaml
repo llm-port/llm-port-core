@@ -1,0 +1,789 @@
+services:
+  # -----------------------------
+  # Platform base image (build-only, no runtime container)
+  # -----------------------------
+  llm-port-base:
+    image: ${REGISTRY:-llmport}/base:${VERSION:-latest}
+    build:
+      context: ./base
+      dockerfile: Dockerfile
+    profiles: ["_build"]
+
+  # -----------------------------
+  # Reverse proxy — single public entrypoint
+  # -----------------------------
+  nginx:
+    image: nginx:1-alpine
+    container_name: llm-port-nginx
+    restart: unless-stopped
+    ports:
+      - "${LLM_PORT_HTTP_PORT:-80}:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      llm-port-backend:
+        condition: service_healthy
+      llm-port-frontend:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:80/healthz || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  # -----------------------------
+  # Database for RAG + Langfuse state
+  # -----------------------------
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: llm-port-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres} # CHANGEME
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+      TZ: UTC
+      PGTZ: UTC
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 3s
+      timeout: 3s
+      retries: 15
+      start_period: 120s
+
+  # -----------------------------
+  # Langfuse (v3) dependencies
+  # -----------------------------
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: llm-port-clickhouse
+    restart: unless-stopped
+    user: "101:101"
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-clickhouse}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse} # CHANGEME
+    ports:
+      - "127.0.0.1:8123:8123"
+      - "127.0.0.1:9000:9000"
+    volumes:
+      - ch_data:/var/lib/clickhouse
+      - ch_logs:/var/log/clickhouse-server
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 2s
+
+  redis:
+    image: redis:7
+    container_name: llm-port-redis
+    restart: unless-stopped
+    command: >
+      --requirepass ${REDIS_AUTH:-myredissecret} --maxmemory-policy noeviction
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_AUTH:-myredissecret}", "ping"]
+      interval: 3s
+      timeout: 10s
+      retries: 10
+
+  minio:
+    image: cgr.dev/chainguard/minio:latest
+    container_name: llm-port-minio
+    restart: unless-stopped
+    entrypoint: sh
+    command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-miniosecret} # CHANGEME
+    ports:
+      - "127.0.0.1:9090:9000"
+      - "127.0.0.1:9091:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+      start_period: 2s
+
+  # -----------------------------
+  # Langfuse v3 (web + worker)
+  # -----------------------------
+  langfuse-worker:
+    image: docker.io/langfuse/langfuse-worker:3
+    container_name: llm-port-worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3030:3030"
+    environment:
+      NEXTAUTH_URL: ${LANGFUSE_NEXTAUTH_URL:-http://localhost:3000}
+      DATABASE_URL: ${LANGFUSE_DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/langfuse} # CHANGEME
+      SALT: ${LANGFUSE_SALT:-mysalt} # CHANGEME
+      ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000} # CHANGEME (openssl rand -hex 32)
+      TELEMETRY_ENABLED: ${LANGFUSE_TELEMETRY_ENABLED:-true}
+
+      CLICKHOUSE_MIGRATION_URL: ${CLICKHOUSE_MIGRATION_URL:-clickhouse://clickhouse:9000}
+      CLICKHOUSE_URL: ${CLICKHOUSE_URL:-http://clickhouse:8123}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-clickhouse}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse} # CHANGEME
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_AUTH: ${REDIS_AUTH:-myredissecret} # CHANGEME
+
+      # S3-compatible storage (MinIO)
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: ${LANGFUSE_S3_EVENT_UPLOAD_BUCKET:-langfuse}
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: ${LANGFUSE_S3_EVENT_UPLOAD_REGION:-auto}
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minio}
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-miniosecret} # CHANGEME
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: ${LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT:-http://minio:9000}
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
+
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: ${LANGFUSE_S3_MEDIA_UPLOAD_BUCKET:-langfuse}
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: ${LANGFUSE_S3_MEDIA_UPLOAD_REGION:-auto}
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minio}
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-miniosecret} # CHANGEME
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: ${LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT:-http://minio:9000}
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
+
+  langfuse-web:
+    image: docker.io/langfuse/langfuse:3
+    container_name: llm-port-web
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3002:3000"
+    environment:
+      NEXTAUTH_URL: ${LANGFUSE_NEXTAUTH_URL:-http://localhost:3000}
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-mysecret} # CHANGEME
+      DATABASE_URL: ${LANGFUSE_DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/langfuse} # CHANGEME
+      SALT: ${LANGFUSE_SALT:-mysalt} # CHANGEME
+      ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000} # CHANGEME
+      TELEMETRY_ENABLED: ${LANGFUSE_TELEMETRY_ENABLED:-true}
+
+      CLICKHOUSE_MIGRATION_URL: ${CLICKHOUSE_MIGRATION_URL:-clickhouse://clickhouse:9000}
+      CLICKHOUSE_URL: ${CLICKHOUSE_URL:-http://clickhouse:8123}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-clickhouse}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse} # CHANGEME
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_AUTH: ${REDIS_AUTH:-myredissecret} # CHANGEME
+
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: ${LANGFUSE_S3_EVENT_UPLOAD_BUCKET:-langfuse}
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: ${LANGFUSE_S3_EVENT_UPLOAD_REGION:-auto}
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minio}
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-miniosecret} # CHANGEME
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: ${LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT:-http://minio:9000}
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
+
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: ${LANGFUSE_S3_MEDIA_UPLOAD_BUCKET:-langfuse}
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: ${LANGFUSE_S3_MEDIA_UPLOAD_REGION:-auto}
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minio}
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-miniosecret} # CHANGEME
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: ${LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT:-http://minio:9000}
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
+
+      # Initial admin user seeding (set by llmport deploy)
+      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:-}
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:-}
+      LANGFUSE_INIT_USER_NAME: ${LANGFUSE_INIT_USER_NAME:-Admin}
+      LANGFUSE_INIT_ORG_ID: ${LANGFUSE_INIT_ORG_ID:-llm-port-org}
+      LANGFUSE_INIT_ORG_NAME: ${LANGFUSE_INIT_ORG_NAME:-llm-port}
+      LANGFUSE_INIT_PROJECT_ID: ${LANGFUSE_INIT_PROJECT_ID:-llm-port-project}
+      LANGFUSE_INIT_PROJECT_NAME: ${LANGFUSE_INIT_PROJECT_NAME:-llm-port}
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_INIT_PROJECT_PUBLIC_KEY:-}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_INIT_PROJECT_SECRET_KEY:-}
+
+  # -----------------------------
+  # Shared RabbitMQ broker (API + RAG + local backend dev)
+  # -----------------------------
+  llm-port-rmq:
+    image: rabbitmq:4.2.1-management-alpine
+    container_name: llm-port-rmq
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:15672:15672"
+    environment:
+      # Management/admin account — used for console login and as
+      # fallback when definitions.json is absent (dev mode).
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_ADMIN_USER:-admin}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_ADMIN_PASS:-guest}
+      RABBITMQ_DEFAULT_VHOST: "/"
+      # Limit Erlang schedulers and disable busy-wait to avoid CPU spin at idle.
+      # -S 2:2  — 2 online schedulers (enough for a message broker)
+      # +sbwt/+sbwtdcpu/+sbwtdio none — disable scheduler busy-waiting
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "+S 2:2 +sbwt none +sbwtdcpu none +sbwtdio none"
+    volumes:
+      # Per-service user definitions (generated by llmport deploy).
+      # In dev mode these files may not exist — RabbitMQ falls back
+      # to RABBITMQ_DEFAULT_USER/PASS.
+      - ./rabbitmq/10-llmport.conf:/etc/rabbitmq/conf.d/10-llmport.conf:ro
+      - ./rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+    healthcheck:
+      test: rabbitmq-diagnostics check_running -q
+      interval: 3s
+      timeout: 3s
+      retries: 50
+
+  llm-port-api-migrator:
+    image: ${REGISTRY:-llmport}/api:${VERSION:-latest}
+    container_name: llm-port-api-migrator
+    restart: on-failure:5
+    command: ["sh", "-c", "sleep 5 && alembic upgrade head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      LLM_PORT_API_DB_HOST: postgres
+      LLM_PORT_API_DB_PORT: 5432
+      LLM_PORT_API_DB_USER: ${POSTGRES_USER:-postgres}
+      LLM_PORT_API_DB_PASS: ${POSTGRES_PASSWORD:-postgres}
+      LLM_PORT_API_DB_BASE: llm_api
+
+  # -----------------------------
+  # llm_port_api (OpenAI-compatible endpoint gateway)
+  # -----------------------------
+  llm-port-api:
+    image: ${REGISTRY:-llmport}/api:${VERSION:-latest}
+    build:
+      context: ../llm_port_api
+      dockerfile: Dockerfile
+      target: prod
+      args:
+        BASE_IMAGE: ${REGISTRY:-llmport}/base:${VERSION:-latest}
+    container_name: llm-port-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      llm-port-rmq:
+        condition: service_healthy
+      llm-port-api-migrator:
+        condition: service_completed_successfully
+    ports:
+      - "127.0.0.1:8001:8000"
+    environment:
+      LLM_PORT_API_HOST: 0.0.0.0
+      LLM_PORT_API_PORT: 8000
+      LLM_PORT_API_RELOAD: "false"
+      LLM_PORT_API_ENVIRONMENT: dev
+      # JWT secret is read from backend DB at startup (llm_port_api.jwt_secret system setting).
+      # These two env vars enable that path; no static JWT_SECRET env var is needed.
+      LLM_PORT_API_BACKEND_DB_BASE: llm_port_backend
+      LLM_PORT_API_SETTINGS_MASTER_KEY: ${LLM_PORT_BACKEND_SETTINGS_MASTER_KEY:-dev-settings-master-key-change-me}
+      LLM_PORT_API_JWT_ALGORITHM: HS256
+      LLM_PORT_API_DB_HOST: postgres
+      LLM_PORT_API_DB_PORT: 5432
+      LLM_PORT_API_DB_USER: ${POSTGRES_USER:-postgres}
+      LLM_PORT_API_DB_PASS: ${POSTGRES_PASSWORD:-postgres}
+      LLM_PORT_API_DB_BASE: llm_api
+      LLM_PORT_API_REDIS_HOST: redis
+      LLM_PORT_API_REDIS_PORT: 6379
+      LLM_PORT_API_REDIS_PASS: ${REDIS_AUTH:-myredissecret}
+      LLM_PORT_API_REDIS_BASE: 1
+      LLM_PORT_API_RABBIT_HOST: llm-port-rmq
+      LLM_PORT_API_RABBIT_PORT: 5672
+      LLM_PORT_API_RABBIT_USER: llmport-api
+      LLM_PORT_API_RABBIT_PASS: ${RABBITMQ_API_PASS:-guest}
+      LLM_PORT_API_RABBIT_VHOST: /
+      LLM_PORT_API_LANGFUSE_ENABLED: ${LLM_PORT_API_LANGFUSE_ENABLED:-false}
+      LLM_PORT_API_LANGFUSE_HOST: ${LLM_PORT_API_LANGFUSE_HOST:-http://langfuse-web:3000}
+      LLM_PORT_API_LANGFUSE_PUBLIC_KEY: ${LLM_PORT_API_LANGFUSE_PUBLIC_KEY:-}
+      LLM_PORT_API_LANGFUSE_SECRET_KEY: ${LLM_PORT_API_LANGFUSE_SECRET_KEY:-}
+      # PII module integration (set via .env or COMPOSE_PROFILES)
+      LLM_PORT_API_PII_ENABLED: ${LLM_PORT_API_PII_ENABLED:-false}
+      LLM_PORT_API_PII_SERVICE_URL: ${LLM_PORT_API_PII_SERVICE_URL:-http://llm-port-pii:8000}
+      # MCP tool registry integration (set via .env or COMPOSE_PROFILES)
+      LLM_PORT_API_MCP_ENABLED: ${LLM_PORT_API_MCP_ENABLED:-false}
+      LLM_PORT_API_MCP_SERVICE_URL: ${LLM_PORT_API_MCP_SERVICE_URL:-http://llm-port-mcp:8000}
+      LLM_PORT_API_MCP_SERVICE_TOKEN: ${LLM_PORT_API_MCP_SERVICE_TOKEN:-dev-mcp-service-token-change-me}
+      # Skills registry integration (set via .env or COMPOSE_PROFILES)
+      LLM_PORT_API_SKILLS_ENABLED: ${LLM_PORT_API_SKILLS_ENABLED:-false}
+      LLM_PORT_API_SKILLS_SERVICE_URL: ${LLM_PORT_API_SKILLS_SERVICE_URL:-http://llm-port-skills:8000}
+      LLM_PORT_API_SKILLS_SERVICE_TOKEN: ${LLM_PORT_API_SKILLS_SERVICE_TOKEN:-dev-skills-service-token-change-me}
+      # Scalability tuning (set via llmport tune)
+      LLM_PORT_API_WORKERS_COUNT: ${LLM_PORT_API_WORKERS_COUNT:-4}
+      LLM_PORT_API_DB_POOL_SIZE: ${LLM_PORT_API_DB_POOL_SIZE:-5}
+      LLM_PORT_API_DB_MAX_OVERFLOW: ${LLM_PORT_API_DB_MAX_OVERFLOW:-5}
+      LLM_PORT_API_RABBIT_POOL_SIZE: ${LLM_PORT_API_RABBIT_POOL_SIZE:-2}
+      LLM_PORT_API_RABBIT_CHANNEL_POOL_SIZE: ${LLM_PORT_API_RABBIT_CHANNEL_POOL_SIZE:-10}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=3).read()"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # -----------------------------
+  # llm_port_backend (control-plane)
+  # -----------------------------
+  llm-port-backend-migrator:
+    image: ${REGISTRY:-llmport}/backend:${VERSION:-latest}
+    container_name: llm-port-backend-migrator
+    restart: on-failure:5
+    command: ["sh", "-c", "sleep 5 && alembic upgrade head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      LLM_PORT_BACKEND_DB_HOST: postgres
+      LLM_PORT_BACKEND_DB_PORT: 5432
+      LLM_PORT_BACKEND_DB_USER: ${POSTGRES_USER:-postgres}
+      LLM_PORT_BACKEND_DB_PASS: ${POSTGRES_PASSWORD:-postgres}
+      LLM_PORT_BACKEND_DB_BASE: llm_port_backend
+
+  llm-port-backend:
+    image: ${REGISTRY:-llmport}/backend:${VERSION:-latest}
+    build:
+      context: ../llm_port_backend
+      dockerfile: Dockerfile
+      target: prod
+      args:
+        BASE_IMAGE: ${REGISTRY:-llmport}/base:${VERSION:-latest}
+    container_name: llm-port-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      llm-port-rmq:
+        condition: service_healthy
+      llm-port-backend-migrator:
+        condition: service_completed_successfully
+    # No host port — accessed via nginx reverse proxy
+    environment:
+      LLM_PORT_BACKEND_HOST: 0.0.0.0
+      LLM_PORT_BACKEND_PORT: 8000
+      LLM_PORT_BACKEND_RELOAD: "false"
+      LLM_PORT_BACKEND_ENVIRONMENT: ${LLM_PORT_BACKEND_ENVIRONMENT:-dev}
+      LLM_PORT_BACKEND_DB_HOST: postgres
+      LLM_PORT_BACKEND_DB_PORT: 5432
+      LLM_PORT_BACKEND_DB_USER: ${POSTGRES_USER:-postgres}
+      LLM_PORT_BACKEND_DB_PASS: ${POSTGRES_PASSWORD:-postgres}
+      LLM_PORT_BACKEND_DB_BASE: llm_port_backend
+      LLM_PORT_BACKEND_REDIS_HOST: redis
+      LLM_PORT_BACKEND_REDIS_PORT: 6379
+      LLM_PORT_BACKEND_REDIS_PASS: ${REDIS_AUTH:-myredissecret}
+      LLM_PORT_BACKEND_RABBIT_HOST: llm-port-rmq
+      LLM_PORT_BACKEND_RABBIT_PORT: 5672
+      LLM_PORT_BACKEND_RABBIT_USER: llmport-backend
+      LLM_PORT_BACKEND_RABBIT_PASS: ${RABBITMQ_BACKEND_PASS:-guest}
+      LLM_PORT_BACKEND_RABBIT_VHOST: /
+      LLM_PORT_BACKEND_GATEWAY_URL: ${LLM_PORT_BACKEND_GATEWAY_URL:-http://llm-port-api:8000}
+      LLM_PORT_BACKEND_SETTINGS_MASTER_KEY: ${LLM_PORT_BACKEND_SETTINGS_MASTER_KEY:-dev-settings-master-key-change-me}
+      LLM_PORT_BACKEND_LLM_GRAPH_DB_HOST: postgres
+      LLM_PORT_BACKEND_LLM_GRAPH_DB_USER: ${POSTGRES_USER:-postgres}
+      LLM_PORT_BACKEND_LLM_GRAPH_DB_PASS: ${POSTGRES_PASSWORD:-postgres}
+      LLM_PORT_BACKEND_LOKI_BASE_URL: http://llm-port-loki:3100
+      LLM_PORT_BACKEND_COOKIE_SECURE: "false"
+      USERS_SECRET: ${USERS_SECRET:-}
+      # Module enabled flags + service URLs (Docker-internal for health probes)
+      LLM_PORT_BACKEND_PII_ENABLED: ${LLM_PORT_BACKEND_PII_ENABLED:-false}
+      LLM_PORT_BACKEND_PII_SERVICE_URL: ${LLM_PORT_BACKEND_PII_SERVICE_URL:-http://llm-port-pii:8000/api}
+      LLM_PORT_BACKEND_MCP_ENABLED: ${LLM_PORT_BACKEND_MCP_ENABLED:-false}
+      LLM_PORT_BACKEND_MCP_SERVICE_URL: ${LLM_PORT_BACKEND_MCP_SERVICE_URL:-http://llm-port-mcp:8000}
+      LLM_PORT_BACKEND_MCP_SERVICE_TOKEN: ${LLM_PORT_BACKEND_MCP_SERVICE_TOKEN:-dev-mcp-service-token-change-me}
+      LLM_PORT_BACKEND_SKILLS_ENABLED: ${LLM_PORT_BACKEND_SKILLS_ENABLED:-false}
+      LLM_PORT_BACKEND_MAILER_SERVICE_URL: ${LLM_PORT_BACKEND_MAILER_SERVICE_URL:-http://llm-port-mailer:8000}
+      LLM_PORT_BACKEND_AUTH_SERVICE_URL: ${LLM_PORT_BACKEND_AUTH_SERVICE_URL:-http://llm-port-auth:8000}
+      LLM_PORT_BACKEND_DOCLING_SERVICE_URL: ${LLM_PORT_BACKEND_DOCLING_SERVICE_URL:-http://llm-port-docling:8000}
+      LLM_PORT_BACKEND_SKILLS_SERVICE_URL: ${LLM_PORT_BACKEND_SKILLS_SERVICE_URL:-http://llm-port-skills:8000}
+      LLM_PORT_BACKEND_SKILLS_SERVICE_TOKEN: ${LLM_PORT_BACKEND_SKILLS_SERVICE_TOKEN:-dev-skills-service-token-change-me}
+      # Scalability tuning (set via llmport tune)
+      LLM_PORT_BACKEND_WORKERS_COUNT: ${LLM_PORT_BACKEND_WORKERS_COUNT:-4}
+      LLM_PORT_BACKEND_DB_POOL_SIZE: ${LLM_PORT_BACKEND_DB_POOL_SIZE:-5}
+      LLM_PORT_BACKEND_DB_MAX_OVERFLOW: ${LLM_PORT_BACKEND_DB_MAX_OVERFLOW:-5}
+      LLM_PORT_BACKEND_RABBIT_POOL_SIZE: ${LLM_PORT_BACKEND_RABBIT_POOL_SIZE:-2}
+      LLM_PORT_BACKEND_RABBIT_CHANNEL_POOL_SIZE: ${LLM_PORT_BACKEND_RABBIT_CHANNEL_POOL_SIZE:-10}
+      LLM_PORT_BACKEND_MODEL_STORE_ROOT: /srv/llm-port/models
+      LLM_PORT_BACKEND_HOST_HF_CACHE_DIR: ${LLM_PORT_BACKEND_HOST_HF_CACHE_DIR:-}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - llm_port_models:/srv/llm-port/models
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=3).read()"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  llm-port-backend-worker:
+    image: ${REGISTRY:-llmport}/backend:${VERSION:-latest}
+    container_name: llm-port-backend-worker
+    restart: unless-stopped
+    command:
+      - taskiq
+      - worker
+      - llm_port_backend.tkq:broker
+      - --fs-discover
+    depends_on:
+      postgres:
+        condition: service_healthy
+      llm-port-rmq:
+        condition: service_healthy
+      llm-port-backend-migrator:
+        condition: service_completed_successfully
+    environment:
+      LLM_PORT_BACKEND_ENVIRONMENT: ${LLM_PORT_BACKEND_ENVIRONMENT:-dev}
+      LLM_PORT_BACKEND_DB_HOST: postgres
+      LLM_PORT_BACKEND_DB_PORT: 5432
+      LLM_PORT_BACKEND_DB_USER: ${POSTGRES_USER:-postgres}
+      LLM_PORT_BACKEND_DB_PASS: ${POSTGRES_PASSWORD:-postgres}
+      LLM_PORT_BACKEND_DB_BASE: llm_port_backend
+      LLM_PORT_BACKEND_REDIS_HOST: redis
+      LLM_PORT_BACKEND_REDIS_PORT: 6379
+      LLM_PORT_BACKEND_REDIS_PASS: ${REDIS_AUTH:-myredissecret}
+      LLM_PORT_BACKEND_RABBIT_HOST: llm-port-rmq
+      LLM_PORT_BACKEND_RABBIT_PORT: 5672
+      LLM_PORT_BACKEND_RABBIT_USER: llmport-backend
+      LLM_PORT_BACKEND_RABBIT_PASS: ${RABBITMQ_BACKEND_PASS:-guest}
+      LLM_PORT_BACKEND_RABBIT_VHOST: /
+      LLM_PORT_BACKEND_GATEWAY_URL: ${LLM_PORT_BACKEND_GATEWAY_URL:-http://llm-port-api:8000}
+      LLM_PORT_BACKEND_SETTINGS_MASTER_KEY: ${LLM_PORT_BACKEND_SETTINGS_MASTER_KEY:-dev-settings-master-key-change-me}
+      LLM_PORT_BACKEND_LLM_GRAPH_DB_HOST: postgres
+      LLM_PORT_BACKEND_LLM_GRAPH_DB_USER: ${POSTGRES_USER:-postgres}
+      LLM_PORT_BACKEND_LLM_GRAPH_DB_PASS: ${POSTGRES_PASSWORD:-postgres}
+      LLM_PORT_BACKEND_LOKI_BASE_URL: http://llm-port-loki:3100
+      LLM_PORT_BACKEND_COOKIE_SECURE: "false"
+      USERS_SECRET: ${USERS_SECRET:-}
+      # Module enabled flags + service URLs (Docker-internal for health probes)
+      LLM_PORT_BACKEND_MCP_ENABLED: ${LLM_PORT_BACKEND_MCP_ENABLED:-false}
+      LLM_PORT_BACKEND_SKILLS_ENABLED: ${LLM_PORT_BACKEND_SKILLS_ENABLED:-false}
+      LLM_PORT_BACKEND_PII_SERVICE_URL: ${LLM_PORT_BACKEND_PII_SERVICE_URL:-http://llm-port-pii:8000/api}
+      LLM_PORT_BACKEND_MCP_SERVICE_URL: ${LLM_PORT_BACKEND_MCP_SERVICE_URL:-http://llm-port-mcp:8000}
+      LLM_PORT_BACKEND_MCP_SERVICE_TOKEN: ${LLM_PORT_BACKEND_MCP_SERVICE_TOKEN:-dev-mcp-service-token-change-me}
+      LLM_PORT_BACKEND_MAILER_SERVICE_URL: ${LLM_PORT_BACKEND_MAILER_SERVICE_URL:-http://llm-port-mailer:8000}
+      LLM_PORT_BACKEND_AUTH_SERVICE_URL: ${LLM_PORT_BACKEND_AUTH_SERVICE_URL:-http://llm-port-auth:8000}
+      LLM_PORT_BACKEND_DOCLING_SERVICE_URL: ${LLM_PORT_BACKEND_DOCLING_SERVICE_URL:-http://llm-port-docling:8000}
+      LLM_PORT_BACKEND_SKILLS_SERVICE_URL: ${LLM_PORT_BACKEND_SKILLS_SERVICE_URL:-http://llm-port-skills:8000}
+      LLM_PORT_BACKEND_SKILLS_SERVICE_TOKEN: ${LLM_PORT_BACKEND_SKILLS_SERVICE_TOKEN:-dev-skills-service-token-change-me}
+      # Scalability tuning (set via llmport tune)
+      LLM_PORT_BACKEND_DB_POOL_SIZE: ${LLM_PORT_BACKEND_DB_POOL_SIZE:-5}
+      LLM_PORT_BACKEND_DB_MAX_OVERFLOW: ${LLM_PORT_BACKEND_DB_MAX_OVERFLOW:-5}
+      LLM_PORT_BACKEND_RABBIT_POOL_SIZE: ${LLM_PORT_BACKEND_RABBIT_POOL_SIZE:-2}
+      LLM_PORT_BACKEND_RABBIT_CHANNEL_POOL_SIZE: ${LLM_PORT_BACKEND_RABBIT_CHANNEL_POOL_SIZE:-10}
+      LLM_PORT_BACKEND_MODEL_STORE_ROOT: /srv/llm-port/models
+      LLM_PORT_BACKEND_HOST_HF_CACHE_DIR: ${LLM_PORT_BACKEND_HOST_HF_CACHE_DIR:-}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - llm_port_models:/srv/llm-port/models
+
+  # -----------------------------
+  # llm_port_frontend (React admin console)
+  # -----------------------------
+  llm-port-frontend:
+    image: ${REGISTRY:-llmport}/frontend:${VERSION:-latest}
+    build:
+      context: ../llm_port_frontend
+      dockerfile: Dockerfile
+    container_name: llm-port-frontend
+    restart: unless-stopped
+    depends_on:
+      llm-port-backend:
+        condition: service_healthy
+    # No host port — accessed via nginx reverse proxy
+    environment:
+      BACKEND_URL: http://llm-port-backend:8000
+      API_URL: http://llm-port-api:8000
+
+  # =====================================================================
+  # PII Protection (profile: pii)
+  #
+  # Core redact-only mode. EE extends with tokenize/detokenize.
+  # Activate with:  --profile pii  (or COMPOSE_PROFILES=pii)
+  # =====================================================================
+  llm-port-pii:
+    profiles: ["pii"]
+    image: ${REGISTRY:-llmport}/pii:${VERSION:-latest}
+    build:
+      context: ../llm_port_pii
+      dockerfile: Dockerfile
+      target: prod
+      args:
+        BASE_IMAGE: ${REGISTRY:-llmport}/base:${VERSION:-latest}
+    container_name: llm-port-pii
+    restart: unless-stopped
+    depends_on:
+      llm-port-rmq:
+        condition: service_healthy
+    environment:
+      LLM_PORT_PII_HOST: 0.0.0.0
+      LLM_PORT_PII_PORT: 8000
+      LLM_PORT_PII_RELOAD: "false"
+      LLM_PORT_PII_ENVIRONMENT: dev
+      LLM_PORT_PII_BACKEND_URL: http://llm-port-backend:8000
+      LLM_PORT_PII_RABBIT_HOST: llm-port-rmq
+      LLM_PORT_PII_RABBIT_PORT: 5672
+      LLM_PORT_PII_RABBIT_USER: llmport-pii
+      LLM_PORT_PII_RABBIT_PASS: ${RABBITMQ_PII_PASS:-guest}
+      LLM_PORT_PII_RABBIT_VHOST: /
+      # Scalability tuning (set via llmport tune)
+      LLM_PORT_PII_WORKERS_COUNT: ${LLM_PORT_PII_WORKERS_COUNT:-4}
+      LLM_PORT_PII_DB_POOL_SIZE: ${LLM_PORT_PII_DB_POOL_SIZE:-5}
+      LLM_PORT_PII_DB_MAX_OVERFLOW: ${LLM_PORT_PII_DB_MAX_OVERFLOW:-5}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=3).read()"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  llm-port-pii-worker:
+    profiles: ["pii"]
+    image: ${REGISTRY:-llmport}/pii:${VERSION:-latest}
+    container_name: llm-port-pii-worker
+    restart: unless-stopped
+    command:
+      - taskiq
+      - worker
+      - llm_port_pii.tkq:broker
+      - --fs-discover
+    depends_on:
+      llm-port-rmq:
+        condition: service_healthy
+    environment:
+      LLM_PORT_PII_ENVIRONMENT: dev
+      LLM_PORT_PII_BACKEND_URL: http://llm-port-backend:8000
+      LLM_PORT_PII_RABBIT_HOST: llm-port-rmq
+      LLM_PORT_PII_RABBIT_PORT: 5672
+      LLM_PORT_PII_RABBIT_USER: llmport-pii
+      LLM_PORT_PII_RABBIT_PASS: ${RABBITMQ_PII_PASS:-guest}
+      LLM_PORT_PII_RABBIT_VHOST: /
+
+  # =====================================================================
+  # MCP Tool Registry (profile: mcp)
+  #
+  # Generic MCP server registry + tool discovery.
+  # Activate with:  --profile mcp  (or COMPOSE_PROFILES=mcp)
+  # =====================================================================
+  llm-port-mcp-migrator:
+    profiles: ["mcp"]
+    image: ${REGISTRY:-llmport}/mcp:${VERSION:-latest}
+    container_name: llm-port-mcp-migrator
+    restart: on-failure:5
+    command: ["sh", "-c", "sleep 5 && alembic upgrade head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      LLM_PORT_MCP_DB_HOST: postgres
+      LLM_PORT_MCP_DB_PORT: 5432
+      LLM_PORT_MCP_DB_USER: ${POSTGRES_USER:-postgres}
+      LLM_PORT_MCP_DB_PASS: ${POSTGRES_PASSWORD:-postgres}
+      LLM_PORT_MCP_DB_BASE: llm_mcp
+
+  llm-port-mcp:
+    profiles: ["mcp"]
+    image: ${REGISTRY:-llmport}/mcp:${VERSION:-latest}
+    build:
+      context: ../llm_port_mcp
+      dockerfile: Dockerfile
+      target: prod
+      args:
+        BASE_IMAGE: ${REGISTRY:-llmport}/base:${VERSION:-latest}
+    container_name: llm-port-mcp
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      llm-port-mcp-migrator:
+        condition: service_completed_successfully
+    environment:
+      LLM_PORT_MCP_HOST: 0.0.0.0
+      LLM_PORT_MCP_PORT: 8000
+      LLM_PORT_MCP_RELOAD: "false"
+      LLM_PORT_MCP_ENVIRONMENT: dev
+      LLM_PORT_MCP_DB_HOST: postgres
+      LLM_PORT_MCP_DB_PORT: 5432
+      LLM_PORT_MCP_DB_USER: ${POSTGRES_USER:-postgres}
+      LLM_PORT_MCP_DB_PASS: ${POSTGRES_PASSWORD:-postgres}
+      LLM_PORT_MCP_DB_BASE: llm_mcp
+      LLM_PORT_MCP_REDIS_HOST: redis
+      LLM_PORT_MCP_REDIS_PORT: 6379
+      LLM_PORT_MCP_REDIS_PASS: ${REDIS_AUTH:-myredissecret}
+      LLM_PORT_MCP_REDIS_BASE: 3
+      LLM_PORT_MCP_PII_SERVICE_URL: ${LLM_PORT_MCP_PII_SERVICE_URL:-http://llm-port-pii:8000}
+      LLM_PORT_MCP_SERVICE_TOKEN: ${LLM_PORT_MCP_SERVICE_TOKEN:-dev-mcp-service-token-change-me}
+      LLM_PORT_MCP_ENCRYPTION_KEY: ${LLM_PORT_MCP_ENCRYPTION_KEY:-dev-mcp-encryption-key-change-me-32b}
+      LLM_PORT_MCP_WORKERS_COUNT: ${LLM_PORT_MCP_WORKERS_COUNT:-1}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=3).read()"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # =====================================================================
+  # Skills Registry (profile: skills)
+  #
+  # Centralized LLM skill management with versioning & assignments.
+  # Activate with:  --profile skills  (or COMPOSE_PROFILES=skills)
+  # =====================================================================
+  llm-port-skills-migrator:
+    profiles: ["skills"]
+    image: ${REGISTRY:-llmport}/skills:${VERSION:-latest}
+    container_name: llm-port-skills-migrator
+    restart: on-failure:5
+    command: ["sh", "-c", "sleep 5 && alembic upgrade head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      LLM_PORT_SKILLS_DB_HOST: postgres
+      LLM_PORT_SKILLS_DB_PORT: 5432
+      LLM_PORT_SKILLS_DB_USER: ${POSTGRES_USER:-postgres}
+      LLM_PORT_SKILLS_DB_PASS: ${POSTGRES_PASSWORD:-postgres}
+      LLM_PORT_SKILLS_DB_BASE: llm_skills
+
+  llm-port-skills:
+    profiles: ["skills"]
+    image: ${REGISTRY:-llmport}/skills:${VERSION:-latest}
+    build:
+      context: ../llm_port_skills
+      dockerfile: Dockerfile
+      target: prod
+      args:
+        BASE_IMAGE: ${REGISTRY:-llmport}/base:${VERSION:-latest}
+    container_name: llm-port-skills
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      llm-port-skills-migrator:
+        condition: service_completed_successfully
+    environment:
+      LLM_PORT_SKILLS_HOST: 0.0.0.0
+      LLM_PORT_SKILLS_PORT: 8000
+      LLM_PORT_SKILLS_RELOAD: "false"
+      LLM_PORT_SKILLS_ENVIRONMENT: dev
+      LLM_PORT_SKILLS_DB_HOST: postgres
+      LLM_PORT_SKILLS_DB_PORT: 5432
+      LLM_PORT_SKILLS_DB_USER: ${POSTGRES_USER:-postgres}
+      LLM_PORT_SKILLS_DB_PASS: ${POSTGRES_PASSWORD:-postgres}
+      LLM_PORT_SKILLS_DB_BASE: llm_skills
+      LLM_PORT_SKILLS_REDIS_HOST: redis
+      LLM_PORT_SKILLS_REDIS_PORT: 6379
+      LLM_PORT_SKILLS_REDIS_PASS: ${REDIS_AUTH:-myredissecret}
+      LLM_PORT_SKILLS_REDIS_BASE: 4
+      LLM_PORT_SKILLS_SERVICE_TOKEN: ${LLM_PORT_SKILLS_SERVICE_TOKEN:-dev-skills-service-token-change-me}
+      LLM_PORT_SKILLS_WORKERS_COUNT: ${LLM_PORT_SKILLS_WORKERS_COUNT:-1}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=3).read()"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # -----------------------------
+  # Logs: Loki + Grafana + Alloy
+  # -----------------------------
+  loki:
+    image: grafana/loki:3.0.0
+    container_name: llm-port-loki
+    restart: unless-stopped
+    ports:
+      - "${LOKI_BIND:-0.0.0.0}:3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./loki/local-config.yaml:/etc/loki/local-config.yaml:ro
+      - loki_data:/loki
+
+  grafana:
+    image: grafana/grafana:11.5.2
+    container_name: llm-port-grafana
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin} # CHANGEME
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+      GF_SECURITY_COOKIE_SAMESITE: "disabled"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_AUTH_ANONYMOUS_ORG_NAME: Main Org.
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_AUTH_BASIC_ENABLED: "false"
+      GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s:%(http_port)s/grafana/"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_PLUGINS_PREINSTALL: ""
+      GF_PATHS_PROVISIONING: /etc/grafana/provisioning
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - loki
+
+  alloy:
+    image: grafana/alloy:latest
+    container_name: llm-port-alloy
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:12345:12345"
+    command: >
+      run --server.http.listen-addr=0.0.0.0:12345
+      /etc/alloy/config.alloy
+    volumes:
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      # Docker Desktop on Windows exposes the socket here; Linux path is /var/run/docker.sock
+      - //var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - loki
+
+
+
+volumes:
+  pg_data:
+  ch_data:
+  ch_logs:
+  minio_data:
+  loki_data:
+  grafana_data:
+  llm_port_models:

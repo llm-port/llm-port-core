@@ -1,0 +1,10 @@
+apiVersion: 1
+providers:
+  - name: llm-port Provisioned
+    orgId: 1
+    folder: llm-port
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /etc/grafana/provisioning/dashboards/json
