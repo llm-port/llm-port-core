@@ -39,16 +39,16 @@ jobs:
         include:
           - os: ubuntu-latest
             target: linux-x86_64
-            binary_name: llm-port-node-agent
-            asset_name: llm-port-node-agent-linux-x86_64
+            binary_name: llmport-agent
+            asset_name: llmport-agent-linux-x86_64
           - os: windows-latest
             target: windows-x86_64
-            binary_name: llm-port-node-agent.exe
-            asset_name: llm-port-node-agent-windows-x86_64.exe
+            binary_name: llmport-agent.exe
+            asset_name: llmport-agent-windows-x86_64.exe
           - os: macos-latest
             target: macos-universal
-            binary_name: llm-port-node-agent
-            asset_name: llm-port-node-agent-macos-universal
+            binary_name: llmport-agent
+            asset_name: llmport-agent-macos-universal
 
     runs-on: ${{ matrix.os }}
 
@@ -146,14 +146,14 @@ jobs:
             ### Quick start
             ```bash
             # Linux
-            curl -LO https://github.com/${{ github.repository }}/releases/download/node-agent-v${{ needs.build.outputs.version }}/llm-port-node-agent-linux-x86_64
-            chmod +x llm-port-node-agent-linux-x86_64
-            sudo mv llm-port-node-agent-linux-x86_64 /usr/local/bin/llm-port-node-agent
+            curl -LO https://github.com/${{ github.repository }}/releases/download/node-agent-v${{ needs.build.outputs.version }}/llmport-agent-linux-x86_64
+            chmod +x llmport-agent-linux-x86_64
+            sudo mv llmport-agent-linux-x86_64 /usr/local/bin/llmport-agent
 
             export LLM_PORT_NODE_AGENT_BACKEND_URL=http://<server>:8000
             export LLM_PORT_NODE_AGENT_LOKI_URL=http://<server>:3100
             export LLM_PORT_NODE_AGENT_ENROLLMENT_TOKEN=<token>
-            llm-port-node-agent
+            llmport-agent
             ```
 
             ### Checksums
