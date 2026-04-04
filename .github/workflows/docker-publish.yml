@@ -39,6 +39,10 @@ on:
       - "llm_port_mcp/**"
       - "llm_port_skills/**"
 
+permissions:
+  contents: read
+  packages: write
+
 env:
   REGISTRY: ${{ github.event.inputs.registry || 'ghcr.io/llm-port' }}
 
