@@ -1,0 +1,140 @@
+# Publish llmport-cli to PyPI and build standalone executables when a
+# CLI version tag is pushed.
+#
+# Usage:
+#   1. Bump version in llm_port_cli/pyproject.toml + llm_port_cli/src/llmport/__init__.py
+#   2. Commit: git commit -am "release: cli v0.2.5"
+#   3. Tag:    git tag cli-v0.2.5
+#   4. Push:   git push origin main --tags
+#
+# Prerequisites:
+#   Add a repository secret named PYPI_API_TOKEN with a PyPI API token
+#   scoped to the llmport-cli project.
+
+name: Release CLI
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (e.g. 0.2.5). Leave empty to use pyproject.toml version."
+        required: false
+        default: ""
+        type: string
+  push:
+    tags:
+      - "cli-v*"
+
+permissions:
+  contents: write
+
+env:
+  CLI_DIR: llm_port_cli
+
+jobs:
+  # ── Publish Python package to PyPI ──────────────────────────────
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            llm_port_cli
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install build tools
+        run: pip install --upgrade build twine
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        working-directory: ${{ env.CLI_DIR }}
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          elif [[ "$GITHUB_REF" == refs/tags/cli-v* ]]; then
+            echo "version=${GITHUB_REF#refs/tags/cli-v}" >> "$GITHUB_OUTPUT"
+          else
+            VER=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+            echo "version=$VER" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build sdist + wheel
+        working-directory: ${{ env.CLI_DIR }}
+        run: python -m build
+
+      - name: Publish to PyPI
+        working-directory: ${{ env.CLI_DIR }}
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: twine upload dist/*
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: cli-v${{ steps.version.outputs.version }}
+          name: "CLI v${{ steps.version.outputs.version }}"
+          generate_release_notes: true
+          files: ${{ env.CLI_DIR }}/dist/*
+
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+  # ── Build standalone executables per platform ───────────────────
+  executables:
+    needs: publish
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: llmport-linux-amd64
+            artifact: llmport-linux-amd64
+          - os: windows-latest
+            name: llmport-windows-amd64
+            artifact: llmport-windows-amd64.exe
+          - os: macos-latest
+            name: llmport-macos-arm64
+            artifact: llmport-macos-arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            llm_port_cli
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install package and PyInstaller
+        working-directory: ${{ env.CLI_DIR }}
+        run: |
+          pip install --upgrade pip
+          pip install . pyinstaller
+
+      - name: Build executable
+        working-directory: ${{ env.CLI_DIR }}
+        run: >
+          pyinstaller
+          --onefile
+          --clean
+          --name "${{ matrix.name }}"
+          --collect-submodules llmport
+          src/llmport/cli.py
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: cli-v${{ needs.publish.outputs.version }}
+          files: ${{ env.CLI_DIR }}/dist/${{ matrix.artifact }}

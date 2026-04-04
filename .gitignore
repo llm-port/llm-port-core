@@ -1,0 +1,61 @@
+# ── Python ────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+*.manifest
+pip-log.txt
+pip-delete-this-directory.txt
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+.mypy_cache/
+
+# ── Node / Frontend ──────────────────────────────────────────────
+node_modules/
+.react-router/
+*.tsbuildinfo
+
+# ── Virtual environments ─────────────────────────────────────────
+.venv/
+.env
+.env.*
+!.env.example
+
+# ── IDE ──────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ── OS ───────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Docker ───────────────────────────────────────────────────────
+docker-compose.override.yml
+docker-compose.override.yaml
+
+# ── PyInstaller ──────────────────────────────────────────────────
+*.spec.bak
+
+# ── Misc ─────────────────────────────────────────────────────────
+*.log
+*.sqlite3
+*.sqlite3-journal
+uv.lock

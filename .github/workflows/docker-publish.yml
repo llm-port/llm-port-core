@@ -1,0 +1,150 @@
+# Build and push all llm.port core Docker images to GHCR.
+#
+# Trigger options:
+#   - Push to main (builds changed services only)
+#   - Manual dispatch (choose which services to build)
+#
+# Prerequisites:
+#   1. Ensure the repo has packages:write permission (automatic with GITHUB_TOKEN)
+#   2. Images are published to ghcr.io/llm-port/<service>
+
+name: Publish Docker Images
+
+on:
+  workflow_dispatch:
+    inputs:
+      services:
+        description: "Services to build (comma-separated or 'all')"
+        required: false
+        default: "all"
+        type: string
+      registry:
+        description: "Container registry"
+        required: false
+        default: "ghcr.io/llm-port"
+        type: string
+      version:
+        description: "Image tag (leave empty for auto-tagging)"
+        required: false
+        default: ""
+        type: string
+
+  push:
+    branches: [main]
+    paths:
+      - "llm_port_api/**"
+      - "llm_port_backend/**"
+      - "llm_port_frontend/**"
+      - "llm_port_pii/**"
+      - "llm_port_mcp/**"
+      - "llm_port_skills/**"
+
+env:
+  REGISTRY: ${{ github.event.inputs.registry || 'ghcr.io/llm-port' }}
+
+jobs:
+  # ── Determine which services to build ───────────────────────────────
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      api: ${{ steps.filter.outputs.api }}
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      pii: ${{ steps.filter.outputs.pii }}
+      mcp: ${{ steps.filter.outputs.mcp }}
+      skills: ${{ steps.filter.outputs.skills }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for manual 'all'
+        id: manual
+        run: |
+          SERVICES="${{ github.event.inputs.services }}"
+          if [[ "$SERVICES" == "all" || -z "$SERVICES" ]]; then
+            echo "build_all=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "build_all=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: dorny/paths-filter@v3
+        id: filter
+        if: steps.manual.outputs.build_all != 'true' && github.event_name == 'push'
+        with:
+          filters: |
+            api:      ['llm_port_api/**']
+            backend:  ['llm_port_backend/**']
+            frontend: ['llm_port_frontend/**']
+            pii:      ['llm_port_pii/**']
+            mcp:      ['llm_port_mcp/**']
+            skills:   ['llm_port_skills/**']
+
+  # ── Build each service ──────────────────────────────────────────────
+  api:
+    needs: changes
+    if: >-
+      needs.changes.outputs.api == 'true' ||
+      github.event_name == 'workflow_dispatch' &&
+      (github.event.inputs.services == 'all' || contains(github.event.inputs.services, 'api'))
+    uses: ./.github/workflows/docker-build-reusable.yml
+    with:
+      service: api
+      context: llm_port_api
+      registry: ${{ github.event.inputs.registry || 'ghcr.io/llm-port' }}
+
+  backend:
+    needs: changes
+    if: >-
+      needs.changes.outputs.backend == 'true' ||
+      github.event_name == 'workflow_dispatch' &&
+      (github.event.inputs.services == 'all' || contains(github.event.inputs.services, 'backend'))
+    uses: ./.github/workflows/docker-build-reusable.yml
+    with:
+      service: backend
+      context: llm_port_backend
+      registry: ${{ github.event.inputs.registry || 'ghcr.io/llm-port' }}
+
+  frontend:
+    needs: changes
+    if: >-
+      needs.changes.outputs.frontend == 'true' ||
+      github.event_name == 'workflow_dispatch' &&
+      (github.event.inputs.services == 'all' || contains(github.event.inputs.services, 'frontend'))
+    uses: ./.github/workflows/docker-build-reusable.yml
+    with:
+      service: frontend
+      context: llm_port_frontend
+      registry: ${{ github.event.inputs.registry || 'ghcr.io/llm-port' }}
+
+  pii:
+    needs: changes
+    if: >-
+      needs.changes.outputs.pii == 'true' ||
+      github.event_name == 'workflow_dispatch' &&
+      (github.event.inputs.services == 'all' || contains(github.event.inputs.services, 'pii'))
+    uses: ./.github/workflows/docker-build-reusable.yml
+    with:
+      service: pii
+      context: llm_port_pii
+      registry: ${{ github.event.inputs.registry || 'ghcr.io/llm-port' }}
+
+  mcp:
+    needs: changes
+    if: >-
+      needs.changes.outputs.mcp == 'true' ||
+      github.event_name == 'workflow_dispatch' &&
+      (github.event.inputs.services == 'all' || contains(github.event.inputs.services, 'mcp'))
+    uses: ./.github/workflows/docker-build-reusable.yml
+    with:
+      service: mcp
+      context: llm_port_mcp
+      registry: ${{ github.event.inputs.registry || 'ghcr.io/llm-port' }}
+
+  skills:
+    needs: changes
+    if: >-
+      needs.changes.outputs.skills == 'true' ||
+      github.event_name == 'workflow_dispatch' &&
+      (github.event.inputs.services == 'all' || contains(github.event.inputs.services, 'skills'))
+    uses: ./.github/workflows/docker-build-reusable.yml
+    with:
+      service: skills
+      context: llm_port_skills
+      registry: ${{ github.event.inputs.registry || 'ghcr.io/llm-port' }}
