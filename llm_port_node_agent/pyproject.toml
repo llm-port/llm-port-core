@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "llmport-agent"
-version = "0.1.5"
+version = "0.1.6"
 description = "Node execution agent for llm-port cluster-managed runtimes."
 readme = "README.md"
 requires-python = ">=3.11"
