@@ -575,6 +575,7 @@ def cmd_configure() -> None:
             os.environ[k] = v
 
         print(f"  Next steps:")
+        print(f"    llmport-agent init    One-time host setup (sudoers)")
         print(f"    llmport-agent run     Run agent in foreground")
         print(f"    llmport-agent start   Install and start as system service")
     else:
@@ -591,13 +592,14 @@ def cmd_interactive() -> None:
 
     _section("What would you like to do?")
     print("  [1] Configure   — set up or change agent configuration")
-    print("  [2] Run         — run agent in the foreground")
-    print("  [3] Start       — install and start as a system service")
-    print("  [4] Exit")
+    print("  [2] Init        — one-time host setup (sudoers, directories)")
+    print("  [3] Run         — run agent in the foreground")
+    print("  [4] Start       — install and start as a system service")
+    print("  [5] Exit")
     print()
 
     try:
-        choice = input(f"  {_BOLD}Select [1-4]:{_RESET} ").strip()
+        choice = input(f"  {_BOLD}Select [1-5]:{_RESET} ").strip()
     except (EOFError, KeyboardInterrupt):
         print()
         return
@@ -605,9 +607,11 @@ def cmd_interactive() -> None:
     if choice == "1":
         cmd_configure()
     elif choice == "2":
+        cmd_init()
+    elif choice == "3":
         _load_env_into_process()
         asyncio.run(_run())
-    elif choice == "3":
+    elif choice == "4":
         _load_env_into_process()
         cmd_start()
     else:
@@ -703,7 +707,6 @@ def _build_service_content(agent_bin: str) -> str:
     is_home_model = model_store.startswith(home_dir)
     is_home_state = state_dir.startswith(home_dir)
     needs_home = is_home_model or is_home_state
-    protect_home = "read-only" if needs_home else "yes"
     if is_home_model:
         rw_paths_set.add(model_store)
     if is_home_state:
@@ -718,8 +721,6 @@ def _build_service_content(agent_bin: str) -> str:
         "@@USER@@": svc_user,
         "@@GROUP@@": svc_group,
         "@@USER_ENV_FILE@@": str(user_env_file),
-        "@@PROTECT_HOME@@": protect_home,
-        "@@READ_WRITE_PATHS@@": rw_paths,
     }
 
     template = _find_service_template()
@@ -747,12 +748,8 @@ def _build_service_content(agent_bin: str) -> str:
             f"ExecStart={agent_bin} run\n"
             "Restart=always\n"
             "RestartSec=5\n\n"
-            "NoNewPrivileges=true\n"
-            "ProtectSystem=strict\n"
-            f"ProtectHome=@@PROTECT_HOME@@\n"
-            "PrivateTmp=true\n"
-            f"ReadWritePaths=@@READ_WRITE_PATHS@@\n"
-            "CapabilityBoundingSet=\n\n"
+            "NoNewPrivileges=false\n"
+            "PrivateTmp=true\n\n"
             "[Install]\n"
             "WantedBy=multi-user.target\n"
         )
@@ -828,6 +825,43 @@ def _win_remove_autostart() -> None:
 
 
 # ── Subcommands ───────────────────────────────────────────────────
+
+
+_SUDOERS_FILE = Path("/etc/sudoers.d/llmport-agent")
+_SUDOERS_CMDS = ["/usr/bin/apt", "/usr/bin/fwupdmgr"]
+
+
+def cmd_init() -> None:
+    """One-time host initialisation: sudoers, directories, etc."""
+    if _IS_WINDOWS:
+        print("init is not required on Windows.")
+        return
+
+    _require_linux()
+    sudo = _sudo_prefix()
+    svc_user, _, _ = _resolve_service_user()
+
+    # ── sudoers for passwordless apt / fwupdmgr ──
+    cmds = ", ".join(c for c in _SUDOERS_CMDS if shutil.which(c))
+    if not cmds:
+        print("  No privileged commands found on this system — skipping sudoers.")
+    elif _SUDOERS_FILE.exists():
+        print(f"  {_SUDOERS_FILE} already exists — skipping.")
+    else:
+        sudoers_line = f"{svc_user} ALL=(ALL) NOPASSWD: {cmds}\n"
+        with tempfile.NamedTemporaryFile("w", delete=False, suffix=".sudoers") as sf:
+            sf.write(sudoers_line)
+            tmp = sf.name
+        try:
+            if _run_cmd([*sudo, "install", "-m", "0440", tmp, str(_SUDOERS_FILE)]) == 0:
+                print(f"  Installed {_SUDOERS_FILE}")
+                print(f"    {svc_user} NOPASSWD: {cmds}")
+            else:
+                print(f"  ERROR: Failed to install {_SUDOERS_FILE}", file=sys.stderr)
+        finally:
+            os.unlink(tmp)
+
+    print("\n  Host initialisation complete.")
 
 
 def cmd_start() -> None:
@@ -1061,6 +1095,7 @@ def main() -> None:
     )
     sub.add_parser("show", help="Show current configuration")
     sub.add_parser("scan", help="Scan and list models in the model cache")
+    sub.add_parser("init", help="One-time host setup (sudoers, directories)")
     sub.add_parser("run", help="Run agent in the foreground")
     sub.add_parser("start", help="Install and start as a background service")
     sub.add_parser("stop", help="Stop and remove the background service")
@@ -1074,6 +1109,8 @@ def main() -> None:
         cmd_show()
     elif args.command == "scan":
         cmd_scan()
+    elif args.command == "init":
+        cmd_init()
     elif args.command == "configure":
         if args.set_pairs:
             cmd_configure_set(args.set_pairs)

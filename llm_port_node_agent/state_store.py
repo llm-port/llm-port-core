@@ -27,6 +27,7 @@ class AgentState:
     draining: bool = False
     workloads: dict[str, dict[str, Any]] = field(default_factory=dict)
     completed_commands: dict[str, dict[str, Any]] = field(default_factory=dict)
+    profile: dict[str, Any] | None = None
     updated_at: str = field(default_factory=lambda: datetime.now(tz=UTC).isoformat())
 
 
@@ -62,6 +63,7 @@ class StateStore:
             draining=bool(raw.get("draining", False)),
             workloads=dict(raw.get("workloads") or {}),
             completed_commands=dict(raw.get("completed_commands") or {}),
+            profile=raw.get("profile"),
             updated_at=str(raw.get("updated_at") or datetime.now(tz=UTC).isoformat()),
         )
 
@@ -76,6 +78,7 @@ class StateStore:
             "draining": self.state.draining,
             "workloads": self.state.workloads,
             "completed_commands": self.state.completed_commands,
+            "profile": self.state.profile,
             "updated_at": self.state.updated_at,
         }
         tmp = self.path.with_suffix(".tmp")

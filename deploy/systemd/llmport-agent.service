@@ -15,12 +15,8 @@ Restart=always
 RestartSec=5
 TimeoutStopSec=30
 
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=@@PROTECT_HOME@@
+NoNewPrivileges=false
 PrivateTmp=true
-ReadWritePaths=@@READ_WRITE_PATHS@@
-CapabilityBoundingSet=
 
 [Install]
 WantedBy=multi-user.target

@@ -6,19 +6,21 @@ import asyncio
 import logging
 
 import psutil
-from websockets.exceptions import InvalidStatusCode
+from websockets.exceptions import InvalidStatus
 
 from llm_port_node_agent.backend_client import BackendClient
 from llm_port_node_agent.config import AgentConfig
 from llm_port_node_agent.container_log_forwarder import ContainerLogForwarder
 from llm_port_node_agent.dispatcher import CommandDispatcher
 from llm_port_node_agent.event_buffer import EventBuffer
+from llm_port_node_agent.gpu import detect_gpu
 from llm_port_node_agent.log_collector import LogCollector
 from llm_port_node_agent.loki_client import LokiClient
 from llm_port_node_agent.image_loader import load_image_from_backend
 from llm_port_node_agent.model_puller import pull_model
 from llm_port_node_agent.policy_guard import PolicyGuard
 from llm_port_node_agent.preflight import build_static_capabilities
+from llm_port_node_agent.runtimes import detect_runtime
 from llm_port_node_agent.runtime_manager import RuntimeManager
 from llm_port_node_agent.state_store import StateStore
 from llm_port_node_agent.stream_client import StreamClient
@@ -38,10 +40,16 @@ class NodeAgentService:
 
     async def run_forever(self) -> None:
         """Run agent forever with reconnect and re-enrollment handling."""
-        static_capabilities = await build_static_capabilities()
+        runtime = detect_runtime(preferred=self._config.container_runtime)
+        log.info("Detected container runtime: %s", runtime.name)
+
+        gpu_collector = detect_gpu()
+        log.info("Detected GPU collector: %s", gpu_collector.vendor)
+
+        static_capabilities = await build_static_capabilities(runtime, gpu_collector)
         log.info("Static capabilities: %s", static_capabilities)
         if not bool(static_capabilities.get("docker_available")):
-            log.warning("Docker is not available; runtime commands will fail until daemon is reachable.")
+            log.warning("Container runtime is not available; runtime commands will fail until daemon is reachable.")
 
         # Prime cpu_percent so first utilization report is non-zero
         psutil.cpu_percent()
@@ -61,7 +69,7 @@ class NodeAgentService:
             )
 
         async def _load_image(*, image: str) -> None:
-            """Stream image tarball from backend and load via docker."""
+            """Stream image tarball from backend and load via runtime."""
             credential = self._state_store.state.credential
             if not credential:
                 raise RuntimeError("No credential available for image transfer.")
@@ -69,9 +77,11 @@ class NodeAgentService:
                 client=self._client.http,
                 credential=credential,
                 image=image,
+                runtime=runtime,
             )
 
         runtime_manager = RuntimeManager(
+            runtime=runtime,
             state_store=self._state_store,
             events=events,
             advertise_host=self._config.advertise_host,
@@ -82,11 +92,13 @@ class NodeAgentService:
         )
         stream = StreamClient(
             config=self._config,
+            runtime=runtime,
             state_store=self._state_store,
             dispatcher=None,  # type: ignore[arg-type]  # set below
             static_capabilities=static_capabilities,
             events=events,
             backend_client=self._client,
+            gpu_collector=gpu_collector,
         )
         dispatcher = CommandDispatcher(
             state_store=self._state_store,
@@ -103,7 +115,11 @@ class NodeAgentService:
         if self._config.loki_url:
             loki_client = LokiClient(
                 loki_url=self._config.loki_url,
-                labels={"job": "node-agent", "host": self._config.host},
+                labels={
+                    "job": "node-agent",
+                    "host": self._config.host,
+                    "container": f"node-{self._config.agent_id}",
+                },
                 verify_tls=self._config.verify_tls,
             )
             self._loki = loki_client
@@ -115,6 +131,7 @@ class NodeAgentService:
             # Container log forwarding — tails docker logs for tracked workloads
             container_log_task = asyncio.create_task(
                 ContainerLogForwarder(
+                    runtime=runtime,
                     state_store=self._state_store,
                     loki=loki_client,
                     host=self._config.host,
@@ -135,14 +152,15 @@ class NodeAgentService:
                     raise RuntimeError("Credential missing after enrollment flow.")
                 await stream.run(credential=credential)
                 backoff = self._config.reconnect_min_sec
-            except InvalidStatusCode as exc:
+            except InvalidStatus as exc:
                 # 401/403 indicate credential no longer valid.
-                if exc.status_code in {401, 403}:
-                    log.warning("Stream auth rejected (%s), clearing credential.", exc.status_code)
+                status = exc.response.status_code
+                if status in {401, 403}:
+                    log.warning("Stream auth rejected (%s), clearing credential.", status)
                     self._state_store.state.credential = None
                     self._state_store.save()
                 else:
-                    log.warning("Stream rejected with status=%s", exc.status_code)
+                    log.warning("Stream rejected with status=%s", status)
             except Exception:
                 log.exception("Node stream loop failed.")
 

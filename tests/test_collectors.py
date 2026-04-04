@@ -14,6 +14,24 @@ from llm_port_node_agent.collectors import (
     collect_inventory,
     collect_utilization,
 )
+from llm_port_node_agent.gpu import GpuCollector, GpuSnapshot, GpuDevice, NullCollector
+
+
+class FakeGpuCollector:
+    """Deterministic GPU collector for testing."""
+
+    def __init__(self, snapshot: GpuSnapshot | None = None) -> None:
+        self._snapshot = snapshot or GpuSnapshot()
+
+    async def snapshot(self) -> GpuSnapshot:
+        return self._snapshot
+
+    async def device_count(self) -> int:
+        return self._snapshot.count
+
+    @property
+    def vendor(self) -> str:
+        return "fake"
 
 
 def _fake_vmem() -> MagicMock:
@@ -44,19 +62,25 @@ def _fake_net() -> MagicMock:
 
 
 @pytest.mark.asyncio()
-@patch("llm_port_node_agent.collectors.shutil.which", return_value=None)
-async def test_gpu_snapshot_no_nvidia(mock_which: MagicMock) -> None:
-    snap = await collect_gpu_snapshot()
+async def test_gpu_snapshot_no_gpu() -> None:
+    collector = NullCollector()
+    snap = await collect_gpu_snapshot(collector)
     assert snap["count"] == 0
     assert snap["free_vram_bytes"] == 0
 
 
 @pytest.mark.asyncio()
-@patch("llm_port_node_agent.collectors._run")
-@patch("llm_port_node_agent.collectors.shutil.which", return_value="/usr/bin/nvidia-smi")
-async def test_gpu_snapshot_with_nvidia(mock_which: MagicMock, mock_run: AsyncMock) -> None:
-    mock_run.return_value = (0, "8192, 2048, 45, 65\n", "")
-    snap = await collect_gpu_snapshot()
+async def test_gpu_snapshot_with_collector() -> None:
+    collector = FakeGpuCollector(
+        GpuSnapshot(
+            count=1,
+            devices=[GpuDevice(memory_total_mib=8192, memory_used_mib=2048, utilization_pct=45, temperature_c=65, vendor="nvidia")],
+            total_vram_bytes=8192 * 1024 * 1024,
+            used_vram_bytes=2048 * 1024 * 1024,
+            free_vram_bytes=(8192 - 2048) * 1024 * 1024,
+        ),
+    )
+    snap = await collect_gpu_snapshot(collector)
     assert snap["count"] == 1
     assert snap["devices"][0]["memory_total_mib"] == 8192
     assert snap["free_vram_bytes"] == (8192 - 2048) * 1024 * 1024

@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from llm_port_node_agent.loki_client import LokiClient
+from llm_port_node_agent.runtimes import ContainerRuntime
 from llm_port_node_agent.state_store import StateStore
 
 log = logging.getLogger(__name__)
@@ -25,11 +26,13 @@ class ContainerLogForwarder:
     def __init__(
         self,
         *,
+        runtime: ContainerRuntime,
         state_store: StateStore,
         loki: LokiClient,
         host: str,
         interval_sec: int = 5,
     ) -> None:
+        self._runtime = runtime
         self._state = state_store
         self._loki = loki
         self._host = host
@@ -72,31 +75,24 @@ class ContainerLogForwarder:
         container_name: str,
     ) -> None:
         since = self._cursors.get(runtime_id)
-        args = ["logs", "--timestamps"]
+        tail_arg: str | None = None
+        since_arg: str | None = None
         if since:
-            args.extend(["--since", since])
+            since_arg = since
         else:
             # First collection: grab last 100 lines to bootstrap the view
-            args.extend(["--tail", "100"])
-        args.append(container_name)
+            tail_arg = "100"
 
-        proc = await asyncio.create_subprocess_exec(
-            "docker", *args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+        code, raw = await self._runtime.logs(
+            container_name,
+            tail=tail_arg,
+            since=since_arg,
+            timestamps=True,
         )
-        try:
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=15)
-        except TimeoutError:
-            proc.kill()
-            await proc.communicate()
+
+        if code != 0:
             return
 
-        if proc.returncode != 0:
-            return
-
-        # Docker may split output across stdout and stderr
-        raw = (stdout + stderr).decode("utf-8", "replace")
         if not raw.strip():
             return
 

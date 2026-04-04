@@ -1,8 +1,7 @@
-"""Docker-backed workload lifecycle management."""
+"""Workload lifecycle management backed by a pluggable container runtime."""
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import shlex
 from collections.abc import Awaitable, Callable
@@ -11,6 +10,7 @@ from typing import Any
 ProgressEmitter = Callable[[dict[str, Any]], Awaitable[None]]
 
 from llm_port_node_agent.event_buffer import EventBuffer
+from llm_port_node_agent.runtimes import ContainerRuntime
 from llm_port_node_agent.state_store import StateStore
 
 log = logging.getLogger(__name__)
@@ -21,7 +21,7 @@ class RuntimeManagerError(RuntimeError):
 
 
 class RuntimeManager:
-    """Executes workload lifecycle operations using Docker CLI."""
+    """Executes workload lifecycle operations via a pluggable container runtime."""
 
     _DEFAULT_IMAGES = {
         "vllm": "vllm/vllm-openai:latest",
@@ -43,6 +43,7 @@ class RuntimeManager:
     def __init__(
         self,
         *,
+        runtime: ContainerRuntime,
         state_store: StateStore,
         events: EventBuffer,
         advertise_host: str,
@@ -51,6 +52,7 @@ class RuntimeManager:
         model_puller: Callable[..., Any] | None = None,
         image_loader: Callable[..., Any] | None = None,
     ) -> None:
+        self._runtime = runtime
         self._state = state_store
         self._events = events
         self._advertise_host = advertise_host.strip() or "127.0.0.1"
@@ -89,7 +91,8 @@ class RuntimeManager:
         container_name = str(payload.get("container_name") or "").strip() or self._container_name(runtime_id, runtime_name=runtime_name)
 
         await _progress("remove_stale", f"Removing stale container {container_name} (if exists)")
-        await self._remove_container_if_exists(container_name)
+        if await self._runtime.exists(container_name):
+            await self._runtime.remove(container_name)
 
         command_override = provider_config.get("command")
         cmd: list[str] = []
@@ -97,8 +100,6 @@ class RuntimeManager:
             cmd = [str(item) for item in command_override]
         elif isinstance(command_override, str) and command_override.strip():
             cmd = shlex.split(command_override)
-
-        self._sanitize_command_args(cmd)
 
         # GPU passthrough
         gpu_request = str(payload.get("gpu_request") or provider_config.get("gpu_request") or "").strip()
@@ -108,6 +109,18 @@ class RuntimeManager:
 
         # Resource limits
         container_port = str(payload.get("container_port") or provider_config.get("container_port") or "8000").strip()
+
+        # Build default command for known provider types when none provided
+        entrypoint_override: str | None = None
+        if not cmd:
+            cmd, entrypoint_override = self._build_provider_command(
+                provider_type=provider_type,
+                payload=payload,
+                container_port=container_port,
+            )
+
+        self._sanitize_command_args(cmd)
+
         memory_limit = str(payload.get("memory_limit") or provider_config.get("memory_limit") or "").strip()
         cpu_limit = str(payload.get("cpu_limit") or provider_config.get("cpu_limit") or "").strip()
         shm_size = str(payload.get("shm_size") or provider_config.get("shm_size") or "").strip()
@@ -146,46 +159,12 @@ class RuntimeManager:
         else:
             await _progress("sync_model", "No model sync required")
 
-        args = [
-            "run",
-            "-d",
-            "--name",
-            container_name,
-            "--restart",
-            "unless-stopped",
-            "-p",
-            container_port,
-            "-e",
-            f"LLM_PORT_RUNTIME_ID={runtime_id}",
-            "-e",
-            f"LLM_PORT_PROVIDER_TYPE={provider_type}",
-        ]
-        if gpu_request:
-            args.extend(["--gpus", gpu_request])
-        if memory_limit:
-            args.extend(["--memory", memory_limit])
-        if cpu_limit:
-            args.extend(["--cpus", cpu_limit])
-        if shm_size:
-            args.extend(["--shm-size", shm_size])
-        if ipc_mode:
-            args.extend(["--ipc", ipc_mode])
-
-        # ── Mount model cache if model was synced ─────────────────
-        if hf_cache_mount:
-            host_hf_path = self._model_store_root
-            args.extend(["-v", f"{host_hf_path}:{hf_cache_mount}"])
-            args.extend(["-e", f"HF_HUB_CACHE={hf_cache_mount}"])
-            if hf_offline:
-                args.extend(["-e", "HF_HUB_OFFLINE=1"])
-                args.extend(["-e", "TRANSFORMERS_OFFLINE=1"])
-
         # ── Ensure the container image is available locally ───────
         image_source = str(payload.get("image_source") or "").strip()
         if image_source == "pull_from_registry":
             await _progress("pull_image", f"Pulling image {image} from registry")
             log.info("Pulling image %s from registry on node", image)
-            await self._docker("pull", image, timeout_sec=1800)
+            await self._runtime.pull(image, timeout_sec=1800)
         elif image_source == "transfer_from_server":
             await _progress("pull_image", f"Transferring image {image} from backend")
             log.info("Loading image %s from backend transfer", image)
@@ -194,9 +173,51 @@ class RuntimeManager:
             await _progress("pull_image", "Using locally available image")
 
         await _progress("start_container", f"Starting container {container_name}")
-        args.extend([image, *cmd])
-        _, out, _ = await self._docker(*args, timeout_sec=120)
-        container_id = out.strip().splitlines()[0] if out.strip() else ""
+
+        # Build env dict and extra_args for the runtime
+        run_env: dict[str, str] = {
+            "LLM_PORT_RUNTIME_ID": runtime_id,
+            "LLM_PORT_PROVIDER_TYPE": provider_type,
+        }
+        # Bypass NGC entrypoint driver-version check when the image ships
+        # CUDA forward-compat libs (e.g. nvcr.io containers).  The compat
+        # libraries handle the actual runtime compatibility; the entrypoint
+        # check is overly strict and blocks valid driver/CUDA combinations.
+        if gpu_request and "nvcr.io" in image:
+            run_env["NVIDIA_DISABLE_REQUIRE"] = "1"
+        run_volumes: list[str] = []
+        extra_args: list[str] = []
+
+        if memory_limit:
+            extra_args.extend(["--memory", memory_limit])
+        if cpu_limit:
+            extra_args.extend(["--cpus", cpu_limit])
+        if shm_size:
+            extra_args.extend(["--shm-size", shm_size])
+        if ipc_mode:
+            extra_args.extend(["--ipc", ipc_mode])
+
+        # ── Mount model cache if model was synced ─────────────────
+        if hf_cache_mount:
+            host_hf_path = self._model_store_root
+            run_volumes.append(f"{host_hf_path}:{hf_cache_mount}")
+            run_env["HF_HUB_CACHE"] = hf_cache_mount
+            if hf_offline:
+                run_env["HF_HUB_OFFLINE"] = "1"
+                run_env["TRANSFORMERS_OFFLINE"] = "1"
+
+        container_id = await self._runtime.run(
+            image=image,
+            name=container_name,
+            ports=[container_port],
+            env=run_env,
+            gpus=gpu_request or None,
+            volumes=run_volumes or None,
+            command=cmd or None,
+            entrypoint=entrypoint_override,
+            extra_args=extra_args or None,
+            timeout_sec=120,
+        )
 
         await _progress("resolve_endpoint", "Resolving container endpoint")
         endpoint = await self._resolve_endpoint(container_name, container_port=container_port)
@@ -246,10 +267,10 @@ class RuntimeManager:
         runtime_id = self._require_runtime_id(payload)
         container_name = self._lookup_container(runtime_id, payload, allow_missing=True)
         # If no container exists yet, fall back to a full deploy
-        if not container_name or not await self._container_exists(container_name):
+        if not container_name or not await self._runtime.exists(container_name):
             log.info("Container not found for %s — falling back to deploy", runtime_id)
             return await self.deploy_workload(payload, emit_progress=emit_progress)
-        await self._docker("start", container_name, timeout_sec=30)
+        await self._runtime.start(container_name)
         endpoint = await self._resolve_endpoint(container_name)
         self._events.add(
             event_type="workload.started",
@@ -262,7 +283,7 @@ class RuntimeManager:
         """Stop a running workload container."""
         runtime_id = self._require_runtime_id(payload)
         container_name = self._lookup_container(runtime_id, payload)
-        await self._docker("stop", container_name, timeout_sec=30)
+        await self._runtime.stop(container_name)
         self._events.add(
             event_type="workload.stopped",
             payload={"runtime_id": runtime_id, "container_name": container_name},
@@ -276,10 +297,10 @@ class RuntimeManager:
         """Restart a workload container (deploy if missing)."""
         runtime_id = self._require_runtime_id(payload)
         container_name = self._lookup_container(runtime_id, payload, allow_missing=True)
-        if not container_name or not await self._container_exists(container_name):
+        if not container_name or not await self._runtime.exists(container_name):
             log.info("Container not found for %s — falling back to deploy", runtime_id)
             return await self.deploy_workload(payload, emit_progress=emit_progress)
-        await self._docker("restart", container_name, timeout_sec=45)
+        await self._runtime.restart(container_name)
         endpoint = await self._resolve_endpoint(container_name)
         self._events.add(
             event_type="workload.restarted",
@@ -293,7 +314,7 @@ class RuntimeManager:
         runtime_id = self._require_runtime_id(payload)
         container_name = self._lookup_container(runtime_id, payload, allow_missing=True)
         if container_name:
-            await self._docker("rm", "-f", container_name, timeout_sec=45)
+            await self._runtime.remove(container_name)
         self._state.drop_workload(runtime_id)
         self._events.add(
             event_type="workload.removed",
@@ -312,10 +333,8 @@ class RuntimeManager:
 
     async def collect_diagnostics(self) -> dict[str, Any]:
         """Return basic diagnostics without mutating workloads."""
-        _, ps_out, _ = await self._docker("ps", "-a", "--format", "{{json .}}", timeout_sec=20)
-        _, images_out, _ = await self._docker("images", "--format", "{{json .}}", timeout_sec=20)
-        rows_ps = [line for line in ps_out.splitlines() if line.strip()]
-        rows_images = [line for line in images_out.splitlines() if line.strip()]
+        rows_ps = await self._runtime.ps()
+        rows_images = await self._runtime.images()
         return {
             "docker_ps_rows": rows_ps[:200],
             "docker_images_rows": rows_images[:200],
@@ -328,77 +347,26 @@ class RuntimeManager:
         if not container_name:
             return {"logs": f"No container found for runtime {runtime_id}. Deploy or update the runtime to create the container."}
         tail = str(payload.get("tail", 300))
-        code, out, err = await self._docker(
-            "logs", "--tail", tail, "--timestamps", container_name,
-            timeout_sec=15,
-            raise_on_error=False,
+        code, combined = await self._runtime.logs(
+            container_name,
+            tail=tail,
+            timestamps=True,
         )
-        if code != 0 and "no such container" in (err + out).lower():
+        if code != 0 and "no such container" in combined.lower():
             return {"logs": f"Container {container_name} does not exist on this node. Deploy or update the runtime to create it."}
-        # Docker sends some output to stderr (timestamps, etc.)
-        logs = out + err if code == 0 else err or out
-        return {"logs": logs}
+        return {"logs": combined}
 
-    async def _remove_container_if_exists(self, container_name: str) -> None:
-        code, _, _ = await self._docker("inspect", container_name, timeout_sec=8, raise_on_error=False)
-        if code == 0:
-            await self._docker("rm", "-f", container_name, timeout_sec=45)
-
-    async def _container_exists(self, container_name: str) -> bool:
-        """Return True if a Docker container with *container_name* exists."""
-        code, _, _ = await self._docker("inspect", container_name, timeout_sec=8, raise_on_error=False)
-        return code == 0
+    async def _resolve_endpoint(self, container_name: str, *, container_port: str = "8000") -> str | None:
+        host_port = await self._runtime.port(container_name, container_port)
+        if not host_port:
+            return None
+        return f"{self._advertise_scheme}://{self._advertise_host}:{host_port}"
 
     async def _load_image_from_backend(self, image: str, payload: dict) -> None:
         """Download image tarball from backend and load via ``docker load``."""
         if self._image_loader is None:
             raise RuntimeManagerError("Image loader not configured — cannot transfer image.")
         await self._image_loader(image=image)
-
-    async def _resolve_endpoint(self, container_name: str, *, container_port: str = "8000") -> str | None:
-        code, out, _ = await self._docker(
-            "port",
-            container_name,
-            f"{container_port}/tcp",
-            timeout_sec=10,
-            raise_on_error=False,
-        )
-        if code != 0:
-            return None
-        value = out.strip().splitlines()
-        if not value:
-            return None
-        host_port = value[0].split(":")[-1].strip()
-        if not host_port:
-            return None
-        return f"{self._advertise_scheme}://{self._advertise_host}:{host_port}"
-
-    async def _docker(
-        self,
-        *args: str,
-        timeout_sec: float = 30,
-        raise_on_error: bool = True,
-    ) -> tuple[int, str, str]:
-        proc = await asyncio.create_subprocess_exec(
-            "docker",
-            *args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        try:
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout_sec)
-        except TimeoutError:
-            proc.kill()
-            await proc.communicate()
-            if raise_on_error:
-                raise RuntimeManagerError(f"docker {' '.join(args)} timed out.")
-            return 124, "", "timeout"
-        code = proc.returncode
-        out = stdout.decode("utf-8", "replace")
-        err = stderr.decode("utf-8", "replace")
-        if raise_on_error and code != 0:
-            raise RuntimeManagerError(f"docker {' '.join(args)} failed: {err.strip() or out.strip()}")
-        return code, out, err
 
     @staticmethod
     def _container_name(runtime_id: str, *, runtime_name: str | None = None) -> str:
@@ -428,6 +396,102 @@ class RuntimeManager:
                 raise RuntimeManagerError(
                     f"Host network mode in command override is not allowed: {arg}"
                 )
+
+    # ── provider command builders ──────────────────────────────
+
+    def _build_provider_command(
+        self,
+        *,
+        provider_type: str,
+        payload: dict[str, Any],
+        container_port: str,
+    ) -> tuple[list[str], str | None]:
+        """Return ``(cmd, entrypoint_override)`` for *provider_type*.
+
+        Called when no explicit command was supplied in provider_config.
+        The entrypoint override (if any) is passed to the container runtime
+        so the same command works across different base images.
+        """
+        if provider_type == "vllm":
+            return self._build_vllm_command(payload, container_port)
+        return [], None
+
+    @staticmethod
+    def _build_vllm_command(
+        payload: dict[str, Any], container_port: str,
+    ) -> tuple[list[str], str | None]:
+        """Derive a ``vllm serve`` command from the deploy payload."""
+        model_sync = payload.get("model_sync")
+        pc = payload.get("provider_config")
+        pc = pc if isinstance(pc, dict) else {}
+        gc = payload.get("generic_config")
+        gc = gc if isinstance(gc, dict) else {}
+
+        # Determine model identifier
+        model = ""
+        if isinstance(model_sync, dict):
+            model = str(model_sync.get("hf_repo_id", "")).strip()
+        if not model:
+            model = str(gc.get("model", "") or pc.get("model", "")).strip()
+        if not model:
+            log.warning("Cannot build vLLM command — no model identifier found in payload")
+            return [], None
+
+        cmd: list[str] = [
+            "serve", "--model", model,
+            "--host", "0.0.0.0", "--port", container_port,
+        ]
+
+        # Map generic_config keys to CLI flags
+        _GC_FLAGS = {
+            "max_model_len": "--max-model-len",
+            "dtype": "--dtype",
+            "gpu_memory_utilization": "--gpu-memory-utilization",
+            "tensor_parallel_size": "--tensor-parallel-size",
+            "swap_space": "--swap-space",
+        }
+        for key, flag in _GC_FLAGS.items():
+            val = gc.get(key)
+            if val is not None and str(val).strip():
+                cmd.extend([flag, str(val)])
+        if gc.get("enforce_eager"):
+            cmd.append("--enforce-eager")
+
+        # Tool-calling support — enable by default so MCP tools work.
+        # Users can override the parser via engine_args or generic_config.
+        tool_parser = str(gc.get("tool_call_parser", "") or "").strip()
+        if not tool_parser:
+            tool_parser = str(pc.get("tool_call_parser", "") or "").strip()
+        if tool_parser:
+            cmd.extend(["--enable-auto-tool-choice", "--tool-call-parser", tool_parser])
+        else:
+            cmd.extend(["--enable-auto-tool-choice", "--tool-call-parser", "openai"])
+
+        # engine_args from provider_config  ({flag: value} dict)
+        engine_args = pc.get("engine_args")
+        if isinstance(engine_args, dict):
+            existing = {c.lstrip("-") for c in cmd if c.startswith("--")}
+            for flag, val in engine_args.items():
+                if not isinstance(flag, str):
+                    continue
+                clean = flag.replace("-", "").replace("_", "")
+                if not clean.isalnum():
+                    continue
+                if flag in existing:
+                    continue
+                if isinstance(val, bool):
+                    if val:
+                        cmd.append(f"--{flag}")
+                elif val is not None and str(val).strip():
+                    cmd.extend([f"--{flag}", str(val)])
+
+        # extra_args passthrough (raw list)
+        extra = pc.get("extra_args")
+        if isinstance(extra, list):
+            cmd.extend(str(a) for a in extra)
+
+        log.info("Built vLLM command: vllm %s", " ".join(cmd))
+        return cmd, "vllm"
 
     def _lookup_container(
         self,

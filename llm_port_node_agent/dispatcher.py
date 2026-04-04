@@ -11,6 +11,7 @@ from llm_port_node_agent.models import NodeCommandType
 from llm_port_node_agent.policy_guard import PolicyGuard, PolicyViolationError
 from llm_port_node_agent.runtime_manager import RuntimeManager, RuntimeManagerError
 from llm_port_node_agent.state_store import StateStore
+from llm_port_node_agent import system_updater
 
 ProgressEmitter = Callable[[dict[str, Any]], Awaitable[None]]
 
@@ -147,6 +148,29 @@ class CommandDispatcher:
                 "accepted": False,
                 "reason": "host_op not enabled by default on agent.",
             }
+        if command_type == NodeCommandType.SYNC_NODE_PROFILE.value:
+            profile = payload.get("profile")
+            self._state.state.profile = profile if isinstance(profile, dict) else None
+            self._state.save()
+            log.info("Node profile synced: %s", profile.get("name") if isinstance(profile, dict) else None)
+            return {"synced": True}
+        if command_type == NodeCommandType.CHECK_SYSTEM_UPDATES.value:
+            profile = self._state.state.profile or {}
+            return await system_updater.check_updates(
+                emit_progress, update_config=profile.get("update_config"),
+            )
+        if command_type == NodeCommandType.APPLY_SYSTEM_UPDATES.value:
+            profile = self._state.state.profile or {}
+            ucfg = dict(profile.get("update_config") or {})
+            scope = str(payload.get("scope", "all"))
+            if "reboot_policy" in payload:
+                ucfg["reboot_policy"] = payload["reboot_policy"]
+            result = await system_updater.apply_updates(
+                emit_progress, scope=scope, update_config=ucfg,
+            )
+            if result.get("error"):
+                raise RuntimeManagerError(result["error"])
+            return result
         raise RuntimeManagerError(f"Unsupported command type: {command_type}")
 
     @staticmethod
