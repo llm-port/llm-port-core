@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600" viewBox="0 0 1200 600">
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#3f1d2e"/>
+      <stop offset="100%" stop-color="#9a3412"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="600" fill="url(#bg)"/>
+  <text x="70" y="120" fill="#fff7ed" font-size="52" font-family="Segoe UI, Arial, sans-serif">Centralized API Endpoint</text>
+  <text x="70" y="170" fill="#fed7aa" font-size="24" font-family="Segoe UI, Arial, sans-serif">Placeholder image - replace with screenshot later</text>
+  <rect x="70" y="230" width="1060" height="290" rx="20" fill="#451a03" stroke="#fb923c" stroke-width="2"/>
+  <rect x="120" y="335" width="170" height="80" rx="12" fill="#7c2d12"/>
+  <text x="154" y="382" fill="#ffedd5" font-size="28" font-family="Segoe UI, Arial, sans-serif">Client</text>
+  <rect x="490" y="315" width="220" height="120" rx="14" fill="#c2410c"/>
+  <text x="530" y="382" fill="#fff7ed" font-size="28" font-family="Segoe UI, Arial, sans-serif">Gateway</text>
+  <rect x="910" y="335" width="170" height="80" rx="12" fill="#9a3412"/>
+  <text x="946" y="382" fill="#ffedd5" font-size="28" font-family="Segoe UI, Arial, sans-serif">LLM</text>
+  <line x1="300" y1="375" x2="470" y2="375" stroke="#fdba74" stroke-width="8"/>
+  <polygon points="470,375 450,365 450,385" fill="#fdba74"/>
+  <line x1="730" y1="375" x2="900" y2="375" stroke="#fdba74" stroke-width="8"/>
+  <polygon points="900,375 880,365 880,385" fill="#fdba74"/>
+</svg>

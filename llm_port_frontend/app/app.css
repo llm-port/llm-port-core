@@ -1,0 +1,101 @@
+@import "tailwindcss";
+@import "reactflow/dist/style.css";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif,
+    "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+}
+
+/* Lock viewport — prevent browser-level scroll on admin layout */
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body[data-theme="dark"] {
+  --scroll-thumb: rgba(124, 77, 255, 0.25);
+  --scroll-thumb-hover: rgba(124, 77, 255, 0.45);
+}
+
+body[data-theme="light"] {
+  --scroll-thumb: rgba(30, 64, 175, 0.25);
+  --scroll-thumb-hover: rgba(30, 64, 175, 0.42);
+}
+
+/* ── Modern thin scrollbars ────────────────────────────────────────── */
+
+/* Webkit / Blink (Chrome, Edge, Safari) */
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb, rgba(124, 77, 255, 0.25));
+  border-radius: 3px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--scroll-thumb-hover, rgba(124, 77, 255, 0.45));
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb, rgba(124, 77, 255, 0.25)) transparent;
+}
+
+/* Let MUI handle backgrounds and colors */
+
+/* React Flow visual defaults (protect from utility/reset overrides) */
+.react-flow {
+  --xy-controls-button-background-color-default: #ffffff;
+  --xy-controls-button-background-color-hover-default: #f3f4f6;
+  --xy-controls-button-color-default: #111827;
+  --xy-controls-button-border-color-default: #d1d5db;
+  --xy-minimap-mask-background-color-default: rgba(15, 23, 42, 0.08);
+}
+
+body[data-theme="dark"] .react-flow {
+  --xy-controls-button-background-color-default: #1f2937;
+  --xy-controls-button-background-color-hover-default: #374151;
+  --xy-controls-button-color-default: #f9fafb;
+  --xy-controls-button-border-color-default: #4b5563;
+  --xy-minimap-mask-background-color-default: rgba(15, 23, 42, 0.35);
+}
+
+.react-flow__controls {
+  box-shadow: 0 6px 18px rgba(2, 6, 23, 0.2);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.react-flow__controls-button {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--xy-controls-button-border-color-default) !important;
+}
+
+.react-flow__controls-button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.react-flow__minimap {
+  border: 1px solid var(--xy-controls-button-border-color-default);
+  border-radius: 10px;
+  background: color-mix(
+    in srgb,
+    var(--xy-controls-button-background-color-default) 92%,
+    transparent
+  );
+}
