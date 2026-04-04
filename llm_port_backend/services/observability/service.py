@@ -206,7 +206,11 @@ class ObservabilityService:
                 endpoint, status_code, latency_ms, ttft_ms,
                 prompt_tokens, completion_tokens, total_tokens, error_code,
                 estimated_input_cost, estimated_output_cost, estimated_total_cost,
-                currency, cost_estimate_status, cached_tokens, stream, created_at
+                currency, cost_estimate_status, cached_tokens, stream,
+                session_id, finish_reason, retry_count,
+                skills_used, rag_context,
+                mcp_tool_call_count, mcp_tool_loop_iterations,
+                created_at
             FROM llm_gateway_request_log
             {filters}
             ORDER BY created_at DESC
@@ -233,7 +237,11 @@ class ObservabilityService:
                 prompt_tokens, completion_tokens, total_tokens, error_code,
                 estimated_input_cost, estimated_output_cost, estimated_total_cost,
                 currency, price_catalog_id, cost_estimate_status,
-                cached_tokens, stream, created_at
+                cached_tokens, stream,
+                session_id, finish_reason, retry_count,
+                skills_used, rag_context,
+                mcp_tool_call_count, mcp_tool_loop_iterations,
+                created_at
             FROM llm_gateway_request_log
             WHERE request_id = :request_id
             ORDER BY created_at DESC
@@ -248,6 +256,26 @@ class ObservabilityService:
         if d.get("price_catalog_id"):
             d["price_catalog_id"] = str(d["price_catalog_id"])
         return d
+
+    # ── Tool call detail ──────────────────────────────────────────
+
+    async def get_tool_calls(self, request_id: str) -> list[dict]:
+        """Return MCP tool call logs for a given request."""
+        q = text("""
+            SELECT
+                id, request_id, iteration, tool_name, mcp_server,
+                latency_ms, is_error, error_message, created_at
+            FROM llm_tool_call_log
+            WHERE request_id = :request_id
+            ORDER BY iteration, created_at
+        """)
+        result = await self._session.execute(q, {"request_id": request_id})
+        items = []
+        for r in result.mappings().all():
+            row = dict(r)
+            row["id"] = str(row["id"])
+            items.append(row)
+        return items
 
     # ── Session cost ──────────────────────────────────────────────
 

@@ -106,6 +106,8 @@ class ProviderDAO:
             provider.litellm_model = litellm_model
         if extra_params is not ...:
             provider.extra_params = extra_params
+        await self.session.flush()
+        await self.session.refresh(provider)
         return provider
 
     async def delete(self, provider_id: uuid.UUID) -> bool:

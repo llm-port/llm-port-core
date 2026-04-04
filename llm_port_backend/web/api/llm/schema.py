@@ -165,7 +165,7 @@ class ModelInstanceDTO(BaseModel):
     provider_id: uuid.UUID
     provider_name: str
     provider_type: ProviderType
-    execution_target: str  # "local" | "node"
+    execution_target: str  # "local" | "remote" | "node"
     node_id: uuid.UUID | None = None
     node_host: str | None = None
 

@@ -29,6 +29,7 @@ from llm_port_backend.web.api.admin.observability.schema import (
     SessionCostDTO,
     SummaryDTO,
     TimeseriesBucketDTO,
+    ToolCallLogDTO,
 )
 from llm_port_backend.web.api.rbac import require_permission
 
@@ -172,6 +173,24 @@ async def get_request_detail(
     if data is None:
         raise HTTPException(status_code=404, detail="Request not found")
     return RequestLogDTO(**data)
+
+
+# ── Tool call logs ─────────────────────────────────────────────
+
+
+@router.get(
+    "/requests/{request_id}/tool-calls",
+    response_model=list[ToolCallLogDTO],
+    name="observability_tool_calls",
+)
+async def get_tool_calls(
+    request_id: str,
+    _user: Annotated[User, Depends(require_permission("observability", "read"))],
+    gw: AsyncSession = Depends(_get_gateway_session),
+) -> list[ToolCallLogDTO]:
+    svc = ObservabilityService(gw)
+    data = await svc.get_tool_calls(request_id)
+    return [ToolCallLogDTO(**row) for row in data]
 
 
 # ── Session cost ──────────────────────────────────────────────────

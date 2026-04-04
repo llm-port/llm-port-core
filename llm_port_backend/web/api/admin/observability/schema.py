@@ -100,6 +100,25 @@ class RequestLogDTO(BaseModel):
     cost_estimate_status: str | None = None
     cached_tokens: int | None = None
     stream: bool | None = None
+    session_id: str | None = None
+    finish_reason: str | None = None
+    retry_count: int | None = None
+    skills_used: list[dict] | None = None
+    rag_context: dict | None = None
+    mcp_tool_call_count: int | None = None
+    mcp_tool_loop_iterations: int | None = None
+    created_at: datetime
+
+
+class ToolCallLogDTO(BaseModel):
+    id: str
+    request_id: str
+    iteration: int
+    tool_name: str
+    mcp_server: str | None = None
+    latency_ms: int
+    is_error: bool = False
+    error_message: str | None = None
     created_at: datetime
 
 

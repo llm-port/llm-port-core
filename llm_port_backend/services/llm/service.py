@@ -432,6 +432,7 @@ class LLMService:
                     endpoint_url = f"litellm://{provider.litellm_provider}"
                 else:
                     raise ValueError("Remote provider has no endpoint_url configured")
+            runtime.execution_target = "remote"
             await runtime_dao.set_container_ref(runtime.id, None, endpoint_url)
             await runtime_dao.set_status(runtime.id, RuntimeStatus.RUNNING)
             log.info(

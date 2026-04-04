@@ -367,6 +367,10 @@ async def create_provider(
                 status=ModelStatus.AVAILABLE,
                 tags=["remote", "auto-provisioned"],
             )
+        elif placeholder_model.source != ModelSource.REMOTE:
+            # Model was previously registered locally / from HF; update
+            # source so the UI shows "remote" instead of "local_path".
+            placeholder_model.source = ModelSource.REMOTE
         try:
             await llm_service.create_runtime(
                 runtime_dao,
