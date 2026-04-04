@@ -1,0 +1,92 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/llmport"]
+
+[project]
+name = "llmport-cli"
+version = "0.2.4"
+requires-python = ">=3.12,<4.0"
+description = "CLI installer and management tool for the llm.port platform"
+authors = [
+  { name = "Sachith Liyanagama", email = "liyanagama@outlook.de" },
+]
+maintainers = [
+  { name = "Sachith Liyanagama", email = "liyanagama@outlook.de" },
+]
+readme = "README.md"
+license = "Apache-2.0"
+keywords = ["llm", "ai", "cli", "infrastructure", "docker"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: System :: Installation/Setup",
+    "Topic :: System :: Systems Administration",
+]
+dependencies = [
+    "click >=8.1,<9",
+    "rich >=13.0,<14",
+    "textual >=1.0,<2",
+    "InquirerPy >=0.3,<1",
+    "httpx >=0.27,<1",
+    "pyyaml >=6.0,<7",
+    "jinja2 >=3.1,<4",
+    "psutil >=6.0,<7",
+]
+
+[project.urls]
+Homepage = "https://llm-port.github.io"
+Repository = "https://github.com/llm-port/llm-port-cli"
+Documentation = "https://llm-port.github.io/docs"
+Issues = "https://github.com/llm-port/llm-port-cli/issues"
+
+[project.scripts]
+llmport = "llmport.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest >=9.0,<10",
+    "ruff >=0.14,<1",
+    "mypy >=1.19,<2",
+    "pytest-cov >=7.0,<8",
+]
+
+[tool.uv]
+default-groups = ["dev"]
+
+[tool.ruff]
+target-version = "0.2.4"
+lint.select = [
+    "E", "F", "W", "C90", "I", "N", "D", "ANN",
+    "S", "B", "C4", "ISC", "PIE", "T20", "Q",
+    "RSE", "RET", "SLF", "SIM", "PTH", "ERA",
+    "PL", "RUF", "FA102", "UP",
+]
+lint.ignore = [
+    "D105", "D107", "D211", "D212", "D401",
+    "D104", "D100", "D106", "D202",
+    "ANN401", "PLR0913",
+]
+lint.mccabe = { max-complexity = 10 }
+exclude = [".venv/"]
+line-length = 110
+
+[tool.ruff.lint.pydocstyle]
+convention = "pep257"
+
+[tool.pytest.ini_options]
+addopts = "-p no:unraisableexception"
+filterwarnings = ["error", "ignore::DeprecationWarning"]
+
+[tool.mypy]
+python_version = "0.2.4"
+strict = true
+ignore_missing_imports = true
+pretty = true
+show_error_codes = true
