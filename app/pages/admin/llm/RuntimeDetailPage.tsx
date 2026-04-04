@@ -48,6 +48,7 @@ import EditIcon from "@mui/icons-material/Edit";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import SaveIcon from "@mui/icons-material/Save";
 import StopIcon from "@mui/icons-material/Stop";
+import RefreshIcon from "@mui/icons-material/Refresh";
 import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import FavoriteIcon from "@mui/icons-material/Favorite";
 import HeartBrokenIcon from "@mui/icons-material/HeartBroken";
@@ -217,6 +218,7 @@ export default function RuntimeDetailPage() {
   const [model, setModel] = useState<Model | null>(null);
   const [health, setHealth] = useState<RuntimeHealth | null>(null);
   const [logs, setLogs] = useState("");
+  const [logsRefreshing, setLogsRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const logRef = useRef<HTMLPreElement>(null);
@@ -587,7 +589,20 @@ export default function RuntimeDetailPage() {
 
   const isRunning = rt.status === "running" || rt.status === "starting";
   const isStopped = rt.status === "stopped" || rt.status === "error";
-  const showLogs = !editing && (isRunning || (rt.status === "error" && !!logs));
+  const showLogs = !editing && (isRunning || isStopped);
+
+  async function refreshLogs() {
+    if (!id) return;
+    setLogsRefreshing(true);
+    try {
+      const res = await runtimes.fetchLogs(id, 300);
+      setLogs(await res.text());
+    } catch {
+      setLogs("");
+    } finally {
+      setLogsRefreshing(false);
+    }
+  }
 
   return (
     <Box
@@ -1028,9 +1043,25 @@ export default function RuntimeDetailPage() {
       {/* Logs */}
       {showLogs && (
         <Box sx={{ flexGrow: 1, minHeight: 200 }}>
-          <Typography variant="subtitle2" sx={{ mb: 1 }}>
-            {t("llm_runtime_detail.container_logs")}
-          </Typography>
+          <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+            <Typography variant="subtitle2">
+              {t("llm_runtime_detail.container_logs")}
+            </Typography>
+            <Button
+              size="small"
+              startIcon={
+                logsRefreshing ? (
+                  <CircularProgress size={14} />
+                ) : (
+                  <RefreshIcon />
+                )
+              }
+              onClick={refreshLogs}
+              disabled={logsRefreshing}
+            >
+              {t("common.refresh", "Refresh")}
+            </Button>
+          </Stack>
           <Box
             ref={logRef}
             component="pre"
