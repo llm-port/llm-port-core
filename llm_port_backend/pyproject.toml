@@ -1,6 +1,6 @@
 [project]
 name = "llm-port-backend"
-version = "0.1.0"
+version = "0.0.1"
 requires-python = ">=3.12,<4.0"
 description = ""
 authors = [
@@ -76,7 +76,7 @@ multi_line_output = 3
 src_paths = ["llm_port_backend",]
 
 [tool.mypy]
-python_version = "3.13"
+python_version = "0.0.1"
 strict = true
 ignore_missing_imports = true
 allow_subclassing_any = true
@@ -104,7 +104,7 @@ env = [
 ]
 
 [tool.ruff]
-target-version = "py313"
+target-version = "0.0.1"
 # List of enabled rulsets.
 # See https://docs.astral.sh/ruff/rules/ for more information.
 lint.select = [ "E",     # Error
