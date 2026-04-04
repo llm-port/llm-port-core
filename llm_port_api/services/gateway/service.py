@@ -92,6 +92,15 @@ class StreamingGatewayResponse:
     trace_id: str | None = None
 
 
+@dataclass(slots=True)
+class MCPToolLoopResult:
+    """Result of the MCP tool execution loop with telemetry."""
+
+    result: UpstreamResult
+    tool_calls: list[dict[str, Any]]
+    iterations: int = 0
+
+
 class GatewayService:
     """Core shared pipeline for chat + embeddings + models."""
 
@@ -183,9 +192,17 @@ class GatewayService:
         usage_completion = None
         usage_total = None
         trace_context = None
+        # ── Observability tracking ──────────────────────────────────────
+        retry_count = 0
+        finish_reason: str | None = None
+        skills_used: list[dict[str, Any]] | None = None
+        rag_context: dict[str, Any] | None = None
+        mcp_tool_calls: list[dict[str, Any]] = []
+        mcp_tool_call_count = 0
+        mcp_tool_loop_iterations = 0
         try:
             # RAG Lite context injection (before PII so context is scanned too)
-            payload = await self._inject_rag_context(payload, auth)
+            payload, rag_context = await self._inject_rag_context(payload, auth)
 
             # Session context injection (history + memory + summaries)
             resolved_session_id: str | None = None
@@ -296,6 +313,7 @@ class GatewayService:
                         headers={},
                     )
                     status_code = result.status_code
+                    retry_count = attempt
                     break
                 except Exception as exc:
                     if attempt >= settings.retry_pre_first_token:
@@ -314,7 +332,7 @@ class GatewayService:
                 )
             # MCP tool execution loop
             if endpoint == "/v1/chat/completions" and self.mcp_client:
-                result = await self._run_mcp_tool_loop(
+                mcp_loop_result = await self._run_mcp_tool_loop(
                     result=result,
                     egress_payload=egress_payload,
                     adapter=self.adapter,
@@ -322,6 +340,27 @@ class GatewayService:
                     tenant_id=auth.tenant_id,
                     request_id=request_id,
                 )
+                result = mcp_loop_result.result
+                mcp_tool_calls = mcp_loop_result.tool_calls
+                mcp_tool_call_count = len(mcp_tool_calls)
+                mcp_tool_loop_iterations = mcp_loop_result.iterations
+
+            # Extract finish_reason from the final result
+            _choices = (result.payload or {}).get("choices") or []
+            if _choices:
+                finish_reason = _choices[0].get("finish_reason")
+
+            # Build skills_used metadata
+            if resolved_skills:
+                skills_used = [
+                    {
+                        "skill_id": str(s.skill_id),
+                        "name": s.name,
+                        "slug": s.slug,
+                        "version": s.version,
+                    }
+                    for s in resolved_skills
+                ]
 
             usage = usage_from_payload(result.payload)
             usage_prompt = usage.prompt_tokens
@@ -435,6 +474,14 @@ class GatewayService:
                     decision.candidate.litellm_provider
                     if decision is not None else None
                 ),
+                session_id=resolved_session_id or session_id,
+                finish_reason=finish_reason,
+                retry_count=retry_count,
+                skills_used=skills_used,
+                rag_context=rag_context,
+                mcp_tool_call_count=mcp_tool_call_count,
+                mcp_tool_loop_iterations=mcp_tool_loop_iterations,
+                tool_calls=mcp_tool_calls,
             )
 
     async def route_stream_chat(
@@ -470,9 +517,16 @@ class GatewayService:
         stats: StreamStats | None = None
         pre_stream_status_code = 500
         pre_stream_error_code: str | None = None
+        # ── Observability tracking ──────────────────────────────────────
+        stream_finish_reason: str | None = None
+        stream_skills_used: list[dict[str, Any]] | None = None
+        stream_rag_context: dict[str, Any] | None = None
+        stream_mcp_tool_calls: list[dict[str, Any]] = []
+        stream_mcp_tool_call_count = 0
+        stream_mcp_tool_loop_iterations = 0
         try:
             # RAG Lite context injection (before PII so context is scanned too)
-            payload = await self._inject_rag_context(payload, auth)
+            payload, stream_rag_context = await self._inject_rag_context(payload, auth)
 
             # Session context injection (history + memory + summaries)
             resolved_stream_session_id: str | None = None
@@ -602,7 +656,7 @@ class GatewayService:
                     payload=adapter_result.payload,
                     headers={},
                 )
-                mcp_result = await self._run_mcp_tool_loop(
+                mcp_loop_result = await self._run_mcp_tool_loop(
                     result=mcp_result,
                     egress_payload=egress_payload,
                     adapter=self.adapter,
@@ -610,6 +664,14 @@ class GatewayService:
                     tenant_id=auth.tenant_id,
                     request_id=request_id,
                 )
+                mcp_result = mcp_loop_result.result
+                stream_mcp_tool_calls = mcp_loop_result.tool_calls
+                stream_mcp_tool_call_count = len(stream_mcp_tool_calls)
+                stream_mcp_tool_loop_iterations = mcp_loop_result.iterations
+                # Extract finish_reason from MCP loop result
+                _mcp_choices = (mcp_result.payload or {}).get("choices") or []
+                if _mcp_choices:
+                    stream_finish_reason = _mcp_choices[0].get("finish_reason")
                 mcp_usage = usage_from_payload(mcp_result.payload)
                 wrapped_stream = _nonstream_to_sse(mcp_result.payload)
                 stats = StreamStats(
@@ -631,6 +693,18 @@ class GatewayService:
                 raw_stream = await raw_stream  # type: ignore[misc]
                 wrapped_stream, stats = await wrap_sse_stream(raw_stream)
             stream_started = True
+
+            # Build skills_used metadata
+            if resolved_stream_skills:
+                stream_skills_used = [
+                    {
+                        "skill_id": str(s.skill_id),
+                        "name": s.name,
+                        "slug": s.slug,
+                        "version": s.version,
+                    }
+                    for s in resolved_stream_skills
+                ]
 
             # Start stream buffer for SSE reconnection
             _sbuf = self.stream_buffer
@@ -710,6 +784,14 @@ class GatewayService:
                             decision.candidate.litellm_provider
                             if decision is not None else None
                         ),
+                        session_id=resolved_stream_session_id or session_id,
+                        finish_reason=stream_finish_reason,
+                        retry_count=0,
+                        skills_used=stream_skills_used,
+                        rag_context=stream_rag_context,
+                        mcp_tool_call_count=stream_mcp_tool_call_count,
+                        mcp_tool_loop_iterations=stream_mcp_tool_loop_iterations,
+                        tool_calls=stream_mcp_tool_calls,
                     )
                     if trace_context is not None:
                         self.observability.finalize_stream(
@@ -792,6 +874,14 @@ class GatewayService:
                         decision.candidate.litellm_provider
                         if decision is not None else None
                     ),
+                    session_id=session_id,
+                    finish_reason=None,
+                    retry_count=0,
+                    skills_used=stream_skills_used,
+                    rag_context=stream_rag_context,
+                    mcp_tool_call_count=0,
+                    mcp_tool_loop_iterations=0,
+                    tool_calls=[],
                 )
 
     # ------------------------------------------------------------------
@@ -993,7 +1083,7 @@ class GatewayService:
         self,
         payload: dict[str, Any],
         auth: AuthContext,
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], dict[str, Any] | None]:
         """Optionally inject RAG Lite context into the messages.
 
         Looks for a ``rag`` dict in the payload (added by the frontend).
@@ -1002,10 +1092,13 @@ class GatewayService:
 
         The ``rag`` key is always stripped from the payload so the upstream
         provider doesn't receive unknown fields.
+
+        Returns ``(payload, rag_metadata)`` where *rag_metadata* is ``None``
+        when no RAG context was injected, or a dict with chunk/collection info.
         """
         rag_config = payload.pop("rag", None)
         if not rag_config or not self.rag_lite_client:
-            return payload
+            return payload, None
 
         # Extract search query from the last user message
         messages = payload.get("messages", [])
@@ -1017,7 +1110,7 @@ class GatewayService:
                 break
 
         if not user_query:
-            return payload
+            return payload, None
 
         results = await self.rag_lite_client.search(
             query=user_query,
@@ -1026,7 +1119,7 @@ class GatewayService:
         )
 
         if not results:
-            return payload
+            return payload, None
 
         # Build context block from search results
         context_parts = []
@@ -1046,7 +1139,13 @@ class GatewayService:
             {"role": "system", "content": context_block},
             *messages,
         ]
-        return payload
+
+        rag_metadata = {
+            "chunk_count": len(results),
+            "collection_ids": rag_config.get("collection_ids"),
+            "top_k": rag_config.get("top_k", 5),
+        }
+        return payload, rag_metadata
 
     async def _inject_session_context(
         self,
@@ -1325,7 +1424,7 @@ class GatewayService:
         decision: RoutingDecision,
         tenant_id: str,
         request_id: str,
-    ) -> UpstreamResult:
+    ) -> MCPToolLoopResult:
         """Execute MCP tool calls in a loop, re-calling the LLM each round.
 
         The loop detects ``tool_calls`` whose function name starts with
@@ -1336,9 +1435,14 @@ class GatewayService:
 
         The loop runs at most ``settings.mcp_tool_loop_max_iterations``
         iterations to prevent infinite loops.
+
+        Returns an ``MCPToolLoopResult`` with the final upstream result,
+        per-tool-call telemetry, and iteration count.
         """
         assert self.mcp_client is not None  # noqa: S101
         max_iter = settings.mcp_tool_loop_max_iterations
+        all_tool_calls: list[dict[str, Any]] = []
+        iterations_completed = 0
 
         for _iteration in range(max_iter):
             choices = result.payload.get("choices") or []
@@ -1366,6 +1470,8 @@ class GatewayService:
                 # still break after so the client can handle the rest.
                 pass
 
+            iterations_completed = _iteration + 1
+
             # Build messages list: original messages + assistant message + tool results
             messages = list(egress_payload.get("messages", []))
             messages.append(message)
@@ -1384,12 +1490,38 @@ class GatewayService:
                 except (json.JSONDecodeError, TypeError):
                     arguments = {}
 
-                call_result = await self.mcp_client.call_tool(
-                    qualified_name=qualified_name,
-                    arguments=arguments,
-                    tenant_id=tenant_id,
-                    request_id=request_id,
-                )
+                # Extract MCP server name from qualified tool name (mcp.<server>.<tool>)
+                parts = qualified_name.split(".", 2)
+                mcp_server = parts[1] if len(parts) >= 2 else None
+
+                tc_started = time.perf_counter()
+                tc_error = False
+                tc_error_msg: str | None = None
+                try:
+                    call_result = await self.mcp_client.call_tool(
+                        qualified_name=qualified_name,
+                        arguments=arguments,
+                        tenant_id=tenant_id,
+                        request_id=request_id,
+                    )
+                    tc_error = call_result.is_error
+                    if call_result.is_error:
+                        tc_error_msg = call_result.content[:500]
+                except Exception as exc:
+                    tc_error = True
+                    tc_error_msg = str(exc)[:500]
+                    call_result = type("_", (), {"content": f"Tool call failed: {exc}"})()
+                tc_latency = int((time.perf_counter() - tc_started) * 1000)
+
+                all_tool_calls.append({
+                    "iteration": _iteration,
+                    "tool_name": qualified_name,
+                    "mcp_server": mcp_server,
+                    "latency_ms": tc_latency,
+                    "is_error": tc_error,
+                    "error_message": tc_error_msg,
+                })
+
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.get("id", ""),
@@ -1442,7 +1574,11 @@ class GatewayService:
             if len(mcp_calls) < len(tool_calls):
                 break
 
-        return result
+        return MCPToolLoopResult(
+            result=result,
+            tool_calls=all_tool_calls,
+            iterations=iterations_completed,
+        )
 
     async def _persist_assistant_response(
         self,

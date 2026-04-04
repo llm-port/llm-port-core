@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 import uuid
 
 from llm_port_api.db.dao.gateway_dao import GatewayDAO
 from llm_port_api.services.gateway.pricing import PricingService
+
+logger = logging.getLogger(__name__)
 
 
 class AuditService:
@@ -37,6 +40,14 @@ class AuditService:
         stream: bool | None = None,
         cached_tokens: int | None = None,
         provider_name: str | None = None,
+        session_id: str | None = None,
+        finish_reason: str | None = None,
+        retry_count: int | None = None,
+        skills_used: list[dict] | None = None,
+        rag_context: dict | None = None,
+        mcp_tool_call_count: int | None = None,
+        mcp_tool_loop_iterations: int | None = None,
+        tool_calls: list[dict] | None = None,
     ) -> None:
         """Persist one request log row with optional cost estimation."""
         parsed_provider_id: uuid.UUID | None = None
@@ -66,7 +77,7 @@ class AuditService:
             price_catalog_id = estimate.price_catalog_id
             cost_estimate_status = estimate.status
 
-        await self.dao.insert_request_log(
+        log_row = await self.dao.insert_request_log(
             request_id=request_id,
             trace_id=trace_id,
             tenant_id=tenant_id,
@@ -89,4 +100,25 @@ class AuditService:
             currency=currency,
             price_catalog_id=price_catalog_id,
             cost_estimate_status=cost_estimate_status,
+            session_id=session_id,
+            finish_reason=finish_reason,
+            retry_count=retry_count,
+            skills_used=skills_used,
+            rag_context=rag_context,
+            mcp_tool_call_count=mcp_tool_call_count,
+            mcp_tool_loop_iterations=mcp_tool_loop_iterations,
         )
+
+        # Persist per-tool-call telemetry
+        if tool_calls:
+            try:
+                await self.dao.insert_tool_call_logs(
+                    request_log_id=log_row.id,
+                    request_id=request_id,
+                    tool_calls=tool_calls,
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to persist tool call logs for %s", request_id,
+                    exc_info=True,
+                )

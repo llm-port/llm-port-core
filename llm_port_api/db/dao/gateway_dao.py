@@ -10,6 +10,7 @@ from llm_port_api.db.models.gateway import (
     LLMGatewayRequestLog,
     LLMModelAlias,
     LLMPoolMembership,
+    LLMToolCallLog,
     LLMProviderInstance,
     ProviderHealthStatus,
     ProviderType,
@@ -171,6 +172,13 @@ class GatewayDAO:
         currency: str | None = None,
         price_catalog_id: uuid.UUID | None = None,
         cost_estimate_status: str | None = None,
+        session_id: str | None = None,
+        finish_reason: str | None = None,
+        retry_count: int | None = None,
+        skills_used: list[dict] | None = None,
+        rag_context: dict | None = None,
+        mcp_tool_call_count: int | None = None,
+        mcp_tool_loop_iterations: int | None = None,
     ) -> LLMGatewayRequestLog:
         """Insert request audit log row."""
         row = LLMGatewayRequestLog(
@@ -196,7 +204,36 @@ class GatewayDAO:
             currency=currency,
             price_catalog_id=price_catalog_id,
             cost_estimate_status=cost_estimate_status,
+            session_id=session_id,
+            finish_reason=finish_reason,
+            retry_count=retry_count,
+            skills_used=skills_used,
+            rag_context=rag_context,
+            mcp_tool_call_count=mcp_tool_call_count,
+            mcp_tool_loop_iterations=mcp_tool_loop_iterations,
         )
         self.session.add(row)
         await self.session.flush()
         return row
+
+    async def insert_tool_call_logs(
+        self,
+        *,
+        request_log_id: uuid.UUID,
+        request_id: str,
+        tool_calls: list[dict],
+    ) -> None:
+        """Bulk-insert tool call telemetry rows."""
+        for tc in tool_calls:
+            row = LLMToolCallLog(
+                request_log_id=request_log_id,
+                request_id=request_id,
+                iteration=tc.get("iteration", 0),
+                tool_name=tc["tool_name"],
+                mcp_server=tc.get("mcp_server"),
+                latency_ms=tc.get("latency_ms"),
+                is_error=tc.get("is_error", False),
+                error_message=tc.get("error_message"),
+            )
+            self.session.add(row)
+        await self.session.flush()
