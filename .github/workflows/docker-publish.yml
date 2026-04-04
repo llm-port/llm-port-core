@@ -30,7 +30,7 @@ on:
         type: string
 
   push:
-    branches: [main]
+    branches: [master]
     paths:
       - "llm_port_api/**"
       - "llm_port_backend/**"
