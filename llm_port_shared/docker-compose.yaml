@@ -3,7 +3,7 @@ services:
   # Platform base image (build-only, no runtime container)
   # -----------------------------
   llm-port-base:
-    image: ${REGISTRY:-llmport}/base:${VERSION:-latest}
+    image: ${REGISTRY:-ghcr.io/llm-port}/base:${VERSION:-latest}
     build:
       context: ./base
       dockerfile: Dockerfile
@@ -267,7 +267,7 @@ services:
       retries: 50
 
   llm-port-api-migrator:
-    image: ${REGISTRY:-llmport}/api:${VERSION:-latest}
+    image: ${REGISTRY:-ghcr.io/llm-port}/api:${VERSION:-latest}
     container_name: llm-port-api-migrator
     restart: on-failure:5
     command: ["sh", "-c", "sleep 5 && alembic upgrade head"]
@@ -285,13 +285,13 @@ services:
   # llm_port_api (OpenAI-compatible endpoint gateway)
   # -----------------------------
   llm-port-api:
-    image: ${REGISTRY:-llmport}/api:${VERSION:-latest}
+    image: ${REGISTRY:-ghcr.io/llm-port}/api:${VERSION:-latest}
     build:
       context: ../llm_port_api
       dockerfile: Dockerfile
       target: prod
       args:
-        BASE_IMAGE: ${REGISTRY:-llmport}/base:${VERSION:-latest}
+        BASE_IMAGE: ${REGISTRY:-ghcr.io/llm-port}/base:${VERSION:-latest}
     container_name: llm-port-api
     restart: unless-stopped
     depends_on:
@@ -360,7 +360,7 @@ services:
   # llm_port_backend (control-plane)
   # -----------------------------
   llm-port-backend-migrator:
-    image: ${REGISTRY:-llmport}/backend:${VERSION:-latest}
+    image: ${REGISTRY:-ghcr.io/llm-port}/backend:${VERSION:-latest}
     container_name: llm-port-backend-migrator
     restart: on-failure:5
     command: ["sh", "-c", "sleep 5 && alembic upgrade head"]
@@ -375,13 +375,13 @@ services:
       LLM_PORT_BACKEND_DB_BASE: llm_port_backend
 
   llm-port-backend:
-    image: ${REGISTRY:-llmport}/backend:${VERSION:-latest}
+    image: ${REGISTRY:-ghcr.io/llm-port}/backend:${VERSION:-latest}
     build:
       context: ../llm_port_backend
       dockerfile: Dockerfile
       target: prod
       args:
-        BASE_IMAGE: ${REGISTRY:-llmport}/base:${VERSION:-latest}
+        BASE_IMAGE: ${REGISTRY:-ghcr.io/llm-port}/base:${VERSION:-latest}
     container_name: llm-port-backend
     restart: unless-stopped
     depends_on:
@@ -452,7 +452,7 @@ services:
       retries: 20
 
   llm-port-backend-worker:
-    image: ${REGISTRY:-llmport}/backend:${VERSION:-latest}
+    image: ${REGISTRY:-ghcr.io/llm-port}/backend:${VERSION:-latest}
     container_name: llm-port-backend-worker
     restart: unless-stopped
     command:
@@ -516,7 +516,7 @@ services:
   # llm_port_frontend (React admin console)
   # -----------------------------
   llm-port-frontend:
-    image: ${REGISTRY:-llmport}/frontend:${VERSION:-latest}
+    image: ${REGISTRY:-ghcr.io/llm-port}/frontend:${VERSION:-latest}
     build:
       context: ../llm_port_frontend
       dockerfile: Dockerfile
@@ -538,13 +538,13 @@ services:
   # =====================================================================
   llm-port-pii:
     profiles: ["pii"]
-    image: ${REGISTRY:-llmport}/pii:${VERSION:-latest}
+    image: ${REGISTRY:-ghcr.io/llm-port}/pii:${VERSION:-latest}
     build:
       context: ../llm_port_pii
       dockerfile: Dockerfile
       target: prod
       args:
-        BASE_IMAGE: ${REGISTRY:-llmport}/base:${VERSION:-latest}
+        BASE_IMAGE: ${REGISTRY:-ghcr.io/llm-port}/base:${VERSION:-latest}
     container_name: llm-port-pii
     restart: unless-stopped
     depends_on:
@@ -573,7 +573,7 @@ services:
 
   llm-port-pii-worker:
     profiles: ["pii"]
-    image: ${REGISTRY:-llmport}/pii:${VERSION:-latest}
+    image: ${REGISTRY:-ghcr.io/llm-port}/pii:${VERSION:-latest}
     container_name: llm-port-pii-worker
     restart: unless-stopped
     command:
@@ -601,7 +601,7 @@ services:
   # =====================================================================
   llm-port-mcp-migrator:
     profiles: ["mcp"]
-    image: ${REGISTRY:-llmport}/mcp:${VERSION:-latest}
+    image: ${REGISTRY:-ghcr.io/llm-port}/mcp:${VERSION:-latest}
     container_name: llm-port-mcp-migrator
     restart: on-failure:5
     command: ["sh", "-c", "sleep 5 && alembic upgrade head"]
@@ -617,13 +617,13 @@ services:
 
   llm-port-mcp:
     profiles: ["mcp"]
-    image: ${REGISTRY:-llmport}/mcp:${VERSION:-latest}
+    image: ${REGISTRY:-ghcr.io/llm-port}/mcp:${VERSION:-latest}
     build:
       context: ../llm_port_mcp
       dockerfile: Dockerfile
       target: prod
       args:
-        BASE_IMAGE: ${REGISTRY:-llmport}/base:${VERSION:-latest}
+        BASE_IMAGE: ${REGISTRY:-ghcr.io/llm-port}/base:${VERSION:-latest}
     container_name: llm-port-mcp
     restart: unless-stopped
     depends_on:
@@ -667,7 +667,7 @@ services:
   # =====================================================================
   llm-port-skills-migrator:
     profiles: ["skills"]
-    image: ${REGISTRY:-llmport}/skills:${VERSION:-latest}
+    image: ${REGISTRY:-ghcr.io/llm-port}/skills:${VERSION:-latest}
     container_name: llm-port-skills-migrator
     restart: on-failure:5
     command: ["sh", "-c", "sleep 5 && alembic upgrade head"]
@@ -683,13 +683,13 @@ services:
 
   llm-port-skills:
     profiles: ["skills"]
-    image: ${REGISTRY:-llmport}/skills:${VERSION:-latest}
+    image: ${REGISTRY:-ghcr.io/llm-port}/skills:${VERSION:-latest}
     build:
       context: ../llm_port_skills
       dockerfile: Dockerfile
       target: prod
       args:
-        BASE_IMAGE: ${REGISTRY:-llmport}/base:${VERSION:-latest}
+        BASE_IMAGE: ${REGISTRY:-ghcr.io/llm-port}/base:${VERSION:-latest}
     container_name: llm-port-skills
     restart: unless-stopped
     depends_on:
