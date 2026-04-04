@@ -1,0 +1,23 @@
+services:
+  api:
+    ports:
+      # Exposes application port.
+    - "8000:8000"
+    build:
+      context: .
+    volumes:
+      # Adds current directory as volume.
+    - .:/app/src/
+    environment:
+      # Enables autoreload.
+      LLM_PORT_BACKEND_RELOAD: "True"
+
+  taskiq-worker:
+    volumes:
+      # Adds current directory as volume.
+      - .:/app/src/
+    command:
+      - taskiq
+      - worker
+      - llm_port_backend.tkq:broker
+      - --reload

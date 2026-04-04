@@ -1,0 +1,323 @@
+"""Node control-plane models for cluster-managed runtimes."""
+
+from __future__ import annotations
+
+import enum
+import uuid
+from datetime import datetime
+from typing import Any
+
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
+from sqlalchemy.orm import Mapped, mapped_column
+
+from llm_port_backend.db.base import Base
+
+
+class NodeHealthStatus(enum.StrEnum):
+    """Health state exposed by a node."""
+
+    HEALTHY = "healthy"
+    DEGRADED = "degraded"
+    DRAINING = "draining"
+    MAINTENANCE = "maintenance"
+    OFFLINE = "offline"
+    ERROR = "error"
+
+
+class NodeCommandStatus(enum.StrEnum):
+    """Execution lifecycle for control-plane commands."""
+
+    QUEUED = "queued"
+    DISPATCHED = "dispatched"
+    ACKED = "acked"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    CANCELED = "canceled"
+    TIMED_OUT = "timed_out"
+
+
+class NodeCommandType(enum.StrEnum):
+    """Well-known node command actions."""
+
+    DEPLOY_WORKLOAD = "deploy_workload"
+    START_WORKLOAD = "start_workload"
+    STOP_WORKLOAD = "stop_workload"
+    RESTART_WORKLOAD = "restart_workload"
+    REMOVE_WORKLOAD = "remove_workload"
+    UPDATE_WORKLOAD = "update_workload"
+    REFRESH_INVENTORY = "refresh_inventory"
+    SET_MAINTENANCE_MODE = "set_maintenance_mode"
+    DRAIN_NODE = "drain_node"
+    RESUME_NODE = "resume_node"
+    COLLECT_DIAGNOSTICS = "collect_diagnostics"
+    SYNC_MODEL = "sync_model"
+    FETCH_CONTAINER_LOGS = "fetch_container_logs"
+    HOST_OP = "host_op"
+    SYNC_NODE_PROFILE = "sync_node_profile"
+    CHECK_SYSTEM_UPDATES = "check_system_updates"
+    APPLY_SYSTEM_UPDATES = "apply_system_updates"
+
+
+class InfraNodeProfile(Base):
+    """Reusable profile with platform-specific sub-configs for nodes."""
+
+    __tablename__ = "infra_node_profile"
+
+    id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(128), nullable=False, unique=True, index=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    runtime_config: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    gpu_config: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    storage_config: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    network_config: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    logging_config: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    security_config: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    update_config: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class InfraNode(Base):
+    """Authoritative node record in backend control plane."""
+
+    __tablename__ = "infra_node"
+
+    id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    agent_id: Mapped[str] = mapped_column(String(128), nullable=False, unique=True, index=True)
+    host: Mapped[str] = mapped_column(String(256), nullable=False)
+    status: Mapped[str] = mapped_column(String(64), nullable=False, default=NodeHealthStatus.OFFLINE.value)
+    version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    labels_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    capabilities_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    maintenance_mode: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    draining: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    scheduler_eligible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    profile_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("infra_node_profile.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class InfraNodeEnrollmentToken(Base):
+    """One-time onboarding token generated by admins."""
+
+    __tablename__ = "infra_node_enrollment_token"
+
+    id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    token_hash: Mapped[str] = mapped_column(String(128), nullable=False, unique=True, index=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    issued_by: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("user.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    used_by_node_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("infra_node.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class InfraNodeCredential(Base):
+    """Per-node rotating API credential."""
+
+    __tablename__ = "infra_node_credential"
+
+    id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    node_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("infra_node.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    secret_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class InfraNodeSession(Base):
+    """Logical stream session for an agent connection."""
+
+    __tablename__ = "infra_node_session"
+
+    id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    node_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("infra_node.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    credential_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("infra_node_credential.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    connected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    disconnected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_rx_offset: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+class InfraNodeInventorySnapshot(Base):
+    """Periodic inventory/utilization payload reported by node."""
+
+    __tablename__ = "infra_node_inventory_snapshot"
+
+    id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    node_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("infra_node.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    inventory_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    utilization_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class InfraNodeCommand(Base):
+    """Command queued by backend for node execution."""
+
+    __tablename__ = "infra_node_command"
+    __table_args__ = (UniqueConstraint("node_id", "idempotency_key", name="uq_infra_node_command_idempotency"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    node_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("infra_node.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    command_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(64), nullable=False, default=NodeCommandStatus.QUEUED.value)
+    correlation_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    result_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    timeout_sec: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    issued_by: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("user.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    acked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class InfraNodeCommandEvent(Base):
+    """Immutable timeline entries for node command lifecycle."""
+
+    __tablename__ = "infra_node_command_event"
+    __table_args__ = (UniqueConstraint("command_id", "seq", name="uq_infra_node_command_event_seq"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    command_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("infra_node_command.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    seq: Mapped[int] = mapped_column(Integer, nullable=False)
+    phase: Mapped[str] = mapped_column(String(64), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    payload_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class InfraNodeEvent(Base):
+    """Generic operational events emitted by node agent."""
+
+    __tablename__ = "infra_node_event"
+
+    id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    node_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("infra_node.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    event_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    severity: Mapped[str] = mapped_column(String(32), nullable=False, default="info")
+    correlation_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    payload_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class InfraNodeMaintenanceWindow(Base):
+    """Maintenance schedule and audit trail for node availability changes."""
+
+    __tablename__ = "infra_node_maintenance_window"
+
+    id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    node_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("infra_node.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    requested_by: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("user.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    state: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
+
+
+class InfraNodeWorkloadAssignment(Base):
+    """Current runtime assignment to a managed node."""
+
+    __tablename__ = "infra_node_workload_assignment"
+
+    id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    runtime_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("llm_runtimes.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    node_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("infra_node.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    desired_state: Mapped[str] = mapped_column(String(64), nullable=False, default="running")
+    actual_state: Mapped[str] = mapped_column(String(64), nullable=False, default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )

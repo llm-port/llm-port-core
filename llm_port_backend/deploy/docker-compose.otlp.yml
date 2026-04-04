@@ -1,0 +1,20 @@
+services:
+  api:
+    environment:
+      # Adds opentelemetry endpoint.
+      LLM_PORT_BACKEND_OPENTELEMETRY_ENDPOINT: "http://otel-collector:4317"
+  taskiq-worker:
+    environment:
+      # Adds opentelemetry endpoint.
+      LLM_PORT_BACKEND_OPENTELEMETRY_ENDPOINT: "http://otel-collector:4317"
+
+  otel-stack:
+    image: grafana/otel-lgtm
+    hostname: "otel-collector"
+    ports:
+      # Collector's GRPC endpoint
+      - "4317:4317"
+      # Collector's HTTP endpoint
+      - "4318:4318"
+      # Grafana UI
+      - "3000:3000"

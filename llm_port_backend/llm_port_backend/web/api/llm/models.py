@@ -1,0 +1,205 @@
+"""LLM Model endpoints — download, register, list, get, delete, artifacts."""
+
+from __future__ import annotations
+
+import uuid
+from collections import defaultdict
+
+from fastapi import APIRouter, Depends, HTTPException
+from starlette import status
+
+from llm_port_backend.db.dao.audit_dao import AuditDAO
+from llm_port_backend.db.dao.llm_dao import ArtifactDAO, DownloadJobDAO, ModelDAO, RuntimeDAO
+from llm_port_backend.db.models.containers import AuditResult
+from llm_port_backend.db.models.users import User
+from llm_port_backend.services.llm.service import LLMService
+from llm_port_backend.web.api.admin.dependencies import audit_action
+from llm_port_backend.web.api.llm.dependencies import get_llm_service
+from llm_port_backend.web.api.llm.schema import (
+    ArtifactDTO,
+    DownloadJobDTO,
+    DownloadResponseDTO,
+    HFCacheScanResultDTO,
+    ModelDownloadRequest,
+    ModelDTO,
+    ModelInstanceDTO,
+    ModelRegisterRequest,
+    ModelWithInstancesDTO,
+)
+from llm_port_backend.web.api.rbac import require_permission
+
+router = APIRouter()
+
+
+@router.get("/", response_model=list[ModelWithInstancesDTO])
+async def list_models(
+    user: User = Depends(require_permission("llm.models", "read")),
+    model_dao: ModelDAO = Depends(),
+    runtime_dao: RuntimeDAO = Depends(),
+) -> list[ModelWithInstancesDTO]:
+    """List all models with their deployed instances (locations)."""
+    models = await model_dao.list_all()
+    rows = await runtime_dao.list_grouped_by_model()
+
+    # Group runtime rows by model_id
+    instances_by_model: dict[uuid.UUID, list[ModelInstanceDTO]] = defaultdict(list)
+    for rt, prov, node in rows:
+        instances_by_model[rt.model_id].append(
+            ModelInstanceDTO(
+                runtime_id=rt.id,
+                runtime_name=rt.name,
+                runtime_status=rt.status,
+                provider_id=prov.id,
+                provider_name=prov.name,
+                provider_type=prov.type,
+                execution_target=rt.execution_target,
+                node_id=node.id if node else None,
+                node_host=node.host if node else None,
+            ),
+        )
+
+    return [
+        ModelWithInstancesDTO(
+            **ModelDTO.model_validate(m).model_dump(),
+            instances=instances_by_model.get(m.id, []),
+        )
+        for m in models
+    ]
+
+
+@router.get("/{model_id}", response_model=ModelDTO)
+async def get_model(
+    model_id: uuid.UUID,
+    user: User = Depends(require_permission("llm.models", "read")),
+    model_dao: ModelDAO = Depends(),
+) -> ModelDTO:
+    """Get a single model by ID."""
+    model = await model_dao.get(model_id)
+    if model is None:
+        raise HTTPException(status_code=404, detail="Model not found")
+    return ModelDTO.model_validate(model)
+
+
+@router.post("/download", response_model=DownloadResponseDTO, status_code=status.HTTP_202_ACCEPTED)
+async def download_model(
+    body: ModelDownloadRequest,
+    user: User = Depends(require_permission("llm.models", "download")),
+    llm_service: LLMService = Depends(get_llm_service),
+    model_dao: ModelDAO = Depends(),
+    job_dao: DownloadJobDAO = Depends(),
+    audit_dao: AuditDAO = Depends(),
+) -> DownloadResponseDTO:
+    """Start a background download of a model from Hugging Face."""
+    model, job = await llm_service.start_download(
+        model_dao,
+        job_dao,
+        hf_repo_id=body.hf_repo_id,
+        hf_revision=body.hf_revision,
+        display_name=body.display_name,
+        tags=body.tags,
+    )
+    await audit_action(
+        action="llm.model.download",
+        target_type="llm_model",
+        target_id=str(model.id),
+        result=AuditResult.ALLOW,
+        actor_id=user.id,
+        severity="normal",
+        audit_dao=audit_dao,
+    )
+    dispatched = job.error_message is None
+    return DownloadResponseDTO(
+        model=ModelDTO.model_validate(model),
+        job=DownloadJobDTO.model_validate(job),
+        dispatched=dispatched,
+        dispatch_error=job.error_message if not dispatched else None,
+    )
+
+
+@router.post("/register", response_model=ModelDTO, status_code=status.HTTP_201_CREATED)
+async def register_model(
+    body: ModelRegisterRequest,
+    user: User = Depends(require_permission("llm.models", "create")),
+    llm_service: LLMService = Depends(get_llm_service),
+    model_dao: ModelDAO = Depends(),
+    artifact_dao: ArtifactDAO = Depends(),
+    audit_dao: AuditDAO = Depends(),
+) -> ModelDTO:
+    """Register a model from a local path."""
+    model = await llm_service.register_local_model(
+        model_dao,
+        artifact_dao,
+        display_name=body.display_name,
+        path=body.path,
+        tags=body.tags,
+    )
+    await audit_action(
+        action="llm.model.register",
+        target_type="llm_model",
+        target_id=str(model.id),
+        result=AuditResult.ALLOW,
+        actor_id=user.id,
+        severity="normal",
+        audit_dao=audit_dao,
+    )
+    return ModelDTO.model_validate(model)
+
+
+@router.post("/scan-local", response_model=HFCacheScanResultDTO)
+async def scan_local_models(
+    user: User = Depends(require_permission("llm.models", "create")),
+    llm_service: LLMService = Depends(get_llm_service),
+    model_dao: ModelDAO = Depends(),
+    artifact_dao: ArtifactDAO = Depends(),
+) -> HFCacheScanResultDTO:
+    """Scan HF cache directories and auto-import any new models."""
+    imported = await llm_service.auto_import_hf_cache(model_dao, artifact_dao)
+    return HFCacheScanResultDTO(
+        imported_count=len(imported),
+        imported=[ModelDTO.model_validate(m) for m in imported],
+    )
+
+
+@router.delete("/{model_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_model(
+    model_id: uuid.UUID,
+    user: User = Depends(require_permission("llm.models", "delete")),
+    llm_service: LLMService = Depends(get_llm_service),
+    model_dao: ModelDAO = Depends(),
+    job_dao: DownloadJobDAO = Depends(),
+    artifact_dao: ArtifactDAO = Depends(),
+    audit_dao: AuditDAO = Depends(),
+) -> None:
+    """Delete a model, cancel active jobs, and remove all related data."""
+    try:
+        await llm_service.delete_model(
+            model_dao,
+            model_id,
+            job_dao=job_dao,
+            artifact_dao=artifact_dao,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    await audit_action(
+        action="llm.model.delete",
+        target_type="llm_model",
+        target_id=str(model_id),
+        result=AuditResult.ALLOW,
+        actor_id=user.id,
+        severity="normal",
+        audit_dao=audit_dao,
+    )
+
+
+@router.get("/{model_id}/artifacts", response_model=list[ArtifactDTO])
+async def list_artifacts(
+    model_id: uuid.UUID,
+    user: User = Depends(require_permission("llm.models", "read")),
+    artifact_dao: ArtifactDAO = Depends(),
+) -> list[ArtifactDTO]:
+    """List all artifacts for a model."""
+    artifacts = await artifact_dao.list_by_model(model_id)
+    return [ArtifactDTO.model_validate(a) for a in artifacts]

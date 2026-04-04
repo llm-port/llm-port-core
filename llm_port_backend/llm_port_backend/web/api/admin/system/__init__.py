@@ -1,0 +1,1 @@
+"""System admin routes package."""

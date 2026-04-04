@@ -1,0 +1,37 @@
+---
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+repos:
+    - repo: https://github.com/pre-commit/pre-commit-hooks
+      rev: v4.6.0
+      hooks:
+          - id: trailing-whitespace
+          - id: end-of-file-fixer
+
+    # - repo: local
+    #   hooks:
+
+          # - id: ruff-format
+          #   name: Format with Ruff
+          #   entry: uv run ruff format
+          #   language: system
+          #   pass_filenames: false
+          #   always_run: true
+
+          # - id: ruff
+          #   name: Check with Ruff
+          #   entry: uv run ruff
+          #   language: system
+          #   pass_filenames: false
+          #   always_run: true
+          #   args: ["check", "llm_port_backend", "tests", "--fix"]
+
+          # - id: mypy
+          #   name: Validate types with MyPy
+          #   entry: uv run mypy
+          #   language: system
+          #   types: [python]
+          #   pass_filenames: false
+          #   args:
+          #     - "llm_port_backend"
+          #     - "tests"

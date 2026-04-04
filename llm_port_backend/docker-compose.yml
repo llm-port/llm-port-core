@@ -1,0 +1,77 @@
+services:
+  api: &main_app
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    image: llm-port-backend:${LLM_PORT_BACKEND_VERSION:-latest}
+    restart: always
+    env_file:
+      - path: .env
+        required: false
+    depends_on:
+      db:
+        condition: service_healthy
+      rmq:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+    environment:
+      LLM_PORT_BACKEND_HOST: 0.0.0.0
+      LLM_PORT_BACKEND_DB_HOST: llm-port-backend-db
+      LLM_PORT_BACKEND_DB_PORT: 5432
+      LLM_PORT_BACKEND_DB_USER: llm_port_backend
+      LLM_PORT_BACKEND_DB_PASS: llm_port_backend
+      LLM_PORT_BACKEND_DB_BASE: llm_port_backend
+      LLM_PORT_BACKEND_RABBIT_HOST: llm-port-backend-rmq
+
+  taskiq-worker:
+    <<: *main_app
+    labels: []
+    command:
+      - taskiq
+      - worker
+      - llm_port_backend.tkq:broker
+
+  db:
+    image: postgres:18.1-bookworm
+    hostname: llm-port-backend-db
+    environment:
+      POSTGRES_PASSWORD: "llm_port_backend"
+      POSTGRES_USER: "llm_port_backend"
+      POSTGRES_DB: "llm_port_backend"
+    volumes:
+      - llm-port-backend-db-data:/var/lib/postgresql
+    restart: always
+    healthcheck:
+      test: pg_isready -U llm_port_backend
+      interval: 2s
+      timeout: 3s
+      retries: 40
+
+  migrator:
+    <<: *main_app
+    restart: "no"
+    command: alembic upgrade head
+    depends_on:
+      db:
+        condition: service_healthy
+
+  rmq:
+    image: rabbitmq:4.2.1-management-alpine
+    hostname: "llm-port-backend-rmq"
+    restart: always
+    environment:
+      RABBITMQ_DEFAULT_USER: "guest"
+      RABBITMQ_DEFAULT_PASS: "guest"
+      RABBITMQ_DEFAULT_VHOST: "/"
+    healthcheck:
+      test: rabbitmq-diagnostics check_running -q
+      interval: 3s
+      timeout: 3s
+      retries: 50
+
+
+
+volumes:
+  llm-port-backend-db-data:
+    name: llm-port-backend-db-data

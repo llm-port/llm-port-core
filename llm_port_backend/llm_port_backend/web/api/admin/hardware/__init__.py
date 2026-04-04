@@ -1,0 +1,1 @@
+"""Admin hardware detection APIs."""
