@@ -1,4 +1,4 @@
-ARG BASE_IMAGE=llmport/base:latest
+ARG BASE_IMAGE=ghcr.io/llm-port/base:latest
 FROM ${BASE_IMAGE} AS prod
 
 # Node.js runtime for npx-based MCP servers

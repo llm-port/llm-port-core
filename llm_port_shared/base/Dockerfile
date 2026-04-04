@@ -4,7 +4,7 @@
 # across all llm.port microservices.
 #
 # Service Dockerfiles extend this with:
-#   ARG BASE_IMAGE=llmport/base:latest
+#   ARG BASE_IMAGE=ghcr.io/llm-port/base:latest
 #   FROM ${BASE_IMAGE} AS prod
 # ──────────────────────────────────────────────────────────────────
 
