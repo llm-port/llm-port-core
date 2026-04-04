@@ -31,13 +31,8 @@ on:
 
   push:
     branches: [master]
-    paths:
-      - "llm_port_api/**"
-      - "llm_port_backend/**"
-      - "llm_port_frontend/**"
-      - "llm_port_pii/**"
-      - "llm_port_mcp/**"
-      - "llm_port_skills/**"
+    tags:
+      - "core-v*"
 
 permissions:
   contents: read
@@ -59,11 +54,14 @@ jobs:
       skills: ${{ steps.filter.outputs.skills }}
     steps:
       - uses: actions/checkout@v4
-      - name: Check for manual 'all'
+      - name: Check if building all
         id: manual
         run: |
           SERVICES="${{ github.event.inputs.services }}"
-          if [[ "$SERVICES" == "all" || -z "$SERVICES" ]]; then
+          # Build all on tag push, workflow_dispatch with 'all', or no services specified
+          if [[ "$GITHUB_REF" == refs/tags/core-v* ]]; then
+            echo "build_all=true" >> "$GITHUB_OUTPUT"
+          elif [[ "$SERVICES" == "all" || -z "$SERVICES" ]]; then
             echo "build_all=true" >> "$GITHUB_OUTPUT"
           else
             echo "build_all=false" >> "$GITHUB_OUTPUT"
@@ -85,6 +83,7 @@ jobs:
     needs: changes
     if: >-
       needs.changes.outputs.api == 'true' ||
+      startsWith(github.ref, 'refs/tags/core-v') ||
       github.event_name == 'workflow_dispatch' &&
       (github.event.inputs.services == 'all' || contains(github.event.inputs.services, 'api'))
     uses: ./.github/workflows/docker-build-reusable.yml
@@ -97,6 +96,7 @@ jobs:
     needs: changes
     if: >-
       needs.changes.outputs.backend == 'true' ||
+      startsWith(github.ref, 'refs/tags/core-v') ||
       github.event_name == 'workflow_dispatch' &&
       (github.event.inputs.services == 'all' || contains(github.event.inputs.services, 'backend'))
     uses: ./.github/workflows/docker-build-reusable.yml
@@ -109,6 +109,7 @@ jobs:
     needs: changes
     if: >-
       needs.changes.outputs.frontend == 'true' ||
+      startsWith(github.ref, 'refs/tags/core-v') ||
       github.event_name == 'workflow_dispatch' &&
       (github.event.inputs.services == 'all' || contains(github.event.inputs.services, 'frontend'))
     uses: ./.github/workflows/docker-build-reusable.yml
@@ -121,6 +122,7 @@ jobs:
     needs: changes
     if: >-
       needs.changes.outputs.pii == 'true' ||
+      startsWith(github.ref, 'refs/tags/core-v') ||
       github.event_name == 'workflow_dispatch' &&
       (github.event.inputs.services == 'all' || contains(github.event.inputs.services, 'pii'))
     uses: ./.github/workflows/docker-build-reusable.yml
@@ -133,6 +135,7 @@ jobs:
     needs: changes
     if: >-
       needs.changes.outputs.mcp == 'true' ||
+      startsWith(github.ref, 'refs/tags/core-v') ||
       github.event_name == 'workflow_dispatch' &&
       (github.event.inputs.services == 'all' || contains(github.event.inputs.services, 'mcp'))
     uses: ./.github/workflows/docker-build-reusable.yml
@@ -145,6 +148,7 @@ jobs:
     needs: changes
     if: >-
       needs.changes.outputs.skills == 'true' ||
+      startsWith(github.ref, 'refs/tags/core-v') ||
       github.event_name == 'workflow_dispatch' &&
       (github.event.inputs.services == 'all' || contains(github.event.inputs.services, 'skills'))
     uses: ./.github/workflows/docker-build-reusable.yml
