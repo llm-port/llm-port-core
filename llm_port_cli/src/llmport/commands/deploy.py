@@ -112,9 +112,16 @@ def _resolve_compose_file(install_dir: Path) -> Path | None:
 
 
 def _find_shared_dir(workspace: Path) -> Path | None:
-    """Locate the llm_port_shared directory relative to workspace."""
+    """Locate the llm_port_shared directory relative to workspace.
+
+    Searches in order:
+      1. workspace/llm_port_shared        (monorepo layout)
+      2. workspace/llm-port-core/llm_port_shared  (monorepo cloned)
+      3. workspace/../llm_port_shared      (legacy polyrepo sibling)
+    """
     for candidate in (
         workspace / "llm_port_shared",
+        workspace / "llm-port-core" / "llm_port_shared",
         workspace.parent / "llm_port_shared",
     ):
         if candidate.is_dir():

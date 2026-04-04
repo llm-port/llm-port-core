@@ -300,6 +300,8 @@ def dev_up(
             console.print("  [dim]Waiting for backend to become healthy…[/dim]")
             if wait_for_backend(dev_backend_url, timeout=60):
                 shared_dir = workspace / "llm_port_shared"
+                if not shared_dir.is_dir():
+                    shared_dir = workspace / "llm-port-core" / "llm_port_shared"
                 creds = bootstrap_interactive(
                     dev_backend_url,
                     shared_dir,

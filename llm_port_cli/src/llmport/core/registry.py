@@ -13,6 +13,11 @@ from dataclasses import dataclass
 # ── GitHub organisation ───────────────────────────────────────────
 
 GITHUB_ORG = "llm-port"
+CORE_REPO = "llm-port-core"
+
+# ── Container registry ───────────────────────────────────────────
+
+DEFAULT_REGISTRY = "ghcr.io/llm-port"
 
 
 # ── Repository definitions ───────────────────────────────────────
@@ -239,6 +244,11 @@ def repo_clone_url(repo: str, *, method: str = "https", token: str = "") -> str:
     if token:
         return f"https://x-access-token:{token}@github.com/{GITHUB_ORG}/{repo}.git"
     return f"https://github.com/{GITHUB_ORG}/{repo}"
+
+
+def core_repo_clone_url(*, method: str = "https", token: str = "") -> str:
+    """Return the git clone URL for the core monorepo."""
+    return repo_clone_url(CORE_REPO, method=method, token=token)
 
 
 def module_env_vars(profile: str) -> dict[str, str]:

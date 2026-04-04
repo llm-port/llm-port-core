@@ -12,7 +12,7 @@ from llmport.core.console import console, success, error, info
 from llmport.core.settings import load_config
 
 # Image prefixes that belong to the project (built from source).
-_PROJECT_IMAGE_PREFIX = "llmport/"
+_PROJECT_IMAGE_PREFIX = "ghcr.io/llm-port/"
 
 
 def _remove_project_images() -> int:

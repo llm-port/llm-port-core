@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 import httpx
 
 from llmport.core.console import error, info, success, warning
-from llmport.core.registry import repo_clone_url
+from llmport.core.registry import CORE_REPO, core_repo_clone_url, repo_clone_url
 
 _NODE_AGENT_REPO = "llm-port-node-agent"
 _NODE_AGENT_DIR = "llm_port_node_agent"
@@ -158,7 +158,12 @@ def provision_local_node_agent(
     workdir_override: str | None = None,
 ) -> bool:
     """Clone/update and install the node agent on local or remote host."""
-    repo_url = repo_clone_url(_NODE_AGENT_REPO, method=method, token=github_token)
+    # Prefer monorepo clone; fall back to standalone repo
+    monorepo_agent_dir = workspace / CORE_REPO / _NODE_AGENT_DIR
+    if monorepo_agent_dir.is_dir():
+        repo_url = core_repo_clone_url(method=method, token=github_token)
+    else:
+        repo_url = repo_clone_url(_NODE_AGENT_REPO, method=method, token=github_token)
     branch = branch.strip() or "master"
     backend_url = backend_url.strip() or "http://127.0.0.1:8000"
     advertise_host = advertise_host.strip()

@@ -38,11 +38,21 @@ from llmport.core.settings import (
 from .dev_group import dev_group
 
 
+def _find_service_dir(workspace: Path, name: str) -> Path:
+    """Return the path to a service directory, checking monorepo first."""
+    monorepo = workspace / "llm-port-core" / name
+    if monorepo.is_dir():
+        return monorepo
+    return workspace / name
+
+
 def _resolve_shared_compose(workspace: Path) -> Path | None:
     """Locate the shared docker-compose file."""
     for candidate in (
         workspace / "llm_port_shared" / "docker-compose.yaml",
         workspace / "llm_port_shared" / "docker-compose.yml",
+        workspace / "llm-port-core" / "llm_port_shared" / "docker-compose.yaml",
+        workspace / "llm-port-core" / "llm_port_shared" / "docker-compose.yml",
         workspace / "infra" / "shared" / "docker-compose.yaml",
         workspace / "infra" / "shared" / "docker-compose.yml",
     ):
@@ -424,6 +434,8 @@ def dev_init(
 
     # ── 2a. Shared infrastructure .env ────────────────────────────
     shared_dir = workspace_path / "llm_port_shared"
+    if not shared_dir.is_dir():
+        shared_dir = workspace_path / "llm-port-core" / "llm_port_shared"
     env_path = shared_dir / ".env"
     if env_path.exists() and not force_env:
         warning(f".env already exists at {env_path} — skipping (use --force-env to regenerate).")
@@ -433,7 +445,7 @@ def dev_init(
         success(f".env written to {env_path}")
 
     # ── 2b. Backend local .env (so uv run uses localhost) ─────────
-    backend_dir = workspace_path / "llm_port_backend"
+    backend_dir = _find_service_dir(workspace_path, "llm_port_backend")
     backend_env_path = backend_dir / ".env"
     if backend_env_path.exists() and not force_env:
         warning(f"Backend .env already exists at {backend_env_path} — skipping (use --force-env to regenerate).")
@@ -476,8 +488,8 @@ def dev_init(
     # ── 5. Install dependencies ───────────────────────────────────
     if not skip_deps:
         console.print("\n[bold cyan]Step 5: Installing dependencies…[/bold cyan]")
-        backend_dir = workspace_path / "llm_port_backend"
-        frontend_dir = workspace_path / "llm_port_frontend"
+        backend_dir = _find_service_dir(workspace_path, "llm_port_backend")
+        frontend_dir = _find_service_dir(workspace_path, "llm_port_frontend")
 
         if backend_dir.exists():
             _install_backend_deps(backend_dir)
@@ -494,7 +506,7 @@ def dev_init(
     # ── 6. Migrations ─────────────────────────────────────────────
     if not skip_migrations and not skip_infra:
         console.print("\n[bold cyan]Step 6: Running migrations…[/bold cyan]")
-        backend_dir = workspace_path / "llm_port_backend"
+        backend_dir = _find_service_dir(workspace_path, "llm_port_backend")
         if backend_dir.exists():
             _run_migrations(backend_dir)
         else:
