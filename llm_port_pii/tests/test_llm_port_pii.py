@@ -1,0 +1,27 @@
+import pytest
+from fastapi import FastAPI
+from httpx import AsyncClient
+from starlette import status
+
+
+@pytest.mark.anyio
+async def test_health(client: AsyncClient, fastapi_app: FastAPI) -> None:
+    """
+    Checks the health endpoint.
+
+    :param client: client for the app.
+    :param fastapi_app: current FastAPI application.
+    """
+    url = fastapi_app.url_path_for("health_check")
+    response = await client.get(url)
+    assert response.status_code == status.HTTP_200_OK
+
+
+@pytest.mark.anyio
+async def test_pii_options(client: AsyncClient) -> None:
+    response = await client.get("/api/v1/pii/options")
+    assert response.status_code == status.HTTP_200_OK
+    body = response.json()
+    assert isinstance(body.get("supported_entities"), list)
+    assert body["default_language"] == "en"
+    assert body["default_score_threshold"] > 0
