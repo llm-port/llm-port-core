@@ -9,7 +9,7 @@ from typing import Any
 from sqlalchemy import select
 
 from llm_port_backend.db.dao.node_control_dao import NodeControlDAO
-from llm_port_backend.db.models.llm import LLMProvider, LLMRuntime, RuntimeStatus
+from llm_port_backend.db.models.llm import LLMModel, LLMProvider, LLMRuntime, RuntimeStatus
 from llm_port_backend.db.models.node_control import (
     InfraNode,
     InfraNodeCommand,
@@ -582,6 +582,13 @@ class NodeControlService:
         provider = provider_res.scalar_one_or_none()
         if provider is None:
             return
+        # Resolve the HF repo ID so LiteLLM sends the correct model name
+        # to the engine (the alias may differ from what vLLM serves).
+        litellm_model: str | None = None
+        model_res = await self._dao.session.execute(select(LLMModel).where(LLMModel.id == runtime.model_id))
+        model = model_res.scalar_one_or_none()
+        if model and model.hf_repo_id:
+            litellm_model = model.hf_repo_id
         await self._gateway_sync.publish_runtime(
             runtime_id=runtime.id,
             alias=runtime.name,
@@ -589,6 +596,7 @@ class NodeControlService:
             backend_provider_type=provider.type.value,
             is_remote=False,
             health_status="healthy",
+            litellm_model=litellm_model,
             node_id=runtime.assigned_node_id,
             node_metadata={
                 "execution_target": runtime.execution_target,

@@ -565,6 +565,7 @@ class LLMService:
                     backend_provider_type=provider.type.value,
                     is_remote=False,
                     health_status="unknown",
+                    litellm_model=model.hf_repo_id or None,
                 )
         except Exception as exc:
             log.exception("Failed to start runtime container: %s", exc)
