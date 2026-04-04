@@ -5,6 +5,7 @@ import logging
 import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 
 from llm_port_api.db.dao.gateway_dao import GatewayDAO
@@ -258,6 +259,10 @@ class GatewayService:
                 stream=False,
                 routing_metadata={"pii_fallback_outcome": fallback_outcome},
             )
+
+            # Inject current date/time so the model is aware of "today"
+            if endpoint == "/v1/chat/completions":
+                egress_payload = self._inject_datetime_context(egress_payload)
 
             # MCP tool injection: merge MCP tools into the payload
             if endpoint == "/v1/chat/completions" and self.mcp_tool_cache:
@@ -539,6 +544,9 @@ class GatewayService:
                 stream=True,
                 routing_metadata={"pii_fallback_outcome": fallback_outcome},
             )
+
+            # Inject current date/time so the model is aware of "today"
+            egress_payload = self._inject_datetime_context(egress_payload)
 
             # MCP tool injection: merge MCP tools into the payload
             mcp_tools_injected = False
@@ -836,6 +844,28 @@ class GatewayService:
                     code="pii_fallback_no_local_capacity",
                 ) from exc
             raise
+
+    @staticmethod
+    def _inject_datetime_context(
+        egress_payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Prepend a system message with the current date/time.
+
+        Ensures the model knows "today's" date so it can reason about
+        recency, scheduled events, etc.  Inserted as the very first
+        system message so it doesn't displace user-provided prompts.
+        """
+        messages = egress_payload.get("messages")
+        if not isinstance(messages, list):
+            return egress_payload
+
+        now = datetime.now(timezone.utc)
+        date_str = now.strftime("%A, %B %-d, %Y, %H:%M UTC")
+        prompt = f"Current date and time: {date_str}."
+        date_msg: dict[str, str] = {"role": "system", "content": prompt}
+
+        new_messages = [date_msg, *messages]
+        return {**egress_payload, "messages": new_messages}
 
     @staticmethod
     def _inject_pii_system_prompt(
@@ -1342,7 +1372,13 @@ class GatewayService:
 
             for tc in mcp_calls:
                 func = tc.get("function", {})
-                qualified_name = func.get("name", "")
+                raw_name = func.get("name", "")
+                # Some models append special tokens to the function name
+                # (e.g. "<|channel|>commentary").  Strip anything after the
+                # first character that can't appear in a dotted tool name.
+                import re as _re  # noqa: PLC0415
+                m = _re.match(r"^[\w.]+", raw_name)
+                qualified_name = m.group(0) if m else raw_name
                 try:
                     arguments = json.loads(func.get("arguments", "{}"))
                 except (json.JSONDecodeError, TypeError):
@@ -1548,9 +1584,13 @@ async def _nonstream_to_sse(payload: dict[str, Any]) -> AsyncIterator[bytes]:
 
     choices = payload.get("choices", [])
     content = ""
+    tool_calls = None
+    finish_reason = "stop"
     if choices:
         msg = choices[0].get("message", {})
         content = msg.get("content", "") or ""
+        tool_calls = msg.get("tool_calls") or None
+        finish_reason = choices[0].get("finish_reason") or ("tool_calls" if tool_calls else "stop")
     completion_id = payload.get("id", f"chatcmpl-mcp-{int(time.time())}")
     model = payload.get("model", "unknown")
 
@@ -1576,12 +1616,34 @@ async def _nonstream_to_sse(payload: dict[str, Any]) -> AsyncIterator[bytes]:
             }
             yield f"data: {json.dumps(content_evt)}\n\n".encode()
 
+    # Tool-call deltas (OpenAI streaming format)
+    if tool_calls:
+        for idx, tc in enumerate(tool_calls):
+            tc_evt = {
+                "id": completion_id,
+                "object": "chat.completion.chunk",
+                "model": model,
+                "choices": [{
+                    "index": 0,
+                    "delta": {
+                        "tool_calls": [{
+                            "index": idx,
+                            "id": tc.get("id", ""),
+                            "type": "function",
+                            "function": tc.get("function", {}),
+                        }],
+                    },
+                    "finish_reason": None,
+                }],
+            }
+            yield f"data: {json.dumps(tc_evt)}\n\n".encode()
+
     # Finish delta with optional usage
     finish_evt: dict[str, Any] = {
         "id": completion_id,
         "object": "chat.completion.chunk",
         "model": model,
-        "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+        "choices": [{"index": 0, "delta": {}, "finish_reason": finish_reason}],
     }
     usage = payload.get("usage")
     if usage:

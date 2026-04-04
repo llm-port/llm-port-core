@@ -70,14 +70,16 @@ def _build_litellm_model_name(
     if model.startswith("models/"):
         model = model[len("models/"):]
 
-    # For local engines the model name alone suffices (LiteLLM resolves
-    # via api_base).  For remote cloud providers we need provider/model.
+    # For local OpenAI-compatible engines (vLLM, TGI, llama.cpp) we
+    # always route through LiteLLM's "openai" provider so it uses the
+    # custom api_base.  The model name after the prefix is passed
+    # verbatim to the engine.
     if provider_type in (
         ProviderType.VLLM,
         ProviderType.LLAMACPP,
         ProviderType.TGI,
     ):
-        return model
+        return f"openai/{model}"
 
     if provider_type == ProviderType.OLLAMA:
         return f"ollama/{model}"
@@ -132,9 +134,19 @@ class LLMAdapter:
             "stream": stream,
         }
         if base_url and not base_url.startswith("litellm://"):
-            kwargs["api_base"] = base_url
+            # LiteLLM (via the OpenAI SDK) appends the path directly to
+            # api_base, so for engines that serve under /v1 we must
+            # include it in the base URL.
+            effective_base = base_url.rstrip("/")
+            if provider_type in (ProviderType.VLLM, ProviderType.TGI) and not effective_base.endswith("/v1"):
+                effective_base += "/v1"
+            kwargs["api_base"] = effective_base
         if api_key:
             kwargs["api_key"] = api_key
+        elif provider_type in (ProviderType.VLLM, ProviderType.TGI, ProviderType.LLAMACPP):
+            # Local engines don't require auth but the OpenAI SDK
+            # refuses to initialise without an api_key value.
+            kwargs["api_key"] = "EMPTY"
 
         # Pass through supported OpenAI params
         for key in (
@@ -239,9 +251,14 @@ class LLMAdapter:
             "input": payload.get("input", ""),
         }
         if base_url and not base_url.startswith("litellm://"):
-            kwargs["api_base"] = base_url
+            effective_base = base_url.rstrip("/")
+            if provider_type in (ProviderType.VLLM, ProviderType.TGI) and not effective_base.endswith("/v1"):
+                effective_base += "/v1"
+            kwargs["api_base"] = effective_base
         if api_key:
             kwargs["api_key"] = api_key
+        elif provider_type in (ProviderType.VLLM, ProviderType.TGI, ProviderType.LLAMACPP):
+            kwargs["api_key"] = "EMPTY"
         if extra_params:
             kwargs.update(extra_params)
 
