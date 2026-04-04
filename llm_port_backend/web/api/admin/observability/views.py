@@ -216,6 +216,56 @@ async def export_csv(
     )
 
 
+# ── Model names (autocomplete) ────────────────────────────────────
+
+
+@router.get(
+    "/model-names",
+    response_model=list[str],
+    name="observability_model_names",
+)
+async def list_model_names(
+    _user: Annotated[User, Depends(require_permission("observability", "read"))],
+    gw: AsyncSession = Depends(_get_gateway_session),
+    q: str = Query(default="", max_length=200),
+) -> list[str]:
+    svc = ObservabilityService(gw)
+    return await svc.get_model_names(q)
+
+
+# ── Provider names (autocomplete) ─────────────────────────────────
+
+
+@router.get(
+    "/provider-names",
+    response_model=list[str],
+    name="observability_provider_names",
+)
+async def list_provider_names(
+    _user: Annotated[User, Depends(require_permission("observability", "read"))],
+    gw: AsyncSession = Depends(_get_gateway_session),
+    q: str = Query(default="", max_length=200),
+) -> list[str]:
+    svc = ObservabilityService(gw)
+    return await svc.get_provider_names(q)
+
+
+# ── Force-recalculate costs ───────────────────────────────────────
+
+
+@router.post(
+    "/recalculate-costs",
+    name="observability_recalculate_costs",
+)
+async def recalculate_costs(
+    _user: Annotated[User, Depends(require_permission("observability", "write"))],
+    gw: AsyncSession = Depends(_get_gateway_session),
+) -> dict:
+    """Recalculate cost estimates for all request log rows using current pricing."""
+    svc = ObservabilityService(gw)
+    return await svc.recalculate_costs()
+
+
 # ── Pricing CRUD ──────────────────────────────────────────────────
 
 

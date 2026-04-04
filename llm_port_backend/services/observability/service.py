@@ -302,3 +302,138 @@ class ObservabilityService:
             writer = csv.writer(buf)
             writer.writerow([str(row[c]) if row[c] is not None else "" for c in columns])
             yield buf.getvalue()
+
+    # ── Model names ───────────────────────────────────────────────
+
+    async def get_model_names(self, query: str = "") -> list[str]:
+        """Return distinct model names from active routing aliases, price catalog, and provider instances."""
+        q = text("""
+            SELECT DISTINCT name FROM (
+                SELECT ma.alias AS name
+                FROM llm_model_alias ma
+                JOIN llm_pool_membership pm ON pm.model_alias = ma.alias
+                WHERE ma.enabled = true AND pm.enabled = true
+                UNION
+                SELECT model AS name
+                FROM price_catalog
+                WHERE active = true
+                UNION
+                SELECT litellm_model AS name
+                FROM llm_provider_instance
+                WHERE litellm_model IS NOT NULL AND litellm_model != ''
+            ) sub
+            WHERE (:q = '' OR name ILIKE '%' || :q || '%')
+            ORDER BY name
+            LIMIT 50
+        """)
+        result = await self._session.execute(q, {"q": query})
+        return [row[0] for row in result.fetchall()]
+
+    # ── Provider names ────────────────────────────────────────────
+
+    async def get_provider_names(self, query: str = "") -> list[str]:
+        """Return distinct provider names from price catalog and provider instances."""
+        q = text("""
+            SELECT DISTINCT name FROM (
+                SELECT provider AS name
+                FROM price_catalog
+                WHERE active = true AND provider IS NOT NULL
+                UNION
+                SELECT litellm_provider AS name
+                FROM llm_provider_instance
+                WHERE litellm_provider IS NOT NULL AND litellm_provider != ''
+            ) sub
+            WHERE (:q = '' OR name ILIKE '%' || :q || '%')
+            ORDER BY name
+            LIMIT 50
+        """)
+        result = await self._session.execute(q, {"q": query})
+        return [row[0] for row in result.fetchall()]
+
+    # ── Force-recalculate costs ───────────────────────────────────
+
+    async def recalculate_costs(self) -> dict:
+        """Recalculate cost estimates for all request-log rows using current price_catalog.
+
+        Matches each row's ``model_alias`` against active ``price_catalog``
+        entries (by model name).  Rows that match get updated costs; rows
+        without a matching catalog entry are marked ``unavailable``.
+
+        Returns a summary dict with counts of updated / unavailable rows.
+        """
+        # 1. Update rows that DO have a matching active price catalog entry.
+        #    Pick the newest active entry per model (latest effective_from).
+        update_matched = text("""
+            WITH latest_price AS (
+                SELECT DISTINCT ON (model)
+                    id, model, input_price_per_1k, output_price_per_1k, currency
+                FROM price_catalog
+                WHERE active = true
+                ORDER BY model, effective_from DESC
+            )
+            UPDATE llm_gateway_request_log r
+            SET
+                estimated_input_cost = CASE
+                    WHEN r.prompt_tokens IS NOT NULL
+                    THEN (COALESCE(r.prompt_tokens, 0) - COALESCE(r.cached_tokens, 0))
+                         * p.input_price_per_1k / 1000.0
+                    ELSE NULL
+                END,
+                estimated_output_cost = CASE
+                    WHEN r.completion_tokens IS NOT NULL
+                    THEN r.completion_tokens * p.output_price_per_1k / 1000.0
+                    ELSE NULL
+                END,
+                estimated_total_cost = CASE
+                    WHEN r.prompt_tokens IS NOT NULL OR r.completion_tokens IS NOT NULL
+                    THEN COALESCE(
+                        (COALESCE(r.prompt_tokens, 0) - COALESCE(r.cached_tokens, 0))
+                            * p.input_price_per_1k / 1000.0, 0
+                    ) + COALESCE(
+                        r.completion_tokens * p.output_price_per_1k / 1000.0, 0
+                    )
+                    ELSE NULL
+                END,
+                currency = p.currency,
+                price_catalog_id = p.id,
+                cost_estimate_status = CASE
+                    WHEN r.prompt_tokens IS NOT NULL AND r.completion_tokens IS NOT NULL
+                        THEN 'complete'
+                    WHEN r.prompt_tokens IS NOT NULL OR r.completion_tokens IS NOT NULL
+                        THEN 'partial'
+                    ELSE 'unavailable'
+                END
+            FROM latest_price p
+            WHERE r.model_alias = p.model
+        """)
+        result_matched = await self._session.execute(update_matched)
+        matched_count = result_matched.rowcount
+
+        # 2. Mark rows without a matching price as unavailable.
+        update_unmatched = text("""
+            UPDATE llm_gateway_request_log r
+            SET
+                estimated_input_cost = NULL,
+                estimated_output_cost = NULL,
+                estimated_total_cost = NULL,
+                price_catalog_id = NULL,
+                cost_estimate_status = 'unavailable'
+            WHERE r.model_alias NOT IN (
+                SELECT model FROM price_catalog WHERE active = true
+            )
+            AND (r.cost_estimate_status IS DISTINCT FROM 'unavailable'
+                 OR r.estimated_total_cost IS NOT NULL)
+        """)
+        result_unmatched = await self._session.execute(update_unmatched)
+        unmatched_count = result_unmatched.rowcount
+
+        await self._session.commit()
+
+        log.info(
+            "Cost recalculation complete: %d matched, %d unavailable",
+            matched_count, unmatched_count,
+        )
+        return {
+            "recalculated": matched_count,
+            "unavailable": unmatched_count,
+        }

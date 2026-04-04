@@ -346,6 +346,11 @@ async def create_provider(
             alias_name = await _probe_first_model(
                 body.endpoint_url, body.api_key,
             )
+        # Prefer litellm_provider over user-given provider name so that
+        # the routing alias (= model_alias in the request log) stays a
+        # recognisable model identifier rather than a display label.
+        if not alias_name and body.litellm_provider:
+            alias_name = body.litellm_provider.strip()
         if not alias_name:
             alias_name = body.name.strip()
 
