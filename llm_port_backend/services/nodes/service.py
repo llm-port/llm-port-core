@@ -14,6 +14,7 @@ from llm_port_backend.db.models.node_control import (
     InfraNode,
     InfraNodeCommand,
     InfraNodeCredential,
+    InfraNodeProfile,
     InfraNodeSession,
     NodeCommandStatus,
     NodeCommandType,
@@ -621,6 +622,7 @@ class NodeControlService:
             "maintenance_mode": node.maintenance_mode,
             "draining": node.draining,
             "scheduler_eligible": node.scheduler_eligible,
+            "profile_id": str(node.profile_id) if node.profile_id else None,
             "last_seen": node.last_seen.isoformat() if node.last_seen else None,
             "created_at": node.created_at.isoformat(),
             "updated_at": node.updated_at.isoformat(),
@@ -646,3 +648,95 @@ class NodeControlService:
             "started_at": command.started_at.isoformat() if command.started_at else None,
             "completed_at": command.completed_at.isoformat() if command.completed_at else None,
         }
+
+    @staticmethod
+    def serialize_profile(profile: InfraNodeProfile) -> dict[str, Any]:
+        return {
+            "id": str(profile.id),
+            "name": profile.name,
+            "description": profile.description,
+            "is_default": profile.is_default,
+            "runtime_config": profile.runtime_config,
+            "gpu_config": profile.gpu_config,
+            "storage_config": profile.storage_config,
+            "network_config": profile.network_config,
+            "logging_config": profile.logging_config,
+            "security_config": profile.security_config,
+            "update_config": profile.update_config,
+            "created_at": profile.created_at.isoformat(),
+            "updated_at": profile.updated_at.isoformat(),
+        }
+
+    # ── profile CRUD ──────────────────────────────────────────
+
+    async def create_profile(self, *, data: dict[str, Any]) -> dict[str, Any]:
+        profile = await self._dao.create_profile(
+            name=str(data.get("name", "")).strip(),
+            description=data.get("description"),
+            is_default=bool(data.get("is_default", False)),
+            runtime_config=data.get("runtime_config"),
+            gpu_config=data.get("gpu_config"),
+            storage_config=data.get("storage_config"),
+            network_config=data.get("network_config"),
+            logging_config=data.get("logging_config"),
+            security_config=data.get("security_config"),
+            update_config=data.get("update_config"),
+        )
+        return self.serialize_profile(profile)
+
+    async def get_profile(self, *, profile_id: uuid.UUID) -> dict[str, Any] | None:
+        profile = await self._dao.get_profile(profile_id)
+        if profile is None:
+            return None
+        return self.serialize_profile(profile)
+
+    async def list_profiles(self) -> list[dict[str, Any]]:
+        rows = await self._dao.list_profiles()
+        return [self.serialize_profile(p) for p in rows]
+
+    async def update_profile(self, *, profile_id: uuid.UUID, data: dict[str, Any]) -> dict[str, Any] | None:
+        profile = await self._dao.get_profile(profile_id)
+        if profile is None:
+            return None
+        updated = await self._dao.update_profile(profile, updates=data)
+        return self.serialize_profile(updated)
+
+    async def delete_profile(self, *, profile_id: uuid.UUID) -> bool:
+        return await self._dao.delete_profile(profile_id)
+
+    async def assign_profile_to_node(
+        self,
+        *,
+        node_id: uuid.UUID,
+        profile_id: uuid.UUID,
+        issued_by: uuid.UUID | None = None,
+    ) -> dict[str, Any]:
+        """Assign profile to node and issue sync command."""
+        node = await self._dao.assign_profile(node_id=node_id, profile_id=profile_id)
+        profile = await self._dao.get_profile(profile_id)
+        if profile is not None:
+            await self.issue_command(
+                node_id=node_id,
+                command_type=NodeCommandType.SYNC_NODE_PROFILE.value,
+                payload=self.serialize_profile(profile),
+                issued_by=issued_by,
+                correlation_id=None,
+                timeout_sec=30,
+                idempotency_key=f"sync-profile-{node_id}-{profile_id}",
+            )
+        return self.serialize_node(node)
+
+    async def unassign_profile_from_node(self, *, node_id: uuid.UUID) -> dict[str, Any]:
+        """Remove profile from node."""
+        node = await self._dao.unassign_profile(node_id=node_id)
+        return self.serialize_node(node)
+
+    async def get_node_profile(self, *, node_id: uuid.UUID) -> dict[str, Any] | None:
+        """Return the profile assigned to a node, if any."""
+        node = await self._dao.get_node_by_id(node_id)
+        if node is None or node.profile_id is None:
+            return None
+        profile = await self._dao.get_profile(node.profile_id)
+        if profile is None:
+            return None
+        return self.serialize_profile(profile)

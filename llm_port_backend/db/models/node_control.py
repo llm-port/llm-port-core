@@ -56,6 +56,34 @@ class NodeCommandType(enum.StrEnum):
     SYNC_MODEL = "sync_model"
     FETCH_CONTAINER_LOGS = "fetch_container_logs"
     HOST_OP = "host_op"
+    SYNC_NODE_PROFILE = "sync_node_profile"
+    CHECK_SYSTEM_UPDATES = "check_system_updates"
+    APPLY_SYSTEM_UPDATES = "apply_system_updates"
+
+
+class InfraNodeProfile(Base):
+    """Reusable profile with platform-specific sub-configs for nodes."""
+
+    __tablename__ = "infra_node_profile"
+
+    id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(128), nullable=False, unique=True, index=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    runtime_config: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    gpu_config: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    storage_config: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    network_config: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    logging_config: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    security_config: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    update_config: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
 
 
 class InfraNode(Base):
@@ -73,6 +101,11 @@ class InfraNode(Base):
     maintenance_mode: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     draining: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     scheduler_eligible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    profile_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("infra_node_profile.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

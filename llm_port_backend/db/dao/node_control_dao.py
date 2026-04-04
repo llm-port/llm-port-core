@@ -20,6 +20,7 @@ from llm_port_backend.db.models.node_control import (
     InfraNodeEvent,
     InfraNodeInventorySnapshot,
     InfraNodeMaintenanceWindow,
+    InfraNodeProfile,
     InfraNodeSession,
     InfraNodeWorkloadAssignment,
     NodeCommandStatus,
@@ -448,3 +449,113 @@ class NodeControlDAO:
         existing.capabilities = node.capabilities_json
         existing.version = node.version
         existing.last_seen = node.last_seen
+
+    # ── profile CRUD ──────────────────────────────────────────
+
+    async def create_profile(
+        self,
+        *,
+        name: str,
+        description: str | None = None,
+        is_default: bool = False,
+        runtime_config: dict[str, Any] | None = None,
+        gpu_config: dict[str, Any] | None = None,
+        storage_config: dict[str, Any] | None = None,
+        network_config: dict[str, Any] | None = None,
+        logging_config: dict[str, Any] | None = None,
+        security_config: dict[str, Any] | None = None,
+        update_config: dict[str, Any] | None = None,
+    ) -> InfraNodeProfile:
+        if is_default:
+            await self._clear_default_profile()
+        profile = InfraNodeProfile(
+            name=name,
+            description=description,
+            is_default=is_default,
+            runtime_config=runtime_config or {},
+            gpu_config=gpu_config or {},
+            storage_config=storage_config or {},
+            network_config=network_config or {},
+            logging_config=logging_config or {},
+            security_config=security_config or {},
+            update_config=update_config or {},
+        )
+        self.session.add(profile)
+        await self.session.flush()
+        return profile
+
+    async def get_profile(self, profile_id: uuid.UUID) -> InfraNodeProfile | None:
+        result = await self.session.execute(
+            select(InfraNodeProfile).where(InfraNodeProfile.id == profile_id),
+        )
+        return result.scalar_one_or_none()
+
+    async def get_profile_by_name(self, name: str) -> InfraNodeProfile | None:
+        result = await self.session.execute(
+            select(InfraNodeProfile).where(InfraNodeProfile.name == name),
+        )
+        return result.scalar_one_or_none()
+
+    async def list_profiles(self) -> list[InfraNodeProfile]:
+        result = await self.session.execute(
+            select(InfraNodeProfile).order_by(InfraNodeProfile.name.asc()),
+        )
+        return list(result.scalars().all())
+
+    async def update_profile(
+        self,
+        profile: InfraNodeProfile,
+        *,
+        updates: dict[str, Any],
+    ) -> InfraNodeProfile:
+        allowed = {
+            "name", "description", "is_default",
+            "runtime_config", "gpu_config", "storage_config",
+            "network_config", "logging_config", "security_config",
+            "update_config",
+        }
+        if updates.get("is_default"):
+            await self._clear_default_profile()
+        for key, value in updates.items():
+            if key in allowed:
+                setattr(profile, key, value)
+        return profile
+
+    async def delete_profile(self, profile_id: uuid.UUID) -> bool:
+        profile = await self.get_profile(profile_id)
+        if profile is None:
+            return False
+        # Unassign any nodes pointing to this profile
+        nodes = await self.session.execute(
+            select(InfraNode).where(InfraNode.profile_id == profile_id),
+        )
+        for node in nodes.scalars().all():
+            node.profile_id = None
+        await self.session.delete(profile)
+        await self.session.flush()
+        return True
+
+    async def assign_profile(self, *, node_id: uuid.UUID, profile_id: uuid.UUID) -> InfraNode:
+        node = await self.get_node_by_id(node_id)
+        if node is None:
+            raise ValueError("Node not found.")
+        profile = await self.get_profile(profile_id)
+        if profile is None:
+            raise ValueError("Profile not found.")
+        node.profile_id = profile_id
+        return node
+
+    async def unassign_profile(self, *, node_id: uuid.UUID) -> InfraNode:
+        node = await self.get_node_by_id(node_id)
+        if node is None:
+            raise ValueError("Node not found.")
+        node.profile_id = None
+        return node
+
+    async def _clear_default_profile(self) -> None:
+        """Ensure only one profile has is_default=True."""
+        result = await self.session.execute(
+            select(InfraNodeProfile).where(InfraNodeProfile.is_default.is_(True)),
+        )
+        for p in result.scalars().all():
+            p.is_default = False

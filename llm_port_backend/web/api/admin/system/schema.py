@@ -191,6 +191,7 @@ class NodeDTO(BaseModel):
     last_seen: str | None = None
     created_at: str
     updated_at: str
+    profile_id: str | None = None
     latest_inventory: dict[str, Any] | None = None
     latest_utilization: dict[str, Any] | None = None
 
@@ -280,3 +281,60 @@ class GrafanaWebhookResponseDTO(BaseModel):
 
     accepted: bool
     fingerprint: str | None = None
+
+
+# ── Node Profile schemas ──────────────────────────────────
+
+
+class NodeProfileCreateRequest(BaseModel):
+    """Create a node profile."""
+
+    name: str
+    description: str | None = None
+    is_default: bool = False
+    runtime_config: dict[str, Any] = Field(default_factory=dict)
+    gpu_config: dict[str, Any] = Field(default_factory=dict)
+    storage_config: dict[str, Any] = Field(default_factory=dict)
+    network_config: dict[str, Any] = Field(default_factory=dict)
+    logging_config: dict[str, Any] = Field(default_factory=dict)
+    security_config: dict[str, Any] = Field(default_factory=dict)
+    update_config: dict[str, Any] = Field(default_factory=dict)
+
+
+class NodeProfileUpdateRequest(BaseModel):
+    """Update a node profile (partial)."""
+
+    name: str | None = None
+    description: str | None = None
+    is_default: bool | None = None
+    runtime_config: dict[str, Any] | None = None
+    gpu_config: dict[str, Any] | None = None
+    storage_config: dict[str, Any] | None = None
+    network_config: dict[str, Any] | None = None
+    logging_config: dict[str, Any] | None = None
+    security_config: dict[str, Any] | None = None
+    update_config: dict[str, Any] | None = None
+
+
+class NodeProfileDTO(BaseModel):
+    """Node profile DTO."""
+
+    id: str
+    name: str
+    description: str | None = None
+    is_default: bool = False
+    runtime_config: dict[str, Any] = Field(default_factory=dict)
+    gpu_config: dict[str, Any] = Field(default_factory=dict)
+    storage_config: dict[str, Any] = Field(default_factory=dict)
+    network_config: dict[str, Any] = Field(default_factory=dict)
+    logging_config: dict[str, Any] = Field(default_factory=dict)
+    security_config: dict[str, Any] = Field(default_factory=dict)
+    update_config: dict[str, Any] = Field(default_factory=dict)
+    created_at: str
+    updated_at: str
+
+
+class NodeProfileAssignRequest(BaseModel):
+    """Assign a profile to a node."""
+
+    profile_id: str
