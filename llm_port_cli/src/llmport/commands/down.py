@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 
@@ -17,15 +18,18 @@ _PROJECT_IMAGE_PREFIX = "ghcr.io/llm-port/"
 
 def _remove_project_images() -> int:
     """Remove only locally-built llmport/* images. Return count removed."""
-    result = subprocess.run(
-        ["docker", "images", "--format", "{{.Repository}}:{{.Tag}}",
+    docker = shutil.which("docker")
+    if not docker:
+        return 0
+    result = subprocess.run(  # noqa: S603
+        [docker, "images", "--format", "{{.Repository}}:{{.Tag}}",
          "--filter", f"reference={_PROJECT_IMAGE_PREFIX}*"],
         capture_output=True, text=True,
     )
     images = [img for img in result.stdout.strip().splitlines() if img]
     if not images:
         return 0
-    subprocess.run(["docker", "image", "rm", "-f", *images],
+    subprocess.run([docker, "image", "rm", "-f", *images],  # noqa: S603
                    capture_output=True, text=True)
     return len(images)
 

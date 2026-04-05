@@ -828,7 +828,7 @@ def _win_remove_autostart() -> None:
 
 
 _SUDOERS_FILE = Path("/etc/sudoers.d/llmport-agent")
-_SUDOERS_CMDS = ["/usr/bin/apt", "/usr/bin/fwupdmgr"]
+_SUDOERS_CMDS = ["apt", "fwupdmgr"]
 
 
 def cmd_init() -> None:
@@ -842,7 +842,9 @@ def cmd_init() -> None:
     svc_user, _, _ = _resolve_service_user()
 
     # ── sudoers for passwordless apt / fwupdmgr ──
-    cmds = ", ".join(c for c in _SUDOERS_CMDS if shutil.which(c))
+    # Resolve absolute paths (required by sudoers for security).
+    resolved = [shutil.which(c) for c in _SUDOERS_CMDS]
+    cmds = ", ".join(p for p in resolved if p)
     if not cmds:
         print("  No privileged commands found on this system — skipping sudoers.")
     elif _SUDOERS_FILE.exists():

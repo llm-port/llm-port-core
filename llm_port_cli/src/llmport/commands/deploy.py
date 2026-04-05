@@ -5,7 +5,7 @@ Runs the complete production flow:
   2. Locate or set up the install directory
   3. Generate ``.env`` with random secrets and auto-tuned pool sizes
   4. Enable requested modules (compose profiles)
-  5. Build all container images from source
+  5. Pull pre-built container images from the registry
   6. Start all services (infra + app + modules)
   7. Print endpoint summary
 """
@@ -167,8 +167,8 @@ def _login_for_api_token(backend_url: str, email: str) -> str | None:
     default="",
     help="Comma-separated modules to enable (EE only, e.g. pii,auth).",
 )
-@click.option("--no-build", is_flag=True, help="Skip building images (pull only).")
-@click.option("--no-cache", is_flag=True, help="Build images without Docker cache.")
+@click.option("--build", is_flag=True, help="Build images from source instead of pulling pre-built images.")
+@click.option("--no-cache", is_flag=True, help="Build images without Docker cache (implies --build).")
 @click.option("--gpu/--no-gpu", default=None, help="Include GPU (NVIDIA) compose overlay. Default: auto-detect.")
 @click.option("--force-env", is_flag=True, help="Regenerate .env even if it exists.")
 @click.option(
@@ -224,7 +224,7 @@ def deploy_cmd(
     install_dir: str | None,
     *,
     modules: str,
-    no_build: bool,
+    build: bool,
     no_cache: bool,
     gpu: bool | None,
     force_env: bool,
@@ -249,9 +249,9 @@ def deploy_cmd(
 
     \b
     Examples:
-        llmport deploy                         # deploy from current workspace
+        llmport deploy                         # deploy using pre-built images
+        llmport deploy --build                 # build images from source
         llmport deploy /opt/llm-port           # deploy to specific directory
-        llmport deploy --no-build              # skip building (use existing images)
         llmport deploy --force-env             # regenerate secrets
     """
     console.print("\n[bold magenta]llm.port — Production Deployment[/bold magenta]\n")
@@ -435,7 +435,10 @@ def deploy_cmd(
         profiles=sorted(profiles),
     )
 
-    if not no_build:
+    if no_cache:
+        build = True
+
+    if build:
         console.print("\n[bold cyan]Step 4: Building container images…[/bold cyan]")
         console.print("[dim]This may take several minutes on first run.[/dim]")
 
@@ -458,7 +461,14 @@ def deploy_cmd(
         else:
             success("All images built successfully.")
     else:
-        console.print("\n[dim]Skipping image build (--no-build).[/dim]")
+        console.print("\n[bold cyan]Step 4: Pulling pre-built images…[/bold cyan]")
+        from llmport.core.compose import pull as compose_pull  # noqa: PLC0415
+
+        rc = compose_pull(ctx)
+        if rc != 0:
+            warning("Some images failed to pull. Will try to start with available images.")
+        else:
+            success("All images pulled successfully.")
 
     # ── 6. Start services ─────────────────────────────────────────
     console.print("\n[bold cyan]Step 5: Starting services…[/bold cyan]")

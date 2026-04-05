@@ -260,7 +260,7 @@ def _install_backend_deps(backend_dir: Path) -> None:
 def _install_frontend_deps(frontend_dir: Path) -> None:
     """Run ``npm install`` in the frontend directory."""
     console.print("[cyan]Installing frontend dependencies (npm install)…[/cyan]")
-    result = subprocess.run(["npm", "install"], cwd=str(frontend_dir))  # noqa: S603, S607
+    result = subprocess.run(["npm", "install"], cwd=str(frontend_dir), shell=(os.name == "nt"))  # noqa: S603, S607
     if result.returncode != 0:
         error("npm install failed.")
         return

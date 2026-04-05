@@ -3,7 +3,8 @@
 The CLI persists its state in a YAML file located at:
   - ``$LLMPORT_CONFIG`` env var (if set)
   - ``<install_dir>/llmport.yaml``
-  - ``~/.config/llmport/llmport.yaml`` (default)
+  - ``%LOCALAPPDATA%/llmport/llmport.yaml`` (Windows)
+  - ``~/.config/llmport/llmport.yaml`` (Linux/macOS)
 
 The schema is intentionally flat:  top-level scalars for the common
 case, with a ``dev:`` section for dev-mode specifics.
@@ -30,7 +31,17 @@ __all__ = ["REPO_DIR_MAP", "repo_clone_url"]
 
 # ── Default paths ─────────────────────────────────────────────────
 
-_DEFAULT_CONFIG_DIR = Path.home() / ".config" / "llmport"
+
+def _default_config_dir() -> Path:
+    """Return platform-appropriate config directory."""
+    if os.name == "nt":
+        base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
+        if base:
+            return Path(base) / "llmport"
+    return Path.home() / ".config" / "llmport"
+
+
+_DEFAULT_CONFIG_DIR = _default_config_dir()
 _DEFAULT_CONFIG_FILE = _DEFAULT_CONFIG_DIR / "llmport.yaml"
 
 
