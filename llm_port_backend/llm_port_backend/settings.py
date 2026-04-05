@@ -98,6 +98,12 @@ class Settings(BaseSettings):
     host_hf_cache_dir: str = ""
     default_vllm_image: str = "vllm/vllm-openai:latest"
     default_vllm_rocm_image: str = "vllm/vllm-openai-rocm:latest"
+    # NGC image for NVIDIA ARM / unified-memory systems (Grace Hopper,
+    # DGX Spark / GB10, Jetson).  Standard Docker Hub images are x86_64
+    # only; this NGC build targets aarch64 + CUDA.
+    # Pinned to a release tag to avoid driver-compatibility issues —
+    # NGC "latest" may require a newer driver than what ships on the device.
+    default_vllm_nvidia_arm_image: str = "nvcr.io/nvidia/vllm:26.03-py3"
     # Legacy image for GPUs with compute capability < 8.0 (Turing/Volta).
     # vLLM >= 0.7 uses the V1 engine which only supports FA2 (CC >= 8.0).
     # v0.6.6 uses V0 engine + XFormers (CC >= 7.0) and works in Docker

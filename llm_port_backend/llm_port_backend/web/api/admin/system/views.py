@@ -505,10 +505,26 @@ async def system_node_hardware(
     inventory: dict[str, Any] = payload.get("latest_inventory") or {}
     utilization: dict[str, Any] = payload.get("latest_utilization") or {}
     gpu_raw: dict[str, Any] = inventory.get("gpu") or {}
+    caps: dict[str, Any] = inventory.get("static_capabilities") or {}
 
     gpu_count: int = int(gpu_raw.get("count", 0))
     total_vram_bytes: int = int(gpu_raw.get("total_vram_bytes", 0))
     has_gpu = gpu_count > 0
+
+    # Detect GPU vendor from the first device, fallback to capabilities
+    detected_vendor = "nvidia"  # node agent currently only detects NVIDIA
+    for dev in gpu_raw.get("devices") or []:
+        v = dev.get("vendor")
+        if v:
+            detected_vendor = v
+            break
+    if not has_gpu:
+        detected_vendor = caps.get("gpu_vendor", "unknown")
+
+    # Detect ARM architecture — NVIDIA ARM / unified-memory systems
+    # (Grace Hopper, DGX Spark / GB10, Jetson) need the NGC image.
+    machine = caps.get("machine", "").lower()
+    is_arm = machine in ("aarch64", "arm64")
 
     # Build device list from node agent format → GpuDeviceDTO
     devices: list[GpuDeviceDTO] = []
@@ -517,16 +533,23 @@ async def system_node_hardware(
         devices.append(
             GpuDeviceDTO(
                 index=idx,
-                vendor="nvidia",  # node agent only detects NVIDIA via nvidia-smi
-                model=dev.get("model", f"GPU {idx}"),
+                vendor=dev.get("vendor", detected_vendor),
+                model=dev.get("name", dev.get("model", f"GPU {idx}")),
                 vram_bytes=vram_mib * 1024 * 1024,
                 driver_version=dev.get("driver_version", ""),
-                compute_api="cuda",
+                compute_api="cuda" if detected_vendor == "nvidia" else "unknown",
             ),
         )
 
-    primary_vendor = "nvidia" if has_gpu else "unknown"
-    primary_compute_api = "cuda" if has_gpu else "unknown"
+    # Use architecture-qualified vendor so the correct image preset
+    # is recommended (e.g. nvidia_arm → NGC image for GB10).
+    primary_vendor = "unknown"
+    if has_gpu:
+        if detected_vendor == "nvidia" and is_arm:
+            primary_vendor = "nvidia_arm"
+        else:
+            primary_vendor = detected_vendor
+    primary_compute_api = "cuda" if has_gpu and detected_vendor == "nvidia" else "unknown"
 
     gpu_dto = GpuInventoryDTO(
         devices=devices,

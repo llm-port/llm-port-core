@@ -56,11 +56,19 @@ _BUILTIN_PRESETS: list[dict[str, Any]] = [
         "description": "Default Docker Hub image for AMD GPUs (ROCm).",
         "is_default": True,
     },
+    {
+        "label": "vLLM (NVIDIA ARM / Unified Memory)",
+        "image": settings.default_vllm_nvidia_arm_image,
+        "vendor": "nvidia_arm",
+        "description": "NGC image for NVIDIA ARM systems with unified memory — DGX Spark (GB10), Grace Hopper, Jetson.",
+        "is_default": True,
+    },
 ]
 
 # Vendor string → recommended image tag (used for backwards-compat field)
 _VLLM_IMAGES: dict[str, str] = {
     "nvidia": settings.default_vllm_image,
+    "nvidia_arm": settings.default_vllm_nvidia_arm_image,
     "amd": settings.default_vllm_rocm_image,
 }
 
