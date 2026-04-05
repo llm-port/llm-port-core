@@ -175,6 +175,26 @@ async def get_request_detail(
     return RequestLogDTO(**data)
 
 
+# ── Request detail by trace_id ────────────────────────────────
+
+
+@router.get(
+    "/requests/by-trace/{trace_id}",
+    response_model=RequestLogDTO,
+    name="observability_request_by_trace",
+)
+async def get_request_by_trace(
+    trace_id: str,
+    _user: Annotated[User, Depends(require_permission("chat.debug", "read"))],
+    gw: AsyncSession = Depends(_get_gateway_session),
+) -> RequestLogDTO:
+    svc = ObservabilityService(gw)
+    data = await svc.get_request_by_trace_id(trace_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Request not found for trace_id")
+    return RequestLogDTO(**data)
+
+
 # ── Tool call logs ─────────────────────────────────────────────
 
 

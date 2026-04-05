@@ -25,6 +25,9 @@ interface Props {
   usage?: TokenUsage | null;
   responseMs?: number | null;
   streaming?: boolean;
+  traceId?: string | null;
+  canDebug?: boolean;
+  onDebugClick?: (traceId: string) => void;
 }
 
 export default function MessageBubble({
@@ -34,6 +37,9 @@ export default function MessageBubble({
   usage,
   responseMs,
   streaming = false,
+  traceId,
+  canDebug = false,
+  onDebugClick,
 }: Props) {
   const theme = useTheme();
   const { t } = useTranslation();
@@ -204,6 +210,11 @@ export default function MessageBubble({
               <IconButton
                 size="small"
                 sx={{ opacity: 0.4, p: 0.25, "&:hover": { opacity: 0.8 } }}
+                onClick={
+                  canDebug && traceId && onDebugClick
+                    ? () => onDebugClick(traceId)
+                    : undefined
+                }
               >
                 <InfoOutlinedIcon sx={{ fontSize: 14 }} />
               </IconButton>

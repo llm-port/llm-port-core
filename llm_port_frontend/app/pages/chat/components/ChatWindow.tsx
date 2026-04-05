@@ -25,11 +25,11 @@ import MenuItem from "@mui/material/MenuItem";
 import type { ChatSession, TokenUsage } from "~/api/chatTypes";
 import type { UiLanguage } from "~/api/i18n";
 import i18n from "~/i18n";
-import type { ChatSession, TokenUsage } from "~/api/chatTypes";
 import type { InitialMessageState } from "./ChatWelcome";
 import { useThemeMode } from "~/theme-mode";
 import { useChatStream } from "../hooks/useChatStream";
 import MessageBubble from "./MessageBubble";
+import MessageDebugPanel from "./MessageDebugPanel";
 import ChatInput from "./ChatInput";
 
 interface Props {
@@ -44,6 +44,7 @@ interface Props {
   language: string;
   onLanguageChange: (code: string) => void;
   isSuperuser: boolean;
+  canDebug?: boolean;
 }
 
 export default function ChatWindow({
@@ -58,6 +59,7 @@ export default function ChatWindow({
   language,
   onLanguageChange,
   isSuperuser,
+  canDebug = false,
 }: Props) {
   const { t } = useTranslation();
   const theme = useTheme();
@@ -66,6 +68,7 @@ export default function ChatWindow({
   const [langMenuAnchor, setLangMenuAnchor] = useState<HTMLElement | null>(
     null,
   );
+  const [debugTraceId, setDebugTraceId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const location = useLocation();
   const initialSentRef = useRef(false);
@@ -264,6 +267,9 @@ export default function ChatWindow({
               responseMs={
                 msg.role === "assistant" ? getResponseMs(msg.id) : null
               }
+              traceId={msg.trace_id}
+              canDebug={canDebug}
+              onDebugClick={setDebugTraceId}
             />
           ))}
 
@@ -387,6 +393,15 @@ export default function ChatWindow({
         onModelChange={onModelChange}
         streaming={isStreaming}
       />
+
+      {/* Debug panel — only rendered when RBAC allows */}
+      {canDebug && debugTraceId && (
+        <MessageDebugPanel
+          traceId={debugTraceId}
+          open
+          onClose={() => setDebugTraceId(null)}
+        />
+      )}
     </Box>
   );
 }

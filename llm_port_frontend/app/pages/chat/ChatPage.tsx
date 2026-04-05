@@ -29,7 +29,12 @@ const SIDEBAR_COLLAPSED_WIDTH = 0;
 
 export default function ChatPage() {
   const { sessionId } = useParams<{ sessionId?: string }>();
-  const { user } = useOutletContext<{ user: AuthUser }>();
+  const { user, permissions } = useOutletContext<{
+    user: AuthUser;
+    permissions: Set<string>;
+  }>();
+  const canDebug =
+    permissions.has("*") || permissions.has("chat.debug:read");
   const navigate = useNavigate();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
@@ -213,6 +218,7 @@ export default function ChatPage() {
             language={language}
             onLanguageChange={handleLanguageChange}
             isSuperuser={user.is_superuser}
+            canDebug={canDebug}
           />
         ) : (
           <ChatWelcome

@@ -53,6 +53,7 @@
     "reset_nav_order": "Réinitialiser l'ordre de navigation",
     "security_map": "Résidence des données",
     "nodes": "Noeuds",
+    "node_profiles": "Profils de nœuds",
     "scheduler": "Planificateur",
     "utilities_group": "Utilitaires",
     "chat_group": "Conversation",
@@ -1337,5 +1338,25 @@
     "seen": "Vu",
     "cores_logical": "{{physical}} cœurs ({{logical}} logiques)",
     "bytes_free": "{{bytes}} libre"
+  },
+  "node_profiles": {
+    "page_title": "Profils de nœuds",
+    "create_title": "Créer un profil de nœud",
+    "edit_title": "Modifier le profil de nœud",
+    "create": "Créer un profil",
+    "name": "Nom",
+    "description": "Description",
+    "is_default": "Profil par défaut pour les nouveaux nœuds",
+    "configuration": "Configuration",
+    "profile": "Profil",
+    "none": "Aucun profil attribué",
+    "default": "par défaut",
+    "runtime": "Runtime",
+    "gpu_vendor": "Fabricant GPU",
+    "created": "Créé",
+    "empty": "Aucun profil de nœud défini. Créez-en un pour commencer.",
+    "search_placeholder": "Rechercher des profils…",
+    "delete_title": "Supprimer le profil",
+    "delete_confirm": "Supprimer le profil \"{{name}}\" ? Les nœuds utilisant ce profil seront désaffectés."
   }
 }

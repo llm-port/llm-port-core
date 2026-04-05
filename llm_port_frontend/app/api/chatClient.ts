@@ -164,6 +164,10 @@ export function streamChat(payload: Record<string, unknown>): StreamHandle {
       throw await buildApiError(res);
     }
 
+    // Capture trace_id from response header (set by the gateway)
+    const traceId = res.headers.get("x-langfuse-trace-id") ?? undefined;
+    let traceIdEmitted = false;
+
     const reader = res.body?.getReader();
     if (!reader) throw new Error("No response body");
 
@@ -216,7 +220,13 @@ export function streamChat(payload: Record<string, unknown>): StreamHandle {
             };
           }
 
-          if (delta.content || delta.finish_reason || delta.usage) {
+          // Attach trace_id to the first yielded delta
+          if (traceId && !traceIdEmitted) {
+            delta.trace_id = traceId;
+            traceIdEmitted = true;
+          }
+
+          if (delta.content || delta.finish_reason || delta.usage || delta.trace_id) {
             yield delta;
           }
         } catch (e) {
@@ -254,6 +264,10 @@ export function resumeStream(sessionId: string): StreamHandle {
     // 204 = no buffer available
     if (res.status === 204) return;
     if (!res.ok) return;
+
+    // Capture trace_id from response header (set by the gateway)
+    const traceId = res.headers.get("x-langfuse-trace-id") ?? undefined;
+    let traceIdEmitted = false;
 
     const reader = res.body?.getReader();
     if (!reader) return;
@@ -297,7 +311,13 @@ export function resumeStream(sessionId: string): StreamHandle {
             };
           }
 
-          if (delta.content || delta.finish_reason || delta.usage) {
+          // Attach trace_id to the first yielded delta
+          if (traceId && !traceIdEmitted) {
+            delta.trace_id = traceId;
+            traceIdEmitted = true;
+          }
+
+          if (delta.content || delta.finish_reason || delta.usage || delta.trace_id) {
             yield delta;
           }
         } catch {

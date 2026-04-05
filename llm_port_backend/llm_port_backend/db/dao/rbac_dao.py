@@ -59,6 +59,7 @@ _DEFAULT_ROLES: dict[str, dict[str, list[str]]] = {
         "rag.jobs": ["read"],
         "rag.search": ["read", "write"],
         "modules": ["manage", "read"],
+        "chat.debug": ["read"],
     },
     "operator": {
         "llm.providers": ["read"],

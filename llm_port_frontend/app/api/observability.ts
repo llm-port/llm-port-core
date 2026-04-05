@@ -234,6 +234,12 @@ export const observability = {
     return request<RequestLog>(`/requests/${encodeURIComponent(requestId)}`);
   },
 
+  requestByTrace(traceId: string) {
+    return request<RequestLog>(
+      `/requests/by-trace/${encodeURIComponent(traceId)}`,
+    );
+  },
+
   toolCalls(requestId: string) {
     return request<ToolCallLog[]>(
       `/requests/${encodeURIComponent(requestId)}/tool-calls`,

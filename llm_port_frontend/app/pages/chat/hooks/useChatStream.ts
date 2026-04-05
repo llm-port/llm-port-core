@@ -127,6 +127,7 @@ export function useChatStream({
 
           let accumulated = "";
           let finalUsage: TokenUsage | null = null;
+          let traceId: string | null = null;
 
           for await (const delta of reader) {
             if (delta.content) {
@@ -136,6 +137,9 @@ export function useChatStream({
             if (delta.usage) {
               finalUsage = delta.usage;
               setStreamingUsage(delta.usage);
+            }
+            if (delta.trace_id) {
+              traceId = delta.trace_id;
             }
           }
 
@@ -151,7 +155,7 @@ export function useChatStream({
               model_alias: null,
               provider_instance_id: null,
               token_estimate: finalUsage?.total_tokens ?? null,
-              trace_id: null,
+              trace_id: traceId,
               created_at: new Date().toISOString(),
             };
             setMessages((prev) => [...prev, assistantMsg]);
@@ -266,6 +270,7 @@ export function useChatStream({
 
         let accumulated = "";
         let finalUsage: TokenUsage | null = null;
+        let traceId: string | null = null;
 
         for await (const delta of reader) {
           if (delta.content) {
@@ -275,6 +280,9 @@ export function useChatStream({
           if (delta.usage) {
             finalUsage = delta.usage;
             setStreamingUsage(delta.usage);
+          }
+          if (delta.trace_id) {
+            traceId = delta.trace_id;
           }
         }
 
@@ -299,7 +307,7 @@ export function useChatStream({
           model_alias: model || null,
           provider_instance_id: null,
           token_estimate: finalUsage?.total_tokens ?? null,
-          trace_id: null,
+          trace_id: traceId,
           created_at: new Date().toISOString(),
         };
         setMessages((prev) => [...prev, assistantMsg]);

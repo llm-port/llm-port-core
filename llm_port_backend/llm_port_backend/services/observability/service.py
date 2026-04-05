@@ -257,6 +257,36 @@ class ObservabilityService:
             d["price_catalog_id"] = str(d["price_catalog_id"])
         return d
 
+    async def get_request_by_trace_id(self, trace_id: str) -> dict | None:
+        """Single request by trace_id (most recent if multiple)."""
+        q = text("""
+            SELECT
+                id, request_id, trace_id, tenant_id, user_id,
+                model_alias, CAST(provider_instance_id AS TEXT) AS provider_instance_id,
+                endpoint, status_code, latency_ms, ttft_ms,
+                prompt_tokens, completion_tokens, total_tokens, error_code,
+                estimated_input_cost, estimated_output_cost, estimated_total_cost,
+                currency, price_catalog_id, cost_estimate_status,
+                cached_tokens, stream,
+                session_id, finish_reason, retry_count,
+                skills_used, rag_context,
+                mcp_tool_call_count, mcp_tool_loop_iterations,
+                created_at
+            FROM llm_gateway_request_log
+            WHERE trace_id = :trace_id
+            ORDER BY created_at DESC
+            LIMIT 1
+        """)
+        result = await self._session.execute(q, {"trace_id": trace_id})
+        row = result.mappings().first()
+        if row is None:
+            return None
+        d = dict(row)
+        d["id"] = str(d["id"])
+        if d.get("price_catalog_id"):
+            d["price_catalog_id"] = str(d["price_catalog_id"])
+        return d
+
     # ── Tool call detail ──────────────────────────────────────────
 
     async def get_tool_calls(self, request_id: str) -> list[dict]:

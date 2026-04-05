@@ -33,6 +33,7 @@ dependencies = [
   "pyjwt>=2.9.0",
   "redis[hiredis]>=5.0.0",
   "pyyaml>=6.0",
+  "python-multipart>=0.0.18",
 ]
 
 [dependency-groups]

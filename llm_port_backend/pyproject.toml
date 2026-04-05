@@ -51,6 +51,7 @@ dependencies = [
   "openpyxl >=3.1.0,<4",
   "pgvector >=0.3.6,<1",
   "aiofiles >=24.1.0,<25",
+  "python-multipart >=0.0.18,<1",
 ]
 
 [dependency-groups]

@@ -83,7 +83,7 @@ class GatewayObservability:
             mode = PrivacyMode.METADATA_ONLY
         if not self.enabled or self._client is None:
             return GatewayTraceContext(
-                trace_id=None, observation=None, endpoint=endpoint, privacy_mode=mode,
+                trace_id=request_id, observation=None, endpoint=endpoint, privacy_mode=mode,
             )
         trace_id = self._safe_create_trace_id(seed=request_id) or request_id
         metadata = {

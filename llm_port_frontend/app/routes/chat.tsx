@@ -9,11 +9,13 @@ import { Outlet, useNavigate } from "react-router";
 import Box from "@mui/material/Box";
 import CircularProgress from "@mui/material/CircularProgress";
 import { auth, type AuthUser } from "~/api/auth";
+import { adminUsers } from "~/api/admin";
 import { servicesApi } from "~/api/services";
 
 export default function ChatLayout() {
   const navigate = useNavigate();
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [permissions, setPermissions] = useState<Set<string>>(new Set());
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -36,6 +38,21 @@ export default function ChatLayout() {
           }
         } catch {
           // If services API fails, allow access (degrade gracefully)
+        }
+
+        // Fetch RBAC permissions (best-effort — non-blocking)
+        try {
+          const access = await adminUsers.meAccess();
+          if (!cancelled) {
+            const keys = access.permissions.map(
+              (p) => `${p.resource}:${p.action}`,
+            );
+            setPermissions(
+              new Set(access.is_superuser ? ["*"] : keys),
+            );
+          }
+        } catch {
+          // Permissions fetch failed — user keeps empty set (no debug)
         }
 
         if (!cancelled) setReady(true);
@@ -64,5 +81,5 @@ export default function ChatLayout() {
     );
   }
 
-  return <Outlet context={{ user }} />;
+  return <Outlet context={{ user, permissions }} />;
 }

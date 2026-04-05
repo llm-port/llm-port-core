@@ -91,4 +91,5 @@ export interface StreamDelta {
   content?: string;
   finish_reason?: string | null;
   usage?: TokenUsage;
+  trace_id?: string;
 }
