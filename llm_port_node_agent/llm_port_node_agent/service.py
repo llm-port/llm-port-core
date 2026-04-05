@@ -6,6 +6,7 @@ import asyncio
 import logging
 
 import psutil
+from httpx import HTTPStatusError
 from websockets.exceptions import InvalidStatus
 
 from llm_port_node_agent.backend_client import BackendClient
@@ -161,6 +162,11 @@ class NodeAgentService:
                     self._state_store.save()
                 else:
                     log.warning("Stream rejected with status=%s", status)
+            except RuntimeError as exc:
+                # Terminal errors (enrollment token consumed, no credential)
+                # should not be silently retried forever.
+                log.error("Fatal agent error: %s", exc)
+                raise
             except Exception:
                 log.exception("Node stream loop failed.")
 
@@ -203,13 +209,22 @@ class NodeAgentService:
         if not token:
             raise RuntimeError("No credential in state and no enrollment token configured.")
         log.info("Enrolling node agent '%s' at backend.", self._config.agent_id)
-        payload = await self._client.enroll(
-            enrollment_token=token,
-            agent_id=self._config.agent_id,
-            host=self._config.host,
-            capabilities=capabilities,
-            version="0.1.0",
-        )
+        try:
+            payload = await self._client.enroll(
+                enrollment_token=token,
+                agent_id=self._config.agent_id,
+                host=self._config.host,
+                capabilities=capabilities,
+                version="0.1.0",
+            )
+        except HTTPStatusError as exc:
+            if exc.response.status_code in {401, 403}:
+                raise RuntimeError(
+                    "Enrollment token rejected (401). The token was likely already "
+                    "consumed or has expired. Generate a new enrollment token in "
+                    "the admin UI and update LLM_PORT_NODE_AGENT_ENROLLMENT_TOKEN."
+                ) from exc
+            raise
         credential = payload.get("credential")
         node_id = payload.get("node_id")
         if not isinstance(credential, str) or not credential:
