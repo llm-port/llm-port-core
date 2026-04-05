@@ -241,11 +241,7 @@ def setup_prometheus(app: FastAPI) -> None:  # pragma: no cover
 
 async def _load_runtime_settings_from_db(app: FastAPI) -> None:  # pragma: no cover
     """Load runtime settings from DB-backed system_setting tables."""
-    import os  # noqa: PLC0415
-
     from llm_port_backend.services.system_settings.crypto import SettingsCrypto  # noqa: PLC0415
-
-    env_prefix = (settings.model_config.get("env_prefix") or "").upper()
 
     async with app.state.db_session_factory() as session:
         from sqlalchemy import text  # noqa: PLC0415
@@ -260,19 +256,11 @@ async def _load_runtime_settings_from_db(app: FastAPI) -> None:  # pragma: no co
                 attr_name = runtime_value_keys.get(db_key)
                 if attr_name is None:
                     continue
-                # Explicit env-var overrides take precedence over DB values.
-                env_key = f"{env_prefix}{attr_name}".upper()
-                if os.environ.get(env_key):
-                    log.debug(
-                        "Skipping DB override for '%s' – env var %s is set.",
-                        db_key,
-                        env_key,
-                    )
-                    continue
                 value = _extract_setting_value(row["value_json"])
                 # Skip empty/blank strings so the code-level default is preserved.
                 if isinstance(value, str) and not value.strip():
                     continue
+                log.debug("DB hydration: %s -> %s = %r", db_key, attr_name, value)
                 object.__setattr__(settings, attr_name, value)
         except Exception:
             log.exception("Failed to load runtime value settings from DB.")
