@@ -903,7 +903,24 @@ class LLMService:
         # Flush pending work before slow Docker teardown.
         await runtime_dao.session.commit()
         for rt in runtimes:
-            await self._teardown_runtime(rt)
+            # Node-deployed runtimes need a REMOVE_WORKLOAD command
+            if rt.execution_target == "node" and rt.assigned_node_id:
+                node_service = self._build_node_control_service(runtime_dao.session)
+                await node_service.issue_command(
+                    node_id=rt.assigned_node_id,
+                    command_type=NodeCommandType.REMOVE_WORKLOAD.value,
+                    payload={
+                        "runtime_id": str(rt.id),
+                        "runtime_name": rt.name,
+                        "container_name": self._node_container_name(rt.name),
+                    },
+                    issued_by=None,
+                    correlation_id=str(rt.id),
+                    timeout_sec=settings.node_command_default_timeout_sec,
+                    idempotency_key=f"runtime:{rt.id}:remove",
+                )
+            else:
+                await self._teardown_runtime(rt)
             # Remove gateway routing records
             await self.gateway_sync.unpublish_runtime(
                 runtime_id=rt.id, alias=rt.name,

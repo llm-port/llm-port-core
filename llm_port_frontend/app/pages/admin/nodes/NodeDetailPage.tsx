@@ -1066,7 +1066,12 @@ llmport-agent run`}
             </Stack>
             <IconButton
               size="small"
-              onClick={() => setCommandsExpanded((v) => !v)}
+              onClick={() =>
+                setCommandsExpanded((v) => {
+                  if (v) setTimeline(null);
+                  return !v;
+                })
+              }
               sx={{
                 transform: commandsExpanded ? "rotate(180deg)" : "rotate(0deg)",
                 transition: "transform 0.2s",
@@ -1119,31 +1124,31 @@ llmport-agent run`}
                 ))}
               </Stack>
             )}
-          </Collapse>
 
-          {timeline && (
-            <Box sx={{ mt: 1.5 }}>
-              <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
-                {t("nodes.timeline")}: {timeline.command.command_type}
-              </Typography>
-              <Stack spacing={0.5}>
-                {timeline.events.map((event) => (
-                  <Box
-                    key={`${event.seq}:${event.ts}`}
-                    sx={{ borderLeft: 2, borderColor: "divider", pl: 1.5 }}
-                  >
-                    <Typography variant="body2" fontWeight={600}>
-                      #{event.seq} {event.phase}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {new Date(event.ts).toLocaleString()}
-                    </Typography>
-                    <Typography variant="body2">{event.message}</Typography>
-                  </Box>
-                ))}
-              </Stack>
-            </Box>
-          )}
+            {timeline && (
+              <Box sx={{ mt: 1.5 }}>
+                <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+                  {t("nodes.timeline")}: {timeline.command.command_type}
+                </Typography>
+                <Stack spacing={0.5}>
+                  {timeline.events.map((event) => (
+                    <Box
+                      key={`${event.seq}:${event.ts}`}
+                      sx={{ borderLeft: 2, borderColor: "divider", pl: 1.5 }}
+                    >
+                      <Typography variant="body2" fontWeight={600}>
+                        #{event.seq} {event.phase}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {new Date(event.ts).toLocaleString()}
+                      </Typography>
+                      <Typography variant="body2">{event.message}</Typography>
+                    </Box>
+                  ))}
+                </Stack>
+              </Box>
+            )}
+          </Collapse>
         </CardContent>
       </Card>
 

@@ -54,7 +54,13 @@ class StreamClient:
         self._gpu_collector: GpuCollector = gpu_collector or NullCollector()
         self._send_lock = asyncio.Lock()
         self._inventory_trigger = asyncio.Event()
-        self._health_supervisor = HealthSupervisor(runtime=runtime, state_store=state_store, events=events)
+        self._health_supervisor = HealthSupervisor(
+            runtime=runtime,
+            state_store=state_store,
+            events=events,
+            advertise_host=config.advertise_host or "127.0.0.1",
+            advertise_scheme=getattr(config, "advertise_scheme", "http") or "http",
+        )
 
     async def run(self, *, credential: str) -> None:
         """Open stream and process commands until disconnected."""

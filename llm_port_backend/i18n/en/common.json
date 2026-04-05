@@ -875,21 +875,37 @@
     "next": "Next",
     "back": "Back",
     "slides": {
-      "containers": {
-        "title": "Container Management",
-        "description": "Manage lifecycle, logs, and policies for infrastructure and app containers."
+      "welcome": {
+        "title": "Welcome to llm.port",
+        "description": "Your self-hosted AI platform. Manage models, chat with LLMs, build knowledge bases, and operate your entire AI infrastructure — all from a single control plane."
+      },
+      "chat": {
+        "title": "AI Chat Console",
+        "description": "Create projects and sessions to chat with any registered model. Attach files, define memories, and switch between providers without changing your workflow."
       },
       "llm_server": {
-        "title": "LLM Server Management",
-        "description": "Register providers, models, and runtimes to serve LLM workloads from one admin surface."
-      },
-      "tracing": {
-        "title": "LLM Tracing",
-        "description": "Visualize live LLM flows and observe request traces for debugging and operations."
+        "title": "Model & Provider Management",
+        "description": "Register local runtimes (vLLM, Ollama, llama.cpp) and remote providers (OpenAI, Azure). Start, stop, and monitor GPU workloads across your fleet from one dashboard."
       },
       "endpoint": {
-        "title": "Centralized API Endpoint",
-        "description": "Use a single OpenAI-compatible endpoint gateway with policy, routing, and observability controls."
+        "title": "Unified API Gateway",
+        "description": "Expose a single OpenAI-compatible /v1 endpoint. Requests are routed to the right provider with built-in rate limiting, PII redaction, and token tracking."
+      },
+      "rag": {
+        "title": "Knowledge Bases & RAG",
+        "description": "Upload documents, choose a chunking and embedding strategy, and search with vector, keyword, or hybrid queries. Ground your LLM responses in organizational knowledge."
+      },
+      "mcp": {
+        "title": "MCP Tool Registry",
+        "description": "Register any MCP-compliant tool server — local sidecars or remote endpoints. llm.port discovers tools automatically, applies PII policies before every call, and exposes them as a single governed catalog."
+      },
+      "skills": {
+        "title": "Skills Registry",
+        "description": "Define reusable task playbooks that shape how the AI reasons and acts. Skills combine workflow steps, tool preferences, and knowledge sources into a deterministic instruction layer."
+      },
+      "observability": {
+        "title": "Observability & Security",
+        "description": "Trace every LLM request end-to-end, monitor token usage and cost, review audit logs, and enforce role-based access across your entire deployment."
       }
     }
   },

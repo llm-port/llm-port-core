@@ -739,21 +739,37 @@
     "next": "下一步",
     "back": "上一步",
     "slides": {
-      "containers": {
-        "title": "容器管理",
-        "description": "管理基础设施与应用容器的生命周期、日志和策略。"
+      "welcome": {
+        "title": "欢迎使用 llm.port",
+        "description": "您的自托管 AI 平台。管理模型、与 LLM 对话、构建知识库，并在统一控制面板中运维整个 AI 基础设施。"
+      },
+      "chat": {
+        "title": "AI 聊天控制台",
+        "description": "创建项目和会话，与任意已注册的模型对话。附加文件、定义记忆，并在不同提供商之间无缝切换。"
       },
       "llm_server": {
-        "title": "LLM 服务管理",
-        "description": "集中注册提供商、模型和运行时，统一管理 LLM 工作负载。"
-      },
-      "tracing": {
-        "title": "LLM 追踪",
-        "description": "可视化实时 LLM 流程并观察请求追踪，用于排障与运维。"
+        "title": "模型与提供商管理",
+        "description": "注册本地运行时（vLLM、Ollama、llama.cpp）和远程提供商（OpenAI、Azure）。在统一面板中启动、停止和监控整个集群的 GPU 工作负载。"
       },
       "endpoint": {
-        "title": "集中式 API 端点",
-        "description": "使用单一 OpenAI 兼容网关，统一策略、路由与可观测性控制。"
+        "title": "统一 API 网关",
+        "description": "提供单一 OpenAI 兼容的 /v1 端点。请求自动路由至正确的提供商，内置速率限制、PII 脱敏和 Token 追踪。"
+      },
+      "rag": {
+        "title": "知识库与 RAG",
+        "description": "上传文档，选择分块和向量化策略，使用向量、关键词或混合查询进行搜索。将 LLM 回答锚定在组织知识之上。"
+      },
+      "mcp": {
+        "title": "MCP 工具注册中心",
+        "description": "注册任意 MCP 兼容的工具服务器——本地 Sidecar 或远程端点。llm.port 自动发现工具，在每次调用前应用 PII 策略，并将它们整合为统一的受管目录。"
+      },
+      "skills": {
+        "title": "技能注册中心",
+        "description": "定义可复用的任务剧本，指导 AI 的推理和行动方式。技能将工作流步骤、工具偏好和知识来源组合为确定性的指令层。"
+      },
+      "observability": {
+        "title": "可观测性与安全",
+        "description": "端到端追踪每个 LLM 请求，监控 Token 用量和成本，审查审计日志，并在整个部署中实施基于角色的访问控制。"
       }
     }
   },

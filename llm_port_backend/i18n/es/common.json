@@ -739,21 +739,37 @@
     "next": "Siguiente",
     "back": "Atras",
     "slides": {
-      "containers": {
-        "title": "Gestion de Contenedores",
-        "description": "Administra ciclo de vida, logs y politicas para contenedores de infraestructura y aplicaciones."
+      "welcome": {
+        "title": "Bienvenido a llm.port",
+        "description": "Su plataforma de IA autoalojada. Gestione modelos, converse con LLMs, cree bases de conocimiento y opere toda su infraestructura de IA desde un unico panel de control."
+      },
+      "chat": {
+        "title": "Consola de Chat IA",
+        "description": "Cree proyectos y sesiones para chatear con cualquier modelo registrado. Adjunte archivos, defina memorias y cambie entre proveedores sin alterar su flujo de trabajo."
       },
       "llm_server": {
-        "title": "Gestion de Servidor LLM",
-        "description": "Registra proveedores, modelos y runtimes para operar cargas LLM desde una sola consola."
-      },
-      "tracing": {
-        "title": "Trazado LLM",
-        "description": "Visualiza flujos LLM en vivo y observa trazas de solicitudes para depuracion y operaciones."
+        "title": "Gestion de Modelos y Proveedores",
+        "description": "Registre runtimes locales (vLLM, Ollama, llama.cpp) y proveedores remotos (OpenAI, Azure). Inicie, detenga y monitoree cargas GPU en toda su flota desde un solo panel."
       },
       "endpoint": {
-        "title": "Endpoint API Centralizado",
-        "description": "Usa un unico gateway compatible con OpenAI con controles de politica, enrutamiento y observabilidad."
+        "title": "Gateway API Unificado",
+        "description": "Exponga un unico endpoint compatible con OpenAI /v1. Las solicitudes se enrutan al proveedor correcto con limitacion de tasa, redaccion de PII y seguimiento de tokens integrados."
+      },
+      "rag": {
+        "title": "Bases de Conocimiento y RAG",
+        "description": "Suba documentos, elija una estrategia de fragmentacion y embedding, y busque con consultas vectoriales, por palabra clave o hibridas. Fundamente las respuestas de su LLM en conocimiento organizacional."
+      },
+      "mcp": {
+        "title": "Registro de Herramientas MCP",
+        "description": "Registre cualquier servidor de herramientas compatible con MCP, ya sean sidecars locales o endpoints remotos. llm.port descubre herramientas automaticamente, aplica politicas de PII antes de cada llamada y las expone como un catalogo unico y gobernado."
+      },
+      "skills": {
+        "title": "Registro de Skills",
+        "description": "Defina playbooks de tareas reutilizables que determinan como la IA razona y actua. Los Skills combinan pasos de flujo de trabajo, preferencias de herramientas y fuentes de conocimiento en una capa de instrucciones determinista."
+      },
+      "observability": {
+        "title": "Observabilidad y Seguridad",
+        "description": "Rastree cada solicitud LLM de extremo a extremo, monitoree uso y costo de tokens, revise logs de auditoria y aplique control de acceso basado en roles en todo su despliegue."
       }
     }
   },

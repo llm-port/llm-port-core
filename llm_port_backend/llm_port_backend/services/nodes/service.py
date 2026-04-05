@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
+
+log = logging.getLogger(__name__)
 
 from llm_port_backend.db.dao.node_control_dao import NodeControlDAO
 from llm_port_backend.db.models.llm import LLMModel, LLMProvider, LLMRuntime, RuntimeStatus
@@ -335,6 +338,92 @@ class NodeControlService:
 
     async def record_node_events(self, *, node_id: uuid.UUID, events: list[dict[str, Any]]) -> None:
         await self._dao.add_node_events(node_id=node_id, events=events)
+        # React to workload health events emitted by the node agent's
+        # HealthSupervisor so the backend reconciles runtime status and
+        # gateway health when a container recovers or crashes.
+        for event in events:
+            event_type = str(event.get("event_type") or event.get("type") or "")
+            if event_type in (
+                "workload.health.running",
+                "workload.health.stopped",
+                "workload.health.missing",
+            ):
+                await self._reconcile_runtime_from_event(
+                    node_id=node_id, event_type=event_type, event=event,
+                )
+
+    async def _reconcile_runtime_from_event(
+        self,
+        *,
+        node_id: uuid.UUID,
+        event_type: str,
+        event: dict[str, Any],
+    ) -> None:
+        """Update runtime status + gateway health based on agent health events."""
+        payload = event.get("payload")
+        if not isinstance(payload, dict):
+            return
+        runtime_id_raw = payload.get("runtime_id")
+        if not runtime_id_raw:
+            return
+        try:
+            runtime_id = uuid.UUID(str(runtime_id_raw))
+        except ValueError:
+            return
+
+        result = await self._dao.session.execute(
+            select(LLMRuntime).where(LLMRuntime.id == runtime_id),
+        )
+        runtime = result.scalar_one_or_none()
+        if runtime is None:
+            return
+
+        if event_type == "workload.health.running":
+            # Container has (re)started — promote runtime back to RUNNING.
+            prev = runtime.status
+            if prev in (RuntimeStatus.ERROR, RuntimeStatus.STARTING, RuntimeStatus.CREATING):
+                runtime.status = RuntimeStatus.RUNNING
+                runtime.status_message = None
+                # Update endpoint if the agent reported one
+                endpoint_url = payload.get("endpoint_url")
+                if isinstance(endpoint_url, str) and endpoint_url.strip():
+                    endpoint_url = await self._rewrite_endpoint_host(
+                        endpoint_url.strip(), node_id=node_id,
+                    )
+                    runtime.endpoint_url = endpoint_url
+                await self._publish_runtime_to_gateway(runtime=runtime)
+                log.info(
+                    "Runtime %s reconciled %s → running from agent health event",
+                    runtime_id,
+                    prev.value,
+                )
+        elif event_type in ("workload.health.stopped", "workload.health.missing"):
+            # Container stopped or disappeared
+            if runtime.status == RuntimeStatus.RUNNING:
+                exit_code = payload.get("exit_code", -1)
+                container_status = payload.get("status", "stopped")
+                runtime.status = RuntimeStatus.ERROR
+                runtime.status_message = (
+                    f"Container {container_status} (exit code {exit_code})"
+                    if event_type == "workload.health.stopped"
+                    else "Container not found on node"
+                )
+                if self._gateway_sync is not None:
+                    await self._gateway_sync.set_instance_health(
+                        runtime_id=runtime.id, health_status="unhealthy",
+                    )
+                log.warning(
+                    "Runtime %s marked ERROR from agent health event: %s",
+                    runtime_id,
+                    runtime.status_message,
+                )
+
+        await self._dao.upsert_workload_assignment(
+            runtime_id=runtime.id,
+            node_id=node_id,
+            desired_state=runtime.desired_state,
+            actual_state=runtime.status.value,
+        )
 
     async def set_node_maintenance(
         self,

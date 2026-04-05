@@ -109,6 +109,12 @@ class RuntimeManager:
 
         # Resource limits
         container_port = str(payload.get("container_port") or provider_config.get("container_port") or "8000").strip()
+        # Pin the host port so the endpoint URL survives container restarts.
+        # When Docker maps with only a container port (-p 8000) a random
+        # host port is chosen and may change on restart.  Using an explicit
+        # host_port:container_port binding keeps it stable.
+        host_port = str(payload.get("host_port") or provider_config.get("host_port") or container_port).strip()
+        port_spec = f"{host_port}:{container_port}"
 
         # Build default command for known provider types when none provided
         entrypoint_override: str | None = None
@@ -209,7 +215,7 @@ class RuntimeManager:
         container_id = await self._runtime.run(
             image=image,
             name=container_name,
-            ports=[container_port],
+            ports=[port_spec],
             env=run_env,
             gpus=gpu_request or None,
             volumes=run_volumes or None,
@@ -220,7 +226,8 @@ class RuntimeManager:
         )
 
         await _progress("resolve_endpoint", "Resolving container endpoint")
-        endpoint = await self._resolve_endpoint(container_name, container_port=container_port)
+        # Use the pinned host_port directly — no need to query Docker
+        endpoint = f"{self._advertise_scheme}://{self._advertise_host}:{host_port}"
 
         self._state.set_workload(
             runtime_id,
@@ -231,6 +238,7 @@ class RuntimeManager:
                 "provider_type": provider_type,
                 "image": image,
                 "container_port": container_port,
+                "host_port": host_port,
                 "endpoint_url": endpoint,
             },
         )

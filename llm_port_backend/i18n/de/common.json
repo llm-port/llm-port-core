@@ -739,21 +739,37 @@
     "next": "Weiter",
     "back": "Zurueck",
     "slides": {
-      "containers": {
-        "title": "Container-Verwaltung",
-        "description": "Verwalte Lifecycle, Logs und Richtlinien fuer Infrastruktur- und App-Container."
+      "welcome": {
+        "title": "Willkommen bei llm.port",
+        "description": "Ihre selbst gehostete KI-Plattform. Verwalten Sie Modelle, chatten Sie mit LLMs, erstellen Sie Wissensdatenbanken und betreiben Sie Ihre gesamte KI-Infrastruktur — alles aus einer zentralen Steuerungsebene."
+      },
+      "chat": {
+        "title": "KI-Chat-Konsole",
+        "description": "Erstellen Sie Projekte und Sitzungen, um mit jedem registrierten Modell zu chatten. Haengen Sie Dateien an, definieren Sie Erinnerungen und wechseln Sie zwischen Anbietern, ohne Ihren Workflow zu aendern."
       },
       "llm_server": {
-        "title": "LLM-Server-Verwaltung",
-        "description": "Registriere Provider, Modelle und Runtimes, um LLM-Workloads zentral zu betreiben."
-      },
-      "tracing": {
-        "title": "LLM-Tracing",
-        "description": "Visualisiere Live-LLM-Fluesse und beobachte Request-Traces fuer Debugging und Betrieb."
+        "title": "Modell- und Anbieterverwaltung",
+        "description": "Registrieren Sie lokale Runtimes (vLLM, Ollama, llama.cpp) und Remote-Anbieter (OpenAI, Azure). Starten, stoppen und ueberwachen Sie GPU-Workloads in Ihrer gesamten Flotte von einem Dashboard aus."
       },
       "endpoint": {
-        "title": "Zentraler API-Endpunkt",
-        "description": "Nutze ein einziges OpenAI-kompatibles Gateway mit Policy-, Routing- und Observability-Steuerung."
+        "title": "Einheitliches API-Gateway",
+        "description": "Stellen Sie einen einzigen OpenAI-kompatiblen /v1-Endpunkt bereit. Anfragen werden mit integrierter Ratenbegrenzung, PII-Redaktion und Token-Tracking an den richtigen Anbieter weitergeleitet."
+      },
+      "rag": {
+        "title": "Wissensdatenbanken & RAG",
+        "description": "Laden Sie Dokumente hoch, waehlen Sie eine Chunking- und Embedding-Strategie und suchen Sie mit Vektor-, Schluesselwort- oder Hybridabfragen. Verankern Sie Ihre LLM-Antworten im Unternehmenswissen."
+      },
+      "mcp": {
+        "title": "MCP-Tool-Registrierung",
+        "description": "Registrieren Sie beliebige MCP-kompatible Tool-Server — lokale Sidecars oder entfernte Endpunkte. llm.port erkennt Tools automatisch, wendet PII-Richtlinien vor jedem Aufruf an und stellt sie als einheitlichen, verwalteten Katalog bereit."
+      },
+      "skills": {
+        "title": "Skills-Registrierung",
+        "description": "Definieren Sie wiederverwendbare Aufgaben-Playbooks, die bestimmen, wie die KI denkt und handelt. Skills kombinieren Arbeitsschritte, Tool-Praeferenzen und Wissensquellen zu einer deterministischen Anweisungsschicht."
+      },
+      "observability": {
+        "title": "Observability & Sicherheit",
+        "description": "Verfolgen Sie jede LLM-Anfrage End-to-End, ueberwachen Sie Token-Verbrauch und Kosten, pruefen Sie Audit-Logs und setzen Sie rollenbasierte Zugriffskontrolle in Ihrer gesamten Umgebung durch."
       }
     }
   },

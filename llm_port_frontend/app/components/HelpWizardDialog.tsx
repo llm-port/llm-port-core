@@ -28,24 +28,44 @@ export function HelpWizardDialog({ open, onClose }: HelpWizardDialogProps) {
 
   const slides = [
     {
-      title: t("help.slides.containers.title"),
-      description: t("help.slides.containers.description"),
-      image: "/help-containers.svg",
+      title: t("help.slides.welcome.title"),
+      description: t("help.slides.welcome.description"),
+      image: "/help-welcome.png",
+    },
+    {
+      title: t("help.slides.chat.title"),
+      description: t("help.slides.chat.description"),
+      image: "/help-chat.png",
     },
     {
       title: t("help.slides.llm_server.title"),
       description: t("help.slides.llm_server.description"),
-      image: "/help-llm-server.svg",
-    },
-    {
-      title: t("help.slides.tracing.title"),
-      description: t("help.slides.tracing.description"),
-      image: "/help-llm-tracing.svg",
+      image: "/help-llm-server.png",
     },
     {
       title: t("help.slides.endpoint.title"),
       description: t("help.slides.endpoint.description"),
-      image: "/help-api-endpoint.svg",
+      image: "/help-api-endpoint.png",
+    },
+    {
+      title: t("help.slides.rag.title"),
+      description: t("help.slides.rag.description"),
+      image: "/help-rag.png",
+    },
+    {
+      title: t("help.slides.mcp.title"),
+      description: t("help.slides.mcp.description"),
+      image: "/help-mcp.png",
+    },
+    {
+      title: t("help.slides.skills.title"),
+      description: t("help.slides.skills.description"),
+      image: "/help-skills.png",
+    },
+    {
+      title: t("help.slides.observability.title"),
+      description: t("help.slides.observability.description"),
+      image: "/help-observability.png",
     },
   ];
 
@@ -98,7 +118,9 @@ export function HelpWizardDialog({ open, onClose }: HelpWizardDialogProps) {
           nextButton={
             <Button
               size="small"
-              onClick={() => setStep((prev) => Math.min(slides.length - 1, prev + 1))}
+              onClick={() =>
+                setStep((prev) => Math.min(slides.length - 1, prev + 1))
+              }
               disabled={step >= slides.length - 1}
             >
               {t("help.next")}
