@@ -18,6 +18,8 @@ from llm_port_pii.services.pii.service import PIIService
 from llm_port_pii.settings import settings
 from llm_port_pii.web.api.pii.schema import (
     DetectedEntityDTO,
+    PIIDetokenizeRequest,
+    PIIDetokenizeResponse,
     PIIPolicyOptionsResponse,
     PIIRedactRequest,
     PIIRedactResponse,
@@ -94,7 +96,7 @@ async def get_policy_options() -> PIIPolicyOptionsResponse:
     return PIIPolicyOptionsResponse(
         supported_entities=list(DEFAULT_ENTITIES),
         supported_languages=list(SUPPORTED_LANGUAGES),
-        supported_sanitize_modes=["redact"],
+        supported_sanitize_modes=["redact", "tokenize"],
         default_language=settings.pii_default_language,
         default_score_threshold=settings.pii_score_threshold,
     )
@@ -180,19 +182,15 @@ async def sanitize_payload(
     """Sanitize all text fields in an OpenAI-shaped payload.
 
     Walks ``messages[].content`` (string or multimodal array) and
-    ``input`` (embeddings).  Supports ``redact`` mode only.
-
-    The ``tokenize`` mode and ``/detokenize`` endpoint are available
-    in the **PII Pro** enterprise module.
+    ``input`` (embeddings).  Supports ``redact`` and ``tokenize`` modes.
     """
-    if body.mode != "redact":
+    if body.mode not in ("redact", "tokenize"):
         return JSONResponse(
             status_code=400,
             content={
                 "detail": (
                     f"Unsupported sanitize mode '{body.mode}'. "
-                    "Core PII supports 'redact' only. "
-                    "Use the PII Pro module for tokenize/detokenize."
+                    "Supported modes: 'redact', 'tokenize'."
                 ),
             },
         )
@@ -233,3 +231,21 @@ async def sanitize_payload(
         ],
         token_mapping=result.token_mapping,
     )
+
+
+@router.post("/detokenize", response_model=PIIDetokenizeResponse)
+async def detokenize_payload(
+    body: PIIDetokenizeRequest,
+    request: Request,
+) -> PIIDetokenizeResponse:
+    """Restore original PII values in an OpenAI-shaped response payload.
+
+    Replaces surrogate tokens (e.g. ``[PERSON_1]``) with their original
+    values using the ``token_mapping`` from a prior ``/sanitize`` call.
+    """
+    svc = _get_pii_service(request)
+    restored = await svc.detokenize_payload(
+        body.payload,
+        token_mapping=body.token_mapping,
+    )
+    return PIIDetokenizeResponse(payload=restored)

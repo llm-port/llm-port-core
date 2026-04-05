@@ -39,6 +39,7 @@ class ToolCallRequest(BaseModel):
     arguments: dict[str, Any] = Field(default_factory=dict)
     tenant_id: str = Field(default="default")
     request_id: str | None = None
+    pii_mode_override: str | None = None
 
 
 class ToolCallResponse(BaseModel):
@@ -168,11 +169,12 @@ async def call_tool(
     # Privacy proxy
     sanitized_args = body.arguments
     redaction_summary = None
+    effective_pii_mode = body.pii_mode_override or server.pii_mode
     proxy = _get_privacy_proxy(request)
     if proxy is not None:
         decision = await proxy.check(
             arguments=body.arguments,
-            pii_mode=server.pii_mode,
+            pii_mode=effective_pii_mode,
         )
         if not decision.allowed:
             raise HTTPException(

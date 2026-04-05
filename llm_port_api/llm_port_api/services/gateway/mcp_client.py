@@ -93,17 +93,20 @@ class MCPClient:
         arguments: dict[str, Any],
         tenant_id: str,
         request_id: str,
+        pii_mode_override: str | None = None,
     ) -> ToolCallResult:
         """Execute an MCP tool call via the MCP service.
 
         Calls ``POST /api/internal/tools/call``.
         """
-        body = {
+        body: dict[str, Any] = {
             "qualified_name": qualified_name,
             "arguments": arguments,
             "tenant_id": tenant_id,
             "request_id": request_id,
         }
+        if pii_mode_override is not None:
+            body["pii_mode_override"] = pii_mode_override
         try:
             resp = await self._http.post(
                 f"{self._base}/api/internal/tools/call",

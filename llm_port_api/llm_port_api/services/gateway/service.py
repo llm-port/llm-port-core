@@ -60,13 +60,20 @@ _PII_REDACT_SYSTEM_PROMPT = (
 _PII_TOKENIZE_SYSTEM_PROMPT = (
     "IMPORTANT — Privacy notice: The user's message has been processed by an "
     "automated PII (Personally Identifiable Information) tokenization system. "
-    "Certain sensitive values have been replaced with surrogate tokens in the "
-    "format [TOKEN_<hex>] (e.g. [TOKEN_a1b2c3]). Each token is a reversible "
-    "placeholder for a real value that will be restored after your response. "
-    "When responding, you MUST preserve these tokens exactly as they appear — "
-    "do not modify, decode, or remove them. Place them in the same logical "
-    "position in your answer so the de-tokenization step can restore the "
-    "original values correctly."
+    "Certain sensitive values have been replaced with surrogate tokens such as "
+    "[PERSON_1], [EMAIL_ADDRESS_1], [PHONE_NUMBER_1], [LOCATION_1], etc. "
+    "Each token represents a real value that will be restored after your response. "
+    "CRITICAL RULES:\n"
+    "1. Treat each token as if it were the real value it represents. For example, "
+    "[PERSON_1] is a real person — refer to them naturally, use appropriate "
+    "pronouns, and reason about them as you would a real name.\n"
+    "2. Preserve every token exactly as written in your response — do not modify, "
+    "remove, decode, or invent the underlying value.\n"
+    "3. Place tokens in the same logical positions in your answer (e.g. if the "
+    "user asks 'Who is [PERSON_1]?', your answer should reference [PERSON_1]).\n"
+    "4. If multiple tokens of the same type appear (e.g. [PERSON_1] and "
+    "[PERSON_2]), treat them as distinct individuals/values.\n"
+    "5. Do not mention or explain the tokenization system to the user."
 )
 
 
@@ -332,6 +339,9 @@ class GatewayService:
                 )
             # MCP tool execution loop
             if endpoint == "/v1/chat/completions" and self.mcp_client:
+                mcp_pii_override = self._mcp_pii_mode_override(
+                    pii_policy, decision,
+                )
                 mcp_loop_result = await self._run_mcp_tool_loop(
                     result=result,
                     egress_payload=egress_payload,
@@ -339,6 +349,7 @@ class GatewayService:
                     decision=decision,
                     tenant_id=auth.tenant_id,
                     request_id=request_id,
+                    pii_mode_override=mcp_pii_override,
                 )
                 result = mcp_loop_result.result
                 mcp_tool_calls = mcp_loop_result.tool_calls
@@ -663,6 +674,9 @@ class GatewayService:
                     decision=decision,
                     tenant_id=auth.tenant_id,
                     request_id=request_id,
+                    pii_mode_override=self._mcp_pii_mode_override(
+                        pii_policy, decision,
+                    ),
                 )
                 mcp_result = mcp_loop_result.result
                 stream_mcp_tool_calls = mcp_loop_result.tool_calls
@@ -897,6 +911,29 @@ class GatewayService:
     def _is_local_candidate(decision: RoutingDecision) -> bool:
         """Return whether the routed provider is local/on-prem."""
         return not GatewayService._is_cloud_provider(decision)
+
+    @staticmethod
+    def _mcp_pii_mode_override(
+        pii_policy: PIIPolicy | None,
+        decision: RoutingDecision | None,
+    ) -> str | None:
+        """Compute PII mode override for MCP tool calls.
+
+        When the egress PII policy disables scanning for the current
+        provider type (e.g. ``enabled_for_local=false`` and the provider
+        is local), returns ``"allow"`` so the MCP proxy skips PII
+        scanning.  Otherwise returns ``None`` (use server default).
+        """
+        if pii_policy is None or decision is None:
+            return None
+        is_cloud = decision.candidate.provider_type.value.startswith("remote_")
+        should_scan = (
+            (is_cloud and pii_policy.egress.enabled_for_cloud)
+            or (not is_cloud and pii_policy.egress.enabled_for_local)
+        )
+        if not should_scan:
+            return "allow"
+        return None
 
     async def _fallback_to_local_candidate(
         self,
@@ -1424,6 +1461,7 @@ class GatewayService:
         decision: RoutingDecision,
         tenant_id: str,
         request_id: str,
+        pii_mode_override: str | None = None,
     ) -> MCPToolLoopResult:
         """Execute MCP tool calls in a loop, re-calling the LLM each round.
 
@@ -1503,6 +1541,7 @@ class GatewayService:
                         arguments=arguments,
                         tenant_id=tenant_id,
                         request_id=request_id,
+                        pii_mode_override=pii_mode_override,
                     )
                     tc_error = call_result.is_error
                     if call_result.is_error:

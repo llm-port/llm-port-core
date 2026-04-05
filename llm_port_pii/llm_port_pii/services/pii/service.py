@@ -5,8 +5,9 @@ interface.  The heavy NLP model loading happens once at startup (via
 ``PIIService.create()``) so individual requests are fast.
 
 Supports PII **redaction** — replacing detected entities with
-placeholder tags (e.g. ``<PERSON>``).  Reversible tokenization
-and response de-tokenization are available in the **PII Pro** module.
+placeholder tags (e.g. ``<PERSON>``) — and **tokenization** — replacing
+detected entities with reversible surrogate tokens (e.g. ``[PERSON_1]``)
+that preserve semantic meaning for the LLM while hiding real values.
 """
 
 from __future__ import annotations
@@ -206,22 +207,24 @@ class PIIService:
     ) -> SanitizeResult:
         """Sanitize all text-bearing fields in an OpenAI-shaped payload.
 
-        Replaces detected PII with entity-type tags (e.g. ``<PERSON>``).
-
         Walks ``messages[].content`` (string or multimodal array) and the
         ``input`` field (for embeddings).  All other fields are forwarded
         unchanged.
 
-        .. note::
-
-           Reversible tokenization (``mode="tokenize"``) and response
-           de-tokenization are available in the **PII Pro** module.
+        Modes
+        -----
+        ``redact``
+            Replaces detected PII with entity-type tags
+            (e.g. ``<PERSON>``).
+        ``tokenize``
+            Replaces detected PII with reversible surrogate tokens
+            (e.g. ``[PERSON_1]``) and returns a ``token_mapping`` dict
+            so the caller can restore originals after the LLM response.
         """
-        if mode != "redact":
+        if mode not in ("redact", "tokenize"):
             raise ValueError(
                 f"Unsupported sanitize mode '{mode}'. "
-                "Core PII supports 'redact' only. "
-                "Use the PII Pro module for tokenize/detokenize."
+                "Supported modes: 'redact', 'tokenize'."
             )
 
         lang = language or self._default_language
@@ -230,34 +233,102 @@ class PIIService:
 
         all_entities: list[DetectedEntity] = []
 
-        async def _sanitize_text(text: str) -> str:
-            """Analyze + redact a single text string."""
-            results: list[RecognizerResult] = await asyncio.to_thread(
-                self._analyzer.analyze,
-                text=text,
-                language=lang,
-                entities=ents,
-                score_threshold=threshold,
-            )
-            for r in results:
-                all_entities.append(
-                    DetectedEntity(
-                        entity_type=r.entity_type,
-                        start=r.start,
-                        end=r.end,
-                        score=round(r.score, 4),
-                        text=text[r.start : r.end],
-                    ),
-                )
-            if not results:
-                return text
+        if mode == "tokenize":
+            # Shared mutable state for building the token mapping.
+            token_counters: dict[str, int] = {}
+            token_mapping: dict[str, str] = {}
+            # Cache: original text → token so repeated occurrences get
+            # the same surrogate across the whole payload.
+            value_to_token: dict[str, str] = {}
 
-            engine_result: EngineResult = await asyncio.to_thread(
-                self._anonymizer.anonymize,
-                text=text,
-                analyzer_results=results,
-            )
-            return engine_result.text
+            async def _tokenize_text(text: str) -> str:
+                results: list[RecognizerResult] = await asyncio.to_thread(
+                    self._analyzer.analyze,
+                    text=text,
+                    language=lang,
+                    entities=ents,
+                    score_threshold=threshold,
+                )
+                for r in results:
+                    all_entities.append(
+                        DetectedEntity(
+                            entity_type=r.entity_type,
+                            start=r.start,
+                            end=r.end,
+                            score=round(r.score, 4),
+                            text=text[r.start : r.end],
+                        ),
+                    )
+                if not results:
+                    return text
+
+                # Remove overlapping results: when two spans overlap,
+                # keep the one with the higher score (or larger span
+                # as tiebreaker). Sort by score desc, then span size desc.
+                results_sorted = sorted(
+                    results,
+                    key=lambda r: (r.score, r.end - r.start),
+                    reverse=True,
+                )
+                non_overlapping: list[RecognizerResult] = []
+                for r in results_sorted:
+                    if not any(
+                        r.start < kept.end and r.end > kept.start
+                        for kept in non_overlapping
+                    ):
+                        non_overlapping.append(r)
+
+                # Sort by start position descending so we can
+                # replace from end to start without shifting offsets.
+                sorted_results = sorted(non_overlapping, key=lambda r: r.start, reverse=True)
+                chars = list(text)
+                for r in sorted_results:
+                    original = text[r.start : r.end]
+                    if original in value_to_token:
+                        token = value_to_token[original]
+                    else:
+                        count = token_counters.get(r.entity_type, 0) + 1
+                        token_counters[r.entity_type] = count
+                        token = f"[{r.entity_type}_{count}]"
+                        value_to_token[original] = token
+                        token_mapping[token] = original
+                    chars[r.start : r.end] = list(token)
+                return "".join(chars)
+
+            sanitize_fn = _tokenize_text
+        else:
+            token_mapping = None  # type: ignore[assignment]
+
+            async def _redact_text(text: str) -> str:
+                """Analyze + redact a single text string."""
+                results: list[RecognizerResult] = await asyncio.to_thread(
+                    self._analyzer.analyze,
+                    text=text,
+                    language=lang,
+                    entities=ents,
+                    score_threshold=threshold,
+                )
+                for r in results:
+                    all_entities.append(
+                        DetectedEntity(
+                            entity_type=r.entity_type,
+                            start=r.start,
+                            end=r.end,
+                            score=round(r.score, 4),
+                            text=text[r.start : r.end],
+                        ),
+                    )
+                if not results:
+                    return text
+
+                engine_result: EngineResult = await asyncio.to_thread(
+                    self._anonymizer.anonymize,
+                    text=text,
+                    analyzer_results=results,
+                )
+                return engine_result.text
+
+            sanitize_fn = _redact_text
 
         # Deep-copy and walk the payload
         sanitized = dict(payload)
@@ -265,21 +336,64 @@ class PIIService:
         # Chat completions: messages[].content
         if "messages" in sanitized:
             sanitized["messages"] = await self._walk_messages(
-                sanitized["messages"], _sanitize_text,
+                sanitized["messages"], sanitize_fn,
             )
 
         # Embeddings: input (string | list[string])
         if "input" in sanitized:
             sanitized["input"] = await self._walk_input(
-                sanitized["input"], _sanitize_text,
+                sanitized["input"], sanitize_fn,
             )
 
         return SanitizeResult(
             payload=sanitized,
             pii_report=all_entities,
-            token_mapping=None,
+            token_mapping=token_mapping or None,
             entities_found=len(all_entities),
         )
+
+    async def detokenize_payload(
+        self,
+        payload: dict[str, Any],
+        token_mapping: dict[str, str],
+    ) -> dict[str, Any]:
+        """Restore original PII values in an OpenAI-shaped response payload.
+
+        Walks ``choices[].message.content`` and replaces surrogate tokens
+        (e.g. ``[PERSON_1]``) with their original values using the mapping
+        returned from a prior ``sanitize_payload(mode='tokenize')`` call.
+        """
+        if not token_mapping:
+            return payload
+
+        def _replace_tokens(text: str) -> str:
+            result = text
+            for token, original in token_mapping.items():
+                result = result.replace(token, original)
+            return result
+
+        sanitized = dict(payload)
+
+        # Chat completion response: choices[].message.content
+        choices = sanitized.get("choices")
+        if isinstance(choices, list):
+            new_choices: list[dict[str, Any]] = []
+            for choice in choices:
+                if not isinstance(choice, dict):
+                    new_choices.append(choice)
+                    continue
+                new_choice = dict(choice)
+                message = choice.get("message")
+                if isinstance(message, dict):
+                    new_message = dict(message)
+                    content = message.get("content")
+                    if isinstance(content, str):
+                        new_message["content"] = _replace_tokens(content)
+                    new_choice["message"] = new_message
+                new_choices.append(new_choice)
+            sanitized["choices"] = new_choices
+
+        return sanitized
 
     # ------------------------------------------------------------------
     # Private helpers -- OpenAI schema walkers

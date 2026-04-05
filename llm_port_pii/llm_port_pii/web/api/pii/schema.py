@@ -91,9 +91,9 @@ class PIISanitizeRequest(BaseModel):
     mode: str = Field(
         default="redact",
         description=(
-            "Sanitization mode. Core supports 'redact' only (replaces "
-            "PII with entity-type tags like <PERSON>). The 'tokenize' "
-            "mode is available in the PII Pro enterprise module."
+            "Sanitization mode. 'redact' replaces PII with entity-type "
+            "tags like <PERSON>. 'tokenize' replaces PII with reversible "
+            "surrogate tokens like [PERSON_1] and returns a token_mapping."
         ),
     )
     language: str | None = Field(default=None)
