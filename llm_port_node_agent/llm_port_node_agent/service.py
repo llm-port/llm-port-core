@@ -145,6 +145,11 @@ class NodeAgentService:
             log.info("LLM_PORT_NODE_AGENT_LOKI_URL not set — system log collection disabled.")
 
         backoff = self._config.reconnect_min_sec
+        auth_fail_streak = 0
+        _MAX_AUTH_RETRIES = 3
+        # Backend restarts can take 10-30 s; use a generous floor so the
+        # agent doesn't burn through all retries before the backend is back.
+        _AUTH_RETRY_DELAY_SEC = 15.0
         while True:
             try:
                 await self._ensure_credential(static_capabilities)
@@ -153,13 +158,36 @@ class NodeAgentService:
                     raise RuntimeError("Credential missing after enrollment flow.")
                 await stream.run(credential=credential)
                 backoff = self._config.reconnect_min_sec
+                auth_fail_streak = 0
             except InvalidStatus as exc:
-                # 401/403 indicate credential no longer valid.
+                # 401/403 may be transient (e.g. backend restart).  Only
+                # clear the credential after several consecutive failures
+                # to avoid a single blip bricking the agent.
                 status = exc.response.status_code
                 if status in {401, 403}:
-                    log.warning("Stream auth rejected (%s), clearing credential.", status)
-                    self._state_store.state.credential = None
-                    self._state_store.save()
+                    auth_fail_streak += 1
+                    if auth_fail_streak >= _MAX_AUTH_RETRIES:
+                        log.warning(
+                            "Stream auth rejected (%s) %d times in a row — "
+                            "clearing credential.",
+                            status,
+                            auth_fail_streak,
+                        )
+                        self._state_store.state.credential = None
+                        self._state_store.save()
+                        auth_fail_streak = 0
+                    else:
+                        delay = _AUTH_RETRY_DELAY_SEC * auth_fail_streak
+                        log.warning(
+                            "Stream auth rejected (%s), attempt %d/%d — "
+                            "will retry with same credential in %.0f s.",
+                            status,
+                            auth_fail_streak,
+                            _MAX_AUTH_RETRIES,
+                            delay,
+                        )
+                        await asyncio.sleep(delay)
+                        continue
                 else:
                     log.warning("Stream rejected with status=%s", status)
             except RuntimeError as exc:
