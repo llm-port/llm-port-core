@@ -33,8 +33,7 @@ export default function ChatPage() {
     user: AuthUser;
     permissions: Set<string>;
   }>();
-  const canDebug =
-    permissions.has("*") || permissions.has("chat.debug:read");
+  const canDebug = permissions.has("*") || permissions.has("chat.debug:read");
   const navigate = useNavigate();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));

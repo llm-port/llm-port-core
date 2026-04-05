@@ -47,9 +47,7 @@ export default function ChatLayout() {
             const keys = access.permissions.map(
               (p) => `${p.resource}:${p.action}`,
             );
-            setPermissions(
-              new Set(access.is_superuser ? ["*"] : keys),
-            );
+            setPermissions(new Set(access.is_superuser ? ["*"] : keys));
           }
         } catch {
           // Permissions fetch failed — user keeps empty set (no debug)

@@ -171,8 +171,7 @@ export default function MessageDebugPanel({ traceId, open, onClose }: Props) {
                   color={
                     request.status_code >= 200 && request.status_code < 300
                       ? "success"
-                      : request.status_code >= 400 &&
-                          request.status_code < 500
+                      : request.status_code >= 400 && request.status_code < 500
                         ? "warning"
                         : "error"
                   }
@@ -198,9 +197,7 @@ export default function MessageDebugPanel({ traceId, open, onClose }: Props) {
                 />
                 <Detail
                   label={t("observability.stream", "Stream")}
-                  value={
-                    request.stream != null ? String(request.stream) : "—"
-                  }
+                  value={request.stream != null ? String(request.stream) : "—"}
                 />
 
                 {/* Latency */}
@@ -272,10 +269,7 @@ export default function MessageDebugPanel({ traceId, open, onClose }: Props) {
                   value={String(request.mcp_tool_call_count ?? 0)}
                 />
                 <Detail
-                  label={t(
-                    "observability.mcp_iterations",
-                    "MCP iterations",
-                  )}
+                  label={t("observability.mcp_iterations", "MCP iterations")}
                   value={String(request.mcp_tool_loop_iterations ?? 0)}
                 />
 
@@ -305,9 +299,7 @@ export default function MessageDebugPanel({ traceId, open, onClose }: Props) {
           {tab === 1 && (
             <Box sx={{ p: 2, overflowY: "auto" }}>
               {toolCalls === null ? (
-                <Box
-                  sx={{ display: "flex", justifyContent: "center", py: 4 }}
-                >
+                <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
                   <CircularProgress size={24} />
                 </Box>
               ) : (

@@ -226,7 +226,12 @@ export function streamChat(payload: Record<string, unknown>): StreamHandle {
             traceIdEmitted = true;
           }
 
-          if (delta.content || delta.finish_reason || delta.usage || delta.trace_id) {
+          if (
+            delta.content ||
+            delta.finish_reason ||
+            delta.usage ||
+            delta.trace_id
+          ) {
             yield delta;
           }
         } catch (e) {
@@ -317,7 +322,12 @@ export function resumeStream(sessionId: string): StreamHandle {
             traceIdEmitted = true;
           }
 
-          if (delta.content || delta.finish_reason || delta.usage || delta.trace_id) {
+          if (
+            delta.content ||
+            delta.finish_reason ||
+            delta.usage ||
+            delta.trace_id
+          ) {
             yield delta;
           }
         } catch {
