@@ -1,6 +1,6 @@
 [project]
 name = "llm_port_skills"
-version = "0.0.2"
+version = "0.0.3"
 description = "Centralized Skills Registry — reasoning playbooks for llm.port"
 readme = "README.md"
 requires-python = ">=3.11,<4"
