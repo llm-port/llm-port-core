@@ -136,8 +136,7 @@ export const VLLM_RECIPES: VllmRecipe[] = [
   {
     id: "tool-mistral",
     name: "Tool Calling — Mistral",
-    description:
-      "Enable function calling for Mistral instruct models.",
+    description: "Enable function calling for Mistral instruct models.",
     modelPattern: "mistral",
     args: {
       "enable-auto-tool-choice": true,
