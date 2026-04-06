@@ -591,6 +591,8 @@
     "test_connection_failed": "Not OpenAI API compatible",
     "wizard_step_basics": "Basics",
     "wizard_step_runtime": "Runtime",
+    "model_source_sync_requires_download": "No model is currently available on this server for sync. Download a model first in the Models page, or switch to 'Download from HuggingFace'.",
+    "model_source_sync_requires_download_short": "No local model available. Download first.",
     "no_runtime": "No runtime"
   },
   "llm_models": {

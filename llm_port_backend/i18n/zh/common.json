@@ -596,6 +596,8 @@
     "test_connection_failed": "不兼容 OpenAI API",
     "wizard_step_basics": "基本信息",
     "wizard_step_runtime": "运行时",
+    "model_source_sync_requires_download": "当前此服务器上没有可用于同步的模型。请先在“模型”页面下载模型，或切换为“从 HuggingFace 下载”。",
+    "model_source_sync_requires_download_short": "没有可用的本地模型。请先下载。",
     "no_runtime": "无运行时"
   },
   "llm_models": {

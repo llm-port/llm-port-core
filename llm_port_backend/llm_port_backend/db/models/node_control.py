@@ -213,7 +213,7 @@ class InfraNodeCommand(Base):
     command_type: Mapped[str] = mapped_column(String(128), nullable=False)
     status: Mapped[str] = mapped_column(String(64), nullable=False, default=NodeCommandStatus.QUEUED.value)
     correlation_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(256), nullable=False)
     payload_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     result_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     timeout_sec: Mapped[int | None] = mapped_column(Integer, nullable=True)

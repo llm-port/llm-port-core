@@ -71,6 +71,7 @@ const DEPLOY_STAGES = [
   "pull_image",
   "start_container",
   "resolve_endpoint",
+  "waiting_for_ready",
   "ready",
 ] as const;
 
@@ -82,6 +83,7 @@ const STAGE_LABELS: Record<string, string> = {
   pull_image: "Pull Image",
   start_container: "Start Container",
   resolve_endpoint: "Resolve Endpoint",
+  waiting_for_ready: "Health Check",
   ready: "Ready",
 };
 

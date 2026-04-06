@@ -9,7 +9,6 @@ use for their WebSocket stream, so no additional secrets are needed.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 import re
@@ -24,6 +23,7 @@ from starlette import status
 from llm_port_backend.db.dao.llm_dao import ModelDAO
 from llm_port_backend.db.dao.node_control_dao import NodeControlDAO
 from llm_port_backend.db.models.node_control import InfraNode
+from llm_port_backend.services.docker.client import DockerService
 from llm_port_backend.services.nodes import NodeControlService
 from llm_port_backend.settings import settings
 
@@ -314,54 +314,44 @@ async def image_save(
 ) -> StreamingResponse:
     """Stream a ``docker save`` tarball so the agent can load it offline.
 
-    The caller specifies the image name and tag.  This endpoint shells
-    out to ``docker save`` on the backend host and streams the tar
-    archive back in chunked pieces.
+    The caller specifies the image name and tag.  This endpoint uses the
+    Docker Engine API (via the mounted socket) to export the image as a
+    tar archive and streams it back in chunked pieces.
     """
     ref = f"{image}:{tag}"
     if not _SAFE_IMAGE_RE.match(ref):
         raise HTTPException(status_code=400, detail="Invalid image reference.")
 
-    async def _stream_docker_save():
-        proc = await asyncio.create_subprocess_exec(
-            "docker", "save", ref,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        assert proc.stdout is not None  # noqa: S101
-        try:
-            while True:
-                chunk = await proc.stdout.read(_CHUNK_SIZE)
-                if not chunk:
-                    break
-                yield chunk
-        finally:
-            await proc.wait()
-            if proc.returncode != 0:
-                stderr = await proc.stderr.read() if proc.stderr else b""
-                log.error(
-                    "docker save %s failed (rc=%s): %s",
-                    ref, proc.returncode, stderr.decode("utf-8", "replace").strip(),
-                )
+    docker: DockerService = request.app.state.docker
 
     # Verify the image exists locally before starting the stream.
-    proc_check = await asyncio.create_subprocess_exec(
-        "docker", "image", "inspect", ref,
-        stdout=asyncio.subprocess.DEVNULL,
-        stderr=asyncio.subprocess.DEVNULL,
-    )
-    await proc_check.wait()
-    if proc_check.returncode != 0:
+    try:
+        info = await docker.client.images.inspect(ref)
+    except Exception:  # aiodocker raises DockerError(404, …)
         raise HTTPException(
             status_code=404,
             detail=f"Image {ref} not found on this host.",
         )
 
+    # Expose image size so the node agent can report download progress.
+    image_size = info.get("Size") or info.get("VirtualSize") or 0
+
+    async def _stream_docker_save():
+        async with docker.client.images.export_image(ref) as stream:
+            while True:
+                chunk = await stream.read(_CHUNK_SIZE)
+                if not chunk:
+                    break
+                yield chunk
+
     safe_filename = ref.replace("/", "_").replace(":", "_") + ".tar"
+    resp_headers: dict[str, str] = {
+        "Content-Disposition": f'attachment; filename="{safe_filename}"',
+    }
+    if image_size:
+        resp_headers["X-Image-Size"] = str(image_size)
     return StreamingResponse(
         _stream_docker_save(),
         media_type="application/x-tar",
-        headers={
-            "Content-Disposition": f'attachment; filename="{safe_filename}"',
-        },
+        headers=resp_headers,
     )

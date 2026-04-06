@@ -22,6 +22,7 @@ export const VLLM_CATEGORIES: VllmCategory[] = [
   { id: "scheduling", label: "Scheduling" },
   { id: "quantization", label: "Quantization" },
   { id: "lora", label: "LoRA Adapters" },
+  { id: "tool_calling", label: "Tool & Function Calling" },
   { id: "serving", label: "Serving & Output" },
   { id: "advanced", label: "Advanced" },
 ];
@@ -380,6 +381,57 @@ export const VLLM_ENGINE_ARGS: VllmEngineArgDef[] = [
     choices: ["auto", "float16", "bfloat16"],
     category: "lora",
     description: "Data type for LoRA. If auto, defaults to base model dtype.",
+  },
+
+  // ─── Tool & Function Calling ──────────────────────────────────
+  {
+    flag: "enable-auto-tool-choice",
+    type: "boolean",
+    default: true,
+    category: "tool_calling",
+    description:
+      "Enable the model to generate its own tool calls when it deems appropriate. Required for automatic function calling.",
+  },
+  {
+    flag: "tool-call-parser",
+    type: "enum",
+    default: "openai",
+    choices: [
+      "hermes",
+      "mistral",
+      "llama3_json",
+      "llama4_pythonic",
+      "pythonic",
+      "internlm",
+      "jamba",
+      "xlam",
+      "granite",
+      "granite4",
+      "granite-20b-fc",
+      "minimax",
+      "deepseek_v3",
+      "deepseek_v31",
+      "openai",
+      "kimi_k2",
+      "hunyuan_a13b",
+      "longcat",
+      "glm45",
+      "glm47",
+      "functiongemma",
+      "qwen3_xml",
+      "olmo3",
+      "gigachat3",
+    ],
+    category: "tool_calling",
+    description:
+      "Select the tool-call output parser matching your model family. Determines how the model's raw output is parsed into structured tool calls.",
+  },
+  {
+    flag: "chat-template",
+    type: "string",
+    category: "tool_calling",
+    description:
+      "Path or HuggingFace identifier for a Jinja chat template that handles tool-role messages. Required for some models (Llama, Mistral, xLAM). Use 'tool_use' to select the model's built-in tool template.",
   },
 
   // ─── Serving & Output ─────────────────────────────────────────

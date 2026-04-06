@@ -12,7 +12,7 @@ from sqlalchemy import select
 log = logging.getLogger(__name__)
 
 from llm_port_backend.db.dao.node_control_dao import NodeControlDAO
-from llm_port_backend.db.models.llm import LLMModel, LLMProvider, LLMRuntime, RuntimeStatus
+from llm_port_backend.db.models.llm import LLMModel, LLMProvider, LLMRuntime, ModelStatus, RuntimeStatus
 from llm_port_backend.db.models.node_control import (
     InfraNode,
     InfraNodeCommand,
@@ -347,6 +347,8 @@ class NodeControlService:
                 "workload.health.running",
                 "workload.health.stopped",
                 "workload.health.missing",
+                "workload.health.crash_loop",
+                "workload.health.unhealthy",
             ):
                 await self._reconcile_runtime_from_event(
                     node_id=node_id, event_type=event_type, event=event,
@@ -392,6 +394,7 @@ class NodeControlService:
                     )
                     runtime.endpoint_url = endpoint_url
                 await self._publish_runtime_to_gateway(runtime=runtime)
+                await self._promote_model_status(runtime)
                 log.info(
                     "Runtime %s reconciled %s → running from agent health event",
                     runtime_id,
@@ -416,6 +419,34 @@ class NodeControlService:
                     "Runtime %s marked ERROR from agent health event: %s",
                     runtime_id,
                     runtime.status_message,
+                )
+        elif event_type == "workload.health.crash_loop":
+            # Container is restarting repeatedly — mark as error
+            restart_count = payload.get("restart_count", 0)
+            runtime.status = RuntimeStatus.ERROR
+            runtime.status_message = (
+                f"Container crash-looping ({restart_count} restarts)"
+            )
+            if self._gateway_sync is not None:
+                await self._gateway_sync.set_instance_health(
+                    runtime_id=runtime.id, health_status="unhealthy",
+                )
+            log.warning(
+                "Runtime %s marked ERROR — crash loop (%d restarts)",
+                runtime_id,
+                restart_count,
+            )
+        elif event_type == "workload.health.unhealthy":
+            # Docker HEALTHCHECK reports unhealthy
+            if runtime.status == RuntimeStatus.RUNNING:
+                runtime.status_message = "Container health check failing"
+                if self._gateway_sync is not None:
+                    await self._gateway_sync.set_instance_health(
+                        runtime_id=runtime.id, health_status="unhealthy",
+                    )
+                log.warning(
+                    "Runtime %s health check unhealthy",
+                    runtime_id,
                 )
 
         await self._dao.upsert_workload_assignment(
@@ -645,6 +676,11 @@ class NodeControlService:
                     runtime.endpoint_url = endpoint_url
                     runtime.container_ref = f"node:{command.node_id}:{runtime.id}"
                     await self._publish_runtime_to_gateway(runtime=runtime)
+                # Promote the linked model to AVAILABLE when it is still
+                # in a transient state (e.g. the node downloaded it from
+                # HuggingFace directly so the server-side record stayed
+                # at "downloading" or was marked "failed" on restart).
+                await self._promote_model_status(runtime)
             elif command.command_type == NodeCommandType.STOP_WORKLOAD.value:
                 runtime.status = RuntimeStatus.STOPPED
                 if self._gateway_sync is not None:
@@ -663,6 +699,28 @@ class NodeControlService:
             desired_state=runtime.desired_state,
             actual_state=runtime.status.value,
         )
+
+    async def _promote_model_status(self, runtime: LLMRuntime) -> None:
+        """Promote the linked model to AVAILABLE if still in a transient state.
+
+        When a node deploys a model from HuggingFace directly, the server-
+        side model record may remain in DOWNLOADING (or get marked FAILED
+        on restart).  Once the deploy command succeeds the model is clearly
+        usable, so we promote it.
+        """
+        model_res = await self._dao.session.execute(
+            select(LLMModel).where(LLMModel.id == runtime.model_id),
+        )
+        model = model_res.scalar_one_or_none()
+        if model is None:
+            return
+        if model.status in (ModelStatus.DOWNLOADING, ModelStatus.FAILED):
+            log.info(
+                "Promoting model %s status %s → available (runtime deployed successfully)",
+                model.id,
+                model.status.value,
+            )
+            model.status = ModelStatus.AVAILABLE
 
     async def _publish_runtime_to_gateway(self, *, runtime: LLMRuntime) -> None:
         if self._gateway_sync is None or not runtime.endpoint_url:

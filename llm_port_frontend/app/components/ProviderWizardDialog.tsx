@@ -466,6 +466,10 @@ export function ProviderWizardDialog({
           t("llm_providers.wizard_step_basics"),
           t("observability.wizard_step_pricing"),
         ];
+  const availableModels = useMemo(
+    () => models.filter((m) => m.status === "available"),
+    [models],
+  );
   const isLast = step >= steps.length - 1;
   const localImageReady =
     imageStatus === "available" || imageStatus === "pulled";
@@ -480,6 +484,10 @@ export function ProviderWizardDialog({
   const isRemoteNode = !!selectedNodeId;
   const isRemoteWithInternet =
     isRemoteNode && modelSource === "download_from_hf";
+  const syncNeedsServerModelPrompt =
+    isRemoteNode &&
+    modelSource === "sync_from_server" &&
+    availableModels.length === 0;
   const needsLocalImage = !isRemoteNode || modelSource === "sync_from_server";
   const localCreateBlocked = isRemoteWithInternet
     ? !hasModel
@@ -821,6 +829,14 @@ export function ProviderWizardDialog({
                         }
                       />
                     </RadioGroup>
+                    {syncNeedsServerModelPrompt && (
+                      <Alert severity="warning" variant="outlined" sx={{ mt: 1 }}>
+                        {t(
+                          "llm_providers.model_source_sync_requires_download",
+                          "No model is currently available on this server for sync. Download a model first in the Models page, or switch to 'Download from HuggingFace'.",
+                        )}
+                      </Alert>
+                    )}
                   </FormControl>
                 )}
               </>
@@ -1009,13 +1025,19 @@ export function ProviderWizardDialog({
                   label={t("llm_common.model")}
                   onChange={(e) => setModelId(e.target.value)}
                 >
-                  {models
-                    .filter((m) => m.status === "available")
-                    .map((m) => (
-                      <MenuItem key={m.id} value={m.id}>
-                        {m.display_name}
-                      </MenuItem>
-                    ))}
+                  {availableModels.length === 0 && (
+                    <MenuItem value="" disabled>
+                      {t(
+                        "llm_providers.model_source_sync_requires_download_short",
+                        "No local model available. Download first.",
+                      )}
+                    </MenuItem>
+                  )}
+                  {availableModels.map((m) => (
+                    <MenuItem key={m.id} value={m.id}>
+                      {m.display_name}
+                    </MenuItem>
+                  ))}
                 </Select>
               </FormControl>
             )}

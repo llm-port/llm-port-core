@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import shlex
 from collections.abc import Awaitable, Callable
 from typing import Any
+
+import httpx
 
 ProgressEmitter = Callable[[dict[str, Any]], Awaitable[None]]
 
@@ -14,6 +17,11 @@ from llm_port_node_agent.runtimes import ContainerRuntime
 from llm_port_node_agent.state_store import StateStore
 
 log = logging.getLogger(__name__)
+
+# Readiness probe defaults
+_READINESS_TIMEOUT_SEC = 600  # 10 minutes — large models can take a while
+_READINESS_POLL_INTERVAL_SEC = 5
+_READINESS_PROGRESS_INTERVAL_SEC = 15  # emit progress update every 15s
 
 
 class RuntimeManagerError(RuntimeError):
@@ -38,6 +46,14 @@ class RuntimeManager:
         "--device",
         "--userns",
         "--ipc=host",
+    }
+
+    # Health endpoints by provider type for readiness probing.
+    _HEALTH_PATHS: dict[str, str] = {
+        "vllm": "/health",
+        "tgi": "/health",
+        "llamacpp": "/health",
+        "ollama": "/",
     }
 
     def __init__(
@@ -150,8 +166,12 @@ class RuntimeManager:
                     hf_repo = model_sync.get("hf_repo_id", "unknown")
                     await _progress("sync_model", f"Syncing model files for {hf_repo} from backend")
                     log.info("Pulling model files for %s", hf_repo)
+
+                    async def _model_progress(p: dict[str, Any]) -> None:
+                        await _progress("sync_model", p.get("message", "Syncing model…"))
+
                     try:
-                        await self._model_puller(model_sync=model_sync)
+                        await self._model_puller(model_sync=model_sync, emit_progress=_model_progress)
                     except Exception as exc:
                         raise RuntimeManagerError(f"Model sync failed: {exc}") from exc
                 hf_cache_mount = "/data/hf-cache"
@@ -174,7 +194,11 @@ class RuntimeManager:
         elif image_source == "transfer_from_server":
             await _progress("pull_image", f"Transferring image {image} from backend")
             log.info("Loading image %s from backend transfer", image)
-            await self._load_image_from_backend(image, payload)
+
+            async def _image_progress(p: dict[str, Any]) -> None:
+                await _progress("pull_image", p.get("message", "Transferring image…"))
+
+            await self._load_image_from_backend(image, payload, emit_progress=_image_progress)
         else:
             await _progress("pull_image", "Using locally available image")
 
@@ -242,12 +266,21 @@ class RuntimeManager:
                 "endpoint_url": endpoint,
             },
         )
+
+        # ── Wait for the service inside the container to be ready ─
+        await self._wait_for_ready(
+            endpoint,
+            provider_type=provider_type,
+            container_name=container_name,
+            progress=_progress,
+        )
+
         self._events.add(
             event_type="workload.deployed",
             payload={"runtime_id": runtime_id, "container_name": container_name, "endpoint_url": endpoint},
             correlation_id=runtime_id,
         )
-        await _progress("ready", f"Container started — endpoint {endpoint or 'pending'}")
+        await _progress("ready", f"Container ready — endpoint {endpoint}")
         return {
             "runtime_id": runtime_id,
             "container_name": container_name,
@@ -370,11 +403,71 @@ class RuntimeManager:
             return None
         return f"{self._advertise_scheme}://{self._advertise_host}:{host_port}"
 
-    async def _load_image_from_backend(self, image: str, payload: dict) -> None:
+    async def _wait_for_ready(
+        self,
+        endpoint: str,
+        *,
+        provider_type: str,
+        container_name: str,
+        progress: Callable[[str, str], Awaitable[None]],
+        timeout_sec: int = _READINESS_TIMEOUT_SEC,
+    ) -> None:
+        """Poll the container health endpoint until it returns HTTP 200.
+
+        Emits periodic ``waiting_for_ready`` progress events so the frontend
+        shows the container is still initialising (e.g. vLLM loading a model).
+        """
+        health_path = self._HEALTH_PATHS.get(provider_type, "/health")
+        url = f"{endpoint}{health_path}"
+        log.info("Readiness probe: polling %s (timeout %ds)", url, timeout_sec)
+        await progress("waiting_for_ready", f"Waiting for container to be ready — {url}")
+
+        deadline = asyncio.get_event_loop().time() + timeout_sec
+        last_progress_at = asyncio.get_event_loop().time()
+        attempt = 0
+        async with httpx.AsyncClient(timeout=httpx.Timeout(connect=5, read=10, write=5, pool=5)) as client:
+            while True:
+                attempt += 1
+                try:
+                    resp = await client.get(url)
+                    if resp.status_code == 200:
+                        log.info("Readiness probe: %s healthy after %d attempts", container_name, attempt)
+                        return
+                    log.debug("Readiness probe: %s returned %d", url, resp.status_code)
+                except httpx.HTTPError:
+                    log.debug("Readiness probe: %s not reachable (attempt %d)", url, attempt)
+
+                now = asyncio.get_event_loop().time()
+                if now >= deadline:
+                    log.warning("Readiness probe timed out after %ds for %s", timeout_sec, container_name)
+                    await progress(
+                        "waiting_for_ready",
+                        f"Readiness probe timed out after {timeout_sec}s — container may still be starting",
+                    )
+                    return
+
+                # Emit periodic progress so the UI knows we're still waiting
+                if now - last_progress_at >= _READINESS_PROGRESS_INTERVAL_SEC:
+                    elapsed = int(now - (deadline - timeout_sec))
+                    await progress(
+                        "waiting_for_ready",
+                        f"Still waiting for container to be ready ({elapsed}s elapsed)",
+                    )
+                    last_progress_at = now
+
+                await asyncio.sleep(_READINESS_POLL_INTERVAL_SEC)
+
+    async def _load_image_from_backend(
+        self,
+        image: str,
+        payload: dict,
+        *,
+        emit_progress: ProgressEmitter | None = None,
+    ) -> None:
         """Download image tarball from backend and load via ``docker load``."""
         if self._image_loader is None:
             raise RuntimeManagerError("Image loader not configured — cannot transfer image.")
-        await self._image_loader(image=image)
+        await self._image_loader(image=image, emit_progress=emit_progress)
 
     @staticmethod
     def _container_name(runtime_id: str, *, runtime_name: str | None = None) -> str:
@@ -465,33 +558,53 @@ class RuntimeManager:
         if gc.get("enforce_eager"):
             cmd.append("--enforce-eager")
 
-        # Tool-calling support — enable by default so MCP tools work.
-        # Users can override the parser via engine_args or generic_config.
-        tool_parser = str(gc.get("tool_call_parser", "") or "").strip()
-        if not tool_parser:
-            tool_parser = str(pc.get("tool_call_parser", "") or "").strip()
-        if tool_parser:
-            cmd.extend(["--enable-auto-tool-choice", "--tool-call-parser", tool_parser])
-        else:
-            cmd.extend(["--enable-auto-tool-choice", "--tool-call-parser", "openai"])
-
         # engine_args from provider_config  ({flag: value} dict)
-        engine_args = pc.get("engine_args")
-        if isinstance(engine_args, dict):
-            existing = {c.lstrip("-") for c in cmd if c.startswith("--")}
-            for flag, val in engine_args.items():
+        engine_args: dict[str, Any] = {}
+        raw_ea = pc.get("engine_args")
+        if isinstance(raw_ea, dict):
+            for flag, val in raw_ea.items():
                 if not isinstance(flag, str):
                     continue
                 clean = flag.replace("-", "").replace("_", "")
                 if not clean.isalnum():
                     continue
-                if flag in existing:
-                    continue
-                if isinstance(val, bool):
-                    if val:
-                        cmd.append(f"--{flag}")
-                elif val is not None and str(val).strip():
-                    cmd.extend([f"--{flag}", str(val)])
+                engine_args[flag] = val
+
+        # Tool-calling support — enable by default so MCP tools work.
+        # Priority: engine_args > generic_config > provider_config > default.
+        ea_auto_tool = engine_args.pop("enable-auto-tool-choice", None)
+        ea_parser = engine_args.pop("tool-call-parser", None)
+        ea_chat_tpl = engine_args.pop("chat-template", None)
+
+        tool_parser = ""
+        if ea_parser is not None and str(ea_parser).strip():
+            tool_parser = str(ea_parser).strip()
+        if not tool_parser:
+            tool_parser = str(gc.get("tool_call_parser", "") or "").strip()
+        if not tool_parser:
+            tool_parser = str(pc.get("tool_call_parser", "") or "").strip()
+
+        # ea_auto_tool=False lets the user explicitly disable tool calling
+        if ea_auto_tool is False:
+            pass  # skip tool-calling flags entirely
+        elif tool_parser:
+            cmd.extend(["--enable-auto-tool-choice", "--tool-call-parser", tool_parser])
+        else:
+            cmd.extend(["--enable-auto-tool-choice", "--tool-call-parser", "openai"])
+
+        if ea_chat_tpl is not None and str(ea_chat_tpl).strip():
+            cmd.extend(["--chat-template", str(ea_chat_tpl).strip()])
+
+        # Remaining engine_args
+        existing = {c.lstrip("-") for c in cmd if c.startswith("--")}
+        for flag, val in engine_args.items():
+            if flag in existing:
+                continue
+            if isinstance(val, bool):
+                if val:
+                    cmd.append(f"--{flag}")
+            elif val is not None and str(val).strip():
+                cmd.extend([f"--{flag}", str(val)])
 
         # extra_args passthrough (raw list)
         extra = pc.get("extra_args")

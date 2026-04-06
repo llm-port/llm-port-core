@@ -5,6 +5,9 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from collections.abc import Callable
+from typing import Any
+
 import psutil
 from httpx import HTTPStatusError
 from websockets.exceptions import InvalidStatus
@@ -57,7 +60,11 @@ class NodeAgentService:
 
         events = EventBuffer()
 
-        async def _pull_model(*, model_sync: dict) -> None:
+        async def _pull_model(
+            *,
+            model_sync: dict,
+            emit_progress: Callable[[dict[str, Any]], Any] | None = None,
+        ) -> None:
             """Pull model files from the backend using the node credential."""
             credential = self._state_store.state.credential
             if not credential:
@@ -67,9 +74,14 @@ class NodeAgentService:
                 credential=credential,
                 model_sync=model_sync,
                 model_store_root=self._config.model_store_root,
+                emit_progress=emit_progress,
             )
 
-        async def _load_image(*, image: str) -> None:
+        async def _load_image(
+            *,
+            image: str,
+            emit_progress: Callable[[dict[str, Any]], Any] | None = None,
+        ) -> None:
             """Stream image tarball from backend and load via runtime."""
             credential = self._state_store.state.credential
             if not credential:
@@ -79,6 +91,7 @@ class NodeAgentService:
                 credential=credential,
                 image=image,
                 runtime=runtime,
+                emit_progress=emit_progress,
             )
 
         runtime_manager = RuntimeManager(

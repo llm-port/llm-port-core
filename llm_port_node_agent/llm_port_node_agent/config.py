@@ -75,9 +75,15 @@ class AgentConfig:
         """Load config using LLM_PORT_NODE_AGENT_* environment vars."""
         hostname = socket.gethostname()
         backend_url = os.getenv("LLM_PORT_NODE_AGENT_BACKEND_URL", "http://127.0.0.1:8000").rstrip("/")
-        routable_ip = _detect_routable_ip(backend_url) or hostname
-        host = os.getenv("LLM_PORT_NODE_AGENT_HOST", routable_ip)
-        advertise_host = os.getenv("LLM_PORT_NODE_AGENT_ADVERTISE_HOST", host).strip()
+        routable_ip = _detect_routable_ip(backend_url)
+        host = os.getenv("LLM_PORT_NODE_AGENT_HOST", routable_ip or hostname)
+        # advertise_host is the address the backend uses to reach workload
+        # containers on this node.  It MUST be a routable IP, not an alias
+        # like "workstation".  Default to the auto-detected IP even when
+        # HOST is set to a friendly name.
+        advertise_host = os.getenv("LLM_PORT_NODE_AGENT_ADVERTISE_HOST", "").strip()
+        if not advertise_host:
+            advertise_host = routable_ip or host
         advertise_scheme = os.getenv("LLM_PORT_NODE_AGENT_ADVERTISE_SCHEME", "http").strip().lower() or "http"
         if advertise_scheme not in {"http", "https"}:
             advertise_scheme = "http"
@@ -85,7 +91,7 @@ class AgentConfig:
             backend_url=os.getenv("LLM_PORT_NODE_AGENT_BACKEND_URL", "http://127.0.0.1:8000").rstrip("/"),
             agent_id=os.getenv("LLM_PORT_NODE_AGENT_AGENT_ID", hostname),
             host=host,
-            advertise_host=advertise_host or host,
+            advertise_host=advertise_host,
             advertise_scheme=advertise_scheme,
             enrollment_token=os.getenv("LLM_PORT_NODE_AGENT_ENROLLMENT_TOKEN"),
             state_path=Path(

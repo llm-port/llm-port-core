@@ -98,6 +98,74 @@ export const VLLM_RECIPES: VllmRecipe[] = [
       "disable-log-requests": true,
     },
   },
+
+  // ── Tool Calling presets ─────────────────────────────────────
+  {
+    id: "tool-llama",
+    name: "Tool Calling — Llama 3.x / 4",
+    description:
+      "Enable function calling for Meta Llama 3.1, 3.2, and 4 models using the llama3_json parser.",
+    modelPattern: "llama.*(3\\.1|3\\.2|3-)",
+    args: {
+      "enable-auto-tool-choice": true,
+      "tool-call-parser": "llama3_json",
+    },
+  },
+  {
+    id: "tool-llama4",
+    name: "Tool Calling — Llama 4",
+    description:
+      "Enable function calling for Meta Llama 4 models using the pythonic parser.",
+    modelPattern: "llama.*4",
+    args: {
+      "enable-auto-tool-choice": true,
+      "tool-call-parser": "llama4_pythonic",
+    },
+  },
+  {
+    id: "tool-qwen",
+    name: "Tool Calling — Qwen 2.5 / QwQ",
+    description:
+      "Enable function calling for Qwen 2.5 and QwQ models using the hermes parser.",
+    modelPattern: "qwen.*2\\.5|qwq",
+    args: {
+      "enable-auto-tool-choice": true,
+      "tool-call-parser": "hermes",
+    },
+  },
+  {
+    id: "tool-mistral",
+    name: "Tool Calling — Mistral",
+    description:
+      "Enable function calling for Mistral instruct models.",
+    modelPattern: "mistral",
+    args: {
+      "enable-auto-tool-choice": true,
+      "tool-call-parser": "mistral",
+    },
+  },
+  {
+    id: "tool-deepseek",
+    name: "Tool Calling — DeepSeek V3 / R1",
+    description:
+      "Enable function calling for DeepSeek-V3 and DeepSeek-R1 models.",
+    modelPattern: "deepseek.*(v3|r1)",
+    args: {
+      "enable-auto-tool-choice": true,
+      "tool-call-parser": "deepseek_v3",
+    },
+  },
+  {
+    id: "tool-hermes",
+    name: "Tool Calling — Hermes / NousResearch",
+    description:
+      "Enable function calling for NousResearch Hermes-series models.",
+    modelPattern: "hermes",
+    args: {
+      "enable-auto-tool-choice": true,
+      "tool-call-parser": "hermes",
+    },
+  },
 ];
 
 /**

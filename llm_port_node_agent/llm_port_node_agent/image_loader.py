@@ -10,6 +10,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
+from collections.abc import AsyncIterator, Callable
+from typing import Any
 
 import httpx
 
@@ -22,12 +25,52 @@ class ImageLoaderError(RuntimeError):
     """Raised when an image transfer/load operation fails."""
 
 
+def _human_size(nbytes: int) -> str:
+    """Return human-readable size string (e.g. ``1.23 GiB``)."""
+    for unit in ("B", "KiB", "MiB", "GiB"):
+        if abs(nbytes) < 1024 or unit == "GiB":
+            return f"{nbytes:.1f} {unit}" if unit != "B" else f"{nbytes} B"
+        nbytes /= 1024  # type: ignore[assignment]
+    return f"{nbytes:.1f} GiB"
+
+
+_PROGRESS_INTERVAL_SEC = 5  # emit progress updates at most every 5 seconds
+
+
+async def _progress_iter(
+    stream: AsyncIterator[bytes],
+    *,
+    emit_progress: Callable[[dict[str, Any]], Any] | None,
+    content_length: int | None,
+    image: str,
+) -> AsyncIterator[bytes]:
+    """Wrap an async byte stream and emit periodic progress events."""
+    total = 0
+    last_emit = time.monotonic()
+    async for chunk in stream:
+        total += len(chunk)
+        yield chunk
+        now = time.monotonic()
+        if emit_progress is not None and (now - last_emit) >= _PROGRESS_INTERVAL_SEC:
+            last_emit = now
+            if content_length and content_length > 0:
+                pct = min(int(total / content_length * 100), 99)
+                msg = f"Image {image}: {_human_size(total)} / {_human_size(content_length)} ({pct}%)"
+            else:
+                msg = f"Image {image}: {_human_size(total)} transferred"
+            try:
+                await emit_progress({"message": msg, "progress_pct": pct if content_length else None})
+            except Exception:
+                pass  # best-effort
+
+
 async def load_image_from_backend(
     *,
     client: httpx.AsyncClient,
     credential: str,
     image: str,
     runtime: ContainerRuntime | None = None,
+    emit_progress: Callable[[dict[str, Any]], Any] | None = None,
 ) -> None:
     """Download image tarball from the backend and pipe into the container runtime.
 
@@ -42,6 +85,8 @@ async def load_image_from_backend(
     runtime:
         Container runtime to use for loading.  If ``None``, falls back
         to a direct ``docker load`` subprocess for backward compatibility.
+    emit_progress:
+        Optional callback to report transfer progress.
     """
     # Split image:tag for the query parameters
     last_colon = image.rfind(":")
@@ -72,7 +117,19 @@ async def load_image_from_backend(
                     raise ImageLoaderError(
                         f"Backend returned {response.status_code}: {body.decode('utf-8', 'replace')[:500]}"
                     )
-                await runtime.load_image_tar(response.aiter_bytes(chunk_size=256 * 1024))
+                content_length = response.headers.get("content-length")
+                cl = int(content_length) if content_length else None
+                if not cl:
+                    # Backend sends compressed image size via X-Image-Size
+                    img_size = response.headers.get("x-image-size")
+                    cl = int(img_size) if img_size else None
+                stream = _progress_iter(
+                    response.aiter_bytes(chunk_size=256 * 1024),
+                    emit_progress=emit_progress,
+                    content_length=cl,
+                    image=image,
+                )
+                await runtime.load_image_tar(stream)
         except (ImageLoaderError, ContainerRuntimeError):
             raise
         except Exception as exc:
@@ -91,6 +148,7 @@ async def load_image_from_backend(
     assert proc.stdin is not None  # noqa: S101
 
     total_bytes = 0
+    last_emit = time.monotonic()
     try:
         async with client.stream(
             "GET",
@@ -104,10 +162,27 @@ async def load_image_from_backend(
                 raise ImageLoaderError(
                     f"Backend returned {response.status_code}: {body.decode('utf-8', 'replace')[:500]}"
                 )
+            content_length = response.headers.get("content-length")
+            cl = int(content_length) if content_length else None
+            if not cl:
+                img_size = response.headers.get("x-image-size")
+                cl = int(img_size) if img_size else None
             async for chunk in response.aiter_bytes(chunk_size=256 * 1024):
                 proc.stdin.write(chunk)
                 await proc.stdin.drain()
                 total_bytes += len(chunk)
+                now = time.monotonic()
+                if emit_progress is not None and (now - last_emit) >= _PROGRESS_INTERVAL_SEC:
+                    last_emit = now
+                    if cl and cl > 0:
+                        pct = min(int(total_bytes / cl * 100), 99)
+                        msg = f"Image {image}: {_human_size(total_bytes)} / {_human_size(cl)} ({pct}%)"
+                    else:
+                        msg = f"Image {image}: {_human_size(total_bytes)} transferred"
+                    try:
+                        await emit_progress({"message": msg, "progress_pct": pct if cl else None})
+                    except Exception:
+                        pass
     except ImageLoaderError:
         raise
     except Exception as exc:

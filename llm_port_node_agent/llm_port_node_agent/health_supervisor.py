@@ -13,7 +13,7 @@ from llm_port_node_agent.state_store import StateStore
 log = logging.getLogger(__name__)
 
 _CHECK_INTERVAL_SEC = 30
-_CRASH_RESTART_THRESHOLD = 5
+_CRASH_RESTART_THRESHOLD = 3
 
 
 class HealthSupervisor:
@@ -35,6 +35,8 @@ class HealthSupervisor:
         self._advertise_scheme = advertise_scheme
         # Track last observed container status per runtime_id to detect transitions.
         self._last_known_status: dict[str, str] = {}
+        # Track whether crash_loop was already emitted for this restart count.
+        self._crash_loop_emitted: dict[str, int] = {}
 
     async def run_forever(self) -> None:
         """Periodically inspect all tracked workloads."""
@@ -141,17 +143,26 @@ class HealthSupervisor:
                 )
 
         if restart_count >= _CRASH_RESTART_THRESHOLD:
-            self._events.add(
-                event_type="workload.health.crash_loop",
-                severity="error",
-                payload={
-                    "runtime_id": runtime_id,
-                    "container_name": container_name,
-                    "restart_count": restart_count,
-                    "status": status,
-                },
-                correlation_id=runtime_id,
-            )
+            last_emitted = self._crash_loop_emitted.get(runtime_id, 0)
+            if restart_count > last_emitted:
+                self._crash_loop_emitted[runtime_id] = restart_count
+                self._events.add(
+                    event_type="workload.health.crash_loop",
+                    severity="error",
+                    payload={
+                        "runtime_id": runtime_id,
+                        "container_name": container_name,
+                        "restart_count": restart_count,
+                        "status": status,
+                    },
+                    correlation_id=runtime_id,
+                )
+                log.warning(
+                    "Workload %s container %s crash-looping (%d restarts)",
+                    runtime_id,
+                    container_name,
+                    restart_count,
+                )
 
         if health_status == "unhealthy":
             self._events.add(

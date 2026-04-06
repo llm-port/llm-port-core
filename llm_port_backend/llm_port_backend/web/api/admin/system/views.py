@@ -416,14 +416,30 @@ async def system_node_enrollment_token_create(
 @router.post("/nodes/enroll", response_model=NodeEnrollResponse, name="system_node_enroll")
 async def system_node_enroll(
     body: NodeEnrollRequest,
+    request: Request,
     service: NodeControlService = Depends(get_node_control_service),
 ) -> NodeEnrollResponse:
     """Exchange enrollment token for node credentials."""
+    # Use the agent-provided host only if it's a valid IP address.
+    # Bare hostnames are not resolvable inside Docker containers;
+    # fall back to the HTTP request's client IP.
+    import ipaddress
+
+    host = body.host
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        client_ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+        if not client_ip and request.client:
+            client_ip = request.client.host
+        if client_ip:
+            host = client_ip
+
     try:
         payload = await service.enroll_node(
             enrollment_token=body.enrollment_token,
             agent_id=body.agent_id,
-            host=body.host,
+            host=host,
             capabilities=body.capabilities,
             version=body.version,
         )
@@ -802,11 +818,21 @@ async def system_node_stream(websocket: WebSocket) -> None:
                 capabilities_payload = payload.get("capabilities")
                 capabilities = capabilities_payload if isinstance(capabilities_payload, dict) else None
                 version = payload.get("version") if isinstance(payload.get("version"), str) else None
-                # Prefer agent-reported advertise_host over connection IP
+                # Prefer agent-reported advertise_host over connection IP,
+                # but only when it's a valid IP address.  Bare hostnames
+                # (e.g. "workstation") are NOT resolvable from inside the
+                # Docker network so we fall back to the WebSocket client IP.
                 _host_for_hb = _client_ip
                 adv = payload.get("advertise_host")
                 if isinstance(adv, str) and adv.strip():
-                    _host_for_hb = adv.strip()
+                    adv_clean = adv.strip()
+                    try:
+                        import ipaddress
+                        ipaddress.ip_address(adv_clean)
+                        _host_for_hb = adv_clean
+                    except ValueError:
+                        # Not an IP — keep _client_ip
+                        pass
                 await service.heartbeat_node(
                     node=node,
                     status=status_value,
