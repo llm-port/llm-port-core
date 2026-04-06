@@ -7,7 +7,7 @@ packages = ["src/llmport"]
 
 [project]
 name = "llmport-cli"
-version = "0.2.6"
+version = "0.2.7"
 requires-python = ">=3.12,<4.0"
 description = "CLI installer and management tool for the llm.port platform"
 authors = [
@@ -61,7 +61,7 @@ dev = [
 default-groups = ["dev"]
 
 [tool.ruff]
-target-version = "0.2.6"
+target-version = "0.2.7"
 lint.select = [
     "E", "F", "W", "C90", "I", "N", "D", "ANN",
     "S", "B", "C4", "ISC", "PIE", "T20", "Q",
@@ -85,7 +85,7 @@ addopts = "-p no:unraisableexception"
 filterwarnings = ["error", "ignore::DeprecationWarning"]
 
 [tool.mypy]
-python_version = "0.2.6"
+python_version = "0.2.7"
 strict = true
 ignore_missing_imports = true
 pretty = true

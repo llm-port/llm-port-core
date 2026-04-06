@@ -13,4 +13,4 @@ Module activation via Docker Compose profiles.
 All secrets generated securely during init phase.
 """
 
-__version__ = "0.2.6"
+__version__ = "0.2.7"
