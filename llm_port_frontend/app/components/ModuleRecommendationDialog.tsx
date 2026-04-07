@@ -51,12 +51,27 @@ const PROFILE_MODULES: Record<
   },
 };
 
-const MODULE_LABELS: Record<string, { labelKey: string; defaultLabel: string }> = {
+const MODULE_LABELS: Record<
+  string,
+  { labelKey: string; defaultLabel: string }
+> = {
   pii: { labelKey: "module_recommend.module_pii", defaultLabel: "PII Guard" },
-  rag_lite: { labelKey: "module_recommend.module_rag_lite", defaultLabel: "RAG Lite" },
-  mcp: { labelKey: "module_recommend.module_mcp", defaultLabel: "MCP Registry" },
-  skills: { labelKey: "module_recommend.module_skills", defaultLabel: "Skills Registry" },
-  auth: { labelKey: "module_recommend.module_auth", defaultLabel: "Auth Providers (SSO)" },
+  rag_lite: {
+    labelKey: "module_recommend.module_rag_lite",
+    defaultLabel: "RAG Lite",
+  },
+  mcp: {
+    labelKey: "module_recommend.module_mcp",
+    defaultLabel: "MCP Registry",
+  },
+  skills: {
+    labelKey: "module_recommend.module_skills",
+    defaultLabel: "Skills Registry",
+  },
+  auth: {
+    labelKey: "module_recommend.module_auth",
+    defaultLabel: "Auth Providers (SSO)",
+  },
 };
 
 export interface ModuleRecommendationDialogProps {

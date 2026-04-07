@@ -88,7 +88,10 @@ function SortableNavItem({
         opacity: isDragging ? 0.35 : 1,
       }}
       {...attributes}
-      sx={{ position: "relative", "&:hover .nav-drag-handle": { opacity: 0.5 } }}
+      sx={{
+        position: "relative",
+        "&:hover .nav-drag-handle": { opacity: 0.5 },
+      }}
     >
       {!disabled && drawerOpen && (
         <Box
@@ -135,7 +138,9 @@ function DroppableZone({
       sx={{
         ...sx,
         transition: "background-color 0.2s",
-        ...(isOver ? { bgcolor: "rgba(124,77,255,0.06)", borderRadius: 1 } : {}),
+        ...(isOver
+          ? { bgcolor: "rgba(124,77,255,0.06)", borderRadius: 1 }
+          : {}),
       }}
     >
       {children}
@@ -151,7 +156,9 @@ export interface AdminSidebarProps {
   mainVisible: NavEntry[];
   pinnedVisible: NavEntry[];
   order: { mainIds: string[]; pinnedIds: string[] };
-  setOrder: React.Dispatch<React.SetStateAction<{ mainIds: string[]; pinnedIds: string[] }>>;
+  setOrder: React.Dispatch<
+    React.SetStateAction<{ mainIds: string[]; pinnedIds: string[] }>
+  >;
   resetOrder: () => void;
 }
 
@@ -168,7 +175,9 @@ export function AdminSidebar({
   const navigate = useNavigate();
   const { t } = useTranslation();
 
-  const currentDrawerWidth = drawerOpen ? DRAWER_WIDTH_OPEN : DRAWER_WIDTH_CLOSED;
+  const currentDrawerWidth = drawerOpen
+    ? DRAWER_WIDTH_OPEN
+    : DRAWER_WIDTH_CLOSED;
 
   const mainVisibleIds = mainVisible.map((e) => e.id);
   const pinnedVisibleIds = pinnedVisible.map((e) => e.id);
@@ -178,7 +187,9 @@ export function AdminSidebar({
     const init: Record<string, boolean> = {};
     for (const entry of mainVisible.concat(pinnedVisible)) {
       if (entry.kind === "group") {
-        init[entry.labelKey] = entry.children.some((c) => location.pathname.startsWith(c.to));
+        init[entry.labelKey] = entry.children.some((c) =>
+          location.pathname.startsWith(c.to),
+        );
       }
     }
     return init;
@@ -192,7 +203,9 @@ export function AdminSidebar({
   const [activeId, setActiveId] = useState<string | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
   );
 
   function findContainerForItem(itemId: string): "main" | "pinned" | null {
@@ -202,7 +215,14 @@ export function AdminSidebar({
   }
 
   function resolveContainer(id: string): "main" | "pinned" | null {
-    return findContainerForItem(id) ?? (id === "droppable-main" ? "main" : id === "droppable-pinned" ? "pinned" : null);
+    return (
+      findContainerForItem(id) ??
+      (id === "droppable-main"
+        ? "main"
+        : id === "droppable-pinned"
+          ? "pinned"
+          : null)
+    );
   }
 
   function handleDragStart(event: DragStartEvent) {
@@ -219,8 +239,8 @@ export function AdminSidebar({
     if (!from || !to || from === to) return;
 
     setOrder((prev) => {
-      const fromKey = from === "main" ? "mainIds" : "pinnedIds" as const;
-      const toKey = to === "main" ? "mainIds" : "pinnedIds" as const;
+      const fromKey = from === "main" ? "mainIds" : ("pinnedIds" as const);
+      const toKey = to === "main" ? "mainIds" : ("pinnedIds" as const);
       const fromList = prev[fromKey].filter((id) => id !== aId);
       const toList = [...prev[toKey]];
       const overIdx = toList.indexOf(oId);
@@ -240,7 +260,7 @@ export function AdminSidebar({
     const oId = over.id as string;
     const container = findContainerForItem(aId);
     if (!container || container !== findContainerForItem(oId)) return;
-    const key = container === "main" ? "mainIds" : "pinnedIds" as const;
+    const key = container === "main" ? "mainIds" : ("pinnedIds" as const);
     setOrder((prev) => {
       const list = [...prev[key]];
       const oldIndex = list.indexOf(aId);
@@ -255,12 +275,19 @@ export function AdminSidebar({
     if (entry.kind === "leaf") {
       return (
         <ListItem disablePadding sx={{ mb: 0.5 }}>
-          <Tooltip title={drawerOpen ? "" : t(entry.labelKey)} placement="right" arrow>
+          <Tooltip
+            title={drawerOpen ? "" : t(entry.labelKey)}
+            placement="right"
+            arrow
+          >
             <ListItemButton
               component={NavLink}
               to={entry.to}
               data-tour-id={`sidebar.${entry.id}`}
-              sx={{ ...linkButtonSx, justifyContent: drawerOpen ? "initial" : "center" }}
+              sx={{
+                ...linkButtonSx,
+                justifyContent: drawerOpen ? "initial" : "center",
+              }}
             >
               <ListItemIcon
                 sx={{
@@ -274,7 +301,10 @@ export function AdminSidebar({
               {drawerOpen && (
                 <ListItemText
                   primary={t(entry.labelKey)}
-                  primaryTypographyProps={{ fontSize: "0.875rem", fontWeight: 500 }}
+                  primaryTypographyProps={{
+                    fontSize: "0.875rem",
+                    fontWeight: 500,
+                  }}
                 />
               )}
             </ListItemButton>
@@ -284,20 +314,27 @@ export function AdminSidebar({
     }
 
     const isGroupExpanded = expanded[entry.labelKey] ?? false;
-    const isGroupActive = entry.children.some((c) => location.pathname.startsWith(c.to));
+    const isGroupActive = entry.children.some((c) =>
+      location.pathname.startsWith(c.to),
+    );
     const defaultTo = entry.children[0]?.to;
 
     return (
       <Box>
         <ListItem disablePadding sx={{ mb: 0.5 }}>
-          <Tooltip title={drawerOpen ? "" : t(entry.labelKey)} placement="right" arrow>
+          <Tooltip
+            title={drawerOpen ? "" : t(entry.labelKey)}
+            placement="right"
+            arrow
+          >
             <ListItemButton
               component="a"
               href={defaultTo}
               data-tour-id={`sidebar.${entry.id}`}
               onClick={(e: React.MouseEvent<HTMLAnchorElement>) => {
                 // Allow Ctrl/Meta/Shift click to open in new tab natively
-                if (e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
+                if (e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0)
+                  return;
                 e.preventDefault();
                 if (drawerOpen) {
                   toggleGroup(entry.labelKey);
@@ -333,7 +370,10 @@ export function AdminSidebar({
                 <>
                   <ListItemText
                     primary={t(entry.labelKey)}
-                    primaryTypographyProps={{ fontSize: "0.875rem", fontWeight: 600 }}
+                    primaryTypographyProps={{
+                      fontSize: "0.875rem",
+                      fontWeight: 600,
+                    }}
                   />
                   {isGroupExpanded ? (
                     <ExpandLess fontSize="small" />
@@ -356,12 +396,17 @@ export function AdminSidebar({
                     to={child.to}
                     sx={{ ...linkButtonSx, py: 0.5 }}
                   >
-                    <ListItemIcon sx={{ minWidth: 36, color: "text.secondary" }}>
+                    <ListItemIcon
+                      sx={{ minWidth: 36, color: "text.secondary" }}
+                    >
                       {child.icon}
                     </ListItemIcon>
                     <ListItemText
                       primary={t(child.labelKey)}
-                      primaryTypographyProps={{ fontSize: "0.8rem", fontWeight: 500 }}
+                      primaryTypographyProps={{
+                        fontSize: "0.8rem",
+                        fontWeight: 500,
+                      }}
                     />
                   </ListItemButton>
                 </ListItem>
@@ -435,11 +480,27 @@ export function AdminSidebar({
         onDragEnd={handleDragEnd}
       >
         {/* Main section (scrollable) */}
-        <DroppableZone id="droppable-main" sx={{ flexGrow: 1, overflow: "auto", px: drawerOpen ? 1 : 0.5, mt: 0.5 }}>
-          <SortableContext items={mainVisibleIds} strategy={verticalListSortingStrategy}>
+        <DroppableZone
+          id="droppable-main"
+          sx={{
+            flexGrow: 1,
+            overflow: "auto",
+            px: drawerOpen ? 1 : 0.5,
+            mt: 0.5,
+          }}
+        >
+          <SortableContext
+            items={mainVisibleIds}
+            strategy={verticalListSortingStrategy}
+          >
             <List disablePadding>
               {mainVisible.map((entry) => (
-                <SortableNavItem key={entry.id} id={entry.id} disabled={!drawerOpen} drawerOpen={drawerOpen}>
+                <SortableNavItem
+                  key={entry.id}
+                  id={entry.id}
+                  disabled={!drawerOpen}
+                  drawerOpen={drawerOpen}
+                >
                   {renderNavEntry(entry)}
                 </SortableNavItem>
               ))}
@@ -453,20 +514,38 @@ export function AdminSidebar({
             <Typography
               variant="caption"
               color="text.disabled"
-              sx={{ fontSize: "0.6rem", textTransform: "uppercase", letterSpacing: 1, userSelect: "none" }}
+              sx={{
+                fontSize: "0.6rem",
+                textTransform: "uppercase",
+                letterSpacing: 1,
+                userSelect: "none",
+              }}
             >
               {t("nav.pinned")}
             </Typography>
           </Divider>
         )}
-        {!drawerOpen && pinnedVisible.length > 0 && <Divider sx={{ mx: 0.5, my: 0.5 }} />}
+        {!drawerOpen && pinnedVisible.length > 0 && (
+          <Divider sx={{ mx: 0.5, my: 0.5 }} />
+        )}
 
         {/* Pinned (bottom) section */}
-        <DroppableZone id="droppable-pinned" sx={{ px: drawerOpen ? 1 : 0.5, pb: 0.5 }}>
-          <SortableContext items={pinnedVisibleIds} strategy={verticalListSortingStrategy}>
+        <DroppableZone
+          id="droppable-pinned"
+          sx={{ px: drawerOpen ? 1 : 0.5, pb: 0.5 }}
+        >
+          <SortableContext
+            items={pinnedVisibleIds}
+            strategy={verticalListSortingStrategy}
+          >
             <List disablePadding>
               {pinnedVisible.map((entry) => (
-                <SortableNavItem key={entry.id} id={entry.id} disabled={!drawerOpen} drawerOpen={drawerOpen}>
+                <SortableNavItem
+                  key={entry.id}
+                  id={entry.id}
+                  disabled={!drawerOpen}
+                  drawerOpen={drawerOpen}
+                >
                   {renderNavEntry(entry)}
                 </SortableNavItem>
               ))}
@@ -476,33 +555,34 @@ export function AdminSidebar({
 
         {/* Drag overlay */}
         <DragOverlay dropAnimation={{ duration: 200, easing: "ease" }}>
-          {activeId && (() => {
-            const entry = NAV_BY_ID.get(activeId);
-            if (!entry) return null;
-            return (
-              <Box
-                sx={{
-                  bgcolor: "background.paper",
-                  boxShadow: 4,
-                  borderRadius: 1,
-                  px: 2,
-                  py: 1,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 1,
-                  opacity: 0.92,
-                  width: DRAWER_WIDTH_OPEN - 16,
-                }}
-              >
-                <ListItemIcon sx={{ minWidth: 28, color: "text.secondary" }}>
-                  {entry.icon}
-                </ListItemIcon>
-                <Typography sx={{ fontSize: "0.875rem", fontWeight: 500 }}>
-                  {t(entry.labelKey)}
-                </Typography>
-              </Box>
-            );
-          })()}
+          {activeId &&
+            (() => {
+              const entry = NAV_BY_ID.get(activeId);
+              if (!entry) return null;
+              return (
+                <Box
+                  sx={{
+                    bgcolor: "background.paper",
+                    boxShadow: 4,
+                    borderRadius: 1,
+                    px: 2,
+                    py: 1,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 1,
+                    opacity: 0.92,
+                    width: DRAWER_WIDTH_OPEN - 16,
+                  }}
+                >
+                  <ListItemIcon sx={{ minWidth: 28, color: "text.secondary" }}>
+                    {entry.icon}
+                  </ListItemIcon>
+                  <Typography sx={{ fontSize: "0.875rem", fontWeight: 500 }}>
+                    {t(entry.labelKey)}
+                  </Typography>
+                </Box>
+              );
+            })()}
         </DragOverlay>
       </DndContext>
 
@@ -518,7 +598,11 @@ export function AdminSidebar({
       >
         {drawerOpen && (
           <Tooltip title={t("nav.reset_nav_order")} placement="right" arrow>
-            <IconButton size="small" onClick={resetOrder} sx={{ color: "text.disabled" }}>
+            <IconButton
+              size="small"
+              onClick={resetOrder}
+              sx={{ color: "text.disabled" }}
+            >
               <RestartAltIcon fontSize="small" />
             </IconButton>
           </Tooltip>

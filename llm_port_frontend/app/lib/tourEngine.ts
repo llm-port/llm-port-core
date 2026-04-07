@@ -72,7 +72,9 @@ export function guidedSetupTourId(profile: OnboardingProfile): string {
 /**
  * Load combined steps: orientation + profile-specific tasks.
  */
-export function loadGuidedSetupSteps(profile: OnboardingProfile): TourStepDef[] {
+export function loadGuidedSetupSteps(
+  profile: OnboardingProfile,
+): TourStepDef[] {
   const profileCatalog = PROFILE_CATALOGS[profile];
   return [...orientationCatalog.steps, ...profileCatalog.steps];
 }
@@ -106,7 +108,10 @@ export function resolveEligibleSteps(
     resolved.push({
       target: step.target,
       title: t(step.titleKey, { ns: "tour", defaultValue: step.titleKey }),
-      content: t(step.contentKey, { ns: "tour", defaultValue: step.contentKey }),
+      content: t(step.contentKey, {
+        ns: "tour",
+        defaultValue: step.contentKey,
+      }),
       placement: step.placement as Placement,
       skipBeacon: step.disableBeacon,
       route: step.route,

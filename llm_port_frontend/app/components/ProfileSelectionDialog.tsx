@@ -107,8 +107,7 @@ export function ProfileSelectionDialog({
               key={p.id}
               variant="outlined"
               sx={{
-                borderColor:
-                  selected === p.id ? "primary.main" : "divider",
+                borderColor: selected === p.id ? "primary.main" : "divider",
                 borderWidth: selected === p.id ? 2 : 1,
                 transition: "border-color 0.15s",
               }}
@@ -127,7 +126,12 @@ export function ProfileSelectionDialog({
                     py: 3,
                   }}
                 >
-                  <Box sx={{ color: selected === p.id ? "primary.main" : "text.secondary" }}>
+                  <Box
+                    sx={{
+                      color:
+                        selected === p.id ? "primary.main" : "text.secondary",
+                    }}
+                  >
                     {p.icon}
                   </Box>
                   <Typography variant="subtitle1" fontWeight={600}>

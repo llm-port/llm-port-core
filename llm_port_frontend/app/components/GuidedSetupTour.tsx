@@ -249,8 +249,7 @@ export function GuidedSetupTour({
 
     // Handle step transitions
     if (type === EVENTS.STEP_AFTER) {
-      const nextIndex =
-        action === ACTIONS.PREV ? index - 1 : index + 1;
+      const nextIndex = action === ACTIONS.PREV ? index - 1 : index + 1;
 
       if (nextIndex < 0 || nextIndex >= steps.length) {
         return;

@@ -82,9 +82,13 @@ export function AdminTopbar({
   const isRootActive = rootStatus?.active ?? false;
 
   // User dropdown menu state
-  const [userMenuAnchor, setUserMenuAnchor] = useState<HTMLElement | null>(null);
+  const [userMenuAnchor, setUserMenuAnchor] = useState<HTMLElement | null>(
+    null,
+  );
   // Help dropdown menu state
-  const [helpMenuAnchor, setHelpMenuAnchor] = useState<HTMLElement | null>(null);
+  const [helpMenuAnchor, setHelpMenuAnchor] = useState<HTMLElement | null>(
+    null,
+  );
 
   return (
     <AppBar position="static" elevation={0}>
@@ -132,9 +136,21 @@ export function AdminTopbar({
               onPageHelp();
             }}
           >
-            <ListItemIcon><InfoOutlinedIcon fontSize="small" /></ListItemIcon>
-            <ListItemText>{t("help.about_page", { ns: "tour", defaultValue: "About This Page" })}</ListItemText>
-            <Chip label="F1" size="small" variant="outlined" sx={{ ml: 1, height: 20, fontSize: "0.7rem" }} />
+            <ListItemIcon>
+              <InfoOutlinedIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>
+              {t("help.about_page", {
+                ns: "tour",
+                defaultValue: "About This Page",
+              })}
+            </ListItemText>
+            <Chip
+              label="F1"
+              size="small"
+              variant="outlined"
+              sx={{ ml: 1, height: 20, fontSize: "0.7rem" }}
+            />
           </MenuItem>
           <MenuItem
             onClick={() => {
@@ -142,8 +158,15 @@ export function AdminTopbar({
               onProductTourOpen();
             }}
           >
-            <ListItemIcon><TourIcon fontSize="small" /></ListItemIcon>
-            <ListItemText>{t("help.product_tour", { ns: "tour", defaultValue: "Product Tour" })}</ListItemText>
+            <ListItemIcon>
+              <TourIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>
+              {t("help.product_tour", {
+                ns: "tour",
+                defaultValue: "Product Tour",
+              })}
+            </ListItemText>
           </MenuItem>
           <MenuItem
             onClick={() => {
@@ -151,8 +174,15 @@ export function AdminTopbar({
               onGuidedSetupOpen();
             }}
           >
-            <ListItemIcon><ExploreIcon fontSize="small" /></ListItemIcon>
-            <ListItemText>{t("help.guided_setup", { ns: "tour", defaultValue: "Guided Setup" })}</ListItemText>
+            <ListItemIcon>
+              <ExploreIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>
+              {t("help.guided_setup", {
+                ns: "tour",
+                defaultValue: "Guided Setup",
+              })}
+            </ListItemText>
           </MenuItem>
           <MenuItem
             onClick={() => {
@@ -160,8 +190,15 @@ export function AdminTopbar({
               onResetGuides();
             }}
           >
-            <ListItemIcon><ReplayIcon fontSize="small" /></ListItemIcon>
-            <ListItemText>{t("help.reset_guides", { ns: "tour", defaultValue: "Reset Guides" })}</ListItemText>
+            <ListItemIcon>
+              <ReplayIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>
+              {t("help.reset_guides", {
+                ns: "tour",
+                defaultValue: "Reset Guides",
+              })}
+            </ListItemText>
           </MenuItem>
         </Menu>
         <Tooltip title={t("language.label")} arrow>
@@ -197,14 +234,21 @@ export function AdminTopbar({
             </MenuItem>
           ))}
         </Menu>
-        <Tooltip title={mode === "dark" ? t("theme.light") : t("theme.dark")} arrow>
+        <Tooltip
+          title={mode === "dark" ? t("theme.light") : t("theme.dark")}
+          arrow
+        >
           <IconButton
             size="small"
             data-tour-id="topbar.theme"
             onClick={toggleMode}
             sx={{ color: "text.primary" }}
           >
-            {mode === "dark" ? <LightModeOutlinedIcon /> : <DarkModeOutlinedIcon />}
+            {mode === "dark" ? (
+              <LightModeOutlinedIcon />
+            ) : (
+              <DarkModeOutlinedIcon />
+            )}
           </IconButton>
         </Tooltip>
         {isSuperuser && (
@@ -219,7 +263,12 @@ export function AdminTopbar({
                   variant="filled"
                   sx={{ fontWeight: 700 }}
                 />
-                <Button size="small" color="error" variant="outlined" onClick={onRootDeactivate}>
+                <Button
+                  size="small"
+                  color="error"
+                  variant="outlined"
+                  onClick={onRootDeactivate}
+                >
                   {t("root_mode.deactivate")}
                 </Button>
               </>
@@ -232,7 +281,8 @@ export function AdminTopbar({
                   sx={{
                     width: 30,
                     height: 30,
-                    border: (theme) => `1px solid ${theme.palette.warning.main}`,
+                    border: (theme) =>
+                      `1px solid ${theme.palette.warning.main}`,
                     borderRadius: "50%",
                   }}
                 >
@@ -268,7 +318,9 @@ export function AdminTopbar({
               navigate("/admin/profile");
             }}
           >
-            <ListItemIcon><ManageAccountsIcon fontSize="small" /></ListItemIcon>
+            <ListItemIcon>
+              <ManageAccountsIcon fontSize="small" />
+            </ListItemIcon>
             <ListItemText>{t("profile.manage_profile")}</ListItemText>
           </MenuItem>
           <MenuItem
@@ -277,7 +329,9 @@ export function AdminTopbar({
               onLogout();
             }}
           >
-            <ListItemIcon><LogoutIcon fontSize="small" /></ListItemIcon>
+            <ListItemIcon>
+              <LogoutIcon fontSize="small" />
+            </ListItemIcon>
             <ListItemText>{t("profile.logout")}</ListItemText>
           </MenuItem>
         </Menu>

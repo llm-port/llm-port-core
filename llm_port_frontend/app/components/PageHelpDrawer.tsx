@@ -45,7 +45,14 @@ export function PageHelpDrawer({ open, onClose }: PageHelpDrawerProps) {
         },
       }}
     >
-      <Box sx={{ p: 2.5, height: "100%", display: "flex", flexDirection: "column" }}>
+      <Box
+        sx={{
+          p: 2.5,
+          height: "100%",
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
         {/* Header */}
         <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
           <InfoOutlinedIcon color="primary" />
