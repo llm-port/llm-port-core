@@ -27,6 +27,8 @@ class ToolCatalogEntry(BaseModel):
     openai_tool: dict[str, Any]
     server_id: str
     pii_mode: str
+    realm: str = "mcp_remote"
+    source: str = "mcp"
 
 
 class ToolCatalogResponse(BaseModel):
@@ -113,6 +115,8 @@ async def get_tool_catalog(
                 openai_tool=tool.openai_schema_json,
                 server_id=str(tool.server_id),
                 pii_mode=pii_mode,
+                realm=getattr(tool, "realm", "mcp_remote"),
+                source=getattr(tool, "source", "mcp"),
             ),
         )
 

@@ -27,6 +27,7 @@ from llm_port_api.services.gateway.routing import RouterService
 from llm_port_api.services.gateway.schemas import (
     ChatCompletionRequest,
     EmbeddingsRequest,
+    ToolAvailabilityResponse,
 )
 from llm_port_api.services.gateway.service import GatewayService
 from llm_port_api.services.registry import service_registry
@@ -149,6 +150,71 @@ async def list_models(
             param=exc.param,
             code=exc.code,
         )
+
+
+# ── Tool Availability ────────────────────────────────────────────
+
+
+@router.get("/v1/tools/available", response_model=ToolAvailabilityResponse)
+async def get_available_tools(
+    request: Request,
+    session_id: str,
+    include_disabled: bool = True,
+    include_unavailable: bool = True,
+    auth: AuthContext = Depends(get_auth_context),
+    dao: GatewayDAO = Depends(),
+) -> JSONResponse:
+    """Return the effective tool catalog for a session.
+
+    Merges MCP tools with session execution policy and per-tool overrides
+    to compute effective availability for each tool.
+    """
+    from llm_port_api.services.gateway.tool_availability import (  # noqa: PLC0415
+        ToolAvailabilityService,
+    )
+
+    # Build MCP client + cache (same pattern as get_gateway_service)
+    mcp_client = None
+    mcp_tool_cache = None
+    mcp_url = service_registry.get_url("mcp")
+    if mcp_url and settings.mcp_service_token:
+        from llm_port_api.services.gateway.mcp_tool_cache import MCPToolCache  # noqa: PLC0415
+
+        mcp_client = MCPClient(
+            base_url=mcp_url,
+            http_client=request.app.state.http_client,
+            service_token=settings.mcp_service_token,
+        )
+        mcp_tool_cache = MCPToolCache(mcp_client)
+
+    service = ToolAvailabilityService(
+        dao=dao,
+        mcp_client=mcp_client,
+        mcp_tool_cache=mcp_tool_cache,
+    )
+
+    try:
+        import uuid as _uuid
+
+        sid = _uuid.UUID(session_id)
+    except ValueError:
+        return error_response(
+            status_code=400,
+            message="Invalid session_id format.",
+            error_type="invalid_request_error",
+            code="invalid_session_id",
+        )
+
+    result = await service.get_available_tools(
+        session_id=sid,
+        tenant_id=auth.tenant_id,
+        include_disabled=include_disabled,
+        include_unavailable=include_unavailable,
+    )
+    return JSONResponse(
+        status_code=200,
+        content=result.model_dump(mode="json"),
+    )
 
 
 @router.post("/v1/embeddings")

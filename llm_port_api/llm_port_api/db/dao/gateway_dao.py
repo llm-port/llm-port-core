@@ -15,6 +15,10 @@ from llm_port_api.db.models.gateway import (
     ProviderHealthStatus,
     ProviderType,
     TenantLLMPolicy,
+    ChatSession,
+    SessionExecutionPolicy,
+    SessionToolOverride,
+    ExecutionMode,
 )
 
 
@@ -237,3 +241,40 @@ class GatewayDAO:
             )
             self.session.add(row)
         await self.session.flush()
+
+    # ── Session tool policy ──────────────────────────────────────────
+
+    async def get_session_execution_mode(
+        self,
+        session_id: uuid.UUID,
+    ) -> ExecutionMode:
+        """Return the execution mode for a session (default: server_only)."""
+        result = await self.session.execute(
+            select(ChatSession.execution_mode).where(ChatSession.id == session_id),
+        )
+        mode = result.scalar_one_or_none()
+        return mode if mode is not None else ExecutionMode.SERVER_ONLY
+
+    async def get_session_execution_policy(
+        self,
+        session_id: uuid.UUID,
+    ) -> SessionExecutionPolicy | None:
+        """Fetch the full execution policy for a session."""
+        result = await self.session.execute(
+            select(SessionExecutionPolicy).where(
+                SessionExecutionPolicy.session_id == session_id,
+            ),
+        )
+        return result.scalar_one_or_none()
+
+    async def get_session_tool_overrides(
+        self,
+        session_id: uuid.UUID,
+    ) -> list[SessionToolOverride]:
+        """Fetch all per-tool overrides for a session."""
+        result = await self.session.execute(
+            select(SessionToolOverride).where(
+                SessionToolOverride.session_id == session_id,
+            ),
+        )
+        return list(result.scalars().all())

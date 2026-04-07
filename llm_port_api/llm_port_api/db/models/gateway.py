@@ -85,6 +85,38 @@ class MemoryFactStatus(enum.StrEnum):
     EXPIRED = "expired"
 
 
+# ---------------------------------------------------------------------------
+# Tool Routing Enums
+# ---------------------------------------------------------------------------
+
+
+class ExecutionMode(enum.StrEnum):
+    """Session-level tool execution mode."""
+
+    LOCAL_ONLY = "local_only"
+    SERVER_ONLY = "server_only"
+    HYBRID = "hybrid"
+
+
+class ToolRealm(enum.StrEnum):
+    """Where a tool executes."""
+
+    SERVER_MANAGED = "server_managed"
+    MCP_REMOTE = "mcp_remote"
+    CLIENT_LOCAL = "client_local"
+    CLIENT_PROXIED = "client_proxied"
+
+
+class ToolSource(enum.StrEnum):
+    """Origin of a tool registration."""
+
+    CORE = "core"
+    SKILLS = "skills"
+    MCP = "mcp"
+    LOCAL_AGENT = "local_agent"
+    PLUGIN = "plugin"
+
+
 class LLMModelAlias(Base):
     """Logical model aliases exposed on /v1/models."""
 
@@ -464,6 +496,16 @@ class ChatSession(Base):
         default=SessionStatus.ACTIVE,
     )
     metadata_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    execution_mode: Mapped[ExecutionMode] = mapped_column(
+        SAEnum(
+            ExecutionMode,
+            name="session_execution_mode",
+            create_type=False,
+            values_callable=lambda e: [m.value for m in e],
+        ),
+        nullable=False,
+        default=ExecutionMode.SERVER_ONLY,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(),
     )
@@ -691,4 +733,94 @@ class ChatAttachment(Base):
         Index("ix_chat_attachment_project", "project_id"),
         Index("ix_chat_attachment_message", "message_id"),
         Index("ix_chat_attachment_tenant_user", "tenant_id", "user_id"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Session Tool Policy & Overrides
+# ---------------------------------------------------------------------------
+
+
+class SessionExecutionPolicy(Base):
+    """Per-session execution mode and hybrid preference."""
+
+    __tablename__ = "session_execution_policy"
+
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("chat_session.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    execution_mode: Mapped[ExecutionMode] = mapped_column(
+        SAEnum(
+            ExecutionMode,
+            name="session_execution_mode",
+            create_type=False,
+            values_callable=lambda e: [m.value for m in e],
+        ),
+        nullable=False,
+        default=ExecutionMode.SERVER_ONLY,
+    )
+    hybrid_preference: Mapped[str | None] = mapped_column(
+        String(32), nullable=True,
+    )
+    catalog_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False,
+        server_default=func.now(), onupdate=func.now(),
+    )
+
+
+class SessionToolOverride(Base):
+    """Per-session per-tool enable/disable toggle."""
+
+    __tablename__ = "session_tool_override"
+
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("chat_session.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    tool_id: Mapped[str] = mapped_column(
+        String(512), primary_key=True,
+    )
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    updated_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False,
+        server_default=func.now(), onupdate=func.now(),
+    )
+
+
+class SessionClientCapability(Base):
+    """Tools advertised by a connected local client for a given session."""
+
+    __tablename__ = "session_client_capability"
+
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("chat_session.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    client_id: Mapped[str] = mapped_column(String(256), primary_key=True)
+    tool_id: Mapped[str] = mapped_column(String(512), primary_key=True)
+    realm: Mapped[ToolRealm] = mapped_column(
+        SAEnum(
+            ToolRealm,
+            name="tool_realm",
+            create_type=False,
+            values_callable=lambda e: [m.value for m in e],
+        ),
+        nullable=False,
+        default=ToolRealm.CLIENT_LOCAL,
+    )
+    schema_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    available: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    last_seen_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
     )

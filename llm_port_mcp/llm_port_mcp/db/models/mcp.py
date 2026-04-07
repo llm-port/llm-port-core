@@ -191,6 +191,12 @@ class MCPToolModel(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     version: Mapped[str] = mapped_column(String(32), nullable=False, default="1")
     schema_hash: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    realm: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="mcp_remote",
+    )
+    source: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="mcp",
+    )
     last_seen_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
