@@ -1,0 +1,440 @@
+{
+  "orientation": {
+    "dashboard": {
+      "title": "Dashboard",
+      "content": "Ihre zentrale Übersicht. Systemzustand, Container-Status und wichtige Metriken auf einen Blick."
+    },
+    "observability": {
+      "title": "Observability",
+      "content": "Überwachen Sie Anfragen, Latenz, Token-Nutzung und Fehlerraten über alle LLM-Anbieter hinweg."
+    },
+    "containers": {
+      "title": "Container",
+      "content": "Verwalten Sie die Docker-Container Ihrer llm.port-Installation. Starten, stoppen und Logs anzeigen."
+    },
+    "llm": {
+      "title": "LLM-Anbieter",
+      "content": "Konfigurieren Sie LLM-Endpunkte — lokales Ollama, OpenAI, Azure oder jede OpenAI-kompatible API."
+    },
+    "utilities": {
+      "title": "Dienstprogramme",
+      "content": "Knotenflotten-Verwaltung, Scheduler und Systemwerkzeuge für Multi-Node-Setups."
+    },
+    "access_control": {
+      "title": "Zugriffskontrolle",
+      "content": "Verwalten Sie Benutzer, API-Schlüssel, Rollen und Authentifizierungsanbieter."
+    },
+    "pii": {
+      "title": "PII-Schutz",
+      "content": "Scannen und schwärzen Sie personenbezogene Daten in Prompts und Antworten, bevor sie LLMs erreichen."
+    },
+    "rag": {
+      "title": "RAG (Wissensdatenbank)",
+      "content": "Laden Sie Dokumente hoch und erstellen Sie eine Retrieval-Augmented-Generation-Pipeline für fundierte Antworten."
+    },
+    "chat": {
+      "title": "Chat-Arbeitsbereich",
+      "content": "Verwalten Sie Chat-Projekte, Gesprächsverlauf und Modellzuweisungen. Zum Chatten verwenden Sie die Chat-Schaltfläche in der oberen Leiste."
+    },
+    "extensions": {
+      "title": "Erweiterungen",
+      "content": "Durchsuchen und verwalten Sie MCP-Server, Skill-Plugins und andere Erweiterungen."
+    },
+    "settings": {
+      "title": "Einstellungen",
+      "content": "Systemweite Konfiguration einschließlich Netzwerk, Speicher, Sicherheitsrichtlinien und Feature-Flags."
+    },
+    "help": {
+      "title": "Hilfe & Anleitungen",
+      "content": "Greifen Sie auf diese Produkttour, die geführte Einrichtung und Dokumentation zu, wann immer Sie möchten."
+    }
+  },
+  "private": {
+    "providers": {
+      "title": "Anbieter hinzufügen",
+      "content": "Fügen Sie zunächst mindestens einen LLM-Anbieter hinzu. Verweisen Sie auf eine lokale Ollama-Instanz oder fügen Sie einen API-Schlüssel ein."
+    },
+    "chat": {
+      "title": "Chat-Projekt erstellen",
+      "content": "Erstellen und verwalten Sie Chat-Projekte, Sitzungen und Verlauf hier. Zum Chatten klicken Sie auf die Chat-Schaltfläche in der oberen Leiste."
+    },
+    "pii": {
+      "title": "PII-Einstellungen prüfen",
+      "content": "PII-Schutz ist standardmäßig aktiviert. Überprüfen Sie das Dashboard für Erkennungsstatistiken und konfigurieren Sie, welche Entitätstypen geschwärzt werden sollen."
+    },
+    "rag": {
+      "title": "Dokumente hochladen",
+      "content": "Gehen Sie zur Wissensdatenbank und laden Sie Ihr erstes Dokument hoch für abrufgestützte Antworten."
+    }
+  },
+  "team": {
+    "providers": {
+      "title": "Anbieter konfigurieren",
+      "content": "Richten Sie gemeinsame LLM-Endpunkte für Ihr Team ein — lokale Server, Cloud-APIs oder eine Mischung."
+    },
+    "nodes": {
+      "title": "Knoten registrieren",
+      "content": "Fügen Sie die GPU-Knoten Ihres Teams hinzu, damit der Scheduler Inferenz-Workloads verteilen kann."
+    },
+    "access": {
+      "title": "Benutzer einrichten",
+      "content": "Erstellen Sie Team-Konten oder verbinden Sie Ihren Identitätsanbieter. Weisen Sie Rollen zu."
+    },
+    "mcp": {
+      "title": "MCP-Server",
+      "content": "Registrieren Sie MCP-Tool-Server, damit Teammitglieder externe Funktionen aufrufen können."
+    },
+    "chat": {
+      "title": "Gemeinsame Projekte erstellen",
+      "content": "Richten Sie Chat-Projekte ein, in denen Ihr Team zusammenarbeiten kann. Steuern Sie den Modellzugriff pro Projekt."
+    },
+    "pii": {
+      "title": "PII-Richtlinien konfigurieren",
+      "content": "Definieren Sie PII-Schwärzungsregeln, die für alle Teammitglieder gelten."
+    },
+    "rag": {
+      "title": "Wissensdatenbank aufbauen",
+      "content": "Laden Sie Team-Dokumente in die gemeinsame Wissensdatenbank hoch für fundierte Antworten."
+    }
+  },
+  "enterprise": {
+    "access": {
+      "title": "Zugriffskontrolle & SSO",
+      "content": "Beginnen Sie mit der Zugriffskontrolle. Verbinden Sie Ihren Identitätsanbieter, definieren Sie Rollen und API-Schlüssel-Richtlinien."
+    },
+    "providers": {
+      "title": "Anbieter-Flotte",
+      "content": "Registrieren Sie Ihre genehmigten LLM-Endpunkte. Legen Sie Ratenlimits, Kostenbudgets und Failover-Routing fest."
+    },
+    "nodes": {
+      "title": "Knoten-Flotte",
+      "content": "Registrieren Sie GPU-Knoten und konfigurieren Sie Scheduling-Richtlinien für die Workload-Verteilung."
+    },
+    "pii": {
+      "title": "PII-Compliance",
+      "content": "Konfigurieren Sie unternehmensweite PII-Richtlinien — Entitätstypen, Schwärzungsmodi, Audit-Logging und Compliance-Berichte."
+    },
+    "observability": {
+      "title": "Observability & Audit",
+      "content": "Richten Sie Monitoring-Dashboards, Audit-Trails und Alerting für Compliance und operative Sichtbarkeit ein."
+    },
+    "mcp": {
+      "title": "Erweiterungs-Governance",
+      "content": "Genehmigen und verwalten Sie MCP-Tool-Server. Steuern Sie, welche Erweiterungen für jede Rolle verfügbar sind."
+    },
+    "rag": {
+      "title": "Unternehmens-Wissensdatenbank",
+      "content": "Laden Sie Unternehmensdokumente mit Zugriffskontrollen hoch. Konfigurieren Sie Indexierungs- und Abrufrichtlinien."
+    },
+    "chat": {
+      "title": "Gesteuerter Chat-Arbeitsbereich",
+      "content": "Erstellen Sie Projektvorlagen mit Leitplanken, Modell-Allowlists und PII-Durchsetzung pro Arbeitsbereich."
+    }
+  },
+  "ui": {
+    "step_counter": "Schritt {{current}} von {{total}}",
+    "skip": "Tour überspringen",
+    "back": "Zurück",
+    "next": "Weiter",
+    "finish": "Fertig"
+  },
+  "help": {
+    "product_tour": "Produkttour",
+    "guided_setup": "Geführte Einrichtung",
+    "reset_guides": "Anleitungen zurücksetzen",
+    "about_page": "Über diese Seite"
+  },
+  "page_help": {
+    "actions_heading": "Was Sie hier tun können",
+    "close": "Verstanden",
+    "unknown": {
+      "title": "Über diese Seite",
+      "description": "Für diese Seite ist noch keine spezifische Hilfe verfügbar."
+    },
+    "dashboard": {
+      "title": "Dashboard",
+      "description": "Ihre zentrale Übersicht der llm.port-Installation. Systemzustand, Container-Status, Ressourcennutzung und Metriken.",
+      "action_health": "Systemzustand und Verfügbarkeit prüfen",
+      "action_containers": "Container-Anzahl und Status anzeigen",
+      "action_metrics": "Ressourcennutzung und Leistung überwachen"
+    },
+    "containers": {
+      "title": "Container",
+      "description": "Alle Docker-Container auflisten und verwalten. Starten, stoppen, neu starten oder inspizieren.",
+      "action_list": "Container mit Statusfiltern durchsuchen",
+      "action_start_stop": "Container starten, stoppen oder neu starten",
+      "action_create": "Neuen Container aus einem Image erstellen"
+    },
+    "create_container": {
+      "title": "Container erstellen",
+      "description": "Neuen Docker-Container starten — Image wählen und Ports, Volumes und Umgebungsvariablen konfigurieren.",
+      "action_image": "Basis-Image auswählen",
+      "action_config": "Ports, Volumes und Umgebung konfigurieren"
+    },
+    "container_detail": {
+      "title": "Container-Details",
+      "description": "Container inspizieren — Logs, Ressourcennutzung, Umgebungsvariablen und Netzwerkeinstellungen.",
+      "action_logs": "Container-Logs in Echtzeit anzeigen",
+      "action_restart": "Container neu starten oder stoppen",
+      "action_env": "Umgebungsvariablen und Mounts inspizieren"
+    },
+    "images": {
+      "title": "Images",
+      "description": "Docker-Images verwalten. Neue Images herunterladen oder unbenutzte entfernen.",
+      "action_pull": "Neue Images von einer Registry herunterladen",
+      "action_remove": "Unbenutzte Images entfernen"
+    },
+    "networks": {
+      "title": "Netzwerke",
+      "description": "Docker-Netzwerke anzeigen und verwalten. Verbundene Container inspizieren und benutzerdefinierte Netzwerke erstellen.",
+      "action_inspect": "Netzwerkkonfiguration inspizieren",
+      "action_create": "Neues Docker-Netzwerk erstellen"
+    },
+    "stacks": {
+      "title": "Stacks",
+      "description": "Docker-Compose-Stacks verwalten — zusammengehörige Container-Gruppen.",
+      "action_manage": "Bestehende Stacks anzeigen und verwalten",
+      "action_deploy": "Stack bereitstellen oder aktualisieren"
+    },
+    "observability": {
+      "title": "Kosten-Observability",
+      "description": "LLM-Nutzungskosten, Latenz, Token-Verbrauch und Fehlerraten überwachen.",
+      "action_cost": "Kosten pro Anbieter und Modell verfolgen",
+      "action_latency": "Latenz-Perzentile analysieren",
+      "action_tokens": "Token-Nutzungstrends überwachen"
+    },
+    "logs": {
+      "title": "Logs & Audit",
+      "description": "System-Logs und Audit-Trails durchsuchen. Nach Schweregrad, Quelle oder Zeitraum filtern.",
+      "action_filter": "Logs nach Level, Quelle oder Stichwort filtern",
+      "action_audit": "Zum Audit-Trail für Sicherheitsereignisse wechseln"
+    },
+    "security_map": {
+      "title": "Sicherheitskarte",
+      "description": "Datenresidenz und Sicherheitsgrenzen visualisieren. Datenflüsse über Anbieter und Regionen hinweg.",
+      "action_residency": "Datenresidenz-Karte anzeigen",
+      "action_providers": "Sicherheitskonfigurationen inspizieren"
+    },
+    "providers": {
+      "title": "LLM-Anbieter",
+      "description": "LLM-Endpunkte konfigurieren — Ollama, OpenAI, Azure oder kompatible APIs. Konnektivität und Anmeldedaten testen.",
+      "action_add": "Neuen LLM-Anbieter-Endpunkt hinzufügen",
+      "action_test": "Konnektivität und Anmeldedaten testen",
+      "action_route": "Request-Routing und Failover konfigurieren"
+    },
+    "models": {
+      "title": "Modelle",
+      "description": "Verfügbare Modelle aller Anbieter durchsuchen. Modelle herunterladen oder Projekten zuweisen.",
+      "action_browse": "Modelle nach Anbieter durchsuchen",
+      "action_pull": "Modell auf lokale Runtime herunterladen",
+      "action_assign": "Modelle Projekten oder Endpunkten zuweisen"
+    },
+    "model_detail": {
+      "title": "Modell-Details",
+      "description": "Detaillierte Modellinformationen — Parameter, Fähigkeiten und Nutzungsstatistiken.",
+      "action_params": "Parameter und Quantisierung inspizieren",
+      "action_test": "Test-Prompt an das Modell senden"
+    },
+    "runtimes": {
+      "title": "Runtimes",
+      "description": "Lokale LLM-Runtimes und geladene Modelle anzeigen. Zustand und GPU-Auslastung prüfen.",
+      "action_list": "Alle registrierten Runtimes auflisten",
+      "action_health": "Runtime-Zustand und geladene Modelle prüfen"
+    },
+    "runtime_detail": {
+      "title": "Runtime-Details",
+      "description": "Runtime inspizieren — Konfiguration, geladene Modelle und Ressourcennutzung.",
+      "action_config": "Runtime-Konfiguration anzeigen oder bearbeiten",
+      "action_models": "Geladene Modelle dieser Runtime anzeigen"
+    },
+    "agent_trace": {
+      "title": "Agent-Trace",
+      "description": "LLM-Aufruf-Traces inspizieren — vollständige Request/Response-Kette mit Tool-Aufrufen und Token-Nutzung.",
+      "action_inspect": "Einzelne Traces untersuchen",
+      "action_replay": "Trace zur Fehlersuche wiederholen"
+    },
+    "endpoint": {
+      "title": "API-Endpunkt",
+      "description": "Interaktive API-Dokumentation für den OpenAI-kompatiblen Endpunkt. API-Aufrufe direkt testen.",
+      "action_docs": "OpenAPI-Dokumentation durchsuchen",
+      "action_test": "Test-Anfragen senden"
+    },
+    "nodes": {
+      "title": "Knoten-Flotte",
+      "description": "GPU-Inferenzknoten verwalten. Neue Knoten einrichten, Zustand überwachen und Scheduling-Prioritäten konfigurieren.",
+      "action_enroll": "Neuen GPU-Knoten einrichten",
+      "action_monitor": "Knotenzustand und GPU-Auslastung überwachen",
+      "action_schedule": "Scheduling-Richtlinien konfigurieren"
+    },
+    "node_detail": {
+      "title": "Knoten-Details",
+      "description": "Knoten inspizieren — Hardware, geladene Modelle, aktive Jobs und Zustandsverlauf.",
+      "action_status": "Knotenstatus und Hardware-Details anzeigen",
+      "action_drain": "Knoten für Wartung drainieren oder sperren"
+    },
+    "node_profiles": {
+      "title": "Knoten-Profile",
+      "description": "Wiederverwendbare Knotenprofile mit Ressourcenanforderungen und Scheduling-Einschränkungen definieren.",
+      "action_create": "Neues Knotenprofil erstellen",
+      "action_assign": "Profile Knoten oder Workloads zuweisen"
+    },
+    "scheduler": {
+      "title": "Scheduler",
+      "description": "Inferenz-Job-Warteschlange anzeigen und verwalten. Scheduling-Richtlinien konfigurieren.",
+      "action_queue": "Job-Warteschlange und -Verlauf durchsuchen",
+      "action_policies": "Scheduling-Richtlinien konfigurieren"
+    },
+    "users": {
+      "title": "Benutzer",
+      "description": "Benutzerkonten verwalten, Rollen zuweisen und API-Schlüssel generieren.",
+      "action_create": "Neues Benutzerkonto erstellen",
+      "action_roles": "Benutzerrollen zuweisen oder ändern",
+      "action_keys": "API-Schlüssel generieren oder widerrufen"
+    },
+    "roles": {
+      "title": "Rollen",
+      "description": "Rollen mit granularen Berechtigungen definieren. Zugriff auf Ressourcen und Aktionen steuern.",
+      "action_create": "Neue Rolle erstellen",
+      "action_permissions": "Rollenberechtigungen bearbeiten"
+    },
+    "groups": {
+      "title": "Gruppen",
+      "description": "Benutzer in Gruppen organisieren für Massen-Rollenzuweisung und Zugriffsverwaltung.",
+      "action_create": "Neue Gruppe erstellen",
+      "action_members": "Gruppenmitglieder hinzufügen oder entfernen"
+    },
+    "auth_providers": {
+      "title": "Auth-Anbieter",
+      "description": "Externe Authentifizierungsanbieter konfigurieren — OIDC, SAML oder LDAP — für Single Sign-On (SSO).",
+      "action_add": "Authentifizierungsanbieter hinzufügen",
+      "action_test": "Anbieter-Konnektivität testen"
+    },
+    "pii_dashboard": {
+      "title": "PII-Dashboard",
+      "description": "Übersicht der PII-Scan-Aktivität. Erkennungen nach Entitätstyp, Schwärzungsraten und Compliance.",
+      "action_stats": "Statistiken und Trends anzeigen",
+      "action_entities": "Erkannte Entitätstypen durchsuchen"
+    },
+    "pii_activity": {
+      "title": "PII-Aktivitätsprotokoll",
+      "description": "Detailliertes Protokoll der PII-Erkennungen und -Schwärzungen. Nach Typ, Benutzer oder Zeitraum filtern.",
+      "action_filter": "Aktivität nach Typ oder Benutzer filtern",
+      "action_export": "Protokolle für Compliance exportieren"
+    },
+    "pii_policies": {
+      "title": "PII-Richtlinien",
+      "description": "PII-Richtlinien pro Mandant definieren — Entitätstypen, Schwärzungsmodi und Durchsetzungsregeln.",
+      "action_create": "Neue PII-Richtlinie erstellen",
+      "action_assign": "Richtlinien Mandanten zuweisen"
+    },
+    "rag_knowledge_base": {
+      "title": "Wissensdatenbank",
+      "description": "Dokumente für RAG hochladen und verwalten. Dokumente werden für semantische Suche indexiert.",
+      "action_upload": "Neue Dokumente hochladen",
+      "action_search": "Suchabfragen gegen den Index testen"
+    },
+    "rag_documents": {
+      "title": "Dokumente",
+      "description": "Einzelne Dokumente im RAG-Pipeline durchsuchen und verwalten. Indexierungsstatus und Metadaten anzeigen.",
+      "action_browse": "Dokumente mit Filtern durchsuchen",
+      "action_delete": "Dokumente und ihre Chunks entfernen"
+    },
+    "rag_collections": {
+      "title": "Sammlungen",
+      "description": "Dokumente in Sammlungen organisieren. Jede Sammlung hat einen eigenen Embedding-Index.",
+      "action_create": "Neue Sammlung erstellen",
+      "action_manage": "Mitgliedschaft und Einstellungen verwalten"
+    },
+    "rag_runtime": {
+      "title": "RAG-Runtime",
+      "description": "RAG-Pipeline konfigurieren — Embedding-Modelle, Chunk-Größen, Retrieval-Parameter und Vektorspeicher.",
+      "action_config": "Runtime-Konfiguration bearbeiten",
+      "action_status": "Indexierungs-Pipeline-Zustand prüfen"
+    },
+    "rag_collectors": {
+      "title": "Kollektoren",
+      "description": "Datenkollektoren konfigurieren, die automatisch Dokumente aus externen Quellen importieren.",
+      "action_add": "Neuen Kollektor hinzufügen",
+      "action_schedule": "Sammelzeitpläne konfigurieren"
+    },
+    "rag_explorer": {
+      "title": "RAG-Explorer",
+      "description": "RAG-Index interaktiv erkunden — Chunks abfragen, Embeddings inspizieren und Retrieval-Qualität debuggen.",
+      "action_query": "Semantische Suchabfragen ausführen",
+      "action_chunks": "Einzelne Chunks und Scores inspizieren"
+    },
+    "rag_publishes": {
+      "title": "Veröffentlichungen",
+      "description": "Veröffentlichte RAG-Snapshots verwalten. Veröffentlichung friert eine Sammlungsversion ein.",
+      "action_publish": "Neuen Snapshot veröffentlichen",
+      "action_status": "Pipeline-Status überwachen"
+    },
+    "rag_search": {
+      "title": "RAG-Suche",
+      "description": "Retrieval-Abfragen gegen veröffentlichte Sammlungen testen. Ergebnisse vergleichen.",
+      "action_query": "Test-Suchabfragen ausführen",
+      "action_compare": "Ergebnisse zwischen Sammlungen vergleichen"
+    },
+    "chat_projects": {
+      "title": "Chat-Projekte",
+      "description": "Chat-Projekte erstellen und verwalten. Jedes Projekt begrenzt Modellzugriff und Berechtigungen.",
+      "action_create": "Neues Chat-Projekt erstellen",
+      "action_models": "Modellzugriff pro Projekt konfigurieren"
+    },
+    "chat_sessions": {
+      "title": "Chat-Sitzungen",
+      "description": "Chat-Sitzungen aller Projekte durchsuchen. Konversationsverlauf und Nutzung anzeigen.",
+      "action_browse": "Sitzungen mit Filtern durchsuchen",
+      "action_export": "Sitzungstranskripte exportieren"
+    },
+    "chat_attachments": {
+      "title": "Chat-Anhänge",
+      "description": "Hochgeladene Dateianhänge verwalten. Speichernutzung überprüfen und alte Dateien aufräumen.",
+      "action_browse": "Hochgeladene Anhänge durchsuchen",
+      "action_clean": "Verwaiste oder abgelaufene Dateien aufräumen"
+    },
+    "mcp_servers": {
+      "title": "MCP-Server",
+      "description": "MCP-Tool-Server registrieren und verwalten. Jeder Server stellt Tools bereit, die LLMs aufrufen können.",
+      "action_register": "Neuen MCP-Server registrieren",
+      "action_health": "Serverzustand und verfügbare Tools prüfen"
+    },
+    "mcp_detail": {
+      "title": "MCP-Server-Details",
+      "description": "MCP-Server inspizieren — verfügbare Tools, Konfiguration, Verbindungsstatus und Nutzungsprotokolle.",
+      "action_tools": "Verfügbare Tools und ihre Schemas durchsuchen",
+      "action_config": "Verbindungseinstellungen bearbeiten"
+    },
+    "skills": {
+      "title": "Skills",
+      "description": "Skill-Plugins durchsuchen und verwalten — wiederverwendbare Prompt-Ketten und Tool-Kompositionen.",
+      "action_browse": "Verfügbare Skills durchsuchen",
+      "action_create": "Neuen Skill erstellen"
+    },
+    "skills_create": {
+      "title": "Skill erstellen",
+      "description": "Neuen Skill definieren — Prompt-Vorlage, benötigte Tools und Ein-/Ausgabe-Schema festlegen.",
+      "action_define": "Prompt und Parameter definieren",
+      "action_test": "Mit Beispiel-Eingaben testen"
+    },
+    "skill_detail": {
+      "title": "Skill-Details",
+      "description": "Skill inspizieren und bearbeiten — Prompt-Vorlage, Tool-Bindungen und Ausführungsverlauf.",
+      "action_edit": "Skill-Definition bearbeiten",
+      "action_test": "Mit Test-Eingaben ausführen"
+    },
+    "settings": {
+      "title": "Einstellungen",
+      "description": "Systemweite Konfiguration — Netzwerk, Speicher, Sicherheitsrichtlinien, Feature-Flags und Dienstparameter.",
+      "action_general": "Allgemeine Einstellungen konfigurieren",
+      "action_security": "Sicherheitsrichtlinien verwalten",
+      "action_features": "Feature-Flags aktivieren oder deaktivieren"
+    },
+    "profile": {
+      "title": "Profil",
+      "description": "Kontoinformationen anzeigen und bearbeiten — Name, E-Mail, Passwort und persönliche Einstellungen.",
+      "action_info": "Anzeigename und E-Mail aktualisieren",
+      "action_password": "Passwort ändern"
+    }
+  }
+}

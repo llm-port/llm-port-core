@@ -1,5 +1,6 @@
 /**
- * HelpWizardDialog — multi-step info slides that introduce key features.
+ * ProductTourDialog — multi-step info slides that introduce key features.
+ * (Formerly HelpWizardDialog.)
  */
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -17,12 +18,12 @@ import Typography from "@mui/material/Typography";
 import KeyboardArrowLeftIcon from "@mui/icons-material/KeyboardArrowLeft";
 import KeyboardArrowRightIcon from "@mui/icons-material/KeyboardArrowRight";
 
-export interface HelpWizardDialogProps {
+export interface ProductTourDialogProps {
   open: boolean;
   onClose: () => void;
 }
 
-export function HelpWizardDialog({ open, onClose }: HelpWizardDialogProps) {
+export function ProductTourDialog({ open, onClose }: ProductTourDialogProps) {
   const { t } = useTranslation();
   const [step, setStep] = useState(0);
 

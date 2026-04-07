@@ -1,0 +1,79 @@
+{
+  "tourId": "guided_setup_enterprise",
+  "version": 1,
+  "profile": "enterprise",
+  "steps": [
+    {
+      "target": "[data-tour-id='sidebar.access-control']",
+      "titleKey": "enterprise.access.title",
+      "contentKey": "enterprise.access.content",
+      "placement": "right",
+      "route": "/admin/users",
+      "requires": {},
+      "disableBeacon": true
+    },
+    {
+      "target": "[data-tour-id='sidebar.llm']",
+      "titleKey": "enterprise.providers.title",
+      "contentKey": "enterprise.providers.content",
+      "placement": "right",
+      "route": "/admin/llm/providers",
+      "requires": {},
+      "disableBeacon": true
+    },
+    {
+      "target": "[data-tour-id='sidebar.utilities']",
+      "titleKey": "enterprise.nodes.title",
+      "contentKey": "enterprise.nodes.content",
+      "placement": "right",
+      "route": "/admin/nodes",
+      "requires": {},
+      "disableBeacon": true
+    },
+    {
+      "target": "[data-tour-id='sidebar.pii']",
+      "titleKey": "enterprise.pii.title",
+      "contentKey": "enterprise.pii.content",
+      "placement": "right",
+      "route": "/admin/pii/dashboard",
+      "requires": { "module": "pii" },
+      "disableBeacon": true
+    },
+    {
+      "target": "[data-tour-id='sidebar.observability']",
+      "titleKey": "enterprise.observability.title",
+      "contentKey": "enterprise.observability.content",
+      "placement": "right",
+      "route": "/admin/observability",
+      "requires": {},
+      "disableBeacon": true
+    },
+    {
+      "target": "[data-tour-id='sidebar.extensions']",
+      "titleKey": "enterprise.mcp.title",
+      "contentKey": "enterprise.mcp.content",
+      "placement": "right",
+      "route": "/admin/mcp/servers",
+      "requires": { "module": "mcp" },
+      "disableBeacon": true
+    },
+    {
+      "target": "[data-tour-id='sidebar.rag']",
+      "titleKey": "enterprise.rag.title",
+      "contentKey": "enterprise.rag.content",
+      "placement": "right",
+      "route": "/admin/rag/knowledge-base",
+      "requires": { "module": "rag" },
+      "disableBeacon": true
+    },
+    {
+      "target": "[data-tour-id='sidebar.chat-workspace']",
+      "titleKey": "enterprise.chat.title",
+      "contentKey": "enterprise.chat.content",
+      "placement": "right",
+      "route": "/admin/chat/projects",
+      "requires": { "module": "chat" },
+      "disableBeacon": true
+    }
+  ]
+}

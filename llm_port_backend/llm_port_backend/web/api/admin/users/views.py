@@ -15,6 +15,9 @@ from llm_port_backend.db.dependencies import get_db_session
 from llm_port_backend.db.models.rbac import Permission, Role
 from llm_port_backend.db.models.users import User, current_active_user
 from llm_port_backend.web.api.admin.dependencies import require_superuser
+from llm_port_backend.web.api.admin.users.preferences import (
+    router as preferences_router,
+)
 from llm_port_backend.web.api.admin.users.schema import (
     AdminUserDTO,
     ApiTokenResponse,
@@ -30,6 +33,7 @@ from llm_port_backend.web.api.admin.users.schema import (
 )
 
 router = APIRouter()
+router.include_router(preferences_router)
 
 
 def _role_to_dto(role: Role, user_count: int = 0) -> RoleDTO:

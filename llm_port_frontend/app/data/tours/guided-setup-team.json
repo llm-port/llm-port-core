@@ -1,0 +1,70 @@
+{
+  "tourId": "guided_setup_team",
+  "version": 1,
+  "profile": "team",
+  "steps": [
+    {
+      "target": "[data-tour-id='sidebar.llm']",
+      "titleKey": "team.providers.title",
+      "contentKey": "team.providers.content",
+      "placement": "right",
+      "route": "/admin/llm/providers",
+      "requires": {},
+      "disableBeacon": true
+    },
+    {
+      "target": "[data-tour-id='sidebar.utilities']",
+      "titleKey": "team.nodes.title",
+      "contentKey": "team.nodes.content",
+      "placement": "right",
+      "route": "/admin/nodes",
+      "requires": {},
+      "disableBeacon": true
+    },
+    {
+      "target": "[data-tour-id='sidebar.access-control']",
+      "titleKey": "team.access.title",
+      "contentKey": "team.access.content",
+      "placement": "right",
+      "route": "/admin/users",
+      "requires": {},
+      "disableBeacon": true
+    },
+    {
+      "target": "[data-tour-id='sidebar.extensions']",
+      "titleKey": "team.mcp.title",
+      "contentKey": "team.mcp.content",
+      "placement": "right",
+      "route": "/admin/mcp/servers",
+      "requires": { "module": "mcp" },
+      "disableBeacon": true
+    },
+    {
+      "target": "[data-tour-id='sidebar.chat-workspace']",
+      "titleKey": "team.chat.title",
+      "contentKey": "team.chat.content",
+      "placement": "right",
+      "route": "/admin/chat/projects",
+      "requires": { "module": "chat" },
+      "disableBeacon": true
+    },
+    {
+      "target": "[data-tour-id='sidebar.pii']",
+      "titleKey": "team.pii.title",
+      "contentKey": "team.pii.content",
+      "placement": "right",
+      "route": "/admin/pii/dashboard",
+      "requires": { "module": "pii" },
+      "disableBeacon": true
+    },
+    {
+      "target": "[data-tour-id='sidebar.rag']",
+      "titleKey": "team.rag.title",
+      "contentKey": "team.rag.content",
+      "placement": "right",
+      "route": "/admin/rag/knowledge-base",
+      "requires": { "module": "rag" },
+      "disableBeacon": true
+    }
+  ]
+}

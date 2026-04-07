@@ -103,3 +103,18 @@ class CreateUserRequest(BaseModel):
     password: str = Field(..., min_length=6)
     is_superuser: bool = False
     role_ids: list[uuid.UUID] = Field(default_factory=list)
+
+
+# ── User preferences ─────────────────────────────────────────────────
+
+
+class UserPreferencesRead(BaseModel):
+    """Current user's preferences blob."""
+
+    preferences: dict = Field(default_factory=dict)
+
+
+class UserPreferencesUpdate(BaseModel):
+    """Partial merge-update for user preferences."""
+
+    preferences: dict = Field(..., description="Keys to merge into existing preferences.")

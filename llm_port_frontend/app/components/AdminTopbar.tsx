@@ -25,12 +25,16 @@ import Tooltip from "@mui/material/Tooltip";
 import AccountCircleIcon from "@mui/icons-material/AccountCircle";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
+import ExploreIcon from "@mui/icons-material/Explore";
 import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
 import LightModeOutlinedIcon from "@mui/icons-material/LightModeOutlined";
 import LogoutIcon from "@mui/icons-material/Logout";
 import ManageAccountsIcon from "@mui/icons-material/ManageAccounts";
+import ReplayIcon from "@mui/icons-material/Replay";
 import SecurityIcon from "@mui/icons-material/Security";
+import TourIcon from "@mui/icons-material/Tour";
 import TranslateIcon from "@mui/icons-material/Translate";
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 
 export interface AdminTopbarProps {
   mode: "light" | "dark";
@@ -44,7 +48,10 @@ export interface AdminTopbarProps {
   onLanguageMenuOpen: (event: React.MouseEvent<HTMLElement>) => void;
   onLanguageMenuClose: () => void;
   onLanguageChange: (code: string) => void;
-  onHelpOpen: () => void;
+  onProductTourOpen: () => void;
+  onGuidedSetupOpen: () => void;
+  onResetGuides: () => void;
+  onPageHelp: () => void;
   onRootFormOpen: () => void;
   onRootDeactivate: () => void;
   onLogout: () => void;
@@ -62,7 +69,10 @@ export function AdminTopbar({
   onLanguageMenuOpen,
   onLanguageMenuClose,
   onLanguageChange,
-  onHelpOpen,
+  onProductTourOpen,
+  onGuidedSetupOpen,
+  onResetGuides,
+  onPageHelp,
   onRootFormOpen,
   onRootDeactivate,
   onLogout,
@@ -73,6 +83,8 @@ export function AdminTopbar({
 
   // User dropdown menu state
   const [userMenuAnchor, setUserMenuAnchor] = useState<HTMLElement | null>(null);
+  // Help dropdown menu state
+  const [helpMenuAnchor, setHelpMenuAnchor] = useState<HTMLElement | null>(null);
 
   return (
     <AppBar position="static" elevation={0}>
@@ -80,24 +92,82 @@ export function AdminTopbar({
         <Tooltip title={t("chat.title", { defaultValue: "Chat" })} arrow>
           <IconButton
             size="small"
-            onClick={() => navigate("/chat")}
+            component="a"
+            href="/chat"
+            data-tour-id="topbar.chat"
+            onClick={(e: React.MouseEvent<HTMLAnchorElement>) => {
+              // Left-click without modifier → SPA navigation
+              if (!e.ctrlKey && !e.metaKey && !e.shiftKey && e.button === 0) {
+                e.preventDefault();
+                navigate("/chat");
+              }
+              // Otherwise let the browser handle it (new tab / new window)
+            }}
             sx={{ color: "text.primary" }}
           >
             <AutoAwesomeIcon />
           </IconButton>
         </Tooltip>
-        <Tooltip title={t("help.title")} arrow>
+        <Tooltip title={t("help.title", { defaultValue: "Help" })} arrow>
           <IconButton
             size="small"
-            onClick={onHelpOpen}
+            data-tour-id="topbar.help"
+            onClick={(e) => setHelpMenuAnchor(e.currentTarget)}
             sx={{ color: "text.primary" }}
           >
             <HelpOutlineIcon />
           </IconButton>
         </Tooltip>
+        <Menu
+          anchorEl={helpMenuAnchor}
+          open={Boolean(helpMenuAnchor)}
+          onClose={() => setHelpMenuAnchor(null)}
+          anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+          transformOrigin={{ vertical: "top", horizontal: "right" }}
+          slotProps={{ paper: { sx: { minWidth: 200 } } }}
+        >
+          <MenuItem
+            onClick={() => {
+              setHelpMenuAnchor(null);
+              onPageHelp();
+            }}
+          >
+            <ListItemIcon><InfoOutlinedIcon fontSize="small" /></ListItemIcon>
+            <ListItemText>{t("help.about_page", { ns: "tour", defaultValue: "About This Page" })}</ListItemText>
+            <Chip label="F1" size="small" variant="outlined" sx={{ ml: 1, height: 20, fontSize: "0.7rem" }} />
+          </MenuItem>
+          <MenuItem
+            onClick={() => {
+              setHelpMenuAnchor(null);
+              onProductTourOpen();
+            }}
+          >
+            <ListItemIcon><TourIcon fontSize="small" /></ListItemIcon>
+            <ListItemText>{t("help.product_tour", { ns: "tour", defaultValue: "Product Tour" })}</ListItemText>
+          </MenuItem>
+          <MenuItem
+            onClick={() => {
+              setHelpMenuAnchor(null);
+              onGuidedSetupOpen();
+            }}
+          >
+            <ListItemIcon><ExploreIcon fontSize="small" /></ListItemIcon>
+            <ListItemText>{t("help.guided_setup", { ns: "tour", defaultValue: "Guided Setup" })}</ListItemText>
+          </MenuItem>
+          <MenuItem
+            onClick={() => {
+              setHelpMenuAnchor(null);
+              onResetGuides();
+            }}
+          >
+            <ListItemIcon><ReplayIcon fontSize="small" /></ListItemIcon>
+            <ListItemText>{t("help.reset_guides", { ns: "tour", defaultValue: "Reset Guides" })}</ListItemText>
+          </MenuItem>
+        </Menu>
         <Tooltip title={t("language.label")} arrow>
           <IconButton
             size="small"
+            data-tour-id="topbar.language"
             onClick={onLanguageMenuOpen}
             sx={{ color: "text.primary" }}
           >
@@ -130,6 +200,7 @@ export function AdminTopbar({
         <Tooltip title={mode === "dark" ? t("theme.light") : t("theme.dark")} arrow>
           <IconButton
             size="small"
+            data-tour-id="topbar.theme"
             onClick={toggleMode}
             sx={{ color: "text.primary" }}
           >
@@ -175,6 +246,7 @@ export function AdminTopbar({
           icon={<AccountCircleIcon />}
           label={currentUserEmail}
           variant="outlined"
+          data-tour-id="topbar.profile"
           onClick={(e) => setUserMenuAnchor(e.currentTarget)}
           sx={{
             height: 30,

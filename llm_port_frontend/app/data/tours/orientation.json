@@ -1,0 +1,114 @@
+{
+  "tourId": "orientation",
+  "version": 1,
+  "steps": [
+    {
+      "target": "[data-tour-id='sidebar.dashboard']",
+      "titleKey": "orientation.dashboard.title",
+      "contentKey": "orientation.dashboard.content",
+      "placement": "right",
+      "route": "/admin/dashboard",
+      "requires": {},
+      "disableBeacon": true
+    },
+    {
+      "target": "[data-tour-id='sidebar.observability']",
+      "titleKey": "orientation.observability.title",
+      "contentKey": "orientation.observability.content",
+      "placement": "right",
+      "route": null,
+      "requires": {},
+      "disableBeacon": true
+    },
+    {
+      "target": "[data-tour-id='sidebar.containers']",
+      "titleKey": "orientation.containers.title",
+      "contentKey": "orientation.containers.content",
+      "placement": "right",
+      "route": null,
+      "requires": {},
+      "disableBeacon": true
+    },
+    {
+      "target": "[data-tour-id='sidebar.llm']",
+      "titleKey": "orientation.llm.title",
+      "contentKey": "orientation.llm.content",
+      "placement": "right",
+      "route": null,
+      "requires": {},
+      "disableBeacon": true
+    },
+    {
+      "target": "[data-tour-id='sidebar.utilities']",
+      "titleKey": "orientation.utilities.title",
+      "contentKey": "orientation.utilities.content",
+      "placement": "right",
+      "route": null,
+      "requires": {},
+      "disableBeacon": true
+    },
+    {
+      "target": "[data-tour-id='sidebar.access-control']",
+      "titleKey": "orientation.access_control.title",
+      "contentKey": "orientation.access_control.content",
+      "placement": "right",
+      "route": null,
+      "requires": {},
+      "disableBeacon": true
+    },
+    {
+      "target": "[data-tour-id='sidebar.pii']",
+      "titleKey": "orientation.pii.title",
+      "contentKey": "orientation.pii.content",
+      "placement": "right",
+      "route": null,
+      "requires": { "module": "pii" },
+      "disableBeacon": true
+    },
+    {
+      "target": "[data-tour-id='sidebar.rag']",
+      "titleKey": "orientation.rag.title",
+      "contentKey": "orientation.rag.content",
+      "placement": "right",
+      "route": null,
+      "requires": { "module": "rag" },
+      "disableBeacon": true
+    },
+    {
+      "target": "[data-tour-id='sidebar.chat-workspace']",
+      "titleKey": "orientation.chat.title",
+      "contentKey": "orientation.chat.content",
+      "placement": "right",
+      "route": null,
+      "requires": { "module": "chat" },
+      "disableBeacon": true
+    },
+    {
+      "target": "[data-tour-id='sidebar.extensions']",
+      "titleKey": "orientation.extensions.title",
+      "contentKey": "orientation.extensions.content",
+      "placement": "right",
+      "route": null,
+      "requires": {},
+      "disableBeacon": true
+    },
+    {
+      "target": "[data-tour-id='sidebar.settings']",
+      "titleKey": "orientation.settings.title",
+      "contentKey": "orientation.settings.content",
+      "placement": "right",
+      "route": null,
+      "requires": { "superuser": true },
+      "disableBeacon": true
+    },
+    {
+      "target": "[data-tour-id='topbar.help']",
+      "titleKey": "orientation.help.title",
+      "contentKey": "orientation.help.content",
+      "placement": "bottom",
+      "route": null,
+      "requires": {},
+      "disableBeacon": true
+    }
+  ]
+}

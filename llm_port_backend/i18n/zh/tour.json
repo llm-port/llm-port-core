@@ -1,0 +1,440 @@
+{
+  "orientation": {
+    "dashboard": {
+      "title": "仪表板",
+      "content": "您的中央概览。一目了然地查看系统健康状况、容器状态和关键指标。"
+    },
+    "observability": {
+      "title": "可观测性",
+      "content": "监控所有 LLM 供应商的请求日志、延迟、Token 使用量和错误率。"
+    },
+    "containers": {
+      "title": "容器",
+      "content": "管理 llm.port 部署中的 Docker 容器。启动、停止和查看日志。"
+    },
+    "llm": {
+      "title": "LLM 供应商",
+      "content": "配置上游 LLM 端点——本地 Ollama、OpenAI、Azure 或任何 OpenAI 兼容 API。"
+    },
+    "utilities": {
+      "title": "实用工具",
+      "content": "节点集群管理、调度器和多节点配置的系统工具。"
+    },
+    "access_control": {
+      "title": "访问控制",
+      "content": "管理用户、API 密钥、角色和身份验证提供程序。"
+    },
+    "pii": {
+      "title": "PII 防护",
+      "content": "在提示词和回复到达 LLM 之前，扫描并脱敏个人身份信息。"
+    },
+    "rag": {
+      "title": "RAG（知识库）",
+      "content": "上传文档并构建检索增强生成管道，获取有据可查的回复。"
+    },
+    "chat": {
+      "title": "聊天工作区",
+      "content": "管理聊天项目、对话历史和模型分配。要开始聊天，请使用顶部栏的聊天按钮。"
+    },
+    "extensions": {
+      "title": "扩展",
+      "content": "浏览和管理 MCP 服务器、技能插件和其他扩展。"
+    },
+    "settings": {
+      "title": "设置",
+      "content": "系统级配置，包括网络、存储、安全策略和功能开关。"
+    },
+    "help": {
+      "title": "帮助与指南",
+      "content": "随时访问产品导览、引导设置和文档。"
+    }
+  },
+  "private": {
+    "providers": {
+      "title": "添加供应商",
+      "content": "首先添加至少一个 LLM 供应商。指向本地 Ollama 实例或粘贴云端 API 密钥。"
+    },
+    "chat": {
+      "title": "创建聊天项目",
+      "content": "在此创建和管理聊天项目、会话和历史记录。要开始聊天，请点击顶部栏的聊天按钮。"
+    },
+    "pii": {
+      "title": "检查 PII 设置",
+      "content": "PII 防护默认启用。查看仪表板了解检测统计数据，并配置需要脱敏的实体类型。"
+    },
+    "rag": {
+      "title": "上传文档",
+      "content": "前往知识库上传您的第一个文档，用于检索增强生成回复。"
+    }
+  },
+  "team": {
+    "providers": {
+      "title": "配置供应商",
+      "content": "为团队设置共享 LLM 端点——本地服务器、云端 API 或混合配置。"
+    },
+    "nodes": {
+      "title": "注册节点",
+      "content": "添加团队的 GPU 节点，以便调度器分配推理工作负载。"
+    },
+    "access": {
+      "title": "设置用户",
+      "content": "创建团队账户或连接身份提供程序。分配角色以控制资源访问权限。"
+    },
+    "mcp": {
+      "title": "MCP 服务器",
+      "content": "注册 MCP 工具服务器，使团队成员可以在聊天中调用外部功能。"
+    },
+    "chat": {
+      "title": "创建共享项目",
+      "content": "设置团队协作聊天项目。按项目控制模型访问权限。"
+    },
+    "pii": {
+      "title": "配置 PII 策略",
+      "content": "定义适用于所有团队成员的 PII 脱敏规则。"
+    },
+    "rag": {
+      "title": "构建知识库",
+      "content": "将团队文档上传到共享知识库，所有成员都可以查询获取有据回复。"
+    }
+  },
+  "enterprise": {
+    "access": {
+      "title": "访问控制与 SSO",
+      "content": "从访问控制开始。连接身份提供程序，定义角色，设置 API 密钥策略。"
+    },
+    "providers": {
+      "title": "供应商集群",
+      "content": "注册已批准的 LLM 端点。设置速率限制、成本预算和故障转移路由。"
+    },
+    "nodes": {
+      "title": "节点集群",
+      "content": "注册 GPU 节点并配置调度策略以分配工作负载。"
+    },
+    "pii": {
+      "title": "PII 合规",
+      "content": "配置企业级 PII 策略——实体类型、脱敏模式、审计日志和合规报告。"
+    },
+    "observability": {
+      "title": "可观测性与审计",
+      "content": "设置监控仪表板、审计追踪和告警，实现合规和运营可见性。"
+    },
+    "mcp": {
+      "title": "扩展治理",
+      "content": "审批和管理 MCP 工具服务器。控制每个角色可用的扩展。"
+    },
+    "rag": {
+      "title": "企业知识库",
+      "content": "上传带有访问控制的企业文档。配置索引管道和检索策略。"
+    },
+    "chat": {
+      "title": "受控聊天工作区",
+      "content": "创建带有策略护栏、模型白名单和每工作区 PII 执行的项目模板。"
+    }
+  },
+  "ui": {
+    "step_counter": "第 {{current}} 步，共 {{total}} 步",
+    "skip": "跳过导览",
+    "back": "上一步",
+    "next": "下一步",
+    "finish": "完成"
+  },
+  "help": {
+    "product_tour": "产品导览",
+    "guided_setup": "引导设置",
+    "reset_guides": "重置引导",
+    "about_page": "关于此页面"
+  },
+  "page_help": {
+    "actions_heading": "您可以在此执行的操作",
+    "close": "知道了",
+    "unknown": {
+      "title": "关于此页面",
+      "description": "此页面暂时没有特定帮助内容。"
+    },
+    "dashboard": {
+      "title": "仪表板",
+      "description": "llm.port 部署的中央概览。查看系统健康状况、容器状态、资源使用情况和关键指标。",
+      "action_health": "检查系统健康状况和服务可用性",
+      "action_containers": "查看运行中的容器数量和状态",
+      "action_metrics": "监控资源使用和性能指标"
+    },
+    "containers": {
+      "title": "容器",
+      "description": "列出和管理所有 Docker 容器。启动、停止、重启或检查单个容器。",
+      "action_list": "使用状态筛选器浏览容器",
+      "action_start_stop": "启动、停止或重启容器",
+      "action_create": "从镜像创建新容器"
+    },
+    "create_container": {
+      "title": "创建容器",
+      "description": "通过选择镜像并配置端口、卷和环境变量来启动新的 Docker 容器。",
+      "action_image": "选择基础镜像",
+      "action_config": "配置端口、卷和环境变量"
+    },
+    "container_detail": {
+      "title": "容器详情",
+      "description": "检查特定容器——查看日志、资源使用、环境变量和网络设置。",
+      "action_logs": "查看实时容器日志",
+      "action_restart": "重启或停止容器",
+      "action_env": "检查环境变量和挂载"
+    },
+    "images": {
+      "title": "镜像",
+      "description": "管理可用的 Docker 镜像。拉取新镜像或删除未使用的镜像。",
+      "action_pull": "从注册表拉取新镜像",
+      "action_remove": "删除未使用的镜像"
+    },
+    "networks": {
+      "title": "网络",
+      "description": "查看和管理 Docker 网络。检查连接的容器并创建自定义网络。",
+      "action_inspect": "检查网络配置",
+      "action_create": "创建新的 Docker 网络"
+    },
+    "stacks": {
+      "title": "Stacks",
+      "description": "管理 Docker Compose stacks——一组相关容器的集合部署。",
+      "action_manage": "查看和管理现有 stacks",
+      "action_deploy": "部署或更新 stack"
+    },
+    "observability": {
+      "title": "成本可观测性",
+      "description": "监控 LLM 使用成本、请求延迟、Token 消耗和所有供应商的错误率。",
+      "action_cost": "按供应商和模型跟踪成本",
+      "action_latency": "分析请求延迟百分位",
+      "action_tokens": "监控 Token 使用趋势"
+    },
+    "logs": {
+      "title": "日志与审计",
+      "description": "浏览系统日志和审计追踪。按严重性、来源或时间范围筛选。",
+      "action_filter": "按级别、来源或关键词筛选日志",
+      "action_audit": "切换到安全事件审计追踪"
+    },
+    "security_map": {
+      "title": "安全地图",
+      "description": "可视化数据驻留和安全边界。查看数据在供应商和区域之间的流向。",
+      "action_residency": "查看按供应商的数据驻留地图",
+      "action_providers": "检查供应商安全配置"
+    },
+    "providers": {
+      "title": "LLM 供应商",
+      "description": "配置上游 LLM 端点——本地 Ollama、OpenAI、Azure 或兼容 API。测试连接和凭据。",
+      "action_add": "添加新的 LLM 供应商端点",
+      "action_test": "测试供应商连接和凭据",
+      "action_route": "配置请求路由和故障转移规则"
+    },
+    "models": {
+      "title": "模型",
+      "description": "浏览所有供应商的可用模型。拉取模型到本地运行时或分配给项目。",
+      "action_browse": "按供应商浏览可用模型",
+      "action_pull": "将模型拉取到本地 Ollama 运行时",
+      "action_assign": "将模型分配给聊天项目或端点"
+    },
+    "model_detail": {
+      "title": "模型详情",
+      "description": "查看特定模型的详细信息——参数、功能和使用统计。",
+      "action_params": "检查模型参数和量化",
+      "action_test": "向此模型发送测试提示"
+    },
+    "runtimes": {
+      "title": "运行时",
+      "description": "查看本地 LLM 运行时及其加载的模型。检查健康状况和 GPU 利用率。",
+      "action_list": "列出所有已注册的运行时",
+      "action_health": "检查运行时健康和加载的模型"
+    },
+    "runtime_detail": {
+      "title": "运行时详情",
+      "description": "检查特定运行时——配置、加载的模型和资源使用。",
+      "action_config": "查看或编辑运行时配置",
+      "action_models": "查看此运行时上加载的模型"
+    },
+    "agent_trace": {
+      "title": "代理追踪",
+      "description": "检查 LLM 调用追踪——完整的请求/响应链,包括工具调用、推理步骤和 Token 使用。",
+      "action_inspect": "深入查看单个调用追踪",
+      "action_replay": "重放追踪进行调试"
+    },
+    "endpoint": {
+      "title": "API 端点",
+      "description": "OpenAI 兼容端点的交互式 API 文档。直接从浏览器测试 API 调用。",
+      "action_docs": "浏览 OpenAPI 文档",
+      "action_test": "发送测试请求到端点"
+    },
+    "nodes": {
+      "title": "节点集群",
+      "description": "管理 GPU 推理节点集群。注册新节点、监控健康状况和配置调度优先级。",
+      "action_enroll": "注册新的 GPU 节点",
+      "action_monitor": "监控节点健康和 GPU 利用率",
+      "action_schedule": "配置调度策略和优先级"
+    },
+    "node_detail": {
+      "title": "节点详情",
+      "description": "检查特定节点——硬件信息、加载的模型、运行中的作业和健康历史。",
+      "action_status": "查看节点状态和硬件详情",
+      "action_drain": "排空或隔离节点进行维护"
+    },
+    "node_profiles": {
+      "title": "节点配置文件",
+      "description": "定义可重用的节点配置文件,指定资源需求和调度约束。",
+      "action_create": "创建新的节点配置文件",
+      "action_assign": "将配置文件分配给节点或工作负载"
+    },
+    "scheduler": {
+      "title": "调度器",
+      "description": "查看和管理推理作业队列。设置调度策略并监控作业分配。",
+      "action_queue": "浏览作业队列和历史",
+      "action_policies": "配置调度策略"
+    },
+    "users": {
+      "title": "用户",
+      "description": "管理用户账户、分配角色和生成 API 密钥。控制系统访问权限。",
+      "action_create": "创建新用户账户",
+      "action_roles": "分配或更改用户角色",
+      "action_keys": "生成或撤销 API 密钥"
+    },
+    "roles": {
+      "title": "角色",
+      "description": "定义具有细粒度权限的角色。角色控制对资源和操作的访问。",
+      "action_create": "创建新角色",
+      "action_permissions": "编辑角色权限"
+    },
+    "groups": {
+      "title": "组",
+      "description": "将用户组织到组中,以便批量角色分配和访问管理。",
+      "action_create": "创建新组",
+      "action_members": "添加或移除组成员"
+    },
+    "auth_providers": {
+      "title": "认证提供商",
+      "description": "配置外部认证提供商——OIDC、SAML 或 LDAP——用于单点登录 (SSO)。",
+      "action_add": "添加认证提供商",
+      "action_test": "测试提供商连接"
+    },
+    "pii_dashboard": {
+      "title": "PII 仪表板",
+      "description": "PII 扫描活动概览——按实体类型的检测计数、脱敏率和合规状况。",
+      "action_stats": "查看检测统计和趋势",
+      "action_entities": "浏览检测到的实体类型"
+    },
+    "pii_activity": {
+      "title": "PII 活动日志",
+      "description": "PII 检测和脱敏的详细日志。按实体类型、用户或时间范围筛选。",
+      "action_filter": "按实体类型或用户筛选活动",
+      "action_export": "导出活动日志用于合规"
+    },
+    "pii_policies": {
+      "title": "PII 策略",
+      "description": "定义租户级 PII 策略——检测哪些实体类型、脱敏模式和执行规则。",
+      "action_create": "创建新的 PII 策略",
+      "action_assign": "将策略分配给租户"
+    },
+    "rag_knowledge_base": {
+      "title": "知识库",
+      "description": "上传和管理用于检索增强生成的文档。文档将被索引以进行语义搜索。",
+      "action_upload": "上传新文档到知识库",
+      "action_search": "测试搜索查询"
+    },
+    "rag_documents": {
+      "title": "文档",
+      "description": "浏览和管理 RAG 管道中的单个文档。查看索引状态和元数据。",
+      "action_browse": "使用状态筛选器浏览文档",
+      "action_delete": "删除文档及其分块"
+    },
+    "rag_collections": {
+      "title": "集合",
+      "description": "将文档组织到集合中进行范围检索。每个集合有自己的嵌入索引。",
+      "action_create": "创建新集合",
+      "action_manage": "管理集合成员和设置"
+    },
+    "rag_runtime": {
+      "title": "RAG 运行时",
+      "description": "配置 RAG 管道运行时——嵌入模型、分块大小、检索参数和向量存储设置。",
+      "action_config": "编辑运行时配置",
+      "action_status": "检查索引管道健康"
+    },
+    "rag_collectors": {
+      "title": "收集器",
+      "description": "配置自动从外部源按计划导入文档的数据收集器。",
+      "action_add": "添加新的数据收集器",
+      "action_schedule": "配置收集计划"
+    },
+    "rag_explorer": {
+      "title": "RAG 探索器",
+      "description": "交互式探索 RAG 索引——查询分块、检查嵌入和调试检索质量。",
+      "action_query": "运行语义搜索查询",
+      "action_chunks": "检查单个分块及其得分"
+    },
+    "rag_publishes": {
+      "title": "发布",
+      "description": "管理已发布的 RAG 快照。发布会冻结集合版本以确保稳定检索。",
+      "action_publish": "创建新的发布快照",
+      "action_status": "监控发布管道状态"
+    },
+    "rag_search": {
+      "title": "RAG 搜索",
+      "description": "针对已发布的集合测试检索查询。跨集合和参数比较结果。",
+      "action_query": "运行测试搜索查询",
+      "action_compare": "跨集合比较结果"
+    },
+    "chat_projects": {
+      "title": "聊天项目",
+      "description": "创建和管理聊天项目。每个项目限定模型访问、系统提示和用户权限。",
+      "action_create": "创建新的聊天项目",
+      "action_models": "按项目配置模型访问"
+    },
+    "chat_sessions": {
+      "title": "聊天会话",
+      "description": "浏览所有项目的聊天会话。查看对话历史和使用统计。",
+      "action_browse": "使用筛选器浏览会话",
+      "action_export": "导出会话记录"
+    },
+    "chat_attachments": {
+      "title": "聊天附件",
+      "description": "管理聊天会话中上传的文件附件。查看存储使用情况并清理旧文件。",
+      "action_browse": "浏览已上传的附件",
+      "action_clean": "清理孤立或过期的文件"
+    },
+    "mcp_servers": {
+      "title": "MCP 服务器",
+      "description": "注册和管理 MCP 工具服务器。每个服务器公开 LLM 可以调用的工具。",
+      "action_register": "注册新的 MCP 服务器",
+      "action_health": "检查服务器健康和可用工具"
+    },
+    "mcp_detail": {
+      "title": "MCP 服务器详情",
+      "description": "检查特定 MCP 服务器——可用工具、配置、连接状态和使用日志。",
+      "action_tools": "浏览可用工具及其模式",
+      "action_config": "编辑服务器连接设置"
+    },
+    "skills": {
+      "title": "技能",
+      "description": "浏览和管理技能插件——可重用的提示链和工具组合,扩展 LLM 功能。",
+      "action_browse": "浏览可用技能",
+      "action_create": "创建新技能"
+    },
+    "skills_create": {
+      "title": "创建技能",
+      "description": "定义新技能——指定提示模板、所需工具和输入/输出模式。",
+      "action_define": "定义技能提示和参数",
+      "action_test": "使用示例输入测试"
+    },
+    "skill_detail": {
+      "title": "技能详情",
+      "description": "检查和编辑特定技能——提示模板、工具绑定和执行历史。",
+      "action_edit": "编辑技能定义",
+      "action_test": "使用测试输入运行"
+    },
+    "settings": {
+      "title": "设置",
+      "description": "系统级配置——网络、存储后端、安全策略、功能开关和服务参数。",
+      "action_general": "配置通用系统设置",
+      "action_security": "管理安全和认证策略",
+      "action_features": "启用或禁用功能开关"
+    },
+    "profile": {
+      "title": "个人资料",
+      "description": "查看和编辑您的账户信息——显示名称、邮箱、密码和个人偏好。",
+      "action_info": "更新显示名称和邮箱",
+      "action_password": "更改密码"
+    }
+  }
+}

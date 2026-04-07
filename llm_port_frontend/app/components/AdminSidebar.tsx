@@ -259,6 +259,7 @@ export function AdminSidebar({
             <ListItemButton
               component={NavLink}
               to={entry.to}
+              data-tour-id={`sidebar.${entry.id}`}
               sx={{ ...linkButtonSx, justifyContent: drawerOpen ? "initial" : "center" }}
             >
               <ListItemIcon
@@ -284,14 +285,20 @@ export function AdminSidebar({
 
     const isGroupExpanded = expanded[entry.labelKey] ?? false;
     const isGroupActive = entry.children.some((c) => location.pathname.startsWith(c.to));
+    const defaultTo = entry.children[0]?.to;
 
     return (
       <Box>
         <ListItem disablePadding sx={{ mb: 0.5 }}>
           <Tooltip title={drawerOpen ? "" : t(entry.labelKey)} placement="right" arrow>
             <ListItemButton
-              onClick={() => {
-                const defaultTo = entry.children[0]?.to;
+              component="a"
+              href={defaultTo}
+              data-tour-id={`sidebar.${entry.id}`}
+              onClick={(e: React.MouseEvent<HTMLAnchorElement>) => {
+                // Allow Ctrl/Meta/Shift click to open in new tab natively
+                if (e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
+                e.preventDefault();
                 if (drawerOpen) {
                   toggleGroup(entry.labelKey);
                   if (!isGroupExpanded && defaultTo) navigate(defaultTo);

@@ -1,0 +1,440 @@
+{
+  "orientation": {
+    "dashboard": {
+      "title": "Dashboard",
+      "content": "Your central overview. View system health, container status, and key metrics at a glance."
+    },
+    "observability": {
+      "title": "Observability",
+      "content": "Monitor request logs, latency, token usage, and error rates across all LLM providers."
+    },
+    "containers": {
+      "title": "Containers",
+      "content": "Manage the Docker containers that make up your llm.port deployment. Start, stop, and view logs."
+    },
+    "llm": {
+      "title": "LLM Providers",
+      "content": "Configure upstream LLM endpoints — local Ollama, OpenAI, Azure, or any OpenAI-compatible API."
+    },
+    "utilities": {
+      "title": "Utilities",
+      "content": "Node fleet management, scheduler, and system utilities for multi-node setups."
+    },
+    "access_control": {
+      "title": "Access Control",
+      "content": "Manage users, API keys, roles, and authentication providers for your deployment."
+    },
+    "pii": {
+      "title": "PII Guard",
+      "content": "Scan and redact personally identifiable information from prompts and responses before they reach LLMs."
+    },
+    "rag": {
+      "title": "RAG (Knowledge Base)",
+      "content": "Upload documents and build a retrieval-augmented generation pipeline for grounded responses."
+    },
+    "chat": {
+      "title": "Chat Workspace",
+      "content": "Manage chat projects, conversation history, and model assignments. To start chatting, use the Chat button in the top bar."
+    },
+    "extensions": {
+      "title": "Extensions",
+      "content": "Browse and manage MCP servers, skill plugins, and other extensions that enhance llm.port."
+    },
+    "settings": {
+      "title": "Settings",
+      "content": "System-wide configuration including networking, storage, security policies, and feature flags."
+    },
+    "help": {
+      "title": "Help & Guides",
+      "content": "Access this product tour, guided setup, and documentation whenever you need a refresher."
+    }
+  },
+  "private": {
+    "providers": {
+      "title": "Add a Provider",
+      "content": "Start by adding at least one LLM provider. Point to a local Ollama instance or paste an API key for a cloud provider."
+    },
+    "chat": {
+      "title": "Create a Chat Project",
+      "content": "Create and manage chat projects, sessions, and history here. To start chatting, click the Chat button in the top bar."
+    },
+    "pii": {
+      "title": "Review PII Settings",
+      "content": "PII Guard is enabled by default. Review the dashboard to see detection stats and configure which entity types to redact."
+    },
+    "rag": {
+      "title": "Upload Documents",
+      "content": "Go to the Knowledge Base and upload your first document. RAG will index it for retrieval-augmented answers."
+    }
+  },
+  "team": {
+    "providers": {
+      "title": "Configure Providers",
+      "content": "Set up shared LLM endpoints for your team — local servers, cloud APIs, or a mix of both."
+    },
+    "nodes": {
+      "title": "Register Nodes",
+      "content": "Add your team's GPU nodes so the scheduler can distribute inference workloads."
+    },
+    "access": {
+      "title": "Set Up Users",
+      "content": "Create team accounts or connect your identity provider. Assign roles to control who can manage resources."
+    },
+    "mcp": {
+      "title": "MCP Servers",
+      "content": "Register MCP tool servers so team members can invoke external capabilities from their chat sessions."
+    },
+    "chat": {
+      "title": "Create Shared Projects",
+      "content": "Set up chat projects that your team can collaborate in. Control model access per project."
+    },
+    "pii": {
+      "title": "Configure PII Policies",
+      "content": "Define PII redaction rules that apply to all team members to protect sensitive data."
+    },
+    "rag": {
+      "title": "Build a Knowledge Base",
+      "content": "Upload team documents to the shared knowledge base. All members can query them for grounded answers."
+    }
+  },
+  "enterprise": {
+    "access": {
+      "title": "Access Control & SSO",
+      "content": "Start with access control. Connect your identity provider, define roles, and set up API key policies."
+    },
+    "providers": {
+      "title": "Provider Fleet",
+      "content": "Register your approved LLM endpoints. Set rate limits, cost budgets, and failover routing."
+    },
+    "nodes": {
+      "title": "Node Fleet",
+      "content": "Register GPU nodes and configure scheduling policies for workload distribution."
+    },
+    "pii": {
+      "title": "PII Compliance",
+      "content": "Configure enterprise PII policies — entity types, redaction modes, audit logging, and compliance reporting."
+    },
+    "observability": {
+      "title": "Observability & Audit",
+      "content": "Set up monitoring dashboards, audit trails, and alerting for compliance and operational visibility."
+    },
+    "mcp": {
+      "title": "Extension Governance",
+      "content": "Approve and manage MCP tool servers. Control which extensions are available to each role."
+    },
+    "rag": {
+      "title": "Enterprise Knowledge Base",
+      "content": "Upload corporate documents with access controls. Configure indexing pipelines and retrieval policies."
+    },
+    "chat": {
+      "title": "Governed Chat Workspace",
+      "content": "Create project templates with policy guardrails, model allowlists, and PII enforcement per workspace."
+    }
+  },
+  "ui": {
+    "step_counter": "Step {{current}} of {{total}}",
+    "skip": "Skip tour",
+    "back": "Back",
+    "next": "Next",
+    "finish": "Finish"
+  },
+  "help": {
+    "product_tour": "Product Tour",
+    "guided_setup": "Guided Setup",
+    "reset_guides": "Reset Guides",
+    "about_page": "About This Page"
+  },
+  "page_help": {
+    "actions_heading": "What you can do here",
+    "close": "Got it",
+    "unknown": {
+      "title": "About This Page",
+      "description": "No specific help is available for this page yet."
+    },
+    "dashboard": {
+      "title": "Dashboard",
+      "description": "Your central overview of the llm.port deployment. See system health, container status, resource usage, and key metrics at a glance.",
+      "action_health": "Check system health and service availability",
+      "action_containers": "View running container counts and statuses",
+      "action_metrics": "Monitor resource usage and performance metrics"
+    },
+    "containers": {
+      "title": "Containers",
+      "description": "List and manage all Docker containers in your deployment. Start, stop, restart, or inspect individual containers.",
+      "action_list": "Browse all containers with status filters",
+      "action_start_stop": "Start, stop, or restart containers",
+      "action_create": "Create a new container from an image"
+    },
+    "create_container": {
+      "title": "Create Container",
+      "description": "Launch a new Docker container by selecting an image and configuring ports, volumes, and environment variables.",
+      "action_image": "Choose a base image for the new container",
+      "action_config": "Configure ports, volumes, and environment"
+    },
+    "container_detail": {
+      "title": "Container Detail",
+      "description": "Inspect a specific container — view its logs, resource usage, environment variables, and network settings.",
+      "action_logs": "View real-time container logs",
+      "action_restart": "Restart or stop the container",
+      "action_env": "Inspect environment variables and mounts"
+    },
+    "images": {
+      "title": "Images",
+      "description": "Manage Docker images available for container creation. Pull new images or remove unused ones.",
+      "action_pull": "Pull new images from a registry",
+      "action_remove": "Remove unused or outdated images"
+    },
+    "networks": {
+      "title": "Networks",
+      "description": "View and manage Docker networks. Inspect connected containers and create custom networks.",
+      "action_inspect": "Inspect network configuration and connected containers",
+      "action_create": "Create a new Docker network"
+    },
+    "stacks": {
+      "title": "Stacks",
+      "description": "Manage Docker Compose stacks — groups of related containers deployed together.",
+      "action_manage": "View and manage existing stacks",
+      "action_deploy": "Deploy or update a stack"
+    },
+    "observability": {
+      "title": "Cost Observability",
+      "description": "Monitor LLM usage costs, request latency, token consumption, and error rates across all providers.",
+      "action_cost": "Track cost per provider and model",
+      "action_latency": "Analyze request latency percentiles",
+      "action_tokens": "Monitor token usage trends over time"
+    },
+    "logs": {
+      "title": "Logs & Audit",
+      "description": "Browse system logs and audit trails. Filter by severity, source, or time range.",
+      "action_filter": "Filter logs by level, source, or keyword",
+      "action_audit": "Switch to the audit trail for security events"
+    },
+    "security_map": {
+      "title": "Security Map",
+      "description": "Visualize data residency and security boundaries. See where your data flows across providers and regions.",
+      "action_residency": "View data residency map by provider",
+      "action_providers": "Inspect provider security configurations"
+    },
+    "providers": {
+      "title": "LLM Providers",
+      "description": "Configure upstream LLM endpoints — local Ollama servers, OpenAI, Azure, or any OpenAI-compatible API. Test connectivity and manage credentials.",
+      "action_add": "Add a new LLM provider endpoint",
+      "action_test": "Test provider connectivity and credentials",
+      "action_route": "Configure request routing and failover rules"
+    },
+    "models": {
+      "title": "Models",
+      "description": "Browse models available across all configured providers. Pull new models to local runtimes or assign models to projects.",
+      "action_browse": "Browse available models by provider",
+      "action_pull": "Pull a model to a local Ollama runtime",
+      "action_assign": "Assign models to chat projects or endpoints"
+    },
+    "model_detail": {
+      "title": "Model Detail",
+      "description": "View detailed information about a specific model — parameters, capabilities, and usage statistics.",
+      "action_params": "Inspect model parameters and quantization",
+      "action_test": "Send a test prompt to this model"
+    },
+    "runtimes": {
+      "title": "Runtimes",
+      "description": "View local LLM runtimes (e.g., Ollama instances) and their loaded models. Check health and GPU utilization.",
+      "action_list": "List all registered runtimes",
+      "action_health": "Check runtime health and loaded models"
+    },
+    "runtime_detail": {
+      "title": "Runtime Detail",
+      "description": "Inspect a specific runtime — its configuration, loaded models, and resource usage.",
+      "action_config": "View or edit runtime configuration",
+      "action_models": "See which models are loaded on this runtime"
+    },
+    "agent_trace": {
+      "title": "Agent Trace",
+      "description": "Inspect LLM call traces — see the full request/response chain including tool calls, reasoning steps, and token usage.",
+      "action_inspect": "Drill into individual call traces",
+      "action_replay": "Replay a trace for debugging"
+    },
+    "endpoint": {
+      "title": "API Endpoint",
+      "description": "Interactive API documentation for the llm.port OpenAI-compatible endpoint. Test API calls directly from the browser.",
+      "action_docs": "Browse the OpenAPI documentation",
+      "action_test": "Send test requests to the endpoint"
+    },
+    "nodes": {
+      "title": "Node Fleet",
+      "description": "Manage your fleet of GPU inference nodes. Enroll new nodes, monitor health, and configure scheduling priorities.",
+      "action_enroll": "Enroll a new GPU node",
+      "action_monitor": "Monitor node health and GPU utilization",
+      "action_schedule": "Configure scheduling policies and priorities"
+    },
+    "node_detail": {
+      "title": "Node Detail",
+      "description": "Inspect a specific node — hardware info, loaded models, running jobs, and health history.",
+      "action_status": "View node status and hardware details",
+      "action_drain": "Drain or cordon the node for maintenance"
+    },
+    "node_profiles": {
+      "title": "Node Profiles",
+      "description": "Define reusable node profiles that specify resource requirements and scheduling constraints for workloads.",
+      "action_create": "Create a new node profile",
+      "action_assign": "Assign profiles to nodes or workloads"
+    },
+    "scheduler": {
+      "title": "Scheduler",
+      "description": "View and manage the inference job queue. Set scheduling policies and monitor job distribution across nodes.",
+      "action_queue": "Browse the job queue and job history",
+      "action_policies": "Configure scheduling policies"
+    },
+    "users": {
+      "title": "Users",
+      "description": "Manage user accounts, assign roles, and generate API keys. Control who can access the system and what they can do.",
+      "action_create": "Create a new user account",
+      "action_roles": "Assign or change user roles",
+      "action_keys": "Generate or revoke API keys"
+    },
+    "roles": {
+      "title": "Roles",
+      "description": "Define roles with granular permissions. Roles control access to resources, actions, and API endpoints.",
+      "action_create": "Create a new role",
+      "action_permissions": "Edit role permissions"
+    },
+    "groups": {
+      "title": "Groups",
+      "description": "Organize users into groups for bulk role assignment and access management.",
+      "action_create": "Create a new group",
+      "action_members": "Add or remove group members"
+    },
+    "auth_providers": {
+      "title": "Auth Providers",
+      "description": "Configure external authentication providers — OIDC, SAML, or LDAP — for single sign-on (SSO).",
+      "action_add": "Add an authentication provider",
+      "action_test": "Test provider connectivity"
+    },
+    "pii_dashboard": {
+      "title": "PII Dashboard",
+      "description": "Overview of PII scanning activity — detection counts by entity type, redaction rates, and policy compliance.",
+      "action_stats": "View detection statistics and trends",
+      "action_entities": "Browse detected entity types"
+    },
+    "pii_activity": {
+      "title": "PII Activity Log",
+      "description": "Detailed log of PII detections and redactions. Filter by entity type, user, or time range.",
+      "action_filter": "Filter activity by entity type or user",
+      "action_export": "Export activity logs for compliance"
+    },
+    "pii_policies": {
+      "title": "PII Policies",
+      "description": "Define tenant-level PII policies — which entity types to detect, redaction modes, and enforcement rules.",
+      "action_create": "Create a new PII policy",
+      "action_assign": "Assign policies to tenants"
+    },
+    "rag_knowledge_base": {
+      "title": "Knowledge Base",
+      "description": "Upload and manage documents for retrieval-augmented generation. Documents are indexed for semantic search.",
+      "action_upload": "Upload new documents to the knowledge base",
+      "action_search": "Test search queries against the index"
+    },
+    "rag_documents": {
+      "title": "Documents",
+      "description": "Browse and manage individual documents in the RAG pipeline. View indexing status and metadata.",
+      "action_browse": "Browse documents with status filters",
+      "action_delete": "Remove documents and their chunks"
+    },
+    "rag_collections": {
+      "title": "Collections",
+      "description": "Organize documents into collections for scoped retrieval. Each collection has its own embedding index.",
+      "action_create": "Create a new collection",
+      "action_manage": "Manage collection membership and settings"
+    },
+    "rag_runtime": {
+      "title": "RAG Runtime",
+      "description": "Configure the RAG pipeline runtime — embedding models, chunk sizes, retrieval parameters, and vector store settings.",
+      "action_config": "Edit runtime configuration",
+      "action_status": "Check indexing pipeline health"
+    },
+    "rag_collectors": {
+      "title": "Collectors",
+      "description": "Configure data collectors that automatically ingest documents from external sources on a schedule.",
+      "action_add": "Add a new data collector",
+      "action_schedule": "Configure collection schedules"
+    },
+    "rag_explorer": {
+      "title": "RAG Explorer",
+      "description": "Interactively explore the RAG index — query chunks, inspect embeddings, and debug retrieval quality.",
+      "action_query": "Run semantic search queries",
+      "action_chunks": "Inspect individual chunks and their scores"
+    },
+    "rag_publishes": {
+      "title": "Publishes",
+      "description": "Manage published RAG snapshots. Publishing freezes a collection version for stable retrieval.",
+      "action_publish": "Create a new publish snapshot",
+      "action_status": "Monitor publish pipeline status"
+    },
+    "rag_search": {
+      "title": "RAG Search",
+      "description": "Test retrieval queries against published collections. Compare results across collections and parameters.",
+      "action_query": "Run test search queries",
+      "action_compare": "Compare results across collections"
+    },
+    "chat_projects": {
+      "title": "Chat Projects",
+      "description": "Create and manage chat projects. Each project scopes model access, system prompts, and user permissions.",
+      "action_create": "Create a new chat project",
+      "action_models": "Configure model access per project"
+    },
+    "chat_sessions": {
+      "title": "Chat Sessions",
+      "description": "Browse chat sessions across all projects. View conversation history and usage statistics.",
+      "action_browse": "Browse sessions with filters",
+      "action_export": "Export session transcripts"
+    },
+    "chat_attachments": {
+      "title": "Chat Attachments",
+      "description": "Manage file attachments uploaded during chat sessions. Review storage usage and clean up old files.",
+      "action_browse": "Browse uploaded attachments",
+      "action_clean": "Clean up orphaned or expired files"
+    },
+    "mcp_servers": {
+      "title": "MCP Servers",
+      "description": "Register and manage MCP (Model Context Protocol) tool servers. Each server exposes tools that LLMs can invoke.",
+      "action_register": "Register a new MCP server",
+      "action_health": "Check server health and available tools"
+    },
+    "mcp_detail": {
+      "title": "MCP Server Detail",
+      "description": "Inspect a specific MCP server — available tools, configuration, connection status, and usage logs.",
+      "action_tools": "Browse available tools and their schemas",
+      "action_config": "Edit server connection settings"
+    },
+    "skills": {
+      "title": "Skills",
+      "description": "Browse and manage skill plugins — reusable prompt chains and tool compositions that extend LLM capabilities.",
+      "action_browse": "Browse available skills",
+      "action_create": "Create a new skill"
+    },
+    "skills_create": {
+      "title": "Create Skill",
+      "description": "Define a new skill by specifying its prompt template, required tools, and input/output schema.",
+      "action_define": "Define the skill prompt and parameters",
+      "action_test": "Test the skill with sample inputs"
+    },
+    "skill_detail": {
+      "title": "Skill Detail",
+      "description": "Inspect and edit a specific skill — its prompt template, tool bindings, and execution history.",
+      "action_edit": "Edit the skill definition",
+      "action_test": "Run the skill with test inputs"
+    },
+    "settings": {
+      "title": "Settings",
+      "description": "System-wide configuration — networking, storage backends, security policies, feature flags, and service parameters.",
+      "action_general": "Configure general system settings",
+      "action_security": "Manage security and authentication policies",
+      "action_features": "Enable or disable feature flags"
+    },
+    "profile": {
+      "title": "Profile",
+      "description": "View and edit your account information — display name, email, password, and personal preferences.",
+      "action_info": "Update your display name and email",
+      "action_password": "Change your password"
+    }
+  }
+}

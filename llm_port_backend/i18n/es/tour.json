@@ -1,0 +1,440 @@
+{
+  "orientation": {
+    "dashboard": {
+      "title": "Panel",
+      "content": "Su vista general central. Vea el estado del sistema, los contenedores y las métricas clave de un vistazo."
+    },
+    "observability": {
+      "title": "Observabilidad",
+      "content": "Monitorice registros de solicitudes, latencia, uso de tokens y tasas de error en todos los proveedores LLM."
+    },
+    "containers": {
+      "title": "Contenedores",
+      "content": "Administre los contenedores Docker de su despliegue. Inicie, detenga y vea registros."
+    },
+    "llm": {
+      "title": "Proveedores LLM",
+      "content": "Configure endpoints LLM — Ollama local, OpenAI, Azure o cualquier API compatible con OpenAI."
+    },
+    "utilities": {
+      "title": "Utilidades",
+      "content": "Gestión de flota de nodos, programador y utilidades del sistema para configuraciones multinodo."
+    },
+    "access_control": {
+      "title": "Control de acceso",
+      "content": "Administre usuarios, claves API, roles y proveedores de autenticación."
+    },
+    "pii": {
+      "title": "Protección PII",
+      "content": "Escanee e identifique información personal en prompts y respuestas antes de que lleguen a los LLM."
+    },
+    "rag": {
+      "title": "RAG (Base de conocimiento)",
+      "content": "Suba documentos y cree un pipeline de generación aumentada por recuperación para respuestas fundamentadas."
+    },
+    "chat": {
+      "title": "Espacio de chat",
+      "content": "Administre proyectos de chat, historial de conversaciones y asignaciones de modelos. Para chatear, use el botón Chat en la barra superior."
+    },
+    "extensions": {
+      "title": "Extensiones",
+      "content": "Explore y gestione servidores MCP, plugins de habilidades y otras extensiones."
+    },
+    "settings": {
+      "title": "Configuración",
+      "content": "Configuración global del sistema incluyendo red, almacenamiento, políticas de seguridad y flags de funciones."
+    },
+    "help": {
+      "title": "Ayuda y guías",
+      "content": "Acceda a este tour del producto, la configuración guiada y la documentación cuando lo necesite."
+    }
+  },
+  "private": {
+    "providers": {
+      "title": "Agregar un proveedor",
+      "content": "Comience agregando al menos un proveedor LLM. Apunte a una instancia local de Ollama o pegue una clave API."
+    },
+    "chat": {
+      "title": "Crear un proyecto de chat",
+      "content": "Cree y administre proyectos de chat, sesiones e historial aquí. Para chatear, haga clic en el botón Chat en la barra superior."
+    },
+    "pii": {
+      "title": "Revisar configuración PII",
+      "content": "La Protección PII está habilitada por defecto. Revise el panel para ver estadísticas de detección y configure qué tipos de entidades redactar."
+    },
+    "rag": {
+      "title": "Subir documentos",
+      "content": "Vaya a la Base de conocimiento y suba su primer documento para respuestas aumentadas por recuperación."
+    }
+  },
+  "team": {
+    "providers": {
+      "title": "Configurar proveedores",
+      "content": "Configure endpoints LLM compartidos para su equipo — servidores locales, APIs en la nube o una combinación."
+    },
+    "nodes": {
+      "title": "Registrar nodos",
+      "content": "Agregue los nodos GPU de su equipo para que el programador pueda distribuir cargas de inferencia."
+    },
+    "access": {
+      "title": "Configurar usuarios",
+      "content": "Cree cuentas de equipo o conecte su proveedor de identidad. Asigne roles para controlar el acceso."
+    },
+    "mcp": {
+      "title": "Servidores MCP",
+      "content": "Registre servidores de herramientas MCP para que los miembros del equipo puedan invocar capacidades externas."
+    },
+    "chat": {
+      "title": "Crear proyectos compartidos",
+      "content": "Configure proyectos de chat para que su equipo pueda colaborar. Controle el acceso a modelos por proyecto."
+    },
+    "pii": {
+      "title": "Configurar políticas PII",
+      "content": "Defina reglas de redacción PII que apliquen a todos los miembros del equipo."
+    },
+    "rag": {
+      "title": "Construir base de conocimiento",
+      "content": "Suba documentos de equipo a la base de conocimiento compartida para respuestas fundamentadas."
+    }
+  },
+  "enterprise": {
+    "access": {
+      "title": "Control de acceso y SSO",
+      "content": "Comience con el control de acceso. Conecte su proveedor de identidad, defina roles y configure políticas de claves API."
+    },
+    "providers": {
+      "title": "Flota de proveedores",
+      "content": "Registre sus endpoints LLM aprobados. Configure límites de tasa, presupuestos y enrutamiento de respaldo."
+    },
+    "nodes": {
+      "title": "Flota de nodos",
+      "content": "Registre nodos GPU y configure políticas de programación para la distribución de cargas."
+    },
+    "pii": {
+      "title": "Cumplimiento PII",
+      "content": "Configure políticas PII empresariales — tipos de entidades, modos de redacción, auditoría e informes de cumplimiento."
+    },
+    "observability": {
+      "title": "Observabilidad y auditoría",
+      "content": "Configure paneles de monitoreo, trazas de auditoría y alertas para cumplimiento y visibilidad operativa."
+    },
+    "mcp": {
+      "title": "Gobernanza de extensiones",
+      "content": "Apruebe y gestione servidores de herramientas MCP. Controle qué extensiones están disponibles para cada rol."
+    },
+    "rag": {
+      "title": "Base de conocimiento empresarial",
+      "content": "Suba documentos corporativos con controles de acceso. Configure pipelines de indexación y políticas de recuperación."
+    },
+    "chat": {
+      "title": "Chat con gobernanza",
+      "content": "Cree plantillas de proyecto con políticas de guardarriles, listas de modelos permitidos y cumplimiento PII por espacio."
+    }
+  },
+  "ui": {
+    "step_counter": "Paso {{current}} de {{total}}",
+    "skip": "Omitir tour",
+    "back": "Atrás",
+    "next": "Siguiente",
+    "finish": "Finalizar"
+  },
+  "help": {
+    "product_tour": "Tour del producto",
+    "guided_setup": "Configuración guiada",
+    "reset_guides": "Reiniciar guías",
+    "about_page": "Acerca de esta página"
+  },
+  "page_help": {
+    "actions_heading": "Qué puedes hacer aquí",
+    "close": "Entendido",
+    "unknown": {
+      "title": "Acerca de esta página",
+      "description": "Aún no hay ayuda específica disponible para esta página."
+    },
+    "dashboard": {
+      "title": "Panel",
+      "description": "Vista general central del despliegue llm.port. Vea el estado del sistema, contenedores, uso de recursos y métricas clave.",
+      "action_health": "Verificar estado del sistema y disponibilidad",
+      "action_containers": "Ver conteo de contenedores y estados",
+      "action_metrics": "Monitorear uso de recursos y métricas"
+    },
+    "containers": {
+      "title": "Contenedores",
+      "description": "Liste y administre todos los contenedores Docker. Inicie, detenga, reinicie o inspeccione contenedores.",
+      "action_list": "Explorar contenedores con filtros de estado",
+      "action_start_stop": "Iniciar, detener o reiniciar contenedores",
+      "action_create": "Crear un nuevo contenedor desde una imagen"
+    },
+    "create_container": {
+      "title": "Crear contenedor",
+      "description": "Lance un nuevo contenedor Docker seleccionando una imagen y configurando puertos, volúmenes y variables de entorno.",
+      "action_image": "Elegir una imagen base",
+      "action_config": "Configurar puertos, volúmenes y entorno"
+    },
+    "container_detail": {
+      "title": "Detalle del contenedor",
+      "description": "Inspeccione un contenedor específico — vea sus logs, uso de recursos, variables de entorno y red.",
+      "action_logs": "Ver logs del contenedor en tiempo real",
+      "action_restart": "Reiniciar o detener el contenedor",
+      "action_env": "Inspeccionar variables de entorno y montajes"
+    },
+    "images": {
+      "title": "Imágenes",
+      "description": "Administre imágenes Docker disponibles. Descargue nuevas imágenes o elimine las no utilizadas.",
+      "action_pull": "Descargar nuevas imágenes de un registro",
+      "action_remove": "Eliminar imágenes no utilizadas"
+    },
+    "networks": {
+      "title": "Redes",
+      "description": "Vea y administre redes Docker. Inspeccione contenedores conectados y cree redes personalizadas.",
+      "action_inspect": "Inspeccionar configuración de red",
+      "action_create": "Crear una nueva red Docker"
+    },
+    "stacks": {
+      "title": "Stacks",
+      "description": "Administre stacks de Docker Compose — grupos de contenedores relacionados desplegados juntos.",
+      "action_manage": "Ver y administrar stacks existentes",
+      "action_deploy": "Desplegar o actualizar un stack"
+    },
+    "observability": {
+      "title": "Observabilidad de costos",
+      "description": "Monitoree costos de uso de LLM, latencia, consumo de tokens y tasas de error.",
+      "action_cost": "Seguimiento de costos por proveedor y modelo",
+      "action_latency": "Analizar percentiles de latencia",
+      "action_tokens": "Monitorear tendencias de uso de tokens"
+    },
+    "logs": {
+      "title": "Logs y auditoría",
+      "description": "Explore logs del sistema y trazas de auditoría. Filtre por severidad, fuente o rango de tiempo.",
+      "action_filter": "Filtrar logs por nivel, fuente o palabra clave",
+      "action_audit": "Cambiar a la traza de auditoría"
+    },
+    "security_map": {
+      "title": "Mapa de seguridad",
+      "description": "Visualice límites de residencia de datos y seguridad. Vea el flujo de datos entre proveedores y regiones.",
+      "action_residency": "Ver mapa de residencia de datos",
+      "action_providers": "Inspeccionar configuraciones de seguridad"
+    },
+    "providers": {
+      "title": "Proveedores LLM",
+      "description": "Configure endpoints LLM — Ollama local, OpenAI, Azure o cualquier API compatible. Pruebe conectividad y credenciales.",
+      "action_add": "Agregar un nuevo endpoint de proveedor",
+      "action_test": "Probar conectividad y credenciales",
+      "action_route": "Configurar enrutamiento y reglas de respaldo"
+    },
+    "models": {
+      "title": "Modelos",
+      "description": "Explore modelos disponibles en todos los proveedores. Descargue modelos o asígnelos a proyectos.",
+      "action_browse": "Explorar modelos disponibles por proveedor",
+      "action_pull": "Descargar un modelo a un runtime local",
+      "action_assign": "Asignar modelos a proyectos o endpoints"
+    },
+    "model_detail": {
+      "title": "Detalle del modelo",
+      "description": "Información detallada del modelo — parámetros, capacidades y estadísticas de uso.",
+      "action_params": "Inspeccionar parámetros y cuantización",
+      "action_test": "Enviar un prompt de prueba"
+    },
+    "runtimes": {
+      "title": "Runtimes",
+      "description": "Vea runtimes LLM locales y sus modelos cargados. Verifique estado y uso de GPU.",
+      "action_list": "Listar todos los runtimes registrados",
+      "action_health": "Verificar estado y modelos cargados"
+    },
+    "runtime_detail": {
+      "title": "Detalle del runtime",
+      "description": "Inspeccione un runtime — configuración, modelos cargados y uso de recursos.",
+      "action_config": "Ver o editar configuración del runtime",
+      "action_models": "Ver modelos cargados en este runtime"
+    },
+    "agent_trace": {
+      "title": "Traza de agente",
+      "description": "Inspeccione trazas de llamadas LLM — cadena completa de solicitud/respuesta, llamadas a herramientas y uso de tokens.",
+      "action_inspect": "Explorar trazas individuales",
+      "action_replay": "Reproducir una traza para depuración"
+    },
+    "endpoint": {
+      "title": "Endpoint API",
+      "description": "Documentación interactiva del endpoint compatible con OpenAI. Pruebe llamadas API desde el navegador.",
+      "action_docs": "Explorar la documentación OpenAPI",
+      "action_test": "Enviar solicitudes de prueba"
+    },
+    "nodes": {
+      "title": "Flota de nodos",
+      "description": "Administre su flota de nodos GPU. Registre nuevos nodos, monitoree estado y configure prioridades.",
+      "action_enroll": "Registrar un nuevo nodo GPU",
+      "action_monitor": "Monitorear estado y uso de GPU",
+      "action_schedule": "Configurar políticas de programación"
+    },
+    "node_detail": {
+      "title": "Detalle del nodo",
+      "description": "Inspeccione un nodo — hardware, modelos cargados, trabajos activos e historial de estado.",
+      "action_status": "Ver estado y detalles de hardware",
+      "action_drain": "Drenar o acordonar el nodo para mantenimiento"
+    },
+    "node_profiles": {
+      "title": "Perfiles de nodos",
+      "description": "Defina perfiles reutilizables que especifican requisitos de recursos y restricciones de programación.",
+      "action_create": "Crear un nuevo perfil de nodo",
+      "action_assign": "Asignar perfiles a nodos o cargas"
+    },
+    "scheduler": {
+      "title": "Programador",
+      "description": "Vea y administre la cola de trabajos de inferencia. Configure políticas y monitoree distribución.",
+      "action_queue": "Explorar cola e historial de trabajos",
+      "action_policies": "Configurar políticas de programación"
+    },
+    "users": {
+      "title": "Usuarios",
+      "description": "Administre cuentas de usuario, asigne roles y genere claves API.",
+      "action_create": "Crear una nueva cuenta de usuario",
+      "action_roles": "Asignar o cambiar roles de usuario",
+      "action_keys": "Generar o revocar claves API"
+    },
+    "roles": {
+      "title": "Roles",
+      "description": "Defina roles con permisos granulares que controlan el acceso a recursos y acciones.",
+      "action_create": "Crear un nuevo rol",
+      "action_permissions": "Editar permisos del rol"
+    },
+    "groups": {
+      "title": "Grupos",
+      "description": "Organice usuarios en grupos para asignación masiva de roles y gestión de acceso.",
+      "action_create": "Crear un nuevo grupo",
+      "action_members": "Agregar o eliminar miembros del grupo"
+    },
+    "auth_providers": {
+      "title": "Proveedores de autenticación",
+      "description": "Configure proveedores externos — OIDC, SAML o LDAP — para inicio de sesión único (SSO).",
+      "action_add": "Agregar un proveedor de autenticación",
+      "action_test": "Probar conectividad del proveedor"
+    },
+    "pii_dashboard": {
+      "title": "Panel PII",
+      "description": "Resumen de actividad de escaneo PII — detecciones por tipo, tasas de redacción y cumplimiento.",
+      "action_stats": "Ver estadísticas y tendencias",
+      "action_entities": "Explorar tipos de entidades detectadas"
+    },
+    "pii_activity": {
+      "title": "Registro de actividad PII",
+      "description": "Registro detallado de detecciones y redacciones PII. Filtre por tipo, usuario o rango de tiempo.",
+      "action_filter": "Filtrar actividad por tipo o usuario",
+      "action_export": "Exportar registros para cumplimiento"
+    },
+    "pii_policies": {
+      "title": "Políticas PII",
+      "description": "Defina políticas PII por tenant — tipos de entidades, modos de redacción y reglas de aplicación.",
+      "action_create": "Crear una nueva política PII",
+      "action_assign": "Asignar políticas a tenants"
+    },
+    "rag_knowledge_base": {
+      "title": "Base de conocimiento",
+      "description": "Suba y administre documentos para generación aumentada por recuperación. Los documentos se indexan para búsqueda semántica.",
+      "action_upload": "Subir nuevos documentos",
+      "action_search": "Probar consultas de búsqueda"
+    },
+    "rag_documents": {
+      "title": "Documentos",
+      "description": "Explore y administre documentos individuales en el pipeline RAG. Vea estado de indexación y metadatos.",
+      "action_browse": "Explorar documentos con filtros",
+      "action_delete": "Eliminar documentos y sus fragmentos"
+    },
+    "rag_collections": {
+      "title": "Colecciones",
+      "description": "Organice documentos en colecciones para recuperación delimitada. Cada colección tiene su propio índice.",
+      "action_create": "Crear una nueva colección",
+      "action_manage": "Administrar membresía y configuración"
+    },
+    "rag_runtime": {
+      "title": "Runtime RAG",
+      "description": "Configure el pipeline RAG — modelos de embedding, tamaños de fragmentos, parámetros de recuperación y almacén vectorial.",
+      "action_config": "Editar configuración del runtime",
+      "action_status": "Verificar estado del pipeline de indexación"
+    },
+    "rag_collectors": {
+      "title": "Recolectores",
+      "description": "Configure recolectores que ingestan documentos automáticamente desde fuentes externas.",
+      "action_add": "Agregar un nuevo recolector",
+      "action_schedule": "Configurar horarios de recolección"
+    },
+    "rag_explorer": {
+      "title": "Explorador RAG",
+      "description": "Explore interactivamente el índice RAG — consulte fragmentos, inspeccione embeddings y depure calidad.",
+      "action_query": "Ejecutar búsquedas semánticas",
+      "action_chunks": "Inspeccionar fragmentos y sus puntuaciones"
+    },
+    "rag_publishes": {
+      "title": "Publicaciones",
+      "description": "Administre instantáneas RAG publicadas. Publicar congela una versión de colección para recuperación estable.",
+      "action_publish": "Crear una nueva publicación",
+      "action_status": "Monitorear estado del pipeline"
+    },
+    "rag_search": {
+      "title": "Búsqueda RAG",
+      "description": "Pruebe consultas de recuperación contra colecciones publicadas. Compare resultados entre colecciones.",
+      "action_query": "Ejecutar consultas de prueba",
+      "action_compare": "Comparar resultados entre colecciones"
+    },
+    "chat_projects": {
+      "title": "Proyectos de chat",
+      "description": "Cree y administre proyectos de chat. Cada proyecto delimita acceso a modelos, prompts del sistema y permisos.",
+      "action_create": "Crear un nuevo proyecto de chat",
+      "action_models": "Configurar acceso a modelos por proyecto"
+    },
+    "chat_sessions": {
+      "title": "Sesiones de chat",
+      "description": "Explore sesiones de chat de todos los proyectos. Vea historial de conversaciones y estadísticas.",
+      "action_browse": "Explorar sesiones con filtros",
+      "action_export": "Exportar transcripciones de sesiones"
+    },
+    "chat_attachments": {
+      "title": "Adjuntos de chat",
+      "description": "Administre archivos adjuntos subidos durante sesiones de chat. Revise uso de almacenamiento.",
+      "action_browse": "Explorar adjuntos subidos",
+      "action_clean": "Limpiar archivos huérfanos o expirados"
+    },
+    "mcp_servers": {
+      "title": "Servidores MCP",
+      "description": "Registre y administre servidores de herramientas MCP. Cada servidor expone herramientas que los LLM pueden invocar.",
+      "action_register": "Registrar un nuevo servidor MCP",
+      "action_health": "Verificar estado y herramientas disponibles"
+    },
+    "mcp_detail": {
+      "title": "Detalle del servidor MCP",
+      "description": "Inspeccione un servidor MCP — herramientas, configuración, estado de conexión y registros de uso.",
+      "action_tools": "Explorar herramientas y sus esquemas",
+      "action_config": "Editar configuración de conexión"
+    },
+    "skills": {
+      "title": "Habilidades",
+      "description": "Explore y administre plugins de habilidades — cadenas de prompts reutilizables que extienden las capacidades LLM.",
+      "action_browse": "Explorar habilidades disponibles",
+      "action_create": "Crear una nueva habilidad"
+    },
+    "skills_create": {
+      "title": "Crear habilidad",
+      "description": "Defina una nueva habilidad con su plantilla de prompt, herramientas requeridas y esquema de entrada/salida.",
+      "action_define": "Definir el prompt y parámetros",
+      "action_test": "Probar con entradas de ejemplo"
+    },
+    "skill_detail": {
+      "title": "Detalle de habilidad",
+      "description": "Inspeccione y edite una habilidad — plantilla de prompt, vinculaciones de herramientas e historial de ejecución.",
+      "action_edit": "Editar la definición de la habilidad",
+      "action_test": "Ejecutar con entradas de prueba"
+    },
+    "settings": {
+      "title": "Configuración",
+      "description": "Configuración global — red, almacenamiento, políticas de seguridad, flags de funciones y parámetros de servicio.",
+      "action_general": "Configurar ajustes generales",
+      "action_security": "Administrar políticas de seguridad",
+      "action_features": "Habilitar o deshabilitar funciones"
+    },
+    "profile": {
+      "title": "Perfil",
+      "description": "Vea y edite su información de cuenta — nombre, correo, contraseña y preferencias.",
+      "action_info": "Actualizar nombre y correo electrónico",
+      "action_password": "Cambiar su contraseña"
+    }
+  }
+}

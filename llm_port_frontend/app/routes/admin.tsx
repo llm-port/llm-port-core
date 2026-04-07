@@ -31,7 +31,16 @@ import {
 import { AdminTopbar } from "~/components/AdminTopbar";
 import { AdminSidebar } from "~/components/AdminSidebar";
 import { RootModeDialog } from "~/components/RootModeDialog";
-import { HelpWizardDialog } from "~/components/HelpWizardDialog";
+import { ProductTourDialog } from "~/components/ProductTourDialog";
+import {
+  ProfileSelectionDialog,
+  type OnboardingProfile,
+} from "~/components/ProfileSelectionDialog";
+import { ModuleRecommendationDialog } from "~/components/ModuleRecommendationDialog";
+import { GuidedSetupTour } from "~/components/GuidedSetupTour";
+import { PageHelpDrawer } from "~/components/PageHelpDrawer";
+import { preferences as preferencesApi } from "~/api/preferences";
+import { servicesApi } from "~/api/services";
 
 let meAccessInFlight: ReturnType<typeof adminUsers.meAccess> | null = null;
 
@@ -72,6 +81,18 @@ function AdminLayoutInner() {
   const [currentUserEmail, setCurrentUserEmail] = useState<string>("");
   const [isSuperuser, setIsSuperuser] = useState(false);
   const [permissionKeys, setPermissionKeys] = useState<Set<string>>(new Set());
+
+  /* ── Onboarding profile flow ──────────────────────────────────── */
+  const [showProfileSelect, setShowProfileSelect] = useState(false);
+  const [showModuleRecommend, setShowModuleRecommend] = useState(false);
+  const [selectedProfile, setSelectedProfile] =
+    useState<OnboardingProfile>("private");
+  const [prefsLoaded, setPrefsLoaded] = useState(false);
+  const [guidedSetupActive, setGuidedSetupActive] = useState(false);
+  const [guidedSetupInitialStep, setGuidedSetupInitialStep] = useState(0);
+
+  /* Page-help drawer (F1 / "About This Page") */
+  const [pageHelpOpen, setPageHelpOpen] = useState(false);
 
   /* Drawer open/collapsed state */
   const [drawerOpen, setDrawerOpen] = useState(true);
@@ -171,6 +192,18 @@ function AdminLayoutInner() {
     };
   }, []);
 
+  /* ── F1 keyboard shortcut for page help ─────────────────────────── */
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "F1") {
+        e.preventDefault();
+        setPageHelpOpen((prev) => !prev);
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   useEffect(() => {
     const page = adminPageTitle(location.pathname, location.search, t);
     document.title = `${page} | ${t("app.title")}`;
@@ -182,6 +215,81 @@ function AdminLayoutInner() {
     const interval = setInterval(loadRootStatus, 15000);
     return () => clearInterval(interval);
   }, [authReady, isSuperuser]);
+
+  /* ── Load user preferences & trigger profile selection ─────────── */
+  useEffect(() => {
+    if (!authReady) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await preferencesApi.get();
+        if (cancelled) return;
+        const profile = res.preferences?.profile;
+        if (profile) {
+          setSelectedProfile(profile as OnboardingProfile);
+        } else {
+          // No profile yet — show selection dialog
+          setShowProfileSelect(true);
+        }
+      } catch {
+        // Preferences API unavailable — skip silently
+      } finally {
+        if (!cancelled) setPrefsLoaded(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [authReady]);
+
+  /* ── Onboarding handlers ───────────────────────────────────────── */
+  async function handleProfileSelect(profile: OnboardingProfile) {
+    setSelectedProfile(profile);
+    setShowProfileSelect(false);
+    try {
+      await preferencesApi.update({ profile });
+    } catch {
+      // best-effort persist
+    }
+    setShowModuleRecommend(true);
+  }
+
+  function handleProfileSkip() {
+    setSelectedProfile("private");
+    setShowProfileSelect(false);
+    void preferencesApi.update({ profile: "private" }).catch(() => {});
+  }
+
+  async function handleModuleApply(modules: Record<string, boolean>) {
+    const promises: Promise<unknown>[] = [];
+    for (const [name, enabled] of Object.entries(modules)) {
+      promises.push(
+        enabled
+          ? servicesApi.enable(name).catch(() => {})
+          : servicesApi.disable(name).catch(() => {}),
+      );
+    }
+    await Promise.allSettled(promises);
+    setShowModuleRecommend(false);
+    // Auto-launch guided setup after module selection
+    setGuidedSetupInitialStep(0);
+    setGuidedSetupActive(true);
+  }
+
+  function handleModuleSkip() {
+    setShowModuleRecommend(false);
+    // Auto-launch guided setup after skipping modules
+    setGuidedSetupInitialStep(0);
+    setGuidedSetupActive(true);
+  }
+
+  async function handleResetGuides() {
+    try {
+      await preferencesApi.update({ tour_progress: {} });
+    } catch {
+      // best-effort
+    }
+  }
 
   async function handleLogout() {
     try {
@@ -294,7 +402,13 @@ function AdminLayoutInner() {
           onLanguageMenuOpen={(e) => setLanguageMenuAnchor(e.currentTarget)}
           onLanguageMenuClose={() => setLanguageMenuAnchor(null)}
           onLanguageChange={setLanguage}
-          onHelpOpen={() => setShowInfoWizard(true)}
+          onProductTourOpen={() => setShowInfoWizard(true)}
+          onGuidedSetupOpen={() => {
+            setGuidedSetupInitialStep(0);
+            setGuidedSetupActive(true);
+          }}
+          onResetGuides={handleResetGuides}
+          onPageHelp={() => setPageHelpOpen(true)}
           onRootFormOpen={() => setShowRootForm(true)}
           onRootDeactivate={handleDeactivateRoot}
           onLogout={handleLogout}
@@ -314,9 +428,35 @@ function AdminLayoutInner() {
           }}
         />
 
-        <HelpWizardDialog
+        <ProductTourDialog
           open={showInfoWizard}
           onClose={() => setShowInfoWizard(false)}
+        />
+
+        <ProfileSelectionDialog
+          open={showProfileSelect}
+          onSelect={handleProfileSelect}
+          onSkip={handleProfileSkip}
+        />
+
+        <ModuleRecommendationDialog
+          open={showModuleRecommend}
+          profile={selectedProfile}
+          onApply={handleModuleApply}
+          onSkip={handleModuleSkip}
+        />
+
+        <GuidedSetupTour
+          run={guidedSetupActive}
+          profile={selectedProfile}
+          isSuperuser={isSuperuser}
+          onFinish={() => setGuidedSetupActive(false)}
+          initialStep={guidedSetupInitialStep}
+        />
+
+        <PageHelpDrawer
+          open={pageHelpOpen}
+          onClose={() => setPageHelpOpen(false)}
         />
 
         <Box sx={{ flexGrow: 1, minHeight: 0, overflow: "auto", p: 3 }}>

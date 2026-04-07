@@ -1,0 +1,440 @@
+{
+  "orientation": {
+    "dashboard": {
+      "title": "Tableau de bord",
+      "content": "Votre vue d'ensemble centrale. Consultez l'état du système, les conteneurs et les métriques clés en un coup d'œil."
+    },
+    "observability": {
+      "title": "Observabilité",
+      "content": "Surveillez les journaux de requêtes, la latence, l'utilisation des tokens et les taux d'erreur pour tous les fournisseurs LLM."
+    },
+    "containers": {
+      "title": "Conteneurs",
+      "content": "Gérez les conteneurs Docker de votre déploiement. Démarrez, arrêtez et consultez les journaux."
+    },
+    "llm": {
+      "title": "Fournisseurs LLM",
+      "content": "Configurez les endpoints LLM — Ollama local, OpenAI, Azure ou toute API compatible OpenAI."
+    },
+    "utilities": {
+      "title": "Utilitaires",
+      "content": "Gestion de la flotte de nœuds, ordonnanceur et utilitaires système pour les configurations multi-nœuds."
+    },
+    "access_control": {
+      "title": "Contrôle d'accès",
+      "content": "Gérez les utilisateurs, les clés API, les rôles et les fournisseurs d'authentification."
+    },
+    "pii": {
+      "title": "Protection PII",
+      "content": "Analysez et masquez les informations personnelles dans les prompts et réponses avant qu'elles n'atteignent les LLM."
+    },
+    "rag": {
+      "title": "RAG (Base de connaissances)",
+      "content": "Téléchargez des documents et créez un pipeline de génération augmentée par récupération pour des réponses fondées."
+    },
+    "chat": {
+      "title": "Espace de chat",
+      "content": "Gérez les projets de chat, l'historique des conversations et les attributions de modèles. Pour chatter, utilisez le bouton Chat dans la barre supérieure."
+    },
+    "extensions": {
+      "title": "Extensions",
+      "content": "Parcourez et gérez les serveurs MCP, les plugins de compétences et autres extensions."
+    },
+    "settings": {
+      "title": "Paramètres",
+      "content": "Configuration globale du système incluant réseau, stockage, politiques de sécurité et indicateurs de fonctionnalités."
+    },
+    "help": {
+      "title": "Aide et guides",
+      "content": "Accédez à cette visite du produit, à la configuration guidée et à la documentation quand vous en avez besoin."
+    }
+  },
+  "private": {
+    "providers": {
+      "title": "Ajouter un fournisseur",
+      "content": "Commencez par ajouter au moins un fournisseur LLM. Pointez vers une instance Ollama locale ou collez une clé API."
+    },
+    "chat": {
+      "title": "Créer un projet de chat",
+      "content": "Créez et gérez des projets de chat, sessions et historique ici. Pour chatter, cliquez sur le bouton Chat dans la barre supérieure."
+    },
+    "pii": {
+      "title": "Vérifier les paramètres PII",
+      "content": "La Protection PII est activée par défaut. Consultez le tableau de bord pour les statistiques de détection et configurez les types d'entités à masquer."
+    },
+    "rag": {
+      "title": "Télécharger des documents",
+      "content": "Accédez à la Base de connaissances et téléchargez votre premier document pour des réponses augmentées."
+    }
+  },
+  "team": {
+    "providers": {
+      "title": "Configurer les fournisseurs",
+      "content": "Configurez des endpoints LLM partagés pour votre équipe — serveurs locaux, API cloud ou un mélange."
+    },
+    "nodes": {
+      "title": "Enregistrer des nœuds",
+      "content": "Ajoutez les nœuds GPU de votre équipe pour que l'ordonnanceur puisse distribuer les charges d'inférence."
+    },
+    "access": {
+      "title": "Configurer les utilisateurs",
+      "content": "Créez des comptes d'équipe ou connectez votre fournisseur d'identité. Attribuez des rôles pour contrôler l'accès."
+    },
+    "mcp": {
+      "title": "Serveurs MCP",
+      "content": "Enregistrez des serveurs d'outils MCP pour que les membres de l'équipe puissent invoquer des fonctionnalités externes."
+    },
+    "chat": {
+      "title": "Créer des projets partagés",
+      "content": "Configurez des projets de chat pour la collaboration d'équipe. Contrôlez l'accès aux modèles par projet."
+    },
+    "pii": {
+      "title": "Configurer les politiques PII",
+      "content": "Définissez des règles de masquage PII qui s'appliquent à tous les membres de l'équipe."
+    },
+    "rag": {
+      "title": "Construire une base de connaissances",
+      "content": "Téléchargez des documents d'équipe dans la base de connaissances partagée pour des réponses fondées."
+    }
+  },
+  "enterprise": {
+    "access": {
+      "title": "Contrôle d'accès et SSO",
+      "content": "Commencez par le contrôle d'accès. Connectez votre fournisseur d'identité, définissez les rôles et les politiques de clés API."
+    },
+    "providers": {
+      "title": "Flotte de fournisseurs",
+      "content": "Enregistrez vos endpoints LLM approuvés. Définissez les limites de taux, budgets et routage de secours."
+    },
+    "nodes": {
+      "title": "Flotte de nœuds",
+      "content": "Enregistrez les nœuds GPU et configurez les politiques de planification pour la distribution des charges."
+    },
+    "pii": {
+      "title": "Conformité PII",
+      "content": "Configurez les politiques PII d'entreprise — types d'entités, modes de masquage, journalisation d'audit et rapports de conformité."
+    },
+    "observability": {
+      "title": "Observabilité et audit",
+      "content": "Configurez les tableaux de bord de surveillance, les pistes d'audit et les alertes pour la conformité."
+    },
+    "mcp": {
+      "title": "Gouvernance des extensions",
+      "content": "Approuvez et gérez les serveurs d'outils MCP. Contrôlez les extensions disponibles pour chaque rôle."
+    },
+    "rag": {
+      "title": "Base de connaissances entreprise",
+      "content": "Téléchargez des documents d'entreprise avec contrôles d'accès. Configurez l'indexation et les politiques de récupération."
+    },
+    "chat": {
+      "title": "Chat avec gouvernance",
+      "content": "Créez des modèles de projet avec garde-fous, listes de modèles autorisés et conformité PII par espace."
+    }
+  },
+  "ui": {
+    "step_counter": "Étape {{current}} sur {{total}}",
+    "skip": "Passer la visite",
+    "back": "Retour",
+    "next": "Suivant",
+    "finish": "Terminer"
+  },
+  "help": {
+    "product_tour": "Visite du produit",
+    "guided_setup": "Configuration guidée",
+    "reset_guides": "Réinitialiser les guides",
+    "about_page": "À propos de cette page"
+  },
+  "page_help": {
+    "actions_heading": "Ce que vous pouvez faire ici",
+    "close": "Compris",
+    "unknown": {
+      "title": "À propos de cette page",
+      "description": "Aucune aide spécifique n'est encore disponible pour cette page."
+    },
+    "dashboard": {
+      "title": "Tableau de bord",
+      "description": "Vue d'ensemble centrale du déploiement llm.port. État du système, conteneurs, utilisation des ressources et métriques clés.",
+      "action_health": "Vérifier l'état du système et la disponibilité",
+      "action_containers": "Voir le nombre et l'état des conteneurs",
+      "action_metrics": "Surveiller l'utilisation des ressources et les performances"
+    },
+    "containers": {
+      "title": "Conteneurs",
+      "description": "Lister et gérer tous les conteneurs Docker. Démarrer, arrêter, redémarrer ou inspecter.",
+      "action_list": "Parcourir les conteneurs avec des filtres d'état",
+      "action_start_stop": "Démarrer, arrêter ou redémarrer les conteneurs",
+      "action_create": "Créer un nouveau conteneur à partir d'une image"
+    },
+    "create_container": {
+      "title": "Créer un conteneur",
+      "description": "Lancer un nouveau conteneur Docker en sélectionnant une image et en configurant les ports, volumes et variables.",
+      "action_image": "Choisir une image de base",
+      "action_config": "Configurer les ports, volumes et environnement"
+    },
+    "container_detail": {
+      "title": "Détail du conteneur",
+      "description": "Inspecter un conteneur — journaux, utilisation des ressources, variables d'environnement et réseau.",
+      "action_logs": "Voir les journaux en temps réel",
+      "action_restart": "Redémarrer ou arrêter le conteneur",
+      "action_env": "Inspecter les variables et les montages"
+    },
+    "images": {
+      "title": "Images",
+      "description": "Gérer les images Docker. Télécharger de nouvelles images ou supprimer celles inutilisées.",
+      "action_pull": "Télécharger de nouvelles images",
+      "action_remove": "Supprimer les images inutilisées"
+    },
+    "networks": {
+      "title": "Réseaux",
+      "description": "Voir et gérer les réseaux Docker. Inspecter les conteneurs connectés et créer des réseaux.",
+      "action_inspect": "Inspecter la configuration réseau",
+      "action_create": "Créer un nouveau réseau Docker"
+    },
+    "stacks": {
+      "title": "Stacks",
+      "description": "Gérer les stacks Docker Compose — groupes de conteneurs déployés ensemble.",
+      "action_manage": "Voir et gérer les stacks existants",
+      "action_deploy": "Déployer ou mettre à jour un stack"
+    },
+    "observability": {
+      "title": "Observabilité des coûts",
+      "description": "Surveiller les coûts LLM, la latence, la consommation de tokens et les taux d'erreur.",
+      "action_cost": "Suivre les coûts par fournisseur et modèle",
+      "action_latency": "Analyser les percentiles de latence",
+      "action_tokens": "Surveiller les tendances d'utilisation des tokens"
+    },
+    "logs": {
+      "title": "Journaux et audit",
+      "description": "Parcourir les journaux système et les pistes d'audit. Filtrer par gravité, source ou période.",
+      "action_filter": "Filtrer par niveau, source ou mot-clé",
+      "action_audit": "Passer à la piste d'audit"
+    },
+    "security_map": {
+      "title": "Carte de sécurité",
+      "description": "Visualiser la résidence des données et les limites de sécurité entre fournisseurs et régions.",
+      "action_residency": "Voir la carte de résidence des données",
+      "action_providers": "Inspecter les configurations de sécurité"
+    },
+    "providers": {
+      "title": "Fournisseurs LLM",
+      "description": "Configurer les endpoints LLM — Ollama local, OpenAI, Azure ou API compatible. Tester la connectivité.",
+      "action_add": "Ajouter un nouveau fournisseur LLM",
+      "action_test": "Tester la connectivité et les identifiants",
+      "action_route": "Configurer le routage et le basculement"
+    },
+    "models": {
+      "title": "Modèles",
+      "description": "Parcourir les modèles disponibles. Télécharger des modèles ou les assigner à des projets.",
+      "action_browse": "Parcourir les modèles par fournisseur",
+      "action_pull": "Télécharger un modèle sur un runtime local",
+      "action_assign": "Assigner des modèles à des projets"
+    },
+    "model_detail": {
+      "title": "Détail du modèle",
+      "description": "Informations détaillées — paramètres, capacités et statistiques d'utilisation.",
+      "action_params": "Inspecter les paramètres et la quantification",
+      "action_test": "Envoyer un prompt de test"
+    },
+    "runtimes": {
+      "title": "Runtimes",
+      "description": "Voir les runtimes LLM locaux et leurs modèles chargés. Vérifier l'état et le GPU.",
+      "action_list": "Lister tous les runtimes enregistrés",
+      "action_health": "Vérifier l'état et les modèles chargés"
+    },
+    "runtime_detail": {
+      "title": "Détail du runtime",
+      "description": "Inspecter un runtime — configuration, modèles chargés et utilisation des ressources.",
+      "action_config": "Voir ou modifier la configuration",
+      "action_models": "Voir les modèles chargés"
+    },
+    "agent_trace": {
+      "title": "Trace d'agent",
+      "description": "Inspecter les traces d'appels LLM — chaîne complète requête/réponse, appels d'outils et tokens.",
+      "action_inspect": "Explorer les traces individuelles",
+      "action_replay": "Rejouer une trace pour le débogage"
+    },
+    "endpoint": {
+      "title": "Endpoint API",
+      "description": "Documentation API interactive pour l'endpoint compatible OpenAI. Tester les appels directement.",
+      "action_docs": "Parcourir la documentation OpenAPI",
+      "action_test": "Envoyer des requêtes de test"
+    },
+    "nodes": {
+      "title": "Flotte de nœuds",
+      "description": "Gérer les nœuds GPU. Enregistrer de nouveaux nœuds, surveiller l'état et configurer les priorités.",
+      "action_enroll": "Enregistrer un nouveau nœud GPU",
+      "action_monitor": "Surveiller l'état et l'utilisation GPU",
+      "action_schedule": "Configurer les politiques de planification"
+    },
+    "node_detail": {
+      "title": "Détail du nœud",
+      "description": "Inspecter un nœud — matériel, modèles chargés, jobs actifs et historique d'état.",
+      "action_status": "Voir l'état et les détails matériels",
+      "action_drain": "Drainer le nœud pour maintenance"
+    },
+    "node_profiles": {
+      "title": "Profils de nœuds",
+      "description": "Définir des profils réutilisables avec des exigences de ressources et des contraintes de planification.",
+      "action_create": "Créer un nouveau profil",
+      "action_assign": "Assigner des profils aux nœuds ou charges"
+    },
+    "scheduler": {
+      "title": "Ordonnanceur",
+      "description": "Voir et gérer la file d'attente des jobs d'inférence. Configurer les politiques.",
+      "action_queue": "Parcourir la file et l'historique des jobs",
+      "action_policies": "Configurer les politiques de planification"
+    },
+    "users": {
+      "title": "Utilisateurs",
+      "description": "Gérer les comptes utilisateurs, assigner des rôles et générer des clés API.",
+      "action_create": "Créer un nouveau compte utilisateur",
+      "action_roles": "Assigner ou modifier les rôles",
+      "action_keys": "Générer ou révoquer des clés API"
+    },
+    "roles": {
+      "title": "Rôles",
+      "description": "Définir des rôles avec des permissions granulaires pour contrôler l'accès.",
+      "action_create": "Créer un nouveau rôle",
+      "action_permissions": "Modifier les permissions du rôle"
+    },
+    "groups": {
+      "title": "Groupes",
+      "description": "Organiser les utilisateurs en groupes pour l'attribution de rôles en masse.",
+      "action_create": "Créer un nouveau groupe",
+      "action_members": "Ajouter ou retirer des membres"
+    },
+    "auth_providers": {
+      "title": "Fournisseurs d'authentification",
+      "description": "Configurer les fournisseurs externes — OIDC, SAML ou LDAP — pour le SSO.",
+      "action_add": "Ajouter un fournisseur d'authentification",
+      "action_test": "Tester la connectivité"
+    },
+    "pii_dashboard": {
+      "title": "Tableau de bord PII",
+      "description": "Vue d'ensemble de l'activité PII — détections par type, taux de masquage et conformité.",
+      "action_stats": "Voir les statistiques et tendances",
+      "action_entities": "Parcourir les types d'entités détectés"
+    },
+    "pii_activity": {
+      "title": "Journal d'activité PII",
+      "description": "Journal détaillé des détections et masquages PII. Filtrer par type, utilisateur ou période.",
+      "action_filter": "Filtrer par type ou utilisateur",
+      "action_export": "Exporter les journaux pour la conformité"
+    },
+    "pii_policies": {
+      "title": "Politiques PII",
+      "description": "Définir les politiques PII par locataire — types d'entités, modes de masquage et règles.",
+      "action_create": "Créer une nouvelle politique PII",
+      "action_assign": "Assigner les politiques aux locataires"
+    },
+    "rag_knowledge_base": {
+      "title": "Base de connaissances",
+      "description": "Télécharger et gérer les documents pour la RAG. Les documents sont indexés pour la recherche sémantique.",
+      "action_upload": "Télécharger de nouveaux documents",
+      "action_search": "Tester les requêtes de recherche"
+    },
+    "rag_documents": {
+      "title": "Documents",
+      "description": "Parcourir et gérer les documents dans le pipeline RAG. État d'indexation et métadonnées.",
+      "action_browse": "Parcourir avec des filtres",
+      "action_delete": "Supprimer les documents et leurs fragments"
+    },
+    "rag_collections": {
+      "title": "Collections",
+      "description": "Organiser les documents en collections pour une recherche ciblée. Chaque collection a son propre index.",
+      "action_create": "Créer une nouvelle collection",
+      "action_manage": "Gérer les membres et les paramètres"
+    },
+    "rag_runtime": {
+      "title": "Runtime RAG",
+      "description": "Configurer le pipeline RAG — modèles d'embedding, tailles de fragments, paramètres de recherche et stockage.",
+      "action_config": "Modifier la configuration du runtime",
+      "action_status": "Vérifier l'état du pipeline d'indexation"
+    },
+    "rag_collectors": {
+      "title": "Collecteurs",
+      "description": "Configurer les collecteurs qui importent automatiquement des documents depuis des sources externes.",
+      "action_add": "Ajouter un nouveau collecteur",
+      "action_schedule": "Configurer les horaires de collecte"
+    },
+    "rag_explorer": {
+      "title": "Explorateur RAG",
+      "description": "Explorer l'index RAG — interroger les fragments, inspecter les embeddings et déboguer la qualité.",
+      "action_query": "Exécuter des recherches sémantiques",
+      "action_chunks": "Inspecter les fragments et leurs scores"
+    },
+    "rag_publishes": {
+      "title": "Publications",
+      "description": "Gérer les instantanés RAG publiés. La publication fige une version de collection.",
+      "action_publish": "Créer une nouvelle publication",
+      "action_status": "Surveiller l'état du pipeline"
+    },
+    "rag_search": {
+      "title": "Recherche RAG",
+      "description": "Tester les requêtes contre les collections publiées. Comparer les résultats.",
+      "action_query": "Exécuter des requêtes de test",
+      "action_compare": "Comparer les résultats entre collections"
+    },
+    "chat_projects": {
+      "title": "Projets de chat",
+      "description": "Créer et gérer les projets de chat. Chaque projet délimite l'accès aux modèles et les permissions.",
+      "action_create": "Créer un nouveau projet de chat",
+      "action_models": "Configurer l'accès aux modèles par projet"
+    },
+    "chat_sessions": {
+      "title": "Sessions de chat",
+      "description": "Parcourir les sessions de tous les projets. Historique des conversations et statistiques.",
+      "action_browse": "Parcourir avec des filtres",
+      "action_export": "Exporter les transcriptions"
+    },
+    "chat_attachments": {
+      "title": "Pièces jointes",
+      "description": "Gérer les fichiers joints téléchargés pendant les sessions. Vérifier l'utilisation du stockage.",
+      "action_browse": "Parcourir les pièces jointes",
+      "action_clean": "Nettoyer les fichiers orphelins ou expirés"
+    },
+    "mcp_servers": {
+      "title": "Serveurs MCP",
+      "description": "Enregistrer et gérer les serveurs d'outils MCP. Chaque serveur expose des outils pour les LLM.",
+      "action_register": "Enregistrer un nouveau serveur MCP",
+      "action_health": "Vérifier l'état et les outils disponibles"
+    },
+    "mcp_detail": {
+      "title": "Détail du serveur MCP",
+      "description": "Inspecter un serveur MCP — outils, configuration, état de connexion et journaux d'utilisation.",
+      "action_tools": "Parcourir les outils et leurs schémas",
+      "action_config": "Modifier les paramètres de connexion"
+    },
+    "skills": {
+      "title": "Compétences",
+      "description": "Parcourir et gérer les plugins de compétences — chaînes de prompts réutilisables.",
+      "action_browse": "Parcourir les compétences disponibles",
+      "action_create": "Créer une nouvelle compétence"
+    },
+    "skills_create": {
+      "title": "Créer une compétence",
+      "description": "Définir une compétence avec sa template de prompt, ses outils et son schéma d'entrée/sortie.",
+      "action_define": "Définir le prompt et les paramètres",
+      "action_test": "Tester avec des entrées d'exemple"
+    },
+    "skill_detail": {
+      "title": "Détail de la compétence",
+      "description": "Inspecter et modifier une compétence — template, liaisons d'outils et historique d'exécution.",
+      "action_edit": "Modifier la définition",
+      "action_test": "Exécuter avec des entrées de test"
+    },
+    "settings": {
+      "title": "Paramètres",
+      "description": "Configuration globale — réseau, stockage, politiques de sécurité, indicateurs de fonctionnalités.",
+      "action_general": "Configurer les paramètres généraux",
+      "action_security": "Gérer les politiques de sécurité",
+      "action_features": "Activer ou désactiver les fonctionnalités"
+    },
+    "profile": {
+      "title": "Profil",
+      "description": "Voir et modifier vos informations — nom, e-mail, mot de passe et préférences.",
+      "action_info": "Mettre à jour le nom et l'e-mail",
+      "action_password": "Changer le mot de passe"
+    }
+  }
+}

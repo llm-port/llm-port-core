@@ -1,0 +1,43 @@
+{
+  "tourId": "guided_setup_private",
+  "version": 1,
+  "profile": "private",
+  "steps": [
+    {
+      "target": "[data-tour-id='sidebar.llm']",
+      "titleKey": "private.providers.title",
+      "contentKey": "private.providers.content",
+      "placement": "right",
+      "route": "/admin/llm/providers",
+      "requires": {},
+      "disableBeacon": true
+    },
+    {
+      "target": "[data-tour-id='sidebar.chat-workspace']",
+      "titleKey": "private.chat.title",
+      "contentKey": "private.chat.content",
+      "placement": "right",
+      "route": "/admin/chat/projects",
+      "requires": { "module": "chat" },
+      "disableBeacon": true
+    },
+    {
+      "target": "[data-tour-id='sidebar.pii']",
+      "titleKey": "private.pii.title",
+      "contentKey": "private.pii.content",
+      "placement": "right",
+      "route": "/admin/pii/dashboard",
+      "requires": { "module": "pii" },
+      "disableBeacon": true
+    },
+    {
+      "target": "[data-tour-id='sidebar.rag']",
+      "titleKey": "private.rag.title",
+      "contentKey": "private.rag.content",
+      "placement": "right",
+      "route": "/admin/rag/knowledge-base",
+      "requires": { "module": "rag" },
+      "disableBeacon": true
+    }
+  ]
+}

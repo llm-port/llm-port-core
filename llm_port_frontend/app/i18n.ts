@@ -13,7 +13,7 @@ void i18n
   .init({
     fallbackLng: "en",
     defaultNS: "common",
-    ns: ["common", "chat"],
+    ns: ["common", "chat", "tour"],
     debug: false,
     interpolation: {
       escapeValue: false,
