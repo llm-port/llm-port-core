@@ -1,6 +1,6 @@
 /**
  * Tool Availability API — session-scoped tool catalog and policy.
- * Calls the gateway API directly (not backend admin proxy).
+ * Proxied through the backend at /api/chat/* (cookie-based auth).
  */
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -27,7 +27,7 @@ export interface ToolAvailabilityEntry {
 }
 
 export interface ToolAvailabilityResponse {
-  session_id: string;
+  session_id: string | null;
   execution_mode: ExecutionMode;
   effective_catalog_version: number;
   tools: ToolAvailabilityEntry[];
@@ -53,13 +53,13 @@ export interface SessionToolPolicyPatch {
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-const GATEWAY_BASE = "/api/v1";
+const CHAT_BASE = "/api/chat";
 
 async function gatewayRequest<T>(
   path: string,
   init: RequestInit = {},
 ): Promise<T> {
-  const res = await fetch(`${GATEWAY_BASE}${path}`, {
+  const res = await fetch(`${CHAT_BASE}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
@@ -77,6 +77,19 @@ async function gatewayRequest<T>(
 
 // ── Tool Availability ──────────────────────────────────────────────────────
 
+/**
+ * Fetch the global tool catalog (no session required).
+ * Used for pre-session discovery so users can browse tools before starting a chat.
+ */
+export async function getToolCatalog(
+  executionMode: ExecutionMode = "server_only",
+): Promise<ToolAvailabilityResponse> {
+  const params = new URLSearchParams({ execution_mode: executionMode });
+  return gatewayRequest<ToolAvailabilityResponse>(
+    `/tools/catalog?${params.toString()}`,
+  );
+}
+
 export async function getAvailableTools(
   sessionId: string,
   opts?: {
@@ -93,5 +106,28 @@ export async function getAvailableTools(
   }
   return gatewayRequest<ToolAvailabilityResponse>(
     `/tools/available?${params.toString()}`,
+  );
+}
+
+// ── Session Tool Policy ────────────────────────────────────────────────────
+
+export async function getSessionToolPolicy(
+  sessionId: string,
+): Promise<SessionToolPolicy> {
+  return gatewayRequest<SessionToolPolicy>(
+    `/sessions/${encodeURIComponent(sessionId)}/tool-policy`,
+  );
+}
+
+export async function patchSessionToolPolicy(
+  sessionId: string,
+  patch: SessionToolPolicyPatch,
+): Promise<SessionToolPolicy> {
+  return gatewayRequest<SessionToolPolicy>(
+    `/sessions/${encodeURIComponent(sessionId)}/tool-policy`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    },
   );
 }

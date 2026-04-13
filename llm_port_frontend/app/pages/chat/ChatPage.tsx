@@ -14,14 +14,19 @@ import CloseIcon from "@mui/icons-material/Close";
 import useMediaQuery from "@mui/material/useMediaQuery";
 import { useTheme } from "@mui/material/styles";
 
+import Drawer from "@mui/material/Drawer";
 import { chatApi, type ChatSession, type ChatProject } from "~/api/chatClient";
 import { auth, type AuthUser } from "~/api/auth";
 import { listLanguages, type UiLanguage } from "~/api/i18n";
 import { clearCachedAccess } from "~/lib/adminConstants";
+import { patchSessionToolPolicy } from "~/api/tools";
 import type { InitialMessageState } from "./components/ChatWelcome";
 import ChatSidebar from "./components/ChatSidebar";
 import ChatWelcome from "./components/ChatWelcome";
 import ChatWindow from "./components/ChatWindow";
+import ExecutionModeSelector from "./components/ExecutionModeSelector";
+import ToolPanel from "./components/ToolPanel";
+import { useToolPolicy } from "./hooks/useToolPolicy";
 import ProfilePage from "../admin/ProfilePage";
 
 const SIDEBAR_WIDTH = 260;
@@ -46,6 +51,18 @@ export default function ChatPage() {
   const [languages, setLanguages] = useState<UiLanguage[]>([]);
   const [language, setLanguage] = useState<string>("en");
   const [profileOpen, setProfileOpen] = useState(false);
+  const [toolDrawerOpen, setToolDrawerOpen] = useState(false);
+  const { executionMode, setExecutionMode } = useToolPolicy(sessionId ?? null);
+  const [localToolOverrides, setLocalToolOverrides] = useState<
+    Map<string, boolean>
+  >(new Map());
+
+  const handleLocalToolOverride = useCallback(
+    (toolId: string, enabled: boolean) => {
+      setLocalToolOverrides((prev) => new Map(prev).set(toolId, enabled));
+    },
+    [],
+  );
 
   // Refs
   const loadedRef = useRef(false);
@@ -90,11 +107,31 @@ export default function ChatPage() {
   );
 
   const handleSessionCreated = useCallback(
-    (sess: ChatSession, initialState?: InitialMessageState) => {
+    async (sess: ChatSession, initialState?: InitialMessageState) => {
       setSessions((prev) => [sess, ...prev]);
+      // Apply pre-session execution mode and tool overrides to the new session
+      const hasOverrides = localToolOverrides.size > 0;
+      if (executionMode !== "server_only" || hasOverrides) {
+        try {
+          const patch: Record<string, unknown> = {};
+          if (executionMode !== "server_only") {
+            patch.execution_mode = executionMode;
+          }
+          if (hasOverrides) {
+            patch.tool_overrides = Array.from(localToolOverrides.entries()).map(
+              ([tool_id, enabled]) => ({ tool_id, enabled }),
+            );
+          }
+          await patchSessionToolPolicy(sess.id, patch);
+        } catch {
+          // Best-effort — session still works with defaults
+        }
+      }
+      // Clear local overrides now that they're persisted
+      setLocalToolOverrides(new Map());
       navigate(`/chat/${sess.id}`, { state: initialState });
     },
-    [navigate],
+    [navigate, executionMode, localToolOverrides],
   );
 
   const handleDeleteSession = useCallback(
@@ -218,6 +255,8 @@ export default function ChatPage() {
             onLanguageChange={handleLanguageChange}
             isSuperuser={user.is_superuser}
             canDebug={canDebug}
+            onToolsToggle={() => setToolDrawerOpen((o) => !o)}
+            toolsOpen={toolDrawerOpen}
           />
         ) : (
           <ChatWelcome
@@ -230,8 +269,35 @@ export default function ChatPage() {
             language={language}
             onLanguageChange={handleLanguageChange}
             isSuperuser={user.is_superuser}
+            onToolsToggle={() => setToolDrawerOpen((o) => !o)}
+            toolsOpen={toolDrawerOpen}
           />
         )}
+
+        {/* Tool routing drawer — shared across welcome + active session */}
+        <Drawer
+          anchor="right"
+          open={toolDrawerOpen}
+          onClose={() => setToolDrawerOpen(false)}
+          variant="persistent"
+          PaperProps={{
+            sx: { width: 320, mt: "56px", height: "calc(100% - 56px)" },
+          }}
+        >
+          <Box sx={{ p: 1.5 }}>
+            <ExecutionModeSelector
+              sessionId={sessionId ?? null}
+              value={executionMode}
+              onChange={setExecutionMode}
+            />
+          </Box>
+          <ToolPanel
+            sessionId={sessionId ?? null}
+            executionMode={executionMode}
+            localOverrides={localToolOverrides}
+            onLocalOverride={handleLocalToolOverride}
+          />
+        </Drawer>
       </Box>
 
       {/* Profile overlay */}

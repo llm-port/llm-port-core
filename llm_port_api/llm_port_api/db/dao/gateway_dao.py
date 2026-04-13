@@ -2,7 +2,7 @@ import uuid
 from dataclasses import dataclass
 
 from fastapi import Depends
-from sqlalchemy import exists, select
+from sqlalchemy import delete, exists, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from llm_port_api.db.dependencies import get_db_session
@@ -16,9 +16,11 @@ from llm_port_api.db.models.gateway import (
     ProviderType,
     TenantLLMPolicy,
     ChatSession,
+    SessionClientCapability,
     SessionExecutionPolicy,
     SessionToolOverride,
     ExecutionMode,
+    ToolRealm,
 )
 
 
@@ -278,3 +280,157 @@ class GatewayDAO:
             ),
         )
         return list(result.scalars().all())
+
+    # ── Session tool policy writes ───────────────────────────────
+
+    async def upsert_session_execution_policy(
+        self,
+        session_id: uuid.UUID,
+        *,
+        execution_mode: ExecutionMode | None = None,
+        hybrid_preference: str | None = ...,  # type: ignore[assignment]
+    ) -> SessionExecutionPolicy:
+        """Create or update the execution policy for a session.
+
+        Also updates ``ChatSession.execution_mode`` to keep it in sync.
+        """
+        policy = await self.get_session_execution_policy(session_id)
+        if policy is None:
+            mode = execution_mode or ExecutionMode.SERVER_ONLY
+            policy = SessionExecutionPolicy(
+                session_id=session_id,
+                execution_mode=mode,
+                hybrid_preference=hybrid_preference if hybrid_preference is not ... else None,
+            )
+            self.session.add(policy)
+        else:
+            if execution_mode is not None:
+                policy.execution_mode = execution_mode
+            if hybrid_preference is not ...:
+                policy.hybrid_preference = hybrid_preference
+
+        # Keep ChatSession.execution_mode in sync
+        effective_mode = execution_mode or policy.execution_mode
+        await self.session.execute(
+            update(ChatSession)
+            .where(ChatSession.id == session_id)
+            .values(execution_mode=effective_mode),
+        )
+        await self.session.flush()
+        return policy
+
+    async def upsert_session_tool_overrides(
+        self,
+        session_id: uuid.UUID,
+        overrides: list[tuple[str, bool]],
+    ) -> list[SessionToolOverride]:
+        """Upsert a batch of per-tool enable/disable overrides."""
+        existing = await self.get_session_tool_overrides(session_id)
+        by_tool: dict[str, SessionToolOverride] = {o.tool_id: o for o in existing}
+        result: list[SessionToolOverride] = []
+        for tool_id, enabled in overrides:
+            if tool_id in by_tool:
+                by_tool[tool_id].enabled = enabled
+                result.append(by_tool[tool_id])
+            else:
+                row = SessionToolOverride(
+                    session_id=session_id,
+                    tool_id=tool_id,
+                    enabled=enabled,
+                )
+                self.session.add(row)
+                result.append(row)
+        await self.session.flush()
+        return result
+
+    async def delete_session_tool_override(
+        self,
+        session_id: uuid.UUID,
+        tool_id: str,
+    ) -> bool:
+        """Remove a single tool override. Returns True if a row was deleted."""
+        result = await self.session.execute(
+            delete(SessionToolOverride).where(
+                SessionToolOverride.session_id == session_id,
+                SessionToolOverride.tool_id == tool_id,
+            ),
+        )
+        await self.session.flush()
+        return result.rowcount > 0
+
+    # ── Client capabilities ──────────────────────────────────────
+
+    async def get_session_client_capabilities(
+        self,
+        session_id: uuid.UUID,
+        client_id: str | None = None,
+    ) -> list[SessionClientCapability]:
+        """Fetch client-advertised tools for a session."""
+        stmt = select(SessionClientCapability).where(
+            SessionClientCapability.session_id == session_id,
+        )
+        if client_id is not None:
+            stmt = stmt.where(SessionClientCapability.client_id == client_id)
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def register_client_capabilities(
+        self,
+        session_id: uuid.UUID,
+        client_id: str,
+        tools: list[dict],
+    ) -> list[SessionClientCapability]:
+        """Register or replace all tools for a client within a session."""
+        # Remove old entries for this client
+        await self.session.execute(
+            delete(SessionClientCapability).where(
+                SessionClientCapability.session_id == session_id,
+                SessionClientCapability.client_id == client_id,
+            ),
+        )
+        rows: list[SessionClientCapability] = []
+        for tool in tools:
+            row = SessionClientCapability(
+                session_id=session_id,
+                client_id=client_id,
+                tool_id=tool["tool_id"],
+                realm=ToolRealm(tool.get("realm", "client_local")),
+                schema_json=tool.get("schema"),
+                available=tool.get("available", True),
+            )
+            self.session.add(row)
+            rows.append(row)
+        await self.session.flush()
+        return rows
+
+    async def revoke_client_capabilities(
+        self,
+        session_id: uuid.UUID,
+        client_id: str,
+    ) -> int:
+        """Remove all tools for a client (e.g. on disconnect). Returns count."""
+        result = await self.session.execute(
+            delete(SessionClientCapability).where(
+                SessionClientCapability.session_id == session_id,
+                SessionClientCapability.client_id == client_id,
+            ),
+        )
+        await self.session.flush()
+        return result.rowcount
+
+    async def mark_client_tools_unavailable(
+        self,
+        session_id: uuid.UUID,
+        client_id: str,
+    ) -> int:
+        """Mark all tools for a client as unavailable (soft disconnect)."""
+        result = await self.session.execute(
+            update(SessionClientCapability)
+            .where(
+                SessionClientCapability.session_id == session_id,
+                SessionClientCapability.client_id == client_id,
+            )
+            .values(available=False),
+        )
+        await self.session.flush()
+        return result.rowcount

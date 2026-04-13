@@ -42,6 +42,8 @@ interface Props {
   language: string;
   onLanguageChange: (code: string) => void;
   isSuperuser: boolean;
+  onToolsToggle?: () => void;
+  toolsOpen?: boolean;
 }
 
 /** Navigation state passed to ChatWindow for first-message auto-send. */
@@ -61,6 +63,8 @@ export default function ChatWelcome({
   language,
   onLanguageChange,
   isSuperuser,
+  onToolsToggle,
+  toolsOpen,
 }: Props) {
   const { t } = useTranslation();
   const theme = useTheme();
@@ -267,6 +271,8 @@ export default function ChatWelcome({
         selectedModel={selectedModel}
         onModelChange={onModelChange}
         streaming={sending}
+        onToolsToggle={onToolsToggle}
+        toolsOpen={toolsOpen}
       />
     </Box>
   );

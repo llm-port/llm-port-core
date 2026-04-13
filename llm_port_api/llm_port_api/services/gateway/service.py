@@ -34,6 +34,7 @@ from llm_port_api.services.gateway.usage import (
     usage_from_payload,
 )
 from llm_port_api.services.gateway.file_store import FileStore
+from llm_port_api.services.gateway.tool_router import ToolRouter
 from llm_port_api.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -128,6 +129,7 @@ class GatewayService:
         mcp_client: MCPClient | None = None,
         mcp_tool_cache: MCPToolCache | None = None,
         skills_client: SkillsClient | None = None,
+        tool_router: ToolRouter | None = None,
     ) -> None:
         self.dao = dao
         self.router = router
@@ -143,6 +145,7 @@ class GatewayService:
         self.mcp_client = mcp_client
         self.mcp_tool_cache = mcp_tool_cache
         self.skills_client = skills_client
+        self.tool_router = tool_router
         self.stream_buffer: StreamBuffer | None = None
 
     async def list_models(self, auth: AuthContext) -> dict[str, Any]:
@@ -337,8 +340,8 @@ class GatewayService:
                     error_type="server_error",
                     code="upstream_request_failed",
                 )
-            # MCP tool execution loop
-            if endpoint == "/v1/chat/completions" and self.mcp_client:
+            # Tool execution loop (MCP + client-local + server-managed)
+            if endpoint == "/v1/chat/completions" and (self.mcp_client or self.tool_router):
                 mcp_pii_override = self._mcp_pii_mode_override(
                     pii_policy, decision,
                 )
@@ -350,6 +353,7 @@ class GatewayService:
                     tenant_id=auth.tenant_id,
                     request_id=request_id,
                     pii_mode_override=mcp_pii_override,
+                    session_id=resolved_session_id,
                 )
                 result = mcp_loop_result.result
                 mcp_tool_calls = mcp_loop_result.tool_calls
@@ -630,7 +634,7 @@ class GatewayService:
                     egress_payload, resolved_stream_skills,
                 )
 
-            if mcp_tools_injected and self.mcp_client:
+            if mcp_tools_injected and (self.mcp_client or self.tool_router):
                 # When MCP tools are present, use non-streaming to enable the
                 # tool loop, then convert the final response to SSE for the client.
                 logger.info("MCP streaming path: switching to non-streaming for tool loop (request_id=%s)", request_id)
@@ -677,6 +681,7 @@ class GatewayService:
                     pii_mode_override=self._mcp_pii_mode_override(
                         pii_policy, decision,
                     ),
+                    session_id=resolved_stream_session_id,
                 )
                 mcp_result = mcp_loop_result.result
                 stream_mcp_tool_calls = mcp_loop_result.tool_calls
@@ -1462,14 +1467,14 @@ class GatewayService:
         tenant_id: str,
         request_id: str,
         pii_mode_override: str | None = None,
+        session_id: str | None = None,
     ) -> MCPToolLoopResult:
-        """Execute MCP tool calls in a loop, re-calling the LLM each round.
+        """Execute tool calls in a loop, re-calling the LLM each round.
 
-        The loop detects ``tool_calls`` whose function name starts with
-        ``MCP_TOOL_PREFIX`` (``"mcp."``), executes them via
-        ``self.mcp_client``, appends tool-result messages, and re-invokes the
-        LLM.  Non-MCP tool calls are left for the client to handle (loop
-        breaks immediately).
+        When a ``ToolRouter`` is configured, ALL tool calls (MCP, client-local,
+        server-managed) are routed through the router.  Otherwise the legacy
+        MCP-only path is used (calls whose function name starts with
+        ``MCP_TOOL_PREFIX``).
 
         The loop runs at most ``settings.mcp_tool_loop_max_iterations``
         iterations to prevent infinite loops.
@@ -1477,12 +1482,29 @@ class GatewayService:
         Returns an ``MCPToolLoopResult`` with the final upstream result,
         per-tool-call telemetry, and iteration count.
         """
-        assert self.mcp_client is not None  # noqa: S101
+        # Determine whether to use the unified ToolRouter or legacy MCP-only path.
+        import uuid as _uuid  # noqa: PLC0415
+
+        _use_router = False
+        _session_uuid: _uuid.UUID | None = None
+        if self.tool_router is not None and session_id:
+            try:
+                _session_uuid = _uuid.UUID(session_id)
+                _use_router = True
+            except ValueError:
+                pass
+
+        # When using ToolRouter, mcp_client may not be needed directly
+        # as the router dispatches through executors.
+        if not _use_router:
+            assert self.mcp_client is not None  # noqa: S101
+
         max_iter = settings.mcp_tool_loop_max_iterations
         all_tool_calls: list[dict[str, Any]] = []
         iterations_completed = 0
 
         for _iteration in range(max_iter):
+            _has_passthrough = False
             choices = result.payload.get("choices") or []
             if not choices:
                 break
@@ -1492,80 +1514,144 @@ class GatewayService:
             if not tool_calls:
                 break
 
-            # Separate MCP calls from client-side calls
-            mcp_calls = [
-                tc for tc in tool_calls
-                if (tc.get("function", {}).get("name") or "").startswith(MCP_TOOL_PREFIX)
-            ]
-            if not mcp_calls:
-                # All tool calls are for the client — stop the loop
-                break
+            if _use_router:
+                # ── Unified routing: dispatch ALL tool calls via ToolRouter ──
+                # Tools whose realm has no executor will get an error result,
+                # which is fine — the LLM can react accordingly.
+                routable_calls = []
+                passthrough_calls = []
+                for tc in tool_calls:
+                    name = (tc.get("function", {}).get("name") or "")
+                    # Strip model-specific suffixes from tool names
+                    import re as _re  # noqa: PLC0415
+                    m = _re.match(r"^[\w.]+", name)
+                    clean_name = m.group(0) if m else name
+                    # Tools with a recognized prefix are routable
+                    if clean_name.startswith(("mcp.", "client.", "server.")):
+                        routable_calls.append(tc)
+                    else:
+                        passthrough_calls.append(tc)
 
-            if len(mcp_calls) < len(tool_calls):
-                # Mixed MCP + non-MCP calls: execute MCP ones, return with
-                # remaining non-MCP calls for the client.
-                # For simplicity in Phase 1, we execute the MCP calls but
-                # still break after so the client can handle the rest.
-                pass
+                if not routable_calls:
+                    # All tool calls are for the downstream client — stop
+                    break
 
-            iterations_completed = _iteration + 1
+                _has_passthrough = len(passthrough_calls) > 0
+                iterations_completed = _iteration + 1
+                messages = list(egress_payload.get("messages", []))
+                messages.append(message)
 
-            # Build messages list: original messages + assistant message + tool results
-            messages = list(egress_payload.get("messages", []))
-            messages.append(message)
+                assert _session_uuid is not None  # noqa: S101
+                for tc in routable_calls:
+                    func = tc.get("function", {})
+                    raw_name = func.get("name", "")
+                    import re as _re  # noqa: PLC0415
+                    m = _re.match(r"^[\w.]+", raw_name)
+                    qualified_name = m.group(0) if m else raw_name
+                    try:
+                        arguments = json.loads(func.get("arguments", "{}"))
+                    except (json.JSONDecodeError, TypeError):
+                        arguments = {}
 
-            for tc in mcp_calls:
-                func = tc.get("function", {})
-                raw_name = func.get("name", "")
-                # Some models append special tokens to the function name
-                # (e.g. "<|channel|>commentary").  Strip anything after the
-                # first character that can't appear in a dotted tool name.
-                import re as _re  # noqa: PLC0415
-                m = _re.match(r"^[\w.]+", raw_name)
-                qualified_name = m.group(0) if m else raw_name
-                try:
-                    arguments = json.loads(func.get("arguments", "{}"))
-                except (json.JSONDecodeError, TypeError):
-                    arguments = {}
-
-                # Extract MCP server name from qualified tool name (mcp.<server>.<tool>)
-                parts = qualified_name.split(".", 2)
-                mcp_server = parts[1] if len(parts) >= 2 else None
-
-                tc_started = time.perf_counter()
-                tc_error = False
-                tc_error_msg: str | None = None
-                try:
-                    call_result = await self.mcp_client.call_tool(
-                        qualified_name=qualified_name,
+                    route_result = await self.tool_router.route(
+                        tool_id=qualified_name,
                         arguments=arguments,
+                        call_id=tc.get("id", ""),
+                        session_id=_session_uuid,
                         tenant_id=tenant_id,
                         request_id=request_id,
-                        pii_mode_override=pii_mode_override,
                     )
-                    tc_error = call_result.is_error
-                    if call_result.is_error:
-                        tc_error_msg = call_result.content[:500]
-                except Exception as exc:
-                    tc_error = True
-                    tc_error_msg = str(exc)[:500]
-                    call_result = type("_", (), {"content": f"Tool call failed: {exc}"})()
-                tc_latency = int((time.perf_counter() - tc_started) * 1000)
 
-                all_tool_calls.append({
-                    "iteration": _iteration,
-                    "tool_name": qualified_name,
-                    "mcp_server": mcp_server,
-                    "latency_ms": tc_latency,
-                    "is_error": tc_error,
-                    "error_message": tc_error_msg,
-                })
+                    parts = qualified_name.split(".", 2)
+                    mcp_server = parts[1] if len(parts) >= 2 else None
 
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc.get("id", ""),
-                    "content": call_result.content,
-                })
+                    all_tool_calls.append({
+                        "iteration": _iteration,
+                        "tool_name": qualified_name,
+                        "mcp_server": mcp_server,
+                        "latency_ms": route_result.latency_ms,
+                        "is_error": route_result.is_error,
+                        "error_message": route_result.content[:500] if route_result.is_error else None,
+                        "realm": route_result.realm,
+                        "executor": route_result.executor,
+                    })
+
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.get("id", ""),
+                        "content": route_result.content,
+                    })
+
+            else:
+                # ── Legacy MCP-only routing ─────────────────────────────────
+                # Separate MCP calls from client-side calls
+                mcp_calls = [
+                    tc for tc in tool_calls
+                    if (tc.get("function", {}).get("name") or "").startswith(MCP_TOOL_PREFIX)
+                ]
+                if not mcp_calls:
+                    # All tool calls are for the client — stop the loop
+                    break
+
+                if len(mcp_calls) < len(tool_calls):
+                    # Mixed MCP + non-MCP calls: execute MCP ones, return with
+                    # remaining non-MCP calls for the client.
+                    pass
+
+                iterations_completed = _iteration + 1
+
+                # Build messages list: original messages + assistant message + tool results
+                messages = list(egress_payload.get("messages", []))
+                messages.append(message)
+
+                for tc in mcp_calls:
+                    func = tc.get("function", {})
+                    raw_name = func.get("name", "")
+                    import re as _re  # noqa: PLC0415
+                    m = _re.match(r"^[\w.]+", raw_name)
+                    qualified_name = m.group(0) if m else raw_name
+                    try:
+                        arguments = json.loads(func.get("arguments", "{}"))
+                    except (json.JSONDecodeError, TypeError):
+                        arguments = {}
+
+                    parts = qualified_name.split(".", 2)
+                    mcp_server = parts[1] if len(parts) >= 2 else None
+
+                    tc_started = time.perf_counter()
+                    tc_error = False
+                    tc_error_msg: str | None = None
+                    try:
+                        call_result = await self.mcp_client.call_tool(
+                            qualified_name=qualified_name,
+                            arguments=arguments,
+                            tenant_id=tenant_id,
+                            request_id=request_id,
+                            pii_mode_override=pii_mode_override,
+                        )
+                        tc_error = call_result.is_error
+                        if call_result.is_error:
+                            tc_error_msg = call_result.content[:500]
+                    except Exception as exc:
+                        tc_error = True
+                        tc_error_msg = str(exc)[:500]
+                        call_result = type("_", (), {"content": f"Tool call failed: {exc}"})()
+                    tc_latency = int((time.perf_counter() - tc_started) * 1000)
+
+                    all_tool_calls.append({
+                        "iteration": _iteration,
+                        "tool_name": qualified_name,
+                        "mcp_server": mcp_server,
+                        "latency_ms": tc_latency,
+                        "is_error": tc_error,
+                        "error_message": tc_error_msg,
+                    })
+
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.get("id", ""),
+                        "content": call_result.content,
+                    })
 
             # Re-call the LLM with the extended conversation
             loop_payload = {**egress_payload, "messages": messages}
@@ -1609,8 +1695,16 @@ class GatewayService:
             # Update egress_payload messages for next iteration
             egress_payload = loop_payload
 
-            # If we had mixed calls, break after executing MCP ones
-            if len(mcp_calls) < len(tool_calls):
+            # If we had mixed calls in legacy mode, break after executing MCP ones
+            if not _use_router:
+                mcp_calls = [
+                    tc for tc in tool_calls
+                    if (tc.get("function", {}).get("name") or "").startswith(MCP_TOOL_PREFIX)
+                ]
+                if len(mcp_calls) < len(tool_calls):
+                    break
+            elif _has_passthrough:
+                # Mixed routable + passthrough: break after routing the routable ones
                 break
 
         return MCPToolLoopResult(

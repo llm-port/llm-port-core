@@ -4,7 +4,7 @@ import json
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, Request, Response, WebSocket
 from pydantic import ValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
 from starlette import status
@@ -27,6 +27,8 @@ from llm_port_api.services.gateway.routing import RouterService
 from llm_port_api.services.gateway.schemas import (
     ChatCompletionRequest,
     EmbeddingsRequest,
+    SessionToolPolicyDTO,
+    SessionToolPolicyPatchDTO,
     ToolAvailabilityResponse,
 )
 from llm_port_api.services.gateway.service import GatewayService
@@ -113,6 +115,29 @@ def get_gateway_service(
             http_client=request.app.state.http_client,
         )
 
+    # Tool Router (optional – when MCP or client tools are available)
+    from llm_port_api.services.gateway.tool_router import (  # noqa: PLC0415
+        ServerToolExecutor,
+        ToolRouter,
+        ToolRouterConfig,
+    )
+    from llm_port_api.services.gateway.client_broker import ClientToolBroker  # noqa: PLC0415
+    from llm_port_api.services.gateway.policy_engine import PolicyEngine  # noqa: PLC0415
+
+    tool_router: ToolRouter | None = None
+    if mcp_client:
+        server_executor = ServerToolExecutor(mcp_client)
+        client_broker = ClientToolBroker()
+        policy_engine = PolicyEngine()
+        tool_router = ToolRouter(
+            dao=dao,
+            config=ToolRouterConfig(
+                server_executor=server_executor,
+                client_broker=client_broker,
+                policy_engine=policy_engine,
+            ),
+        )
+
     service = GatewayService(
         dao=dao,
         router=router_service,
@@ -128,6 +153,7 @@ def get_gateway_service(
         mcp_client=mcp_client,
         mcp_tool_cache=mcp_tool_cache,
         skills_client=skills_client,
+        tool_router=tool_router,
     )
     service.stream_buffer = getattr(request.app.state, "stream_buffer", None)
     return service
@@ -153,6 +179,51 @@ async def list_models(
 
 
 # ── Tool Availability ────────────────────────────────────────────
+
+
+@router.get("/v1/tools/catalog", response_model=ToolAvailabilityResponse)
+async def get_tool_catalog(
+    request: Request,
+    execution_mode: str = "server_only",
+    auth: AuthContext = Depends(get_auth_context),
+    dao: GatewayDAO = Depends(),
+) -> JSONResponse:
+    """Return the global tool catalog (no session required).
+
+    Used for pre-session discovery so users can browse available tools
+    before starting a conversation.
+    """
+    from llm_port_api.services.gateway.tool_availability import (  # noqa: PLC0415
+        ToolAvailabilityService,
+    )
+
+    mcp_client = None
+    mcp_tool_cache = None
+    mcp_url = service_registry.get_url("mcp")
+    if mcp_url and settings.mcp_service_token:
+        from llm_port_api.services.gateway.mcp_tool_cache import MCPToolCache  # noqa: PLC0415
+
+        mcp_client = MCPClient(
+            base_url=mcp_url,
+            http_client=request.app.state.http_client,
+            service_token=settings.mcp_service_token,
+        )
+        mcp_tool_cache = MCPToolCache(mcp_client)
+
+    service = ToolAvailabilityService(
+        dao=dao,
+        mcp_client=mcp_client,
+        mcp_tool_cache=mcp_tool_cache,
+    )
+
+    result = await service.get_global_catalog(
+        tenant_id=auth.tenant_id,
+        execution_mode=execution_mode,
+    )
+    return JSONResponse(
+        status_code=200,
+        content=result.model_dump(mode="json"),
+    )
 
 
 @router.get("/v1/tools/available", response_model=ToolAvailabilityResponse)
@@ -215,6 +286,98 @@ async def get_available_tools(
         status_code=200,
         content=result.model_dump(mode="json"),
     )
+
+
+# ── Session Tool Policy ─────────────────────────────────────────
+
+
+def _parse_session_id(session_id: str) -> uuid.UUID:
+    """Validate and parse a session ID string to UUID."""
+    try:
+        return uuid.UUID(session_id)
+    except ValueError as exc:
+        raise GatewayError(
+            status_code=400,
+            message="Invalid session_id format.",
+            code="invalid_session_id",
+        ) from exc
+
+
+@router.get(
+    "/v1/sessions/{session_id}/tool-policy",
+    response_model=SessionToolPolicyDTO,
+)
+async def get_session_tool_policy(
+    session_id: str,
+    auth: AuthContext = Depends(get_auth_context),
+    dao: GatewayDAO = Depends(),
+) -> JSONResponse:
+    """Return the current tool execution policy for a session."""
+    sid = _parse_session_id(session_id)
+    policy = await dao.get_session_execution_policy(sid)
+    mode = await dao.get_session_execution_mode(sid)
+    dto = SessionToolPolicyDTO(
+        session_id=session_id,
+        execution_mode=mode.value,
+        hybrid_preference=policy.hybrid_preference if policy else None,
+        effective_catalog_version=policy.catalog_version if policy else 0,
+    )
+    return JSONResponse(status_code=200, content=dto.model_dump(mode="json"))
+
+
+@router.patch(
+    "/v1/sessions/{session_id}/tool-policy",
+    response_model=SessionToolPolicyDTO,
+)
+async def patch_session_tool_policy(
+    session_id: str,
+    request: Request,
+    auth: AuthContext = Depends(get_auth_context),
+    dao: GatewayDAO = Depends(),
+) -> JSONResponse:
+    """Update the execution mode, hybrid preference, and/or tool overrides."""
+    sid = _parse_session_id(session_id)
+    body = await _get_json_payload(request)
+    patch = SessionToolPolicyPatchDTO.model_validate(body)
+
+    from llm_port_api.db.models.gateway import ExecutionMode  # noqa: PLC0415
+
+    # Update execution policy
+    mode_arg = ExecutionMode(patch.execution_mode.value) if patch.execution_mode else None
+    policy = await dao.upsert_session_execution_policy(
+        sid,
+        execution_mode=mode_arg,
+        hybrid_preference=patch.hybrid_preference if patch.hybrid_preference is not None else ...,
+    )
+
+    # Apply tool overrides
+    if patch.tool_overrides:
+        await dao.upsert_session_tool_overrides(
+            sid,
+            [(o.tool_id, o.enabled) for o in patch.tool_overrides],
+        )
+
+    dto = SessionToolPolicyDTO(
+        session_id=session_id,
+        execution_mode=policy.execution_mode.value,
+        hybrid_preference=policy.hybrid_preference,
+        effective_catalog_version=policy.catalog_version,
+    )
+    return JSONResponse(status_code=200, content=dto.model_dump(mode="json"))
+
+
+# ── Client WebSocket ─────────────────────────────────────────────
+
+
+@router.websocket("/v1/client/ws")
+async def client_websocket(
+    ws: WebSocket,
+    dao: GatewayDAO = Depends(),
+) -> None:
+    """WebSocket channel for local agentic client connections."""
+    from llm_port_api.services.gateway.client_ws import handle_client_websocket  # noqa: PLC0415
+
+    await handle_client_websocket(ws, dao)
 
 
 @router.post("/v1/embeddings")

@@ -14,6 +14,7 @@ from llm_port_api.db.dao.gateway_dao import GatewayDAO
 from llm_port_api.db.models.gateway import ExecutionMode, ToolRealm
 from llm_port_api.services.gateway.mcp_client import MCPClient
 from llm_port_api.services.gateway.mcp_tool_cache import MCPToolCache
+from llm_port_api.services.gateway.policy_engine import PolicyAction, PolicyEngine
 from llm_port_api.services.gateway.schemas import (
     ExecutionModeEnum,
     ToolAvailabilityDTO,
@@ -50,10 +51,66 @@ class ToolAvailabilityService:
         dao: GatewayDAO,
         mcp_client: MCPClient | None = None,
         mcp_tool_cache: MCPToolCache | None = None,
+        policy_engine: PolicyEngine | None = None,
     ) -> None:
         self._dao = dao
         self._mcp_client = mcp_client
         self._mcp_tool_cache = mcp_tool_cache
+        self._policy_engine = policy_engine or PolicyEngine()
+
+    async def get_global_catalog(
+        self,
+        *,
+        tenant_id: str,
+        execution_mode: str = ExecutionMode.SERVER_ONLY,
+    ) -> ToolAvailabilityResponse:
+        """Return the global tool catalog without requiring a session.
+
+        Used for pre-session discovery so users can browse available tools
+        before starting a conversation.  No session-specific overrides or
+        policy checks are applied — every tool is shown with default state.
+        """
+        mode_str = execution_mode
+        allowed_realms = _MODE_ALLOWED_REALMS.get(mode_str, set())
+
+        raw_tools = await self._gather_tools(tenant_id, session_id=None)
+
+        entries: list[ToolAvailabilityDTO] = []
+        for tool in raw_tools:
+            realm = tool.get("realm", "mcp_remote")
+            tool_id = tool["tool_id"]
+            available = tool.get("available", True)
+            mode_allows = realm in allowed_realms
+            effective_enabled = mode_allows and available
+
+            reason = None
+            if not effective_enabled:
+                if not mode_allows:
+                    reason = f"realm_not_allowed_in_{mode_str}_mode"
+                elif not available:
+                    reason = "tool_unavailable"
+
+            entries.append(
+                ToolAvailabilityDTO(
+                    tool_id=tool_id,
+                    display_name=tool.get("display_name"),
+                    description=tool.get("description"),
+                    realm=realm,
+                    source=tool.get("source", "mcp"),
+                    effective_enabled=effective_enabled,
+                    policy_allowed=True,
+                    user_enabled=True,
+                    available=available,
+                    availability_reason=reason,
+                ),
+            )
+
+        return ToolAvailabilityResponse(
+            session_id=None,
+            execution_mode=ExecutionModeEnum(mode_str),
+            effective_catalog_version=0,
+            tools=entries,
+        )
 
     async def get_available_tools(
         self,
@@ -78,7 +135,7 @@ class ToolAvailabilityService:
         override_map: dict[str, bool] = {o.tool_id: o.enabled for o in overrides}
 
         # 4. Gather raw tools from all sources
-        raw_tools = await self._gather_tools(tenant_id)
+        raw_tools = await self._gather_tools(tenant_id, session_id=session_id)
 
         # 5. Compute effective state for each tool
         allowed_realms = _MODE_ALLOWED_REALMS.get(mode_str, set())
@@ -88,8 +145,15 @@ class ToolAvailabilityService:
             realm = tool.get("realm", "mcp_remote")
             tool_id = tool["tool_id"]
 
-            # Policy: always allowed for now (future: tenant deny lists)
-            policy_allowed = True
+            # Policy engine evaluation
+            policy_decision = await self._policy_engine.evaluate(
+                tool_id=tool_id,
+                arguments={},
+                session_id=session_id,
+                tenant_id=tenant_id,
+                realm=realm,
+            )
+            policy_allowed = policy_decision.action != PolicyAction.DENY
 
             # Mode realm filter
             mode_allows = realm in allowed_realms
@@ -109,7 +173,7 @@ class ToolAvailabilityService:
             reason = None
             if not effective_enabled:
                 if not policy_allowed:
-                    reason = "denied_by_policy"
+                    reason = policy_decision.reason or "denied_by_policy"
                 elif not mode_allows:
                     reason = f"realm_not_allowed_in_{mode_str}_mode"
                 elif not user_enabled:
@@ -145,7 +209,7 @@ class ToolAvailabilityService:
             tools=entries,
         )
 
-    async def _gather_tools(self, tenant_id: str) -> list[dict[str, Any]]:
+    async def _gather_tools(self, tenant_id: str, session_id: uuid.UUID | None = None) -> list[dict[str, Any]]:
         """Collect tools from all registered sources into a flat list."""
         tools: list[dict[str, Any]] = []
 
@@ -169,6 +233,20 @@ class ToolAvailabilityService:
             except Exception:
                 logger.debug("Failed to load MCP tools for catalog", exc_info=True)
 
-        # Future: add skills, server_managed, client_local tools here.
+        # Client-local tools (from connected agents)
+        if session_id is not None:
+            try:
+                capabilities = await self._dao.get_session_client_capabilities(session_id)
+                for cap in capabilities:
+                    tools.append({
+                        "tool_id": cap.tool_id,
+                        "display_name": cap.tool_id.rsplit(".", 1)[-1],
+                        "description": (cap.schema_json or {}).get("description", ""),
+                        "realm": cap.realm.value if hasattr(cap.realm, "value") else str(cap.realm),
+                        "source": "local_agent",
+                        "available": cap.available,
+                    })
+            except Exception:
+                logger.debug("Failed to load client capabilities", exc_info=True)
 
         return tools

@@ -45,6 +45,8 @@ interface Props {
   onLanguageChange: (code: string) => void;
   isSuperuser: boolean;
   canDebug?: boolean;
+  onToolsToggle: () => void;
+  toolsOpen: boolean;
 }
 
 export default function ChatWindow({
@@ -60,6 +62,8 @@ export default function ChatWindow({
   onLanguageChange,
   isSuperuser,
   canDebug = false,
+  onToolsToggle,
+  toolsOpen,
 }: Props) {
   const { t } = useTranslation();
   const theme = useTheme();
@@ -392,6 +396,8 @@ export default function ChatWindow({
         selectedModel={selectedModel}
         onModelChange={onModelChange}
         streaming={isStreaming}
+        onToolsToggle={onToolsToggle}
+        toolsOpen={toolsOpen}
       />
 
       {/* Debug panel — only rendered when RBAC allows */}

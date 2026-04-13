@@ -18,6 +18,7 @@ import { useTheme } from "@mui/material/styles";
 import SendIcon from "@mui/icons-material/Send";
 import AttachFileIcon from "@mui/icons-material/AttachFile";
 import StopIcon from "@mui/icons-material/Stop";
+import BuildIcon from "@mui/icons-material/Build";
 import { useTranslation } from "react-i18next";
 
 import ModelSelector from "./ModelSelector";
@@ -31,6 +32,8 @@ interface Props {
   streaming?: boolean;
   placeholder?: string;
   autoFocus?: boolean;
+  onToolsToggle?: () => void;
+  toolsOpen?: boolean;
 }
 
 export default function ChatInput({
@@ -42,6 +45,8 @@ export default function ChatInput({
   streaming = false,
   placeholder,
   autoFocus = true,
+  onToolsToggle,
+  toolsOpen = false,
 }: Props) {
   const { t } = useTranslation();
   const theme = useTheme();
@@ -122,6 +127,19 @@ export default function ChatInput({
           py: 0.75,
         }}
       >
+        {/* Tools button */}
+        {onToolsToggle && (
+          <Tooltip title={t("tools.panel.title", { defaultValue: "Tools" })}>
+            <IconButton
+              size="small"
+              onClick={onToolsToggle}
+              color={toolsOpen ? "primary" : "default"}
+            >
+              <BuildIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        )}
+
         {/* Attach button */}
         <Tooltip title={t("chat.attach_file", { defaultValue: "Attach file" })}>
           <IconButton

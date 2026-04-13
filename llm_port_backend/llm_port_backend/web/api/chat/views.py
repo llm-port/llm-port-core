@@ -338,3 +338,72 @@ async def delete_attachment(attachment_id: str, request: Request) -> None:
         await client.delete_attachment(attachment_id, jwt)
     except Exception as exc:
         raise HTTPException(status_code=502, detail="Gateway error") from exc
+
+
+# ── Tool Availability & Policy ────────────────────────────────────
+
+
+@router.get("/tools/catalog")
+async def get_tool_catalog(
+    request: Request,
+    execution_mode: str = "server_only",
+) -> JSONResponse:
+    """Proxy ``GET /v1/tools/catalog`` to the API gateway (no session required)."""
+    jwt = _jwt_from_cookie(request)
+    client = _client()
+    try:
+        data = await client.get_tool_catalog(jwt, execution_mode=execution_mode)
+        return JSONResponse(content=data)
+    except Exception as exc:
+        return await _proxy_error(exc)
+
+
+@router.get("/tools/available")
+async def get_available_tools(
+    request: Request,
+    session_id: str,
+    include_disabled: bool = True,
+    include_unavailable: bool = True,
+) -> JSONResponse:
+    """Proxy ``GET /v1/tools/available`` to the API gateway."""
+    jwt = _jwt_from_cookie(request)
+    client = _client()
+    try:
+        data = await client.get_available_tools(
+            session_id,
+            jwt,
+            include_disabled=include_disabled,
+            include_unavailable=include_unavailable,
+        )
+        return JSONResponse(content=data)
+    except Exception as exc:
+        return await _proxy_error(exc)
+
+
+@router.get("/sessions/{session_id}/tool-policy")
+async def get_session_tool_policy(
+    session_id: str, request: Request,
+) -> JSONResponse:
+    """Proxy ``GET /v1/sessions/{session_id}/tool-policy`` to the API gateway."""
+    jwt = _jwt_from_cookie(request)
+    client = _client()
+    try:
+        data = await client.get_session_tool_policy(session_id, jwt)
+        return JSONResponse(content=data)
+    except Exception as exc:
+        return await _proxy_error(exc)
+
+
+@router.patch("/sessions/{session_id}/tool-policy")
+async def patch_session_tool_policy(
+    session_id: str, request: Request,
+) -> JSONResponse:
+    """Proxy ``PATCH /v1/sessions/{session_id}/tool-policy`` to the API gateway."""
+    jwt = _jwt_from_cookie(request)
+    body = await request.json()
+    client = _client()
+    try:
+        data = await client.patch_session_tool_policy(session_id, body, jwt)
+        return JSONResponse(content=data)
+    except Exception as exc:
+        return await _proxy_error(exc)

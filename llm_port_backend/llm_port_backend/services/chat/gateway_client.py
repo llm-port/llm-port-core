@@ -341,3 +341,65 @@ class GatewayChatClient:
             headers=self._headers(jwt),
         )
         resp.raise_for_status()
+
+    # -- tool availability / policy -----------------------------------------
+
+    async def get_tool_catalog(
+        self,
+        jwt: str,
+        *,
+        execution_mode: str = "server_only",
+    ) -> Any:
+        """Fetch the global tool catalog (no session required)."""
+        client = self._ensure_client()
+        resp = await client.get(
+            "/v1/tools/catalog",
+            params={"execution_mode": execution_mode},
+            headers=self._headers(jwt),
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def get_available_tools(
+        self,
+        session_id: str,
+        jwt: str,
+        *,
+        include_disabled: bool = True,
+        include_unavailable: bool = True,
+    ) -> Any:
+        client = self._ensure_client()
+        resp = await client.get(
+            "/v1/tools/available",
+            params={
+                "session_id": session_id,
+                "include_disabled": str(include_disabled).lower(),
+                "include_unavailable": str(include_unavailable).lower(),
+            },
+            headers=self._headers(jwt),
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def get_session_tool_policy(
+        self, session_id: str, jwt: str,
+    ) -> Any:
+        client = self._ensure_client()
+        resp = await client.get(
+            f"/v1/sessions/{session_id}/tool-policy",
+            headers=self._headers(jwt),
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def patch_session_tool_policy(
+        self, session_id: str, body: dict[str, Any], jwt: str,
+    ) -> Any:
+        client = self._ensure_client()
+        resp = await client.patch(
+            f"/v1/sessions/{session_id}/tool-policy",
+            json=body,
+            headers=self._headers(jwt),
+        )
+        resp.raise_for_status()
+        return resp.json()
