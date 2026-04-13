@@ -14,12 +14,14 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 from starlette import status as http_status
 
+from llm_port_backend.db.models.users import User
 from llm_port_backend.services.chat.gateway_client import GatewayChatClient
 from llm_port_backend.settings import settings
+from llm_port_backend.web.api.rbac import require_permission
 
 logger = logging.getLogger(__name__)
 
@@ -382,7 +384,9 @@ async def get_available_tools(
 
 @router.get("/sessions/{session_id}/tool-policy")
 async def get_session_tool_policy(
-    session_id: str, request: Request,
+    session_id: str,
+    request: Request,
+    _user: User = Depends(require_permission("chat.tool_policy", "read")),
 ) -> JSONResponse:
     """Proxy ``GET /v1/sessions/{session_id}/tool-policy`` to the API gateway."""
     jwt = _jwt_from_cookie(request)
@@ -396,7 +400,9 @@ async def get_session_tool_policy(
 
 @router.patch("/sessions/{session_id}/tool-policy")
 async def patch_session_tool_policy(
-    session_id: str, request: Request,
+    session_id: str,
+    request: Request,
+    _user: User = Depends(require_permission("chat.tool_policy", "update")),
 ) -> JSONResponse:
     """Proxy ``PATCH /v1/sessions/{session_id}/tool-policy`` to the API gateway."""
     jwt = _jwt_from_cookie(request)

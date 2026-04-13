@@ -18,6 +18,7 @@ from llm_port_api.db.models.gateway import (
     ChatSession,
     SessionClientCapability,
     SessionExecutionPolicy,
+    SessionPIIOverrideRow,
     SessionToolOverride,
     ExecutionMode,
     ToolRealm,
@@ -244,6 +245,29 @@ class GatewayDAO:
             self.session.add(row)
         await self.session.flush()
 
+    # ── Session ownership ────────────────────────────────────────────
+
+    async def verify_session_ownership(
+        self,
+        session_id: uuid.UUID,
+        tenant_id: str,
+        user_id: str,
+    ) -> bool:
+        """Check that a session belongs to the given tenant and user.
+
+        Returns True if the session exists and matches, False otherwise.
+        """
+        result = await self.session.execute(
+            select(
+                exists().where(
+                    ChatSession.id == session_id,
+                    ChatSession.tenant_id == tenant_id,
+                    ChatSession.user_id == user_id,
+                ),
+            ),
+        )
+        return bool(result.scalar())
+
     # ── Session tool policy ──────────────────────────────────────────
 
     async def get_session_execution_mode(
@@ -434,3 +458,81 @@ class GatewayDAO:
         )
         await self.session.flush()
         return result.rowcount
+
+    # ── Session PII override ─────────────────────────────────────
+
+    async def get_session_pii_override(
+        self,
+        session_id: uuid.UUID,
+        tenant_id: str,
+        user_id: str,
+    ) -> SessionPIIOverrideRow | None:
+        """Fetch PII override for a session, scoped by ownership."""
+        result = await self.session.execute(
+            select(SessionPIIOverrideRow)
+            .join(ChatSession, ChatSession.id == SessionPIIOverrideRow.session_id)
+            .where(
+                SessionPIIOverrideRow.session_id == session_id,
+                ChatSession.tenant_id == tenant_id,
+                ChatSession.user_id == user_id,
+            ),
+        )
+        return result.scalar_one_or_none()
+
+    async def upsert_session_pii_override(
+        self,
+        session_id: uuid.UUID,
+        tenant_id: str,
+        user_id: str,
+        *,
+        updated_by: str | None = None,
+        **fields: object,
+    ) -> SessionPIIOverrideRow:
+        """Create or update a session PII override (ownership-scoped).
+
+        Only columns present in *fields* are updated; ``None`` means inherit.
+        Raises ValueError if no matching owned session exists.
+        """
+        # Verify ownership
+        owns = await self.verify_session_ownership(session_id, tenant_id, user_id)
+        if not owns:
+            msg = "Session not found or not owned by caller"
+            raise ValueError(msg)
+
+        row = await self.get_session_pii_override(session_id, tenant_id, user_id)
+        if row is None:
+            row = SessionPIIOverrideRow(session_id=session_id, updated_by=updated_by)
+            self.session.add(row)
+
+        allowed = {c.key for c in SessionPIIOverrideRow.__table__.columns} - {
+            "session_id", "created_at", "updated_at",
+        }
+        for key, value in fields.items():
+            if key in allowed:
+                setattr(row, key, value)
+        if updated_by is not None:
+            row.updated_by = updated_by  # type: ignore[assignment]
+
+        await self.session.flush()
+        return row
+
+    async def delete_session_pii_override(
+        self,
+        session_id: uuid.UUID,
+        tenant_id: str,
+        user_id: str,
+    ) -> bool:
+        """Remove pii override for a session (ownership-scoped). Returns True if deleted."""
+        # Verify ownership
+        owns = await self.verify_session_ownership(session_id, tenant_id, user_id)
+        if not owns:
+            msg = "Session not found or not owned by caller"
+            raise ValueError(msg)
+
+        result = await self.session.execute(
+            delete(SessionPIIOverrideRow).where(
+                SessionPIIOverrideRow.session_id == session_id,
+            ),
+        )
+        await self.session.flush()
+        return result.rowcount > 0

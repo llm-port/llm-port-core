@@ -1073,6 +1073,7 @@ class GatewayService:
                 )
             if pii_policy.egress.fail_action == "fallback_to_local" and is_cloud:
                 raise _PIIFallbackToLocalRequested()
+            # Only "allow" reaches here (validated at parse time).
             logger.warning(
                 "PII egress scan failed for %s; fail_action=%s, allowing through",
                 request_id,

@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from llm_port_api.db.models.gateway import (
+    ChatSession,
     LLMGatewayRequestLog,
     LLMModelAlias,
     LLMPoolMembership,
@@ -584,3 +585,187 @@ async def test_stream_fallback_to_local_logs_final_provider(
     rows = (await db_session.execute(select(LLMGatewayRequestLog))).scalars().all()
     assert rows[-1].provider_instance_id == local_id
     assert rows[-1].error_code == "pii_fallback_to_local_succeeded"
+
+
+# ── Session ownership tests (IDOR fix) ───────────────────────────
+
+
+async def _create_chat_session(
+    session: AsyncSession,
+    tenant_id: str = "tenant-a",
+    user_id: str = "user-1",
+) -> uuid.UUID:
+    """Seed a ChatSession and return its id."""
+    sess = ChatSession(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        title="test session",
+    )
+    session.add(sess)
+    await session.flush()
+    return sess.id
+
+
+@pytest.mark.anyio
+async def test_get_tool_policy_rejects_other_users_session(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """User-2 must not be able to read user-1's session tool policy."""
+    sid = await _create_chat_session(db_session, tenant_id="tenant-a", user_id="user-1")
+    token = _token(tenant_id="tenant-a", sub="user-2")
+    resp = await client.get(
+        f"/v1/sessions/{sid}/tool-policy",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code in (403, 404), (
+        f"Expected 403/404, got {resp.status_code} — IDOR: cross-user read"
+    )
+
+
+@pytest.mark.anyio
+async def test_patch_tool_policy_rejects_other_users_session(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """User-2 must not be able to modify user-1's session tool policy."""
+    sid = await _create_chat_session(db_session, tenant_id="tenant-a", user_id="user-1")
+    token = _token(tenant_id="tenant-a", sub="user-2")
+    resp = await client.patch(
+        f"/v1/sessions/{sid}/tool-policy",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"execution_mode": "hybrid"},
+    )
+    assert resp.status_code in (403, 404), (
+        f"Expected 403/404, got {resp.status_code} — IDOR: cross-user write"
+    )
+
+
+@pytest.mark.anyio
+async def test_get_tool_policy_rejects_other_tenants_session(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Tenant-b must not be able to read tenant-a's session tool policy."""
+    sid = await _create_chat_session(db_session, tenant_id="tenant-a", user_id="user-1")
+    token = _token(tenant_id="tenant-b", sub="user-1")
+    resp = await client.get(
+        f"/v1/sessions/{sid}/tool-policy",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code in (403, 404), (
+        f"Expected 403/404, got {resp.status_code} — IDOR: cross-tenant read"
+    )
+
+
+@pytest.mark.anyio
+async def test_get_tool_policy_succeeds_for_session_owner(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """The owner should be able to read their own session tool policy."""
+    sid = await _create_chat_session(db_session, tenant_id="tenant-a", user_id="user-1")
+    token = _token(tenant_id="tenant-a", sub="user-1")
+    resp = await client.get(
+        f"/v1/sessions/{sid}/tool-policy",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+
+
+@pytest.mark.anyio
+async def test_patch_tool_policy_succeeds_for_session_owner(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """The owner should be able to modify their own session tool policy."""
+    sid = await _create_chat_session(db_session, tenant_id="tenant-a", user_id="user-1")
+    token = _token(tenant_id="tenant-a", sub="user-1")
+    resp = await client.patch(
+        f"/v1/sessions/{sid}/tool-policy",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"execution_mode": "hybrid"},
+    )
+    assert resp.status_code == 200
+
+
+# ── Session PII override DAO tests ───────────────────────────────
+
+
+@pytest.mark.anyio
+async def test_pii_override_crud_basic(db_session: AsyncSession) -> None:
+    """Create, read, and delete a PII override for a session."""
+    from llm_port_api.db.dao.gateway_dao import GatewayDAO
+
+    dao = GatewayDAO(db_session)
+    sid = await _create_chat_session(db_session, tenant_id="tenant-a", user_id="user-1")
+
+    # Initially no override
+    row = await dao.get_session_pii_override(sid, "tenant-a", "user-1")
+    assert row is None
+
+    # Create override
+    row = await dao.upsert_session_pii_override(
+        sid, "tenant-a", "user-1",
+        updated_by="user-1",
+        egress_fail_action="block",
+        presidio_threshold=0.8,
+        presidio_entities_add=["CREDIT_CARD"],
+    )
+    assert row.session_id == sid
+    assert row.egress_fail_action == "block"
+    assert row.presidio_threshold == 0.8
+    assert row.presidio_entities_add == ["CREDIT_CARD"]
+
+    # Read it back
+    row = await dao.get_session_pii_override(sid, "tenant-a", "user-1")
+    assert row is not None
+    assert row.egress_fail_action == "block"
+
+    # Update it
+    row = await dao.upsert_session_pii_override(
+        sid, "tenant-a", "user-1",
+        egress_fail_action="fallback_to_local",
+    )
+    assert row.egress_fail_action == "fallback_to_local"
+    # Previous fields unchanged
+    assert row.presidio_threshold == 0.8
+
+    # Delete it
+    deleted = await dao.delete_session_pii_override(sid, "tenant-a", "user-1")
+    assert deleted is True
+    assert await dao.get_session_pii_override(sid, "tenant-a", "user-1") is None
+
+
+@pytest.mark.anyio
+async def test_pii_override_ownership_scoping(db_session: AsyncSession) -> None:
+    """PII override DAO must enforce session ownership."""
+    from llm_port_api.db.dao.gateway_dao import GatewayDAO
+
+    dao = GatewayDAO(db_session)
+    sid = await _create_chat_session(db_session, tenant_id="tenant-a", user_id="user-1")
+
+    # Create as owner
+    await dao.upsert_session_pii_override(
+        sid, "tenant-a", "user-1",
+        egress_fail_action="block",
+    )
+
+    # Other user can't read
+    row = await dao.get_session_pii_override(sid, "tenant-a", "user-2")
+    assert row is None
+
+    # Other tenant can't read
+    row = await dao.get_session_pii_override(sid, "tenant-b", "user-1")
+    assert row is None
+
+    # Other user can't upsert
+    with pytest.raises(ValueError, match="not owned"):
+        await dao.upsert_session_pii_override(
+            sid, "tenant-a", "user-2",
+            egress_fail_action="allow",
+        )
+
+    # Other user can't delete
+    with pytest.raises(ValueError, match="not owned"):
+        await dao.delete_session_pii_override(sid, "tenant-a", "user-2")

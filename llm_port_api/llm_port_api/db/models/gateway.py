@@ -519,6 +519,35 @@ class ChatSession(Base):
     )
 
 
+class SessionPIIOverrideRow(Base):
+    """Per-session PII policy override (1:1 with chat_session)."""
+
+    __tablename__ = "session_pii_override"
+
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("chat_session.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    pii_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    egress_enabled_for_cloud: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    egress_enabled_for_local: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    egress_mode: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    egress_fail_action: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    telemetry_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    telemetry_mode: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    presidio_threshold: Mapped[float | None] = mapped_column(Float, nullable=True)
+    presidio_entities_add: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    updated_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False,
+        server_default=func.now(), onupdate=func.now(),
+    )
+
+
 class ChatMessage(Base):
     """An individual message within a chat session."""
 

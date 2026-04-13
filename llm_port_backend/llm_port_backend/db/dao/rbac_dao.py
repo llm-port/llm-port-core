@@ -60,6 +60,7 @@ _DEFAULT_ROLES: dict[str, dict[str, list[str]]] = {
         "rag.search": ["read", "write"],
         "modules": ["manage", "read"],
         "chat.debug": ["read"],
+        "chat.tool_policy": ["read", "update"],
     },
     "operator": {
         "llm.providers": ["read"],
@@ -149,6 +150,7 @@ _DEFAULT_ROLES: dict[str, dict[str, list[str]]] = {
     "default_user": {
         "chat.projects": ["create", "read", "update", "delete"],
         "chat.sessions": ["create", "read", "update", "delete"],
+        "chat.tool_policy": ["read", "update"],
         "chat.attachments": ["create", "read", "delete"],
         "rag.runtime": ["read"],
         "rag.containers": ["create", "read", "update", "delete"],

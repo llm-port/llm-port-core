@@ -303,6 +303,21 @@ def _parse_session_id(session_id: str) -> uuid.UUID:
         ) from exc
 
 
+async def _require_session_owner(
+    sid: uuid.UUID,
+    auth: AuthContext,
+    dao: GatewayDAO,
+) -> None:
+    """Verify the caller owns the session, or raise 404."""
+    owns = await dao.verify_session_ownership(sid, auth.tenant_id, auth.user_id)
+    if not owns:
+        raise GatewayError(
+            status_code=404,
+            message="Session not found.",
+            code="session_not_found",
+        )
+
+
 @router.get(
     "/v1/sessions/{session_id}/tool-policy",
     response_model=SessionToolPolicyDTO,
@@ -314,6 +329,7 @@ async def get_session_tool_policy(
 ) -> JSONResponse:
     """Return the current tool execution policy for a session."""
     sid = _parse_session_id(session_id)
+    await _require_session_owner(sid, auth, dao)
     policy = await dao.get_session_execution_policy(sid)
     mode = await dao.get_session_execution_mode(sid)
     dto = SessionToolPolicyDTO(
@@ -337,6 +353,7 @@ async def patch_session_tool_policy(
 ) -> JSONResponse:
     """Update the execution mode, hybrid preference, and/or tool overrides."""
     sid = _parse_session_id(session_id)
+    await _require_session_owner(sid, auth, dao)
     body = await _get_json_payload(request)
     patch = SessionToolPolicyPatchDTO.model_validate(body)
 
