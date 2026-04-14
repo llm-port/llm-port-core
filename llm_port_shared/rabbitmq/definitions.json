@@ -2,19 +2,25 @@
   "users": [
     {
       "name": "admin",
-      "password_hash": "/HdljpAvg4x5avEuIjYevKtAM2uyuAYUeQ5y4XPdQInarZqU",
+      "password_hash": "fo3KaI25nE9TaGvQActphdyuGJ8imXV/kb4wXxWfewiQVxCV",
       "hashing_algorithm": "rabbit_password_hashing_sha256",
       "tags": "administrator"
     },
     {
       "name": "llmport-backend",
-      "password_hash": "9C2IRI7n7NNtq86YiFQTYWfgEGJH7rrm9sr4GGVRmNKZvqmN",
+      "password_hash": "k9waVUmfe0qMuGm7hmWIphi0pR6XUUeb9FThxHK5Vrf2lVbH",
       "hashing_algorithm": "rabbit_password_hashing_sha256",
       "tags": ""
     },
     {
       "name": "llmport-api",
-      "password_hash": "9k1GHm1OO4vYjw9m+3OFc80+Ax/2GohKDGnnGW91XmhM+Kzr",
+      "password_hash": "4N8icL71adYHnCOitWm/dz2G0x+KFkjGWOQYnQbiL7ewcmry",
+      "hashing_algorithm": "rabbit_password_hashing_sha256",
+      "tags": ""
+    },
+    {
+      "name": "llmport-pii",
+      "password_hash": "M2U46h7YVG8dgxJ4j4bMgkn/LtkktySpT2ULfvQnlC169yf6",
       "hashing_algorithm": "rabbit_password_hashing_sha256",
       "tags": ""
     }
@@ -41,6 +47,13 @@
     },
     {
       "user": "llmport-api",
+      "vhost": "/",
+      "configure": ".*",
+      "write": ".*",
+      "read": ".*"
+    },
+    {
+      "user": "llmport-pii",
       "vhost": "/",
       "configure": ".*",
       "write": ".*",

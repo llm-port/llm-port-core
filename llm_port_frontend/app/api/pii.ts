@@ -318,6 +318,10 @@ async function chatRequest<T>(
   return res.json() as Promise<T>;
 }
 
+export function getPiiDefaults(): Promise<SessionPIIPolicy> {
+  return chatRequest<SessionPIIPolicy>("/pii-defaults");
+}
+
 export function getSessionPiiPolicy(
   sessionId: string,
 ): Promise<SessionPIIPolicy> {

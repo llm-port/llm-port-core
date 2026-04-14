@@ -416,6 +416,21 @@ async def patch_session_tool_policy(
         return await _proxy_error(exc)
 
 
+@router.get("/pii-defaults")
+async def get_pii_defaults(
+    request: Request,
+    _user: User = Depends(require_permission("pii.session", "read")),
+) -> JSONResponse:
+    """Proxy ``GET /v1/pii-defaults`` — tenant PII floor (no session required)."""
+    jwt = _jwt_from_cookie(request)
+    client = _client()
+    try:
+        data = await client.get_pii_defaults(jwt)
+        return JSONResponse(content=data)
+    except Exception as exc:
+        return await _proxy_error(exc)
+
+
 @router.get("/sessions/{session_id}/pii-policy")
 async def get_session_pii_policy(
     session_id: str,

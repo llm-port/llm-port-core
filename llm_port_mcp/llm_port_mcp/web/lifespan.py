@@ -105,7 +105,20 @@ async def _init_connection_manager(app: FastAPI) -> None:
             logger.info("Connected to MCP server: %s (%s)", server.name, server.id)
         except Exception:
             logger.warning(
-                "Failed to connect to MCP server: %s (%s)",
+                "Failed to connect to MCP server: %s (%s) — "
+                "will retry on next heartbeat",
+                server.name,
+                server.id,
+                exc_info=True,
+            )
+        except BaseException:
+            # anyio cancel-scope / TaskGroup errors surface as
+            # BaseExceptionGroup which bypasses ``except Exception``.
+            # Log and continue so one unreachable server doesn't take
+            # down the entire MCP gateway.
+            logger.warning(
+                "Failed to connect to MCP server: %s (%s) — "
+                "transport-level error, will retry on next heartbeat",
                 server.name,
                 server.id,
                 exc_info=True,

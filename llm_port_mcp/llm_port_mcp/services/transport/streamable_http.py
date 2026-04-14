@@ -6,6 +6,7 @@ connect to servers that expose a ``StreamableHTTPServerTransport`` endpoint.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from contextlib import AsyncExitStack
 from typing import Any
@@ -38,28 +39,40 @@ class StreamableHTTPMCPServer(GenericMCPServer):
             msg = "Streamable HTTP transport requires 'url'"
             raise ValueError(msg)
 
-        self._exit_stack = AsyncExitStack()
-
-        # Build an httpx client with custom headers / timeout
-        self._http_client = await self._exit_stack.enter_async_context(
-            httpx.AsyncClient(
-                headers=self.config.headers or {},
-                timeout=httpx.Timeout(self.config.timeout_sec, read=300),
-            ),
-        )
-
-        read_stream, write_stream, _ = (
-            await self._exit_stack.enter_async_context(
-                streamable_http_client(
-                    url=self.config.url,
-                    http_client=self._http_client,
+        stack = AsyncExitStack()
+        try:
+            # Build an httpx client with custom headers / timeout
+            http_client = await stack.enter_async_context(
+                httpx.AsyncClient(
+                    headers=self.config.headers or {},
+                    timeout=httpx.Timeout(self.config.timeout_sec, read=300),
                 ),
             )
-        )
-        self._session = await self._exit_stack.enter_async_context(
-            ClientSession(read_stream, write_stream),
-        )
-        await self._session.initialize()
+
+            read_stream, write_stream, _ = (
+                await stack.enter_async_context(
+                    streamable_http_client(
+                        url=self.config.url,
+                        http_client=http_client,
+                    ),
+                )
+            )
+            session = await stack.enter_async_context(
+                ClientSession(read_stream, write_stream),
+            )
+            await session.initialize()
+        except Exception:
+            # Clean up the exit stack before propagating so the MCP SDK's
+            # internal task-group / cancel-scope is torn down in the same
+            # task that created it — avoids the anyio RuntimeError.
+            with contextlib.suppress(Exception):
+                await stack.aclose()
+            raise
+
+        # Only persist state after a fully successful connect.
+        self._exit_stack = stack
+        self._http_client = http_client
+        self._session = session
         logger.info(
             "Streamable HTTP MCP server connected: %s (url=%s)",
             self.config.name,

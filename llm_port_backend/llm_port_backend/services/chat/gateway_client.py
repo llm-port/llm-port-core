@@ -404,6 +404,15 @@ class GatewayChatClient:
         resp.raise_for_status()
         return resp.json()
 
+    async def get_pii_defaults(self, jwt: str) -> Any:
+        client = self._ensure_client()
+        resp = await client.get(
+            "/v1/pii-defaults",
+            headers=self._headers(jwt),
+        )
+        resp.raise_for_status()
+        return resp.json()
+
     async def get_session_pii_policy(
         self, session_id: str, jwt: str,
     ) -> Any:

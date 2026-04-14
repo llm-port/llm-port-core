@@ -22,6 +22,7 @@ import { chatApi, type ChatSession, type ChatProject } from "~/api/chatClient";
 import { auth, type AuthUser } from "~/api/auth";
 import { listLanguages, type UiLanguage } from "~/api/i18n";
 import { clearCachedAccess } from "~/lib/adminConstants";
+import { patchSessionPiiPolicy } from "~/api/pii";
 import { patchSessionToolPolicy } from "~/api/tools";
 import type { InitialMessageState } from "./components/ChatWelcome";
 import ChatSidebar from "./components/ChatSidebar";
@@ -64,6 +65,7 @@ export default function ChatPage() {
     policy: piiPolicy,
     loading: piiLoading,
     error: piiError,
+    localOverrides: localPiiOverrides,
     refresh: piiRefresh,
     updateOverride: piiUpdate,
     clearOverride: piiClear,
@@ -142,11 +144,22 @@ export default function ChatPage() {
           // Best-effort — session still works with defaults
         }
       }
+      // Flush pre-session PII overrides
+      const hasPiiOverrides = Object.values(localPiiOverrides).some(
+        (v) => v != null,
+      );
+      if (hasPiiOverrides) {
+        try {
+          await patchSessionPiiPolicy(sess.id, localPiiOverrides);
+        } catch {
+          // Best-effort — session still works with defaults
+        }
+      }
       // Clear local overrides now that they're persisted
       setLocalToolOverrides(new Map());
       navigate(`/chat/${sess.id}`, { state: initialState });
     },
-    [navigate, executionMode, localToolOverrides],
+    [navigate, executionMode, localToolOverrides, localPiiOverrides],
   );
 
   const handleDeleteSession = useCallback(

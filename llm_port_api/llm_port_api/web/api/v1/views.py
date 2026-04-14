@@ -427,6 +427,34 @@ def _row_to_session_override(row: Any) -> "SessionPIIOverride":
 
 
 @router.get(
+    "/v1/pii-defaults",
+    response_model=SessionPIIPolicyDTO,
+)
+async def get_pii_defaults(
+    auth: AuthContext = Depends(get_auth_context),
+    dao: GatewayDAO = Depends(),
+) -> JSONResponse:
+    """Return the tenant PII floor policy (no session required).
+
+    This lets the frontend show PII controls before a session exists,
+    mirroring the pre-session tool-catalog pattern.
+    """
+    from llm_port_api.services.gateway.service import _resolve_pii_policy  # noqa: PLC0415
+
+    tenant_policy = await dao.get_tenant_policy(auth.tenant_id)
+    floor = _resolve_pii_policy(tenant_policy)
+
+    dto = SessionPIIPolicyDTO(
+        session_id="",
+        has_override=False,
+        override=None,
+        floor=_pii_policy_to_dict(floor) if floor else None,
+        effective=_pii_policy_to_dict(floor) if floor else None,
+    )
+    return JSONResponse(status_code=200, content=dto.model_dump(mode="json"))
+
+
+@router.get(
     "/v1/sessions/{session_id}/pii-policy",
     response_model=SessionPIIPolicyDTO,
 )
