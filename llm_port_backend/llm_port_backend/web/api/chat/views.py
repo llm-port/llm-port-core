@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, Upload
 from fastapi.responses import JSONResponse, StreamingResponse
 from starlette import status as http_status
 
+from llm_port_backend.db.dao.rbac_dao import RbacDAO
 from llm_port_backend.db.models.users import User
 from llm_port_backend.services.chat.gateway_client import GatewayChatClient
 from llm_port_backend.settings import settings
@@ -436,13 +437,22 @@ async def patch_session_pii_policy(
     session_id: str,
     request: Request,
     _user: User = Depends(require_permission("pii.session", "strengthen")),
+    rbac_dao: RbacDAO = Depends(),
 ) -> JSONResponse:
     """Proxy ``PATCH /v1/sessions/{session_id}/pii-policy`` to the API gateway."""
     jwt = _jwt_from_cookie(request)
     body = await request.json()
+
+    # Soft-check: does the caller also have the 'weaken' privilege?
+    allow_weaken = _user.is_superuser or await rbac_dao.has_permission(
+        _user.id, "pii.session", "weaken",
+    )
+
     client = _client()
     try:
-        data = await client.patch_session_pii_policy(session_id, body, jwt)
+        data = await client.patch_session_pii_policy(
+            session_id, body, jwt, allow_weaken=allow_weaken,
+        )
         return JSONResponse(content=data)
     except Exception as exc:
         return await _proxy_error(exc)

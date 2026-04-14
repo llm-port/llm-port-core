@@ -61,7 +61,7 @@ _DEFAULT_ROLES: dict[str, dict[str, list[str]]] = {
         "modules": ["manage", "read"],
         "chat.debug": ["read"],
         "chat.tool_policy": ["read", "update"],
-        "pii.session": ["read", "strengthen"],
+        "pii.session": ["read", "strengthen", "weaken"],
     },
     "operator": {
         "llm.providers": ["read"],
@@ -93,6 +93,7 @@ _DEFAULT_ROLES: dict[str, dict[str, list[str]]] = {
         "rag.jobs": ["read"],
         "rag.search": ["read"],
         "modules": ["read"],
+        "pii.session": ["read", "strengthen"],
     },
     "viewer": {
         "llm.providers": ["read"],

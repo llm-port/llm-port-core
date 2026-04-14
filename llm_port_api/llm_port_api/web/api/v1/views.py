@@ -490,6 +490,9 @@ async def patch_session_pii_policy(
     body = await _get_json_payload(request)
     patch = SessionPIIPolicyPatchDTO.model_validate(body)
 
+    # The backend proxy sets this header when the caller has pii.session:weaken
+    allow_weaken = request.headers.get("X-PII-Allow-Weaken", "").lower() == "true"
+
     fields = patch.model_dump(exclude_unset=True)
     await dao.upsert_session_pii_override(
         sid, auth.tenant_id, auth.user_id,
@@ -511,6 +514,7 @@ async def patch_session_pii_policy(
             effective = clamp_and_merge(
                 floor, _row_to_session_override(override_row),
                 allow_mode_override=allow_mode,
+                allow_weaken=allow_weaken,
             )
 
     dto = SessionPIIPolicyDTO(

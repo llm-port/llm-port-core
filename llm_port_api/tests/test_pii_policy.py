@@ -435,3 +435,87 @@ class TestResolvePiiPolicyWithOverride:
         override = self._make_mock_override(egress_fail_action="block")
         result = _resolve_pii_policy(policy, session_override=override)
         assert result is None
+
+
+# ── allow_weaken tests ───────────────────────────────────────────
+
+
+class TestClampAndMergeAllowWeaken:
+    """Tests for clamp_and_merge with allow_weaken=True (admin privilege)."""
+
+    def test_can_disable_cloud_egress(self) -> None:
+        """Admin can turn off cloud egress even if floor has it on."""
+        floor = _floor()  # enabled_for_cloud=True
+        override = SessionPIIOverride(egress_enabled_for_cloud=False)
+        result = clamp_and_merge(floor, override, allow_weaken=True)
+        assert result.egress.enabled_for_cloud is False
+
+    def test_can_disable_local_egress(self) -> None:
+        floor = PIIPolicy(
+            egress=PIIEgressPolicy(enabled_for_cloud=True, enabled_for_local=True),
+        )
+        override = SessionPIIOverride(egress_enabled_for_local=False)
+        result = clamp_and_merge(floor, override, allow_weaken=True)
+        assert result.egress.enabled_for_local is False
+
+    def test_can_weaken_fail_action_block_to_allow(self) -> None:
+        floor = PIIPolicy(
+            egress=PIIEgressPolicy(enabled_for_cloud=True, fail_action="block"),
+        )
+        override = SessionPIIOverride(egress_fail_action="allow")
+        result = clamp_and_merge(floor, override, allow_weaken=True)
+        assert result.egress.fail_action == "allow"
+
+    def test_can_disable_telemetry(self) -> None:
+        floor = _floor()  # telemetry.enabled=True
+        override = SessionPIIOverride(telemetry_enabled=False)
+        result = clamp_and_merge(floor, override, allow_weaken=True)
+        assert result.telemetry.enabled is False
+
+    def test_can_lower_threshold(self) -> None:
+        floor = _floor()  # threshold=0.5
+        override = SessionPIIOverride(presidio_threshold=0.1)
+        result = clamp_and_merge(floor, override, allow_weaken=True)
+        assert result.presidio.threshold == 0.1
+
+    def test_can_override_mode_without_allow_mode_flag(self) -> None:
+        """allow_weaken implies mode override capability."""
+        floor = _floor()  # mode="redact"
+        override = SessionPIIOverride(egress_mode="tokenize_reversible")
+        result = clamp_and_merge(floor, override, allow_weaken=True, allow_mode_override=False)
+        assert result.egress.mode == "tokenize_reversible"
+
+    def test_store_raw_still_not_overridable(self) -> None:
+        """store_raw remains non-overridable even with allow_weaken."""
+        floor = _floor()  # store_raw=False
+        result = clamp_and_merge(floor, _empty_override(), allow_weaken=True)
+        assert result.telemetry.store_raw is False
+
+    def test_invalid_fail_action_falls_back_to_floor(self) -> None:
+        floor = _floor()
+        override = SessionPIIOverride(egress_fail_action="yolo")
+        result = clamp_and_merge(floor, override, allow_weaken=True)
+        assert result.egress.fail_action == floor.egress.fail_action
+
+    def test_none_override_fields_inherit_floor(self) -> None:
+        """Unset override fields still inherit from floor."""
+        floor = _floor()
+        result = clamp_and_merge(floor, _empty_override(), allow_weaken=True)
+        assert result.egress.enabled_for_cloud == floor.egress.enabled_for_cloud
+        assert result.telemetry.enabled == floor.telemetry.enabled
+        assert result.presidio.threshold == floor.presidio.threshold
+
+    def test_entities_can_be_subset_of_floor(self) -> None:
+        """With allow_weaken, override entities replace floor entities."""
+        floor = _floor()  # entities=["EMAIL_ADDRESS", "PHONE_NUMBER"]
+        override = SessionPIIOverride(presidio_entities_add=["EMAIL_ADDRESS"])
+        result = clamp_and_merge(floor, override, allow_weaken=True)
+        assert result.presidio.entities == ["EMAIL_ADDRESS"]
+
+    def test_invalid_entity_still_filtered(self) -> None:
+        """Invalid entities are filtered even with allow_weaken."""
+        floor = _floor()
+        override = SessionPIIOverride(presidio_entities_add=["CREDIT_CARD", "FAKE_ENTITY"])
+        result = clamp_and_merge(floor, override, allow_weaken=True)
+        assert "CREDIT_CARD" in result.presidio.entities
+        assert "FAKE_ENTITY" not in result.presidio.entities

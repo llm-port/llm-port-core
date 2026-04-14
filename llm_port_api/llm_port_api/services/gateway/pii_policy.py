@@ -186,37 +186,87 @@ def clamp_and_merge(
     override: SessionPIIOverride,
     *,
     allow_mode_override: bool = False,
+    allow_weaken: bool = False,
 ) -> PIIPolicy:
-    """Merge session override onto floor, clamped so it never weakens."""
+    """Merge session override onto floor, clamped so it never weakens.
+
+    When *allow_weaken* is ``True`` (admin privilege), the override may
+    go below the tenant floor — booleans can be turned off, threshold
+    lowered, and entities removed.  ``store_raw`` remains non-overridable.
+    """
     # Mode: only switch if admin allows and value is valid
     effective_mode = floor.egress.mode
-    if allow_mode_override and override.egress_mode in VALID_EGRESS_MODES:
+    if (allow_mode_override or allow_weaken) and override.egress_mode in VALID_EGRESS_MODES:
         effective_mode = override.egress_mode  # type: ignore[assignment]
 
-    egress = PIIEgressPolicy(
-        enabled_for_cloud=floor.egress.enabled_for_cloud or bool(override.egress_enabled_for_cloud),
-        enabled_for_local=floor.egress.enabled_for_local or bool(override.egress_enabled_for_local),
-        mode=effective_mode,
-        fail_action=max_protective_action(floor.egress.fail_action, override.egress_fail_action),
-    )
+    if allow_weaken:
+        egress = PIIEgressPolicy(
+            enabled_for_cloud=(
+                override.egress_enabled_for_cloud
+                if override.egress_enabled_for_cloud is not None
+                else floor.egress.enabled_for_cloud
+            ),
+            enabled_for_local=(
+                override.egress_enabled_for_local
+                if override.egress_enabled_for_local is not None
+                else floor.egress.enabled_for_local
+            ),
+            mode=effective_mode,
+            fail_action=(
+                override.egress_fail_action
+                if override.egress_fail_action in VALID_FAIL_ACTIONS
+                else floor.egress.fail_action
+            ),
+        )
 
-    telemetry = PIITelemetryPolicy(
-        enabled=floor.telemetry.enabled or bool(override.telemetry_enabled),
-        mode=override.telemetry_mode if override.telemetry_mode is not None else floor.telemetry.mode,
-        store_raw=floor.telemetry.store_raw,  # NOT overridable
-    )
+        telemetry = PIITelemetryPolicy(
+            enabled=(
+                override.telemetry_enabled
+                if override.telemetry_enabled is not None
+                else floor.telemetry.enabled
+            ),
+            mode=override.telemetry_mode if override.telemetry_mode is not None else floor.telemetry.mode,
+            store_raw=floor.telemetry.store_raw,  # NOT overridable
+        )
 
-    # Entities: union of floor + valid additions
-    valid_add = [
-        e for e in (override.presidio_entities_add or [])
-        if e in VALID_ENTITIES
-    ]
-    merged_entities = list(dict.fromkeys(floor.presidio.entities + valid_add))
+        # Entities: use override additions as the full set (may be subset of floor)
+        valid_add = [
+            e for e in (override.presidio_entities_add or [])
+            if e in VALID_ENTITIES
+        ]
+        # If override provides entities, use them; otherwise keep floor
+        merged_entities = valid_add if valid_add else list(floor.presidio.entities)
 
-    presidio = PIIPresidioConfig(
-        language=floor.presidio.language,
-        threshold=max(floor.presidio.threshold, override.presidio_threshold or 0.0),
-        entities=merged_entities,
-    )
+        presidio = PIIPresidioConfig(
+            language=floor.presidio.language,
+            threshold=override.presidio_threshold if override.presidio_threshold is not None else floor.presidio.threshold,
+            entities=merged_entities,
+        )
+    else:
+        egress = PIIEgressPolicy(
+            enabled_for_cloud=floor.egress.enabled_for_cloud or bool(override.egress_enabled_for_cloud),
+            enabled_for_local=floor.egress.enabled_for_local or bool(override.egress_enabled_for_local),
+            mode=effective_mode,
+            fail_action=max_protective_action(floor.egress.fail_action, override.egress_fail_action),
+        )
+
+        telemetry = PIITelemetryPolicy(
+            enabled=floor.telemetry.enabled or bool(override.telemetry_enabled),
+            mode=override.telemetry_mode if override.telemetry_mode is not None else floor.telemetry.mode,
+            store_raw=floor.telemetry.store_raw,  # NOT overridable
+        )
+
+        # Entities: union of floor + valid additions
+        valid_add = [
+            e for e in (override.presidio_entities_add or [])
+            if e in VALID_ENTITIES
+        ]
+        merged_entities = list(dict.fromkeys(floor.presidio.entities + valid_add))
+
+        presidio = PIIPresidioConfig(
+            language=floor.presidio.language,
+            threshold=max(floor.presidio.threshold, override.presidio_threshold or 0.0),
+            entities=merged_entities,
+        )
 
     return PIIPolicy(egress=egress, telemetry=telemetry, presidio=presidio)

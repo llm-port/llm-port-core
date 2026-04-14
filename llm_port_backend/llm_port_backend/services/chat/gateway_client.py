@@ -417,12 +417,16 @@ class GatewayChatClient:
 
     async def patch_session_pii_policy(
         self, session_id: str, body: dict[str, Any], jwt: str,
+        *, allow_weaken: bool = False,
     ) -> Any:
         client = self._ensure_client()
+        headers = self._headers(jwt)
+        if allow_weaken:
+            headers["X-PII-Allow-Weaken"] = "true"
         resp = await client.patch(
             f"/v1/sessions/{session_id}/pii-policy",
             json=body,
-            headers=self._headers(jwt),
+            headers=headers,
         )
         resp.raise_for_status()
         return resp.json()
