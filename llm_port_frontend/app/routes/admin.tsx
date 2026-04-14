@@ -87,6 +87,7 @@ function AdminLayoutInner() {
   const [showModuleRecommend, setShowModuleRecommend] = useState(false);
   const [selectedProfile, setSelectedProfile] =
     useState<OnboardingProfile>("private");
+  const [profileConfirmed, setProfileConfirmed] = useState(false);
   const [prefsLoaded, setPrefsLoaded] = useState(false);
   const [guidedSetupActive, setGuidedSetupActive] = useState(false);
   const [guidedSetupInitialStep, setGuidedSetupInitialStep] = useState(0);
@@ -227,6 +228,7 @@ function AdminLayoutInner() {
         const profile = res.preferences?.profile;
         if (profile) {
           setSelectedProfile(profile as OnboardingProfile);
+          setProfileConfirmed(true);
         } else {
           // No profile yet — show selection dialog
           setShowProfileSelect(true);
@@ -245,6 +247,7 @@ function AdminLayoutInner() {
   /* ── Onboarding handlers ───────────────────────────────────────── */
   async function handleProfileSelect(profile: OnboardingProfile) {
     setSelectedProfile(profile);
+    setProfileConfirmed(true);
     setShowProfileSelect(false);
     try {
       await preferencesApi.update({ profile });
@@ -256,6 +259,7 @@ function AdminLayoutInner() {
 
   function handleProfileSkip() {
     setSelectedProfile("private");
+    setProfileConfirmed(true);
     setShowProfileSelect(false);
     void preferencesApi.update({ profile: "private" }).catch(() => {});
   }
@@ -285,10 +289,15 @@ function AdminLayoutInner() {
 
   async function handleResetGuides() {
     try {
-      await preferencesApi.update({ tour_progress: {} });
+      await preferencesApi.update({ tour_progress: {}, profile: null });
     } catch {
       // best-effort
     }
+    // Reset local state so next guided-setup launch starts from profile selection
+    setSelectedProfile("private");
+    setProfileConfirmed(false);
+    setShowProfileSelect(false);
+    setGuidedSetupActive(false);
   }
 
   async function handleLogout() {
@@ -404,8 +413,12 @@ function AdminLayoutInner() {
           onLanguageChange={setLanguage}
           onProductTourOpen={() => setShowInfoWizard(true)}
           onGuidedSetupOpen={() => {
-            setGuidedSetupInitialStep(0);
-            setGuidedSetupActive(true);
+            if (!profileConfirmed) {
+              setShowProfileSelect(true);
+            } else {
+              setGuidedSetupInitialStep(0);
+              setGuidedSetupActive(true);
+            }
           }}
           onResetGuides={handleResetGuides}
           onPageHelp={() => setPageHelpOpen(true)}

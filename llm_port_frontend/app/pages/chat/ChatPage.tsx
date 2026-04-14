@@ -5,6 +5,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useOutletContext } from "react-router";
+import { useTranslation } from "react-i18next";
 import Box from "@mui/material/Box";
 import Dialog from "@mui/material/Dialog";
 import DialogTitle from "@mui/material/DialogTitle";
@@ -44,6 +45,7 @@ export default function ChatPage() {
   }>();
   const canDebug = permissions.has("*") || permissions.has("chat.debug:read");
   const navigate = useNavigate();
+  const { t } = useTranslation("chat");
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
 
@@ -311,8 +313,8 @@ export default function ChatPage() {
             variant="fullWidth"
             sx={{ borderBottom: 1, borderColor: "divider", flexShrink: 0 }}
           >
-            <Tab label="Tools" />
-            <Tab label="Privacy" />
+            <Tab label={t("tools_tab", "Tools")} />
+            <Tab label={t("privacy_tab", "Privacy")} />
           </Tabs>
 
           {drawerTab === 0 && (

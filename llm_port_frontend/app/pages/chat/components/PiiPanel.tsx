@@ -6,6 +6,7 @@
  * shown as locked (disabled) with a tooltip.
  */
 import { useCallback, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
@@ -47,8 +48,6 @@ interface Props {
 
 // ── Helpers ────────────────────────────────────────────────────
 
-const LOCKED_TOOLTIP = "Enforced by system policy";
-
 // ── Component ──────────────────────────────────────────────────
 
 export default function PiiPanel({
@@ -59,6 +58,7 @@ export default function PiiPanel({
   onClear,
   onRefresh,
 }: Props) {
+  const { t } = useTranslation("chat");
   const [saving, setSaving] = useState(false);
 
   const floor: PIIPolicyConfig | null = policy?.floor ?? null;
@@ -123,7 +123,10 @@ export default function PiiPanel({
     return (
       <Box sx={{ p: 2 }}>
         <Typography variant="body2" color="text.secondary">
-          Select or create a session to view PII settings.
+          {t(
+            "pii_panel.no_session",
+            "Select or create a session to view PII settings.",
+          )}
         </Typography>
       </Box>
     );
@@ -140,18 +143,23 @@ export default function PiiPanel({
         >
           <Typography variant="subtitle2" color="text.secondary">
             {policy.has_override
-              ? "Session override active"
-              : "Using tenant defaults"}
+              ? t("pii_panel.override_active", "Session override active")
+              : t("pii_panel.using_defaults", "Using tenant defaults")}
           </Typography>
           <Stack direction="row" spacing={0.5}>
             {policy.has_override && (
-              <Tooltip title="Clear override (revert to defaults)">
+              <Tooltip
+                title={t(
+                  "pii_panel.clear_override_tooltip",
+                  "Clear override (revert to defaults)",
+                )}
+              >
                 <IconButton size="small" onClick={onClear} disabled={saving}>
                   <RestartAltIcon fontSize="small" />
                 </IconButton>
               </Tooltip>
             )}
-            <Tooltip title="Refresh">
+            <Tooltip title={t("pii_panel.refresh", "Refresh")}>
               <IconButton size="small" onClick={onRefresh} disabled={loading}>
                 <RefreshIcon fontSize="small" />
               </IconButton>
@@ -169,11 +177,15 @@ export default function PiiPanel({
         {/* Egress section */}
         <Paper variant="outlined" sx={{ p: 1.5 }}>
           <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
-            Egress Protection
+            {t("pii_panel.egress_protection", "Egress Protection")}
           </Typography>
           <Stack spacing={1}>
             <Tooltip
-              title={floorEgressCloud ? LOCKED_TOOLTIP : ""}
+              title={
+                floorEgressCloud
+                  ? t("pii_panel.locked_tooltip", "Enforced by system policy")
+                  : ""
+              }
               placement="left"
             >
               <FormControlLabel
@@ -189,7 +201,9 @@ export default function PiiPanel({
                 }
                 label={
                   <Stack direction="row" spacing={0.5} alignItems="center">
-                    <Typography variant="body2">Cloud egress</Typography>
+                    <Typography variant="body2">
+                      {t("pii_panel.cloud_egress", "Cloud egress")}
+                    </Typography>
                     {floorEgressCloud && (
                       <LockIcon sx={{ fontSize: 14, color: "text.disabled" }} />
                     )}
@@ -198,7 +212,11 @@ export default function PiiPanel({
               />
             </Tooltip>
             <Tooltip
-              title={floorEgressLocal ? LOCKED_TOOLTIP : ""}
+              title={
+                floorEgressLocal
+                  ? t("pii_panel.locked_tooltip", "Enforced by system policy")
+                  : ""
+              }
               placement="left"
             >
               <FormControlLabel
@@ -214,7 +232,9 @@ export default function PiiPanel({
                 }
                 label={
                   <Stack direction="row" spacing={0.5} alignItems="center">
-                    <Typography variant="body2">Local egress</Typography>
+                    <Typography variant="body2">
+                      {t("pii_panel.local_egress", "Local egress")}
+                    </Typography>
                     {floorEgressLocal && (
                       <LockIcon sx={{ fontSize: 14, color: "text.disabled" }} />
                     )}
@@ -224,9 +244,9 @@ export default function PiiPanel({
             </Tooltip>
             <Stack direction="row" spacing={1}>
               <FormControl size="small" fullWidth>
-                <InputLabel>Mode</InputLabel>
+                <InputLabel>{t("common:mode", "Mode")}</InputLabel>
                 <Select
-                  label="Mode"
+                  label={t("common:mode", "Mode")}
                   value={egressMode}
                   onChange={(e) =>
                     save({
@@ -237,16 +257,20 @@ export default function PiiPanel({
                   }
                   disabled={saving}
                 >
-                  <MenuItem value="redact">redact</MenuItem>
+                  <MenuItem value="redact">
+                    {t("pii_panel.redact", "redact")}
+                  </MenuItem>
                   <MenuItem value="tokenize_reversible">
-                    tokenize_reversible
+                    {t("pii_panel.tokenize_reversible", "tokenize_reversible")}
                   </MenuItem>
                 </Select>
               </FormControl>
               <FormControl size="small" fullWidth>
-                <InputLabel>Fail Action</InputLabel>
+                <InputLabel>
+                  {t("pii_panel.fail_action", "Fail Action")}
+                </InputLabel>
                 <Select
-                  label="Fail Action"
+                  label={t("pii_panel.fail_action", "Fail Action")}
                   value={failAction}
                   onChange={(e) =>
                     save({
@@ -258,10 +282,14 @@ export default function PiiPanel({
                   }
                   disabled={saving}
                 >
-                  <MenuItem value="block">block</MenuItem>
-                  <MenuItem value="allow">allow</MenuItem>
+                  <MenuItem value="block">
+                    {t("pii_panel.block", "block")}
+                  </MenuItem>
+                  <MenuItem value="allow">
+                    {t("pii_panel.allow", "allow")}
+                  </MenuItem>
                   <MenuItem value="fallback_to_local">
-                    fallback_to_local
+                    {t("pii_panel.fallback_to_local", "fallback_to_local")}
                   </MenuItem>
                 </Select>
               </FormControl>
@@ -272,10 +300,14 @@ export default function PiiPanel({
         {/* Telemetry section */}
         <Paper variant="outlined" sx={{ p: 1.5 }}>
           <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
-            Telemetry
+            {t("pii_panel.telemetry", "Telemetry")}
           </Typography>
           <Tooltip
-            title={floorTelemetry ? LOCKED_TOOLTIP : ""}
+            title={
+              floorTelemetry
+                ? t("pii_panel.locked_tooltip", "Enforced by system policy")
+                : ""
+            }
             placement="left"
           >
             <FormControlLabel
@@ -291,7 +323,9 @@ export default function PiiPanel({
               }
               label={
                 <Stack direction="row" spacing={0.5} alignItems="center">
-                  <Typography variant="body2">Sanitize telemetry</Typography>
+                  <Typography variant="body2">
+                    {t("pii_panel.sanitize_telemetry", "Sanitize telemetry")}
+                  </Typography>
                   {floorTelemetry && (
                     <LockIcon sx={{ fontSize: 14, color: "text.disabled" }} />
                   )}
@@ -304,13 +338,15 @@ export default function PiiPanel({
         {/* Presidio section */}
         <Paper variant="outlined" sx={{ p: 1.5 }}>
           <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
-            Detection Settings
+            {t("pii_panel.detection_settings", "Detection Settings")}
           </Typography>
           <Stack spacing={1.5}>
             {/* Threshold slider */}
             <Box>
               <Typography variant="body2" color="text.secondary" gutterBottom>
-                Score Threshold: {threshold.toFixed(2)}
+                {t("pii_panel.score_threshold", "Score Threshold: {{value}}", {
+                  value: threshold.toFixed(2),
+                })}
                 {floorThreshold > 0 && (
                   <Typography
                     component="span"
@@ -318,7 +354,9 @@ export default function PiiPanel({
                     color="text.disabled"
                     sx={{ ml: 1 }}
                   >
-                    (floor: {floorThreshold.toFixed(2)})
+                    {t("pii_panel.floor_value", "(floor: {{value}})", {
+                      value: floorThreshold.toFixed(2),
+                    })}
                   </Typography>
                 )}
               </Typography>
@@ -339,7 +377,9 @@ export default function PiiPanel({
             {/* Entity chips */}
             <Box>
               <Typography variant="body2" color="text.secondary" gutterBottom>
-                Entities ({allEntities.length})
+                {t("pii_panel.entities_count", "Entities ({{count}})", {
+                  count: allEntities.length,
+                })}
               </Typography>
               <Stack direction="row" flexWrap="wrap" useFlexGap spacing={0.5}>
                 {floorEntities.map((entity) => (
@@ -369,7 +409,7 @@ export default function PiiPanel({
                 ))}
                 {allEntities.length === 0 && (
                   <Typography variant="caption" color="text.disabled">
-                    No entities configured.
+                    {t("pii_panel.no_entities", "No entities configured.")}
                   </Typography>
                 )}
               </Stack>
@@ -396,7 +436,7 @@ export default function PiiPanel({
             onClick={onClear}
             disabled={saving}
           >
-            Clear Session Override
+            {t("pii_panel.clear_override", "Clear Session Override")}
           </Button>
         )}
       </Stack>
@@ -440,6 +480,7 @@ function AddEntityControl({
   disabled: boolean;
   onAdd: (entity: string) => void;
 }) {
+  const { t } = useTranslation("chat");
   const [value, setValue] = useState("");
   const available = COMMON_ENTITIES.filter(
     (e) => !existingEntities.includes(e),
@@ -450,9 +491,9 @@ function AddEntityControl({
   return (
     <Stack direction="row" spacing={1} alignItems="center">
       <FormControl size="small" fullWidth>
-        <InputLabel>Add entity</InputLabel>
+        <InputLabel>{t("pii_panel.add_entity", "Add entity")}</InputLabel>
         <Select
-          label="Add entity"
+          label={t("pii_panel.add_entity", "Add entity")}
           value={value}
           onChange={(e) => setValue(e.target.value)}
           disabled={disabled}
@@ -475,7 +516,7 @@ function AddEntityControl({
           }
         }}
       >
-        Add
+        {t("common:add", "Add")}
       </Button>
     </Stack>
   );

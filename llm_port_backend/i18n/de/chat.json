@@ -33,5 +33,37 @@
   "unknown_model": "Unbekanntes Modell",
   "error_select_model": "Bitte wählen Sie ein Modell aus, bevor Sie eine Nachricht senden.",
   "error_no_response": "Keine Antwort vom Modell erhalten.",
-  "error_last_message_no_response": "Für die letzte Nachricht wurde keine Antwort erhalten. Sie können es erneut versuchen."
+  "error_last_message_no_response": "Für die letzte Nachricht wurde keine Antwort erhalten. Sie können es erneut versuchen.",
+  "tools_tab": "Werkzeuge",
+  "privacy_tab": "Datenschutz",
+  "tools_panel": {
+    "title": "Werkzeuge",
+    "refresh": "Aktualisieren",
+    "empty": "Keine Werkzeuge verfügbar. Überprüfen Sie, ob MCP-Dienste konfiguriert und aktiv sind."
+  },
+  "pii_panel": {
+    "no_session": "Wählen oder erstellen Sie eine Sitzung, um PII-Einstellungen anzuzeigen.",
+    "locked_tooltip": "Durch Systemrichtlinie erzwungen",
+    "override_active": "Sitzungsüberschreibung aktiv",
+    "using_defaults": "Mandanten-Standardwerte werden verwendet",
+    "clear_override_tooltip": "Überschreibung löschen (auf Standards zurücksetzen)",
+    "clear_override": "Sitzungsüberschreibung löschen",
+    "egress_protection": "Ausgangsschutz",
+    "cloud_egress": "Cloud-Ausgang",
+    "local_egress": "Lokaler Ausgang",
+    "fail_action": "Fehleraktion",
+    "redact": "Schwärzen",
+    "tokenize_reversible": "Tokenisierung (reversibel)",
+    "block": "Blockieren",
+    "allow": "Erlauben",
+    "fallback_to_local": "Fallback auf Lokal",
+    "telemetry": "Telemetrie",
+    "sanitize_telemetry": "Telemetrie bereinigen",
+    "detection_settings": "Erkennungseinstellungen",
+    "score_threshold": "Schwellenwert: {{value}}",
+    "floor_value": "(Minimum: {{value}})",
+    "entities_count": "Entitäten ({{count}})",
+    "no_entities": "Keine Entitäten konfiguriert.",
+    "add_entity": "Entität hinzufügen"
+  }
 }

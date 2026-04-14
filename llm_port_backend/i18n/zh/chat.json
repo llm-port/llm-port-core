@@ -33,5 +33,37 @@
   "unknown_model": "未知模型",
   "error_select_model": "发送消息前请先选择一个模型。",
   "error_no_response": "未收到模型响应。",
-  "error_last_message_no_response": "上一条消息未收到响应。你可以重试。"
+  "error_last_message_no_response": "上一条消息未收到响应。你可以重试。",
+  "tools_tab": "工具",
+  "privacy_tab": "隐私",
+  "tools_panel": {
+    "title": "工具",
+    "refresh": "刷新",
+    "empty": "没有可用的工具。请检查 MCP 服务是否已配置并正在运行。"
+  },
+  "pii_panel": {
+    "no_session": "选择或创建一个会话以查看 PII 设置。",
+    "locked_tooltip": "由系统策略强制执行",
+    "override_active": "会话覆盖已激活",
+    "using_defaults": "使用租户默认值",
+    "clear_override_tooltip": "清除覆盖（恢复默认值）",
+    "clear_override": "清除会话覆盖",
+    "egress_protection": "出口保护",
+    "cloud_egress": "云端出口",
+    "local_egress": "本地出口",
+    "fail_action": "失败操作",
+    "redact": "脱敏",
+    "tokenize_reversible": "可逆令牌化",
+    "block": "阻止",
+    "allow": "允许",
+    "fallback_to_local": "回退到本地",
+    "telemetry": "遥测",
+    "sanitize_telemetry": "清洗遥测数据",
+    "detection_settings": "检测设置",
+    "score_threshold": "分数阈值：{{value}}",
+    "floor_value": "（下限：{{value}}）",
+    "entities_count": "实体 ({{count}})",
+    "no_entities": "未配置实体。",
+    "add_entity": "添加实体"
+  }
 }

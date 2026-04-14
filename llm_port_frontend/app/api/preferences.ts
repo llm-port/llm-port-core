@@ -45,8 +45,8 @@ export interface TourProgress {
 }
 
 export interface UserPreferences {
-  profile?: "private" | "team" | "enterprise";
-  tour_progress?: Record<string, TourProgress>;
+  profile?: "private" | "team" | "enterprise" | null;
+  tour_progress?: Record<string, TourProgress> | null;
 }
 
 export interface UserPreferencesResponse {

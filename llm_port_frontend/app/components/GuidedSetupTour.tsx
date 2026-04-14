@@ -234,6 +234,35 @@ export function GuidedSetupTour({
     }
   }, [run, stepIndex, steps]);
 
+  // ── Global cleanup: remove tour artifacts when tour stops or unmounts ──
+  // Depends on `run` so cleanup fires immediately when the tour ends,
+  // not only on component unmount (which may never happen).
+  useEffect(() => {
+    if (!run) {
+      document.querySelectorAll(".tour-active-target").forEach((el) => {
+        el.classList.remove("tour-active-target");
+      });
+      // Give Joyride one frame to process its own close, then sweep
+      requestAnimationFrame(() => {
+        document
+          .querySelectorAll(
+            "#react-joyride-portal, .react-joyride__overlay, .react-joyride__spotlight, .react-joyride__floater",
+          )
+          .forEach((el) => el.remove());
+      });
+    }
+    return () => {
+      document.querySelectorAll(".tour-active-target").forEach((el) => {
+        el.classList.remove("tour-active-target");
+      });
+      document
+        .querySelectorAll(
+          "#react-joyride-portal, .react-joyride__overlay, .react-joyride__spotlight, .react-joyride__floater",
+        )
+        .forEach((el) => el.remove());
+    };
+  }, [run]);
+
   function handleEvent(data: EventData, controls: Controls) {
     const { action, index, status, type } = data;
 
@@ -243,6 +272,10 @@ export function GuidedSetupTour({
         void completeTour(tourId, 1);
       }
       controls.close();
+      // Imperative cleanup: adorner + overlay may linger after close()
+      document.querySelectorAll(".tour-active-target").forEach((el) => {
+        el.classList.remove("tour-active-target");
+      });
       onFinish();
       return;
     }

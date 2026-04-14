@@ -33,5 +33,37 @@
   "unknown_model": "Unknown model",
   "error_select_model": "Please select a model before sending a message.",
   "error_no_response": "No response received from the model.",
-  "error_last_message_no_response": "The last message did not receive a response. You can retry."
+  "error_last_message_no_response": "The last message did not receive a response. You can retry.",
+  "tools_tab": "Tools",
+  "privacy_tab": "Privacy",
+  "tools_panel": {
+    "title": "Tools",
+    "refresh": "Refresh",
+    "empty": "No tools available. Check that MCP services are configured and running."
+  },
+  "pii_panel": {
+    "no_session": "Select or create a session to view PII settings.",
+    "locked_tooltip": "Enforced by system policy",
+    "override_active": "Session override active",
+    "using_defaults": "Using tenant defaults",
+    "clear_override_tooltip": "Clear override (revert to defaults)",
+    "clear_override": "Clear Session Override",
+    "egress_protection": "Egress Protection",
+    "cloud_egress": "Cloud egress",
+    "local_egress": "Local egress",
+    "fail_action": "Fail Action",
+    "redact": "redact",
+    "tokenize_reversible": "tokenize_reversible",
+    "block": "block",
+    "allow": "allow",
+    "fallback_to_local": "fallback_to_local",
+    "telemetry": "Telemetry",
+    "sanitize_telemetry": "Sanitize telemetry",
+    "detection_settings": "Detection Settings",
+    "score_threshold": "Score Threshold: {{value}}",
+    "floor_value": "(floor: {{value}})",
+    "entities_count": "Entities ({{count}})",
+    "no_entities": "No entities configured.",
+    "add_entity": "Add entity"
+  }
 }

@@ -33,5 +33,37 @@
   "unknown_model": "Modelo desconocido",
   "error_select_model": "Selecciona un modelo antes de enviar un mensaje.",
   "error_no_response": "No se recibió respuesta del modelo.",
-  "error_last_message_no_response": "El último mensaje no recibió respuesta. Puedes reintentar."
+  "error_last_message_no_response": "El último mensaje no recibió respuesta. Puedes reintentar.",
+  "tools_tab": "Herramientas",
+  "privacy_tab": "Privacidad",
+  "tools_panel": {
+    "title": "Herramientas",
+    "refresh": "Actualizar",
+    "empty": "No hay herramientas disponibles. Verifique que los servicios MCP estén configurados y activos."
+  },
+  "pii_panel": {
+    "no_session": "Seleccione o cree una sesión para ver la configuración de PII.",
+    "locked_tooltip": "Impuesto por la política del sistema",
+    "override_active": "Anulación de sesión activa",
+    "using_defaults": "Usando valores predeterminados del inquilino",
+    "clear_override_tooltip": "Eliminar anulación (volver a los valores predeterminados)",
+    "clear_override": "Eliminar anulación de sesión",
+    "egress_protection": "Protección de salida",
+    "cloud_egress": "Salida a la nube",
+    "local_egress": "Salida local",
+    "fail_action": "Acción en caso de fallo",
+    "redact": "Redactar",
+    "tokenize_reversible": "Tokenización (reversible)",
+    "block": "Bloquear",
+    "allow": "Permitir",
+    "fallback_to_local": "Respaldo a local",
+    "telemetry": "Telemetría",
+    "sanitize_telemetry": "Sanitizar telemetría",
+    "detection_settings": "Configuración de detección",
+    "score_threshold": "Umbral de puntuación: {{value}}",
+    "floor_value": "(mínimo: {{value}})",
+    "entities_count": "Entidades ({{count}})",
+    "no_entities": "No hay entidades configuradas.",
+    "add_entity": "Agregar entidad"
+  }
 }

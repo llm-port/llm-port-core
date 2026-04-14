@@ -33,5 +33,37 @@
   "unknown_model": "Modèle inconnu",
   "error_select_model": "Veuillez sélectionner un modèle avant d’envoyer un message.",
   "error_no_response": "Aucune réponse reçue du modèle.",
-  "error_last_message_no_response": "Le dernier message n’a pas reçu de réponse. Vous pouvez réessayer."
+  "error_last_message_no_response": "Le dernier message n'a pas reçu de réponse. Vous pouvez réessayer.",
+  "tools_tab": "Outils",
+  "privacy_tab": "Confidentialité",
+  "tools_panel": {
+    "title": "Outils",
+    "refresh": "Actualiser",
+    "empty": "Aucun outil disponible. Vérifiez que les services MCP sont configurés et actifs."
+  },
+  "pii_panel": {
+    "no_session": "Sélectionnez ou créez une session pour afficher les paramètres PII.",
+    "locked_tooltip": "Imposé par la politique système",
+    "override_active": "Remplacement de session actif",
+    "using_defaults": "Utilisation des valeurs par défaut du locataire",
+    "clear_override_tooltip": "Supprimer le remplacement (revenir aux valeurs par défaut)",
+    "clear_override": "Supprimer le remplacement de session",
+    "egress_protection": "Protection en sortie",
+    "cloud_egress": "Sortie cloud",
+    "local_egress": "Sortie locale",
+    "fail_action": "Action en cas d'échec",
+    "redact": "Masquer",
+    "tokenize_reversible": "Tokenisation (réversible)",
+    "block": "Bloquer",
+    "allow": "Autoriser",
+    "fallback_to_local": "Repli vers local",
+    "telemetry": "Télémétrie",
+    "sanitize_telemetry": "Assainir la télémétrie",
+    "detection_settings": "Paramètres de détection",
+    "score_threshold": "Seuil de score : {{value}}",
+    "floor_value": "(plancher : {{value}})",
+    "entities_count": "Entités ({{count}})",
+    "no_entities": "Aucune entité configurée.",
+    "add_entity": "Ajouter une entité"
+  }
 }
