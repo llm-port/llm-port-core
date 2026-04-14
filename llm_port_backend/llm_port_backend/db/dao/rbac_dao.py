@@ -61,6 +61,7 @@ _DEFAULT_ROLES: dict[str, dict[str, list[str]]] = {
         "modules": ["manage", "read"],
         "chat.debug": ["read"],
         "chat.tool_policy": ["read", "update"],
+        "pii.session": ["read", "strengthen"],
     },
     "operator": {
         "llm.providers": ["read"],
@@ -151,6 +152,7 @@ _DEFAULT_ROLES: dict[str, dict[str, list[str]]] = {
         "chat.projects": ["create", "read", "update", "delete"],
         "chat.sessions": ["create", "read", "update", "delete"],
         "chat.tool_policy": ["read", "update"],
+        "pii.session": ["read", "strengthen"],
         "chat.attachments": ["create", "read", "delete"],
         "rag.runtime": ["read"],
         "rag.containers": ["create", "read", "update", "delete"],

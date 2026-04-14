@@ -341,3 +341,97 @@ class TestClampAndMerge:
         result = clamp_and_merge(floor, override)
         assert "CREDIT_CARD" in result.presidio.entities
         assert "TOTALLY_FAKE" not in result.presidio.entities
+
+
+# ── _resolve_pii_policy integration tests ────────────────────────
+
+
+class TestResolvePiiPolicyWithOverride:
+    """Tests for _resolve_pii_policy accepting an optional session override row."""
+
+    @staticmethod
+    def _make_mock_policy(pii_config: dict | None = None):  # noqa: ANN205
+        """Create a mock TenantLLMPolicy-like object."""
+
+        class _Stub:
+            pass
+
+        stub = _Stub()
+        stub.pii_config = pii_config  # type: ignore[attr-defined]
+        return stub
+
+    @staticmethod
+    def _make_mock_override(**kwargs):  # noqa: ANN003, ANN205
+        """Create a mock SessionPIIOverrideRow-like object."""
+
+        class _Row:
+            pii_enabled = None
+            egress_enabled_for_cloud = None
+            egress_enabled_for_local = None
+            egress_mode = None
+            egress_fail_action = None
+            telemetry_enabled = None
+            telemetry_mode = None
+            presidio_threshold = None
+            presidio_entities_add = None
+
+        row = _Row()
+        for k, v in kwargs.items():
+            setattr(row, k, v)
+        return row
+
+    def test_no_override_returns_floor(self) -> None:
+        from llm_port_api.services.gateway.service import _resolve_pii_policy
+
+        policy = self._make_mock_policy({
+            "egress": {"enabled_for_cloud": True, "fail_action": "allow"},
+            "presidio": {"threshold": 0.5, "entities": ["EMAIL_ADDRESS"]},
+        })
+        result = _resolve_pii_policy(policy, session_override=None)
+        assert result is not None
+        assert result.egress.fail_action == "allow"
+
+    def test_override_clamps_fail_action(self) -> None:
+        from llm_port_api.services.gateway.service import _resolve_pii_policy
+
+        policy = self._make_mock_policy({
+            "egress": {"enabled_for_cloud": True, "fail_action": "allow"},
+            "presidio": {"threshold": 0.5, "entities": ["EMAIL_ADDRESS"]},
+        })
+        override = self._make_mock_override(egress_fail_action="block")
+        result = _resolve_pii_policy(policy, session_override=override)
+        assert result is not None
+        assert result.egress.fail_action == "block"
+
+    def test_override_cannot_weaken_fail_action(self) -> None:
+        from llm_port_api.services.gateway.service import _resolve_pii_policy
+
+        policy = self._make_mock_policy({
+            "egress": {"enabled_for_cloud": True, "fail_action": "block"},
+            "presidio": {"threshold": 0.5, "entities": ["EMAIL_ADDRESS"]},
+        })
+        override = self._make_mock_override(egress_fail_action="allow")
+        result = _resolve_pii_policy(policy, session_override=override)
+        assert result is not None
+        # Cannot weaken — floor block stays
+        assert result.egress.fail_action == "block"
+
+    def test_override_raises_threshold(self) -> None:
+        from llm_port_api.services.gateway.service import _resolve_pii_policy
+
+        policy = self._make_mock_policy({
+            "egress": {"enabled_for_cloud": True, "fail_action": "allow"},
+            "presidio": {"threshold": 0.5, "entities": ["EMAIL_ADDRESS"]},
+        })
+        override = self._make_mock_override(presidio_threshold=0.9)
+        result = _resolve_pii_policy(policy, session_override=override)
+        assert result is not None
+        assert result.presidio.threshold == 0.9
+
+    def test_no_pii_config_returns_none(self) -> None:
+        from llm_port_api.services.gateway.service import _resolve_pii_policy
+
+        policy = self._make_mock_policy(pii_config=None)
+        override = self._make_mock_override(egress_fail_action="block")
+        result = _resolve_pii_policy(policy, session_override=override)
+        assert result is None

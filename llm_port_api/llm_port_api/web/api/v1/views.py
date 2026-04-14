@@ -27,6 +27,9 @@ from llm_port_api.services.gateway.routing import RouterService
 from llm_port_api.services.gateway.schemas import (
     ChatCompletionRequest,
     EmbeddingsRequest,
+    SessionPIIPolicyDTO,
+    SessionPIIPolicyPatchDTO,
+    SessionPIIOverrideDTO,
     SessionToolPolicyDTO,
     SessionToolPolicyPatchDTO,
     ToolAvailabilityResponse,
@@ -381,6 +384,159 @@ async def patch_session_tool_policy(
         effective_catalog_version=policy.catalog_version,
     )
     return JSONResponse(status_code=200, content=dto.model_dump(mode="json"))
+
+
+# ── Session PII Policy ──────────────────────────────────────────
+
+
+def _pii_policy_to_dict(policy: Any) -> dict[str, Any]:
+    """Serialise a PIIPolicy dataclass to a plain dict."""
+    from dataclasses import asdict  # noqa: PLC0415
+
+    return asdict(policy) if policy else {}
+
+
+def _override_row_to_dto(row: Any) -> SessionPIIOverrideDTO:
+    return SessionPIIOverrideDTO(
+        pii_enabled=row.pii_enabled,
+        egress_enabled_for_cloud=row.egress_enabled_for_cloud,
+        egress_enabled_for_local=row.egress_enabled_for_local,
+        egress_mode=row.egress_mode,
+        egress_fail_action=row.egress_fail_action,
+        telemetry_enabled=row.telemetry_enabled,
+        telemetry_mode=row.telemetry_mode,
+        presidio_threshold=row.presidio_threshold,
+        presidio_entities_add=row.presidio_entities_add,
+    )
+
+
+def _row_to_session_override(row: Any) -> "SessionPIIOverride":
+    from llm_port_api.services.gateway.pii_policy import SessionPIIOverride  # noqa: PLC0415
+
+    return SessionPIIOverride(
+        pii_enabled=row.pii_enabled,
+        egress_enabled_for_cloud=row.egress_enabled_for_cloud,
+        egress_enabled_for_local=row.egress_enabled_for_local,
+        egress_mode=row.egress_mode,
+        egress_fail_action=row.egress_fail_action,
+        telemetry_enabled=row.telemetry_enabled,
+        telemetry_mode=row.telemetry_mode,
+        presidio_threshold=row.presidio_threshold,
+        presidio_entities_add=row.presidio_entities_add,
+    )
+
+
+@router.get(
+    "/v1/sessions/{session_id}/pii-policy",
+    response_model=SessionPIIPolicyDTO,
+)
+async def get_session_pii_policy(
+    session_id: str,
+    auth: AuthContext = Depends(get_auth_context),
+    dao: GatewayDAO = Depends(),
+) -> JSONResponse:
+    """Return the session PII policy: floor, override, and effective."""
+    from llm_port_api.services.gateway.pii_policy import clamp_and_merge  # noqa: PLC0415
+    from llm_port_api.services.gateway.service import _resolve_pii_policy  # noqa: PLC0415
+
+    sid = _parse_session_id(session_id)
+    await _require_session_owner(sid, auth, dao)
+
+    # Floor policy from tenant
+    tenant_policy = await dao.get_tenant_policy(auth.tenant_id)
+    floor = _resolve_pii_policy(tenant_policy)
+    allow_mode = bool(getattr(tenant_policy, "allow_mode_override", False)) if tenant_policy else False
+
+    # Session override
+    override_row = await dao.get_session_pii_override(sid, auth.tenant_id, auth.user_id)
+    has_override = override_row is not None
+
+    effective = floor
+    override_dto = None
+    if override_row is not None:
+        override_dto = _override_row_to_dto(override_row)
+        if floor is not None:
+            effective = clamp_and_merge(
+                floor, _row_to_session_override(override_row),
+                allow_mode_override=allow_mode,
+            )
+
+    dto = SessionPIIPolicyDTO(
+        session_id=session_id,
+        has_override=has_override,
+        override=override_dto,
+        floor=_pii_policy_to_dict(floor) if floor else None,
+        effective=_pii_policy_to_dict(effective) if effective else None,
+    )
+    return JSONResponse(status_code=200, content=dto.model_dump(mode="json"))
+
+
+@router.patch(
+    "/v1/sessions/{session_id}/pii-policy",
+    response_model=SessionPIIPolicyDTO,
+)
+async def patch_session_pii_policy(
+    session_id: str,
+    request: Request,
+    auth: AuthContext = Depends(get_auth_context),
+    dao: GatewayDAO = Depends(),
+) -> JSONResponse:
+    """Create or update a session PII override."""
+    from llm_port_api.services.gateway.pii_policy import clamp_and_merge  # noqa: PLC0415
+    from llm_port_api.services.gateway.service import _resolve_pii_policy  # noqa: PLC0415
+
+    sid = _parse_session_id(session_id)
+    await _require_session_owner(sid, auth, dao)
+    body = await _get_json_payload(request)
+    patch = SessionPIIPolicyPatchDTO.model_validate(body)
+
+    fields = patch.model_dump(exclude_unset=True)
+    await dao.upsert_session_pii_override(
+        sid, auth.tenant_id, auth.user_id,
+        updated_by=auth.user_id,
+        **fields,
+    )
+
+    # Re-read to build response
+    tenant_policy = await dao.get_tenant_policy(auth.tenant_id)
+    floor = _resolve_pii_policy(tenant_policy)
+    allow_mode = bool(getattr(tenant_policy, "allow_mode_override", False)) if tenant_policy else False
+    override_row = await dao.get_session_pii_override(sid, auth.tenant_id, auth.user_id)
+
+    effective = floor
+    override_dto = None
+    if override_row is not None:
+        override_dto = _override_row_to_dto(override_row)
+        if floor is not None:
+            effective = clamp_and_merge(
+                floor, _row_to_session_override(override_row),
+                allow_mode_override=allow_mode,
+            )
+
+    dto = SessionPIIPolicyDTO(
+        session_id=session_id,
+        has_override=True,
+        override=override_dto,
+        floor=_pii_policy_to_dict(floor) if floor else None,
+        effective=_pii_policy_to_dict(effective) if effective else None,
+    )
+    return JSONResponse(status_code=200, content=dto.model_dump(mode="json"))
+
+
+@router.delete(
+    "/v1/sessions/{session_id}/pii-policy",
+    status_code=204,
+)
+async def delete_session_pii_policy(
+    session_id: str,
+    auth: AuthContext = Depends(get_auth_context),
+    dao: GatewayDAO = Depends(),
+) -> Response:
+    """Remove the session PII override, reverting to floor policy."""
+    sid = _parse_session_id(session_id)
+    await _require_session_owner(sid, auth, dao)
+    await dao.delete_session_pii_override(sid, auth.tenant_id, auth.user_id)
+    return Response(status_code=204)
 
 
 # ── Client WebSocket ─────────────────────────────────────────────

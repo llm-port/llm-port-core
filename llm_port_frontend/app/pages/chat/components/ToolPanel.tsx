@@ -103,8 +103,8 @@ function buildGroups(tools: ToolAvailabilityEntry[]): ToolGroup[] {
 
 /** Short display name: last segment of the dotted tool_id. */
 function toolShortName(tool: ToolAvailabilityEntry): string {
-  if (tool.display_name) return tool.display_name;
-  const parts = tool.tool_id.split(".");
+  const id = tool.display_name ?? tool.tool_id;
+  const parts = id.split(".");
   return parts[parts.length - 1];
 }
 

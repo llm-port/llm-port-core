@@ -15,6 +15,8 @@ import useMediaQuery from "@mui/material/useMediaQuery";
 import { useTheme } from "@mui/material/styles";
 
 import Drawer from "@mui/material/Drawer";
+import Tab from "@mui/material/Tab";
+import Tabs from "@mui/material/Tabs";
 import { chatApi, type ChatSession, type ChatProject } from "~/api/chatClient";
 import { auth, type AuthUser } from "~/api/auth";
 import { listLanguages, type UiLanguage } from "~/api/i18n";
@@ -26,7 +28,9 @@ import ChatWelcome from "./components/ChatWelcome";
 import ChatWindow from "./components/ChatWindow";
 import ExecutionModeSelector from "./components/ExecutionModeSelector";
 import ToolPanel from "./components/ToolPanel";
+import PiiPanel from "./components/PiiPanel";
 import { useToolPolicy } from "./hooks/useToolPolicy";
+import { useSessionPiiPolicy } from "./hooks/useSessionPiiPolicy";
 import ProfilePage from "../admin/ProfilePage";
 
 const SIDEBAR_WIDTH = 260;
@@ -52,7 +56,16 @@ export default function ChatPage() {
   const [language, setLanguage] = useState<string>("en");
   const [profileOpen, setProfileOpen] = useState(false);
   const [toolDrawerOpen, setToolDrawerOpen] = useState(false);
+  const [drawerTab, setDrawerTab] = useState(0);
   const { executionMode, setExecutionMode } = useToolPolicy(sessionId ?? null);
+  const {
+    policy: piiPolicy,
+    loading: piiLoading,
+    error: piiError,
+    refresh: piiRefresh,
+    updateOverride: piiUpdate,
+    clearOverride: piiClear,
+  } = useSessionPiiPolicy(sessionId ?? null);
   const [localToolOverrides, setLocalToolOverrides] = useState<
     Map<string, boolean>
   >(new Map());
@@ -279,24 +292,59 @@ export default function ChatPage() {
           anchor="right"
           open={toolDrawerOpen}
           onClose={() => setToolDrawerOpen(false)}
-          variant="persistent"
+          variant="temporary"
+          ModalProps={{ keepMounted: true }}
           PaperProps={{
-            sx: { width: 320, mt: "56px", height: "calc(100% - 56px)" },
+            sx: {
+              width: 320,
+              mt: "56px",
+              height: "calc(100% - 56px)",
+              display: "flex",
+              flexDirection: "column",
+            },
           }}
+          slotProps={{ backdrop: { sx: { backgroundColor: "transparent" } } }}
         >
-          <Box sx={{ p: 1.5 }}>
-            <ExecutionModeSelector
-              sessionId={sessionId ?? null}
-              value={executionMode}
-              onChange={setExecutionMode}
-            />
-          </Box>
-          <ToolPanel
-            sessionId={sessionId ?? null}
-            executionMode={executionMode}
-            localOverrides={localToolOverrides}
-            onLocalOverride={handleLocalToolOverride}
-          />
+          <Tabs
+            value={drawerTab}
+            onChange={(_, v) => setDrawerTab(v)}
+            variant="fullWidth"
+            sx={{ borderBottom: 1, borderColor: "divider", flexShrink: 0 }}
+          >
+            <Tab label="Tools" />
+            <Tab label="Privacy" />
+          </Tabs>
+
+          {drawerTab === 0 && (
+            <Box sx={{ flex: 1, overflow: "auto" }}>
+              <Box sx={{ p: 1.5 }}>
+                <ExecutionModeSelector
+                  sessionId={sessionId ?? null}
+                  value={executionMode}
+                  onChange={setExecutionMode}
+                />
+              </Box>
+              <ToolPanel
+                sessionId={sessionId ?? null}
+                executionMode={executionMode}
+                localOverrides={localToolOverrides}
+                onLocalOverride={handleLocalToolOverride}
+              />
+            </Box>
+          )}
+
+          {drawerTab === 1 && (
+            <Box sx={{ flex: 1, overflow: "auto" }}>
+              <PiiPanel
+                policy={piiPolicy}
+                loading={piiLoading}
+                error={piiError}
+                onUpdate={piiUpdate}
+                onClear={piiClear}
+                onRefresh={piiRefresh}
+              />
+            </Box>
+          )}
         </Drawer>
       </Box>
 

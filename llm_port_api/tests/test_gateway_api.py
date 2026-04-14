@@ -769,3 +769,282 @@ async def test_pii_override_ownership_scoping(db_session: AsyncSession) -> None:
     # Other user can't delete
     with pytest.raises(ValueError, match="not owned"):
         await dao.delete_session_pii_override(sid, "tenant-a", "user-2")
+
+
+# ── Session PII-policy endpoint tests ─────────────────────────────
+
+
+@pytest.mark.anyio
+async def test_get_pii_policy_rejects_other_user(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """User-2 must not read user-1's session PII policy."""
+    sid = await _create_chat_session(db_session, tenant_id="tenant-a", user_id="user-1")
+    token = _token(tenant_id="tenant-a", sub="user-2")
+    resp = await client.get(
+        f"/v1/sessions/{sid}/pii-policy",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code in (403, 404)
+
+
+@pytest.mark.anyio
+async def test_get_pii_policy_no_override(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """GET returns has_override=False when no override exists."""
+    sid = await _create_chat_session(db_session, tenant_id="tenant-a", user_id="user-1")
+    token = _token(tenant_id="tenant-a", sub="user-1")
+    resp = await client.get(
+        f"/v1/sessions/{sid}/pii-policy",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["session_id"] == str(sid)
+    assert data["has_override"] is False
+    assert data["override"] is None
+
+
+@pytest.mark.anyio
+async def test_patch_pii_policy_creates_override(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """PATCH creates a session PII override and returns it."""
+    sid = await _create_chat_session(db_session, tenant_id="tenant-a", user_id="user-1")
+    token = _token(tenant_id="tenant-a", sub="user-1")
+    resp = await client.patch(
+        f"/v1/sessions/{sid}/pii-policy",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"egress_fail_action": "block", "presidio_threshold": 0.9},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["has_override"] is True
+    assert data["override"]["egress_fail_action"] == "block"
+    assert data["override"]["presidio_threshold"] == 0.9
+
+
+@pytest.mark.anyio
+async def test_patch_pii_policy_rejects_other_user(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """User-2 must not write user-1's session PII override."""
+    sid = await _create_chat_session(db_session, tenant_id="tenant-a", user_id="user-1")
+    token = _token(tenant_id="tenant-a", sub="user-2")
+    resp = await client.patch(
+        f"/v1/sessions/{sid}/pii-policy",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"egress_fail_action": "block"},
+    )
+    assert resp.status_code in (403, 404)
+
+
+@pytest.mark.anyio
+async def test_delete_pii_policy_clears_override(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """DELETE removes the session PII override."""
+    sid = await _create_chat_session(db_session, tenant_id="tenant-a", user_id="user-1")
+    token = _token(tenant_id="tenant-a", sub="user-1")
+
+    # Create an override first
+    resp = await client.patch(
+        f"/v1/sessions/{sid}/pii-policy",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"egress_fail_action": "block"},
+    )
+    assert resp.status_code == 200
+
+    # Delete
+    resp = await client.delete(
+        f"/v1/sessions/{sid}/pii-policy",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 204
+
+    # Verify gone
+    resp = await client.get(
+        f"/v1/sessions/{sid}/pii-policy",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["has_override"] is False
+
+
+@pytest.mark.anyio
+async def test_delete_pii_policy_rejects_other_user(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """User-2 must not delete user-1's session PII override."""
+    sid = await _create_chat_session(db_session, tenant_id="tenant-a", user_id="user-1")
+    token = _token(tenant_id="tenant-a", sub="user-2")
+    resp = await client.delete(
+        f"/v1/sessions/{sid}/pii-policy",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code in (403, 404)
+
+
+@pytest.mark.anyio
+async def test_get_pii_policy_with_floor_and_override(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """GET with a tenant PII policy and session override returns all layers."""
+    # Create tenant policy with PII enabled
+    policy = TenantLLMPolicy(
+        tenant_id="tenant-a",
+        privacy_mode=PrivacyMode.METADATA_ONLY,
+        allowed_model_aliases=["qwen3-32b"],
+        allowed_provider_types=["vllm"],
+        pii_config={
+            "egress": {
+                "enabled_for_cloud": True,
+                "mode": "redact",
+                "fail_action": "allow",
+            },
+            "presidio": {
+                "threshold": 0.5,
+                "entities": ["EMAIL_ADDRESS", "PHONE_NUMBER"],
+            },
+        },
+        rpm_limit=100,
+        tpm_limit=100000,
+    )
+    db_session.add(policy)
+    await db_session.flush()
+
+    sid = await _create_chat_session(db_session, tenant_id="tenant-a", user_id="user-1")
+    token = _token(tenant_id="tenant-a", sub="user-1")
+
+    # Set override that strengthens
+    resp = await client.patch(
+        f"/v1/sessions/{sid}/pii-policy",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"egress_fail_action": "block", "presidio_threshold": 0.8},
+    )
+    assert resp.status_code == 200
+
+    # GET should show floor, override, and effective
+    resp = await client.get(
+        f"/v1/sessions/{sid}/pii-policy",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["has_override"] is True
+
+    # Floor should reflect tenant policy
+    assert data["floor"] is not None
+    assert data["floor"]["egress"]["fail_action"] == "allow"
+
+    # Effective should be clamped (override fail_action=block > floor allow)
+    assert data["effective"] is not None
+    assert data["effective"]["egress"]["fail_action"] == "block"
+    # Threshold clamped to max(floor=0.5, override=0.8) = 0.8
+    assert data["effective"]["presidio"]["threshold"] == 0.8
+
+
+@pytest.mark.anyio
+async def test_allow_mode_override_switches_egress_mode(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """When allow_mode_override=True the session may switch egress mode."""
+    policy = TenantLLMPolicy(
+        tenant_id="tenant-a",
+        privacy_mode=PrivacyMode.METADATA_ONLY,
+        allowed_model_aliases=["qwen3-32b"],
+        allowed_provider_types=["vllm"],
+        pii_config={
+            "egress": {
+                "enabled_for_cloud": True,
+                "mode": "redact",
+                "fail_action": "block",
+            },
+            "presidio": {
+                "threshold": 0.5,
+                "entities": ["EMAIL_ADDRESS"],
+            },
+        },
+        allow_mode_override=True,
+        rpm_limit=100,
+        tpm_limit=100000,
+    )
+    db_session.add(policy)
+    await db_session.flush()
+
+    sid = await _create_chat_session(db_session, tenant_id="tenant-a", user_id="user-1")
+    token = _token(tenant_id="tenant-a", sub="user-1")
+
+    # Override to tokenize mode
+    resp = await client.patch(
+        f"/v1/sessions/{sid}/pii-policy",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"egress_mode": "tokenize_reversible"},
+    )
+    assert resp.status_code == 200
+
+    resp = await client.get(
+        f"/v1/sessions/{sid}/pii-policy",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    # With allow_mode_override, mode should switch
+    assert data["effective"]["egress"]["mode"] == "tokenize_reversible"
+
+
+@pytest.mark.anyio
+async def test_mode_override_blocked_by_default(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """When allow_mode_override=False (default) mode switching is blocked."""
+    policy = TenantLLMPolicy(
+        tenant_id="tenant-a",
+        privacy_mode=PrivacyMode.METADATA_ONLY,
+        allowed_model_aliases=["qwen3-32b"],
+        allowed_provider_types=["vllm"],
+        pii_config={
+            "egress": {
+                "enabled_for_cloud": True,
+                "mode": "redact",
+                "fail_action": "block",
+            },
+            "presidio": {
+                "threshold": 0.5,
+                "entities": ["EMAIL_ADDRESS"],
+            },
+        },
+        rpm_limit=100,
+        tpm_limit=100000,
+    )
+    db_session.add(policy)
+    await db_session.flush()
+
+    sid = await _create_chat_session(db_session, tenant_id="tenant-a", user_id="user-1")
+    token = _token(tenant_id="tenant-a", sub="user-1")
+
+    resp = await client.patch(
+        f"/v1/sessions/{sid}/pii-policy",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"egress_mode": "tokenize_reversible"},
+    )
+    assert resp.status_code == 200
+
+    resp = await client.get(
+        f"/v1/sessions/{sid}/pii-policy",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    # Mode should stay as floor (redact) since allow_mode_override=False
+    assert data["effective"]["egress"]["mode"] == "redact"

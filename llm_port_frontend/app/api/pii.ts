@@ -86,7 +86,9 @@ export interface PIITenantListResponse {
   items: string[];
 }
 
-function defaultPolicyFromOptions(options?: PIIPolicyOptionsResponse): PIIPolicyConfig {
+function defaultPolicyFromOptions(
+  options?: PIIPolicyOptionsResponse,
+): PIIPolicyConfig {
   const defaultLanguage = options?.default_language || "en";
   const defaultThreshold = Number.isFinite(options?.default_score_threshold)
     ? Number(options?.default_score_threshold)
@@ -123,25 +125,43 @@ export function normalizePIIPolicy(
   const presidioRaw = raw.presidio ?? {};
 
   const thresholdRaw = (presidioRaw as { threshold?: unknown }).threshold;
-  const thresholdNum = typeof thresholdRaw === "number"
-    ? thresholdRaw
-    : Number(thresholdRaw ?? defaults.presidio.threshold);
+  const thresholdNum =
+    typeof thresholdRaw === "number"
+      ? thresholdRaw
+      : Number(thresholdRaw ?? defaults.presidio.threshold);
   const entitiesRaw = (presidioRaw as { entities?: unknown }).entities;
-  const entities = Array.isArray(entitiesRaw) ? entitiesRaw.filter((item): item is string => typeof item === "string") : [];
+  const entities = Array.isArray(entitiesRaw)
+    ? entitiesRaw.filter((item): item is string => typeof item === "string")
+    : [];
 
   return {
     telemetry: {
       enabled: Boolean((telemetryRaw as { enabled?: unknown }).enabled),
-      mode: (telemetryRaw as { mode?: "sanitized" | "metrics_only" }).mode === "metrics_only" ? "metrics_only" : "sanitized",
+      mode:
+        (telemetryRaw as { mode?: "sanitized" | "metrics_only" }).mode ===
+        "metrics_only"
+          ? "metrics_only"
+          : "sanitized",
       store_raw: Boolean((telemetryRaw as { store_raw?: unknown }).store_raw),
     },
     egress: {
-      enabled_for_cloud: Boolean((egressRaw as { enabled_for_cloud?: unknown }).enabled_for_cloud),
-      enabled_for_local: Boolean((egressRaw as { enabled_for_local?: unknown }).enabled_for_local),
-      mode: (egressRaw as { mode?: "redact" | "tokenize_reversible" }).mode === "tokenize_reversible" ? "tokenize_reversible" : "redact",
+      enabled_for_cloud: Boolean(
+        (egressRaw as { enabled_for_cloud?: unknown }).enabled_for_cloud,
+      ),
+      enabled_for_local: Boolean(
+        (egressRaw as { enabled_for_local?: unknown }).enabled_for_local,
+      ),
+      mode:
+        (egressRaw as { mode?: "redact" | "tokenize_reversible" }).mode ===
+        "tokenize_reversible"
+          ? "tokenize_reversible"
+          : "redact",
       fail_action: (() => {
-        const candidate = (egressRaw as { fail_action?: "block" | "allow" | "fallback_to_local" }).fail_action;
-        if (candidate === "allow" || candidate === "fallback_to_local") return candidate;
+        const candidate = (
+          egressRaw as { fail_action?: "block" | "allow" | "fallback_to_local" }
+        ).fail_action;
+        if (candidate === "allow" || candidate === "fallback_to_local")
+          return candidate;
         return "block";
       })(),
     },
@@ -151,7 +171,9 @@ export function normalizePIIPolicy(
         (presidioRaw as { language?: string }).language
           ? (presidioRaw as { language: string }).language
           : defaults.presidio.language,
-      threshold: Number.isFinite(thresholdNum) ? Math.max(0, Math.min(1, thresholdNum)) : defaults.presidio.threshold,
+      threshold: Number.isFinite(thresholdNum)
+        ? Math.max(0, Math.min(1, thresholdNum))
+        : defaults.presidio.threshold,
       entities,
     },
   };
@@ -210,29 +232,113 @@ export function fetchPIIPolicyOptions(): Promise<PIIPolicyOptionsResponse> {
   return request<PIIPolicyOptionsResponse>("/config/options");
 }
 
-export function listPIIPolicyTenants(query: string, limit = 50): Promise<PIITenantListResponse> {
+export function listPIIPolicyTenants(
+  query: string,
+  limit = 50,
+): Promise<PIITenantListResponse> {
   const qs = new URLSearchParams();
   if (query) qs.set("query", query);
   qs.set("limit", String(limit));
   return request<PIITenantListResponse>(`/policies/tenants?${qs.toString()}`);
 }
 
-export function getPIITenantPolicy(tenantId: string): Promise<PIITenantPolicyPayload> {
-  return request<PIITenantPolicyPayload>(`/policies/tenants/${encodeURIComponent(tenantId)}`);
+export function getPIITenantPolicy(
+  tenantId: string,
+): Promise<PIITenantPolicyPayload> {
+  return request<PIITenantPolicyPayload>(
+    `/policies/tenants/${encodeURIComponent(tenantId)}`,
+  );
 }
 
 export function upsertPIITenantPolicy(
   tenantId: string,
   piiConfig: PIIPolicyConfig,
 ): Promise<PIITenantPolicyPayload> {
-  return request<PIITenantPolicyPayload>(`/policies/tenants/${encodeURIComponent(tenantId)}`, {
-    method: "PUT",
-    body: JSON.stringify({ pii_config: piiConfig }),
-  });
+  return request<PIITenantPolicyPayload>(
+    `/policies/tenants/${encodeURIComponent(tenantId)}`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ pii_config: piiConfig }),
+    },
+  );
 }
 
-export function clearPIITenantPolicy(tenantId: string): Promise<PIITenantPolicyPayload> {
-  return request<PIITenantPolicyPayload>(`/policies/tenants/${encodeURIComponent(tenantId)}`, {
-    method: "DELETE",
+export function clearPIITenantPolicy(
+  tenantId: string,
+): Promise<PIITenantPolicyPayload> {
+  return request<PIITenantPolicyPayload>(
+    `/policies/tenants/${encodeURIComponent(tenantId)}`,
+    {
+      method: "DELETE",
+    },
+  );
+}
+
+// ── Session PII Policy (chat-scoped, via backend proxy) ────────────────────
+
+const CHAT_BASE = "/api/chat";
+
+export interface SessionPIIOverride {
+  pii_enabled?: boolean | null;
+  egress_enabled_for_cloud?: boolean | null;
+  egress_enabled_for_local?: boolean | null;
+  egress_mode?: "redact" | "tokenize_reversible" | null;
+  egress_fail_action?: "block" | "allow" | "fallback_to_local" | null;
+  telemetry_enabled?: boolean | null;
+  telemetry_mode?: "sanitized" | "metrics_only" | null;
+  presidio_threshold?: number | null;
+  presidio_entities_add?: string[] | null;
+}
+
+export interface SessionPIIPolicy {
+  session_id: string;
+  has_override: boolean;
+  override: SessionPIIOverride | null;
+  floor: PIIPolicyConfig | null;
+  effective: PIIPolicyConfig | null;
+}
+
+async function chatRequest<T>(
+  path: string,
+  init: RequestInit = {},
+): Promise<T> {
+  const res = await fetch(`${CHAT_BASE}${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...(init.headers ?? {}),
+    },
+    credentials: "include",
   });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(text || `PII session API failed: ${res.status}`);
+  }
+  if (res.status === 204) return undefined as T;
+  return res.json() as Promise<T>;
+}
+
+export function getSessionPiiPolicy(
+  sessionId: string,
+): Promise<SessionPIIPolicy> {
+  return chatRequest<SessionPIIPolicy>(
+    `/sessions/${encodeURIComponent(sessionId)}/pii-policy`,
+  );
+}
+
+export function patchSessionPiiPolicy(
+  sessionId: string,
+  patch: SessionPIIOverride,
+): Promise<SessionPIIPolicy> {
+  return chatRequest<SessionPIIPolicy>(
+    `/sessions/${encodeURIComponent(sessionId)}/pii-policy`,
+    { method: "PATCH", body: JSON.stringify(patch) },
+  );
+}
+
+export function clearSessionPiiPolicy(sessionId: string): Promise<void> {
+  return chatRequest<void>(
+    `/sessions/${encodeURIComponent(sessionId)}/pii-policy`,
+    { method: "DELETE" },
+  );
 }

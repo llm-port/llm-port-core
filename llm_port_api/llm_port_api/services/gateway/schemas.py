@@ -104,6 +104,49 @@ class ToolAvailabilityResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Session PII Policy DTOs
+# ---------------------------------------------------------------------------
+
+
+class SessionPIIOverrideDTO(BaseModel):
+    """Partial override values the user has set on a session."""
+
+    pii_enabled: bool | None = None
+    egress_enabled_for_cloud: bool | None = None
+    egress_enabled_for_local: bool | None = None
+    egress_mode: str | None = None
+    egress_fail_action: str | None = None
+    telemetry_enabled: bool | None = None
+    telemetry_mode: str | None = None
+    presidio_threshold: float | None = Field(None, ge=0.0, le=1.0)
+    presidio_entities_add: list[str] | None = None
+
+
+class SessionPIIPolicyDTO(BaseModel):
+    """GET response for session PII policy."""
+
+    session_id: str
+    has_override: bool
+    override: SessionPIIOverrideDTO | None = None
+    floor: dict[str, Any] | None = None
+    effective: dict[str, Any] | None = None
+
+
+class SessionPIIPolicyPatchDTO(BaseModel):
+    """PATCH request for session PII policy override."""
+
+    pii_enabled: bool | None = None
+    egress_enabled_for_cloud: bool | None = None
+    egress_enabled_for_local: bool | None = None
+    egress_mode: str | None = None
+    egress_fail_action: str | None = None
+    telemetry_enabled: bool | None = None
+    telemetry_mode: str | None = None
+    presidio_threshold: float | None = Field(None, ge=0.0, le=1.0)
+    presidio_entities_add: list[str] | None = None
+
+
+# ---------------------------------------------------------------------------
 # Tool Call Audit / Trace DTOs
 # ---------------------------------------------------------------------------
 

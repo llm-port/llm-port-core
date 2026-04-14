@@ -83,3 +83,67 @@ async def test_patch_tool_policy_forbidden_without_permission(app_no_db) -> None
             cookies={"fapiauth": "fake-jwt-for-test"},
         )
     assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+# ── PII-policy RBAC tests ───────────────────────────────────────
+
+
+@pytest.mark.anyio
+async def test_get_pii_policy_forbidden_without_permission(app_no_db) -> None:
+    """Non-superuser without pii.session:read must get 403."""
+    app_no_db.dependency_overrides[current_active_user] = lambda: _make_user(
+        superuser=False,
+    )
+    app_no_db.dependency_overrides[RbacDAO] = lambda: _make_rbac_dao(allow=False)
+
+    sid = str(uuid.uuid4())
+    async with AsyncClient(
+        transport=ASGITransport(app_no_db),
+        base_url="http://test",
+    ) as client:
+        response = await client.get(
+            f"/api/chat/sessions/{sid}/pii-policy",
+            cookies={"fapiauth": "fake-jwt-for-test"},
+        )
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+@pytest.mark.anyio
+async def test_patch_pii_policy_forbidden_without_permission(app_no_db) -> None:
+    """Non-superuser without pii.session:strengthen must get 403."""
+    app_no_db.dependency_overrides[current_active_user] = lambda: _make_user(
+        superuser=False,
+    )
+    app_no_db.dependency_overrides[RbacDAO] = lambda: _make_rbac_dao(allow=False)
+
+    sid = str(uuid.uuid4())
+    async with AsyncClient(
+        transport=ASGITransport(app_no_db),
+        base_url="http://test",
+    ) as client:
+        response = await client.patch(
+            f"/api/chat/sessions/{sid}/pii-policy",
+            json={"egress_fail_action": "block"},
+            cookies={"fapiauth": "fake-jwt-for-test"},
+        )
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+@pytest.mark.anyio
+async def test_delete_pii_policy_forbidden_without_permission(app_no_db) -> None:
+    """Non-superuser without pii.session:strengthen must get 403."""
+    app_no_db.dependency_overrides[current_active_user] = lambda: _make_user(
+        superuser=False,
+    )
+    app_no_db.dependency_overrides[RbacDAO] = lambda: _make_rbac_dao(allow=False)
+
+    sid = str(uuid.uuid4())
+    async with AsyncClient(
+        transport=ASGITransport(app_no_db),
+        base_url="http://test",
+    ) as client:
+        response = await client.delete(
+            f"/api/chat/sessions/{sid}/pii-policy",
+            cookies={"fapiauth": "fake-jwt-for-test"},
+        )
+    assert response.status_code == status.HTTP_403_FORBIDDEN

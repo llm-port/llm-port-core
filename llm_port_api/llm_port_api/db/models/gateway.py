@@ -275,6 +275,13 @@ class TenantLLMPolicy(Base):
             " presidio: {language, threshold, entities}}"
         ),
     )
+    allow_mode_override: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+        doc="When True, session overrides may switch egress mode (redact ↔ tokenize).",
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

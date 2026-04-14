@@ -403,3 +403,39 @@ class GatewayChatClient:
         )
         resp.raise_for_status()
         return resp.json()
+
+    async def get_session_pii_policy(
+        self, session_id: str, jwt: str,
+    ) -> Any:
+        client = self._ensure_client()
+        resp = await client.get(
+            f"/v1/sessions/{session_id}/pii-policy",
+            headers=self._headers(jwt),
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def patch_session_pii_policy(
+        self, session_id: str, body: dict[str, Any], jwt: str,
+    ) -> Any:
+        client = self._ensure_client()
+        resp = await client.patch(
+            f"/v1/sessions/{session_id}/pii-policy",
+            json=body,
+            headers=self._headers(jwt),
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def delete_session_pii_policy(
+        self, session_id: str, jwt: str,
+    ) -> Any:
+        client = self._ensure_client()
+        resp = await client.delete(
+            f"/v1/sessions/{session_id}/pii-policy",
+            headers=self._headers(jwt),
+        )
+        resp.raise_for_status()
+        if resp.status_code == 204:
+            return None
+        return resp.json()

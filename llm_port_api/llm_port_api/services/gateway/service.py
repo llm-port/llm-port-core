@@ -228,7 +228,19 @@ class GatewayService:
                     payload, auth, session_id=resolved_session_id,
                 )
 
-            pii_policy = _resolve_pii_policy(policy)
+            pii_session_override = None
+            if resolved_session_id:
+                import uuid as _uuid  # noqa: PLC0415
+
+                try:
+                    _sid = _uuid.UUID(resolved_session_id)
+                    pii_session_override = await self.dao.get_session_pii_override(
+                        _sid, auth.tenant_id, auth.user_id,
+                    )
+                except (ValueError, TypeError):
+                    pass
+
+            pii_policy = _resolve_pii_policy(policy, session_override=pii_session_override)
             egress_payload = payload
             token_mapping: dict[str, str] | None = None
 
@@ -555,7 +567,19 @@ class GatewayService:
                 payload, auth, session_id=resolved_stream_session_id,
             )
 
-            pii_policy = _resolve_pii_policy(policy)
+            pii_stream_override = None
+            if resolved_stream_session_id:
+                import uuid as _uuid  # noqa: PLC0415
+
+                try:
+                    _sid = _uuid.UUID(resolved_stream_session_id)
+                    pii_stream_override = await self.dao.get_session_pii_override(
+                        _sid, auth.tenant_id, auth.user_id,
+                    )
+                except (ValueError, TypeError):
+                    pass
+
+            pii_policy = _resolve_pii_policy(policy, session_override=pii_stream_override)
             egress_payload = payload
 
             if pii_policy and self.pii_client and decision is not None:
@@ -1924,18 +1948,48 @@ async def _nonstream_to_sse(payload: dict[str, Any]) -> AsyncIterator[bytes]:
 
 def _resolve_pii_policy(
     policy: Any | None,
+    session_override: Any | None = None,
 ) -> PIIPolicy | None:
-    """Resolve effective PII policy: tenant-specific → system default → None."""
+    """Resolve effective PII policy: tenant-specific → system default → None.
+
+    When *session_override* (a ``SessionPIIOverrideRow``) is provided,
+    ``clamp_and_merge`` is applied on top of the floor policy.
+    """
     from llm_port_api.settings import settings as _settings
 
     raw = policy.pii_config if policy and getattr(policy, "pii_config", None) else None
+    floor: PIIPolicy | None = None
     if raw:
-        return parse_pii_policy(raw)
-    # Fallback to the system-wide default policy loaded from system settings DB.
-    default = getattr(_settings, "pii_default_policy", None)
-    if default:
-        return parse_pii_policy(default)
-    return None
+        floor = parse_pii_policy(raw)
+    if floor is None:
+        # Fallback to the system-wide default policy loaded from system settings DB.
+        default = getattr(_settings, "pii_default_policy", None)
+        if default:
+            floor = parse_pii_policy(default)
+    if floor is None:
+        return None
+
+    if session_override is not None:
+        from llm_port_api.services.gateway.pii_policy import (  # noqa: PLC0415
+            SessionPIIOverride,
+            clamp_and_merge,
+        )
+
+        override = SessionPIIOverride(
+            pii_enabled=session_override.pii_enabled,
+            egress_enabled_for_cloud=session_override.egress_enabled_for_cloud,
+            egress_enabled_for_local=session_override.egress_enabled_for_local,
+            egress_mode=session_override.egress_mode,
+            egress_fail_action=session_override.egress_fail_action,
+            telemetry_enabled=session_override.telemetry_enabled,
+            telemetry_mode=session_override.telemetry_mode,
+            presidio_threshold=session_override.presidio_threshold,
+            presidio_entities_add=session_override.presidio_entities_add,
+        )
+        allow_mode = bool(getattr(policy, "allow_mode_override", False))
+        return clamp_and_merge(floor, override, allow_mode_override=allow_mode)
+
+    return floor
 
 
 def _require_model(payload: dict[str, Any]) -> str:

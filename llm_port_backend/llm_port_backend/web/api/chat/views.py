@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 from starlette import status as http_status
 
@@ -411,5 +411,54 @@ async def patch_session_tool_policy(
     try:
         data = await client.patch_session_tool_policy(session_id, body, jwt)
         return JSONResponse(content=data)
+    except Exception as exc:
+        return await _proxy_error(exc)
+
+
+@router.get("/sessions/{session_id}/pii-policy")
+async def get_session_pii_policy(
+    session_id: str,
+    request: Request,
+    _user: User = Depends(require_permission("pii.session", "read")),
+) -> JSONResponse:
+    """Proxy ``GET /v1/sessions/{session_id}/pii-policy`` to the API gateway."""
+    jwt = _jwt_from_cookie(request)
+    client = _client()
+    try:
+        data = await client.get_session_pii_policy(session_id, jwt)
+        return JSONResponse(content=data)
+    except Exception as exc:
+        return await _proxy_error(exc)
+
+
+@router.patch("/sessions/{session_id}/pii-policy")
+async def patch_session_pii_policy(
+    session_id: str,
+    request: Request,
+    _user: User = Depends(require_permission("pii.session", "strengthen")),
+) -> JSONResponse:
+    """Proxy ``PATCH /v1/sessions/{session_id}/pii-policy`` to the API gateway."""
+    jwt = _jwt_from_cookie(request)
+    body = await request.json()
+    client = _client()
+    try:
+        data = await client.patch_session_pii_policy(session_id, body, jwt)
+        return JSONResponse(content=data)
+    except Exception as exc:
+        return await _proxy_error(exc)
+
+
+@router.delete("/sessions/{session_id}/pii-policy")
+async def delete_session_pii_policy(
+    session_id: str,
+    request: Request,
+    _user: User = Depends(require_permission("pii.session", "strengthen")),
+) -> Response:
+    """Proxy ``DELETE /v1/sessions/{session_id}/pii-policy`` to the API gateway."""
+    jwt = _jwt_from_cookie(request)
+    client = _client()
+    try:
+        await client.delete_session_pii_policy(session_id, jwt)
+        return Response(status_code=204)
     except Exception as exc:
         return await _proxy_error(exc)
