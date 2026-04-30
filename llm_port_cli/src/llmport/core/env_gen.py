@@ -35,6 +35,18 @@ SECRET_KEYS: frozenset[str] = frozenset({
     "LLM_PORT_BACKEND_SETTINGS_MASTER_KEY",
     "LLM_PORT_API_ENCRYPTION_KEY",
     "USERS_SECRET",
+    # Inter-service auth tokens — each downstream service has one shared
+    # value across (api → service), (backend → service), (service receiver).
+    # All three keys per service MUST stay in lock-step, so they're listed
+    # together here to be preserved as a group on .env regeneration.
+    "LLM_PORT_API_MCP_SERVICE_TOKEN",
+    "LLM_PORT_BACKEND_MCP_SERVICE_TOKEN",
+    "LLM_PORT_MCP_SERVICE_TOKEN",
+    "LLM_PORT_API_SKILLS_SERVICE_TOKEN",
+    "LLM_PORT_BACKEND_SKILLS_SERVICE_TOKEN",
+    "LLM_PORT_SKILLS_SERVICE_TOKEN",
+    "LLM_PORT_BACKEND_RAG_SERVICE_TOKEN",
+    "LLM_PORT_RAG_SERVICE_TOKEN",
 })
 
 
@@ -154,6 +166,16 @@ def default_env_vars(
     redis_password = _random_password(24)
     minio_password = _random_password(24)
 
+    # Inter-service auth tokens. One random value per downstream service,
+    # written to all three env vars (api → service, backend → service,
+    # service receiver) so they stay in lock-step. The receiver-side
+    # ``verify_service_token`` fails open when its env var is empty, so it
+    # is critical that these are generated and propagated for production
+    # deployments.
+    mcp_service_token = _random_secret()
+    skills_service_token = _random_secret()
+    rag_service_token = _random_secret()
+
     env = {
         # Postgres
         "POSTGRES_USER": "postgres",
@@ -189,6 +211,16 @@ def default_env_vars(
         "LLM_PORT_BACKEND_GATEWAY_URL": "http://llm-port-api:8000",
         "LLM_PORT_BACKEND_ENVIRONMENT": "production",
         "USERS_SECRET": _random_secret(),
+        # Inter-service auth tokens (see comment above). Each pair of
+        # caller env vars must equal the receiver's env var.
+        "LLM_PORT_API_MCP_SERVICE_TOKEN": mcp_service_token,
+        "LLM_PORT_BACKEND_MCP_SERVICE_TOKEN": mcp_service_token,
+        "LLM_PORT_MCP_SERVICE_TOKEN": mcp_service_token,
+        "LLM_PORT_API_SKILLS_SERVICE_TOKEN": skills_service_token,
+        "LLM_PORT_BACKEND_SKILLS_SERVICE_TOKEN": skills_service_token,
+        "LLM_PORT_SKILLS_SERVICE_TOKEN": skills_service_token,
+        "LLM_PORT_BACKEND_RAG_SERVICE_TOKEN": rag_service_token,
+        "LLM_PORT_RAG_SERVICE_TOKEN": rag_service_token,
         # Langfuse initial admin seeding (populated during bootstrap)
         "LANGFUSE_INIT_USER_EMAIL": "",
         "LANGFUSE_INIT_USER_PASSWORD": "",
