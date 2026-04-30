@@ -141,8 +141,12 @@
   "help": {
     "product_tour": "产品导览",
     "guided_setup": "引导设置",
+    "how_to_guides": "操作指南",
     "reset_guides": "重置引导",
-    "about_page": "关于此页面"
+    "about_page": "关于此页面",
+    "how_to_guides_subtitle": "常见任务的分步操作指南",
+    "start_guide": "开始",
+    "no_guides_available": "没有适用于您当前配置的指南。"
   },
   "page_help": {
     "actions_heading": "您可以在此执行的操作",
@@ -435,6 +439,54 @@
       "description": "查看和编辑您的账户信息——显示名称、邮箱、密码和个人偏好。",
       "action_info": "更新显示名称和邮箱",
       "action_password": "更改密码"
+    }
+  },
+  "taskflows": {
+    "remote_endpoint": {
+      "title": "注册远程端点",
+      "description": "将云端 LLM 提供商（OpenAI、Anthropic 等）作为远程端点连接。",
+      "step1_title": "添加提供商",
+      "step1_content": "点击 <strong>添加提供商</strong> 打开注册向导。",
+      "step2_title": "提供商向导",
+      "step2_content": "向导将引导您完成注册。请按顺序填写每个部分。",
+      "step3_title": "命名提供商",
+      "step3_content": "为此端点输入一个描述性名称，例如 <em>OpenAI 生产环境</em>。",
+      "step4_title": "选择目标",
+      "step4_content": "选择 <strong>远程端点</strong> 以连接到外部 API。",
+      "step5_title": "提供商类型",
+      "step5_content": "从下拉列表中选择 LLM 提供商（例如 openai、anthropic、azure）。",
+      "step6_title": "输入 API 密钥",
+      "step6_content": "粘贴您的 API 密钥。密钥将加密存储，永远不会以明文显示。",
+      "step7_title": "测试连接",
+      "step7_content": "点击 <strong>测试连接</strong> 验证端点是否可达以及凭据是否有效。",
+      "step8_title": "创建提供商",
+      "step8_content": "一切就绪！点击 <strong>创建</strong> 注册提供商。"
+    },
+    "remote_node": {
+      "title": "设置远程节点",
+      "description": "将远程 GPU 机器注册为节点加入您的节点群。",
+      "step1_title": "添加节点",
+      "step1_content": "点击 <strong>添加节点</strong> 开始注册流程。",
+      "step2_title": "节点注册",
+      "step2_content": "此侧边栏将引导您完成新节点的注册。您将获得一个注册令牌，可在远程服务器上安装。",
+      "step3_title": "添加备注",
+      "step3_content": "添加可选备注以标识此节点（例如 <em>GPU 服务器 数据中心 2</em>）。",
+      "step4_title": "创建令牌",
+      "step4_content": "点击 <strong>创建令牌</strong>。复制生成的令牌并在远程服务器上执行安装命令。"
+    },
+    "local_model": {
+      "title": "运行本地模型",
+      "description": "通过 Docker 在本服务器上本地部署 LLM。",
+      "step1_title": "添加提供商",
+      "step1_content": "点击 <strong>添加提供商</strong> 打开注册向导。",
+      "step2_title": "提供商向导",
+      "step2_content": "向导将引导您完成配置。这次我们将设置一个本地运行的模型。",
+      "step3_title": "命名提供商",
+      "step3_content": "输入一个名称，例如 <em>本地 Llama</em> 或 <em>本地 Mistral</em>。",
+      "step4_title": "选择目标",
+      "step4_content": "选择 <strong>Docker — 本服务器</strong> 以容器形式本地运行模型。",
+      "step5_title": "创建并部署",
+      "step5_content": "点击 <strong>创建</strong>。llm.port 将下载模型镜像并自动启动容器。"
     }
   }
 }

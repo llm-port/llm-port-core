@@ -239,29 +239,32 @@ export function GuidedSetupTour({
   // not only on component unmount (which may never happen).
   useEffect(() => {
     if (!run) {
-      document.querySelectorAll(".tour-active-target").forEach((el) => {
-        el.classList.remove("tour-active-target");
-      });
-      // Give Joyride one frame to process its own close, then sweep
-      requestAnimationFrame(() => {
-        document
-          .querySelectorAll(
-            "#react-joyride-portal, .react-joyride__overlay, .react-joyride__spotlight, .react-joyride__floater",
-          )
-          .forEach((el) => el.remove());
-      });
+      sweepTourDOM();
     }
     return () => {
-      document.querySelectorAll(".tour-active-target").forEach((el) => {
-        el.classList.remove("tour-active-target");
-      });
+      sweepTourDOM();
+    };
+  }, [run]);
+
+  /**
+   * Forcibly remove Joyride portal elements and highlight classes.
+   * Called from multiple paths (finish, skip, run→false) because
+   * controls.close() does NOT synchronously tear down the portal.
+   */
+  function sweepTourDOM() {
+    document.querySelectorAll(".tour-active-target").forEach((el) => {
+      el.classList.remove("tour-active-target");
+    });
+    const remove = () =>
       document
         .querySelectorAll(
           "#react-joyride-portal, .react-joyride__overlay, .react-joyride__spotlight, .react-joyride__floater",
         )
         .forEach((el) => el.remove());
-    };
-  }, [run]);
+    remove();
+    requestAnimationFrame(remove);
+    setTimeout(remove, 100);
+  }
 
   function handleEvent(data: EventData, controls: Controls) {
     const { action, index, status, type } = data;
@@ -272,10 +275,7 @@ export function GuidedSetupTour({
         void completeTour(tourId, 1);
       }
       controls.close();
-      // Imperative cleanup: adorner + overlay may linger after close()
-      document.querySelectorAll(".tour-active-target").forEach((el) => {
-        el.classList.remove("tour-active-target");
-      });
+      sweepTourDOM();
       onFinish();
       return;
     }

@@ -1,0 +1,50 @@
+{
+  "flowId": "run_local_model",
+  "titleKey": "taskflows.local_model.title",
+  "descriptionKey": "taskflows.local_model.description",
+  "icon": "Memory",
+  "route": "/admin/llm/providers",
+  "requires": {},
+  "steps": [
+    {
+      "target": "[data-tour-id='providers.add']",
+      "titleKey": "taskflows.local_model.step1_title",
+      "contentKey": "taskflows.local_model.step1_content",
+      "placement": "bottom",
+      "waitForTarget": false,
+      "disableBeacon": true
+    },
+    {
+      "target": "[data-tour-id='providers.wizard']",
+      "titleKey": "taskflows.local_model.step2_title",
+      "contentKey": "taskflows.local_model.step2_content",
+      "placement": "right",
+      "waitForTarget": true,
+      "disableBeacon": true
+    },
+    {
+      "target": "[data-tour-id='providers.wizard.name']",
+      "titleKey": "taskflows.local_model.step3_title",
+      "contentKey": "taskflows.local_model.step3_content",
+      "placement": "bottom",
+      "waitForTarget": true,
+      "disableBeacon": true
+    },
+    {
+      "target": "[data-tour-id='providers.wizard.target']",
+      "titleKey": "taskflows.local_model.step4_title",
+      "contentKey": "taskflows.local_model.step4_content",
+      "placement": "bottom",
+      "waitForTarget": true,
+      "disableBeacon": true
+    },
+    {
+      "target": "[data-tour-id='providers.wizard.create']",
+      "titleKey": "taskflows.local_model.step5_title",
+      "contentKey": "taskflows.local_model.step5_content",
+      "placement": "top",
+      "waitForTarget": true,
+      "disableBeacon": true
+    }
+  ]
+}

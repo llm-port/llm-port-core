@@ -316,7 +316,7 @@ export default function NodeFleetPage() {
         searchPlaceholder={t("nodes.search_placeholder")}
         onRowClick={(row) => navigate(`/admin/nodes/${row.id}`)}
         toolbarActions={
-          <Button variant="contained" onClick={() => setOnboardingOpen(true)}>
+          <Button variant="contained" onClick={() => setOnboardingOpen(true)} data-tour-id="nodes.add">
             {t("nodes.add_node")}
           </Button>
         }

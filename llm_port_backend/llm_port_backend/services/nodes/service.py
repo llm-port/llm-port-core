@@ -176,12 +176,45 @@ class NodeControlService:
             active = await self._dao.count_active_sessions(node_id=node.id)
             if active == 0:
                 node.status = NodeHealthStatus.OFFLINE
+                await self._demote_node_runtimes(node_id=node.id)
 
     async def update_stream_offset(self, *, session: InfraNodeSession, offset: int) -> bool:
         if offset <= session.last_rx_offset:
             return False
         await self._dao.update_session_offset(session, offset=offset)
         return True
+
+    async def _demote_node_runtimes(self, *, node_id: uuid.UUID) -> None:
+        """Mark all active runtimes on a now-offline node as ERROR."""
+        result = await self._dao.session.execute(
+            select(LLMRuntime).where(
+                LLMRuntime.assigned_node_id == node_id,
+                LLMRuntime.status.in_([
+                    RuntimeStatus.RUNNING,
+                    RuntimeStatus.STARTING,
+                    RuntimeStatus.CREATING,
+                ]),
+            ),
+        )
+        runtimes = list(result.scalars().all())
+        for runtime in runtimes:
+            prev = runtime.status
+            runtime.status = RuntimeStatus.ERROR
+            runtime.status_message = "Node offline"
+            if self._gateway_sync is not None:
+                await self._gateway_sync.set_instance_health(
+                    runtime_id=runtime.id, health_status="unhealthy",
+                )
+            await self._dao.upsert_workload_assignment(
+                runtime_id=runtime.id,
+                node_id=node_id,
+                desired_state=runtime.desired_state,
+                actual_state=RuntimeStatus.ERROR.value,
+            )
+            log.info(
+                "Runtime %s demoted %s → error (node %s offline)",
+                runtime.id, prev.value, node_id,
+            )
 
     async def heartbeat_node(
         self,

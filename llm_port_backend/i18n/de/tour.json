@@ -141,8 +141,12 @@
   "help": {
     "product_tour": "Produkttour",
     "guided_setup": "Geführte Einrichtung",
+    "how_to_guides": "How-To-Anleitungen",
     "reset_guides": "Anleitungen zurücksetzen",
-    "about_page": "Über diese Seite"
+    "about_page": "Über diese Seite",
+    "how_to_guides_subtitle": "Schritt-für-Schritt-Anleitungen für häufige Aufgaben",
+    "start_guide": "Starten",
+    "no_guides_available": "Keine Anleitungen für Ihre aktuelle Konfiguration verfügbar."
   },
   "page_help": {
     "actions_heading": "Was Sie hier tun können",
@@ -435,6 +439,54 @@
       "description": "Kontoinformationen anzeigen und bearbeiten — Name, E-Mail, Passwort und persönliche Einstellungen.",
       "action_info": "Anzeigename und E-Mail aktualisieren",
       "action_password": "Passwort ändern"
+    }
+  },
+  "taskflows": {
+    "remote_endpoint": {
+      "title": "Remote-Endpunkt registrieren",
+      "description": "Verbinden Sie einen Cloud-LLM-Anbieter (OpenAI, Anthropic usw.) als Remote-Endpunkt.",
+      "step1_title": "Anbieter hinzufügen",
+      "step1_content": "Klicken Sie auf <strong>Anbieter hinzufügen</strong>, um den Registrierungsassistenten zu öffnen.",
+      "step2_title": "Anbieter-Assistent",
+      "step2_content": "Der Anbieter-Assistent führt Sie durch die Registrierung. Füllen Sie jeden Abschnitt der Reihe nach aus.",
+      "step3_title": "Anbieter benennen",
+      "step3_content": "Geben Sie einen aussagekräftigen Namen für diesen Endpunkt ein, z.B. <em>OpenAI Produktion</em>.",
+      "step4_title": "Ziel auswählen",
+      "step4_content": "Wählen Sie <strong>Remote-Endpunkt</strong>, um eine Verbindung zu einer externen API herzustellen.",
+      "step5_title": "Anbietertyp wählen",
+      "step5_content": "Wählen Sie den LLM-Anbieter aus der Dropdown-Liste (z.B. openai, anthropic, azure).",
+      "step6_title": "API-Schlüssel eingeben",
+      "step6_content": "Fügen Sie Ihren API-Schlüssel ein. Er wird verschlüsselt gespeichert und nie im Klartext angezeigt.",
+      "step7_title": "Verbindung testen",
+      "step7_content": "Klicken Sie auf <strong>Verbindung testen</strong>, um zu prüfen, ob der Endpunkt erreichbar ist und Ihre Zugangsdaten gültig sind.",
+      "step8_title": "Anbieter erstellen",
+      "step8_content": "Alles sieht gut aus! Klicken Sie auf <strong>Erstellen</strong>, um den Anbieter zu registrieren."
+    },
+    "remote_node": {
+      "title": "Remote-Knoten einrichten",
+      "description": "Registrieren Sie eine remote GPU-Maschine als Knoten in Ihrer Flotte.",
+      "step1_title": "Knoten hinzufügen",
+      "step1_content": "Klicken Sie auf <strong>Knoten hinzufügen</strong>, um den Registrierungsprozess zu starten.",
+      "step2_title": "Knoten-Registrierung",
+      "step2_content": "Diese Seitenleiste führt Sie durch die Registrierung eines neuen Knotens. Sie erhalten ein Registrierungstoken, das Sie auf Ihrem Remote-Server installieren.",
+      "step3_title": "Notiz hinzufügen",
+      "step3_content": "Fügen Sie eine optionale Notiz hinzu, um diesen Knoten zu identifizieren (z.B. <em>GPU-Server Rechenzentrum 2</em>).",
+      "step4_title": "Token erstellen",
+      "step4_content": "Klicken Sie auf <strong>Token erstellen</strong>. Kopieren Sie das generierte Token und führen Sie den Installationsbefehl auf Ihrem Remote-Server aus."
+    },
+    "local_model": {
+      "title": "Lokales Modell ausführen",
+      "description": "Stellen Sie ein LLM lokal per Docker auf diesem Server bereit.",
+      "step1_title": "Anbieter hinzufügen",
+      "step1_content": "Klicken Sie auf <strong>Anbieter hinzufügen</strong>, um den Registrierungsassistenten zu öffnen.",
+      "step2_title": "Anbieter-Assistent",
+      "step2_content": "Der Assistent führt Sie durch die Konfiguration. Diesmal richten wir ein lokal ausgeführtes Modell ein.",
+      "step3_title": "Anbieter benennen",
+      "step3_content": "Geben Sie einen Namen ein, z.B. <em>Lokales Llama</em> oder <em>Mistral Lokal</em>.",
+      "step4_title": "Ziel auswählen",
+      "step4_content": "Wählen Sie <strong>Docker — diesen Server</strong>, um das Modell lokal als Container auszuführen.",
+      "step5_title": "Erstellen & Bereitstellen",
+      "step5_content": "Klicken Sie auf <strong>Erstellen</strong>. llm.port wird das Modellimage herunterladen und den Container automatisch starten."
     }
   }
 }

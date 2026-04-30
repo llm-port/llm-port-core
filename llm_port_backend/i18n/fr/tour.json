@@ -141,8 +141,12 @@
   "help": {
     "product_tour": "Visite du produit",
     "guided_setup": "Configuration guidée",
+    "how_to_guides": "Guides pratiques",
     "reset_guides": "Réinitialiser les guides",
-    "about_page": "À propos de cette page"
+    "about_page": "À propos de cette page",
+    "how_to_guides_subtitle": "Guides étape par étape pour les tâches courantes",
+    "start_guide": "Démarrer",
+    "no_guides_available": "Aucun guide disponible pour votre configuration actuelle."
   },
   "page_help": {
     "actions_heading": "Ce que vous pouvez faire ici",
@@ -435,6 +439,54 @@
       "description": "Voir et modifier vos informations — nom, e-mail, mot de passe et préférences.",
       "action_info": "Mettre à jour le nom et l'e-mail",
       "action_password": "Changer le mot de passe"
+    }
+  },
+  "taskflows": {
+    "remote_endpoint": {
+      "title": "Enregistrer un point d’accès distant",
+      "description": "Connectez un fournisseur LLM cloud (OpenAI, Anthropic, etc.) en tant que point d’accès distant.",
+      "step1_title": "Ajouter un fournisseur",
+      "step1_content": "Cliquez sur <strong>Ajouter un fournisseur</strong> pour ouvrir l’assistant d’enregistrement.",
+      "step2_title": "Assistant fournisseur",
+      "step2_content": "L’assistant vous guide à travers l’enregistrement. Remplissez chaque section dans l’ordre.",
+      "step3_title": "Nommer le fournisseur",
+      "step3_content": "Entrez un nom descriptif pour ce point d’accès, par exemple <em>OpenAI Production</em>.",
+      "step4_title": "Choisir la cible",
+      "step4_content": "Sélectionnez <strong>Point d’accès distant</strong> pour vous connecter à une API externe.",
+      "step5_title": "Type de fournisseur",
+      "step5_content": "Choisissez le fournisseur LLM dans la liste déroulante (par ex. openai, anthropic, azure).",
+      "step6_title": "Saisir la clé API",
+      "step6_content": "Collez votre clé API. Elle sera stockée de manière chiffrée et ne sera jamais affichée en clair.",
+      "step7_title": "Tester la connexion",
+      "step7_content": "Cliquez sur <strong>Tester la connexion</strong> pour vérifier que le point d’accès est joignable et que vos identifiants sont valides.",
+      "step8_title": "Créer le fournisseur",
+      "step8_content": "Tout est prêt ! Cliquez sur <strong>Créer</strong> pour enregistrer le fournisseur."
+    },
+    "remote_node": {
+      "title": "Configurer un nœud distant",
+      "description": "Enregistrez une machine GPU distante comme nœud dans votre flotte.",
+      "step1_title": "Ajouter un nœud",
+      "step1_content": "Cliquez sur <strong>Ajouter un nœud</strong> pour démarrer le processus d’enregistrement.",
+      "step2_title": "Enregistrement du nœud",
+      "step2_content": "Ce panneau vous guide à travers l’enregistrement d’un nouveau nœud. Vous recevrez un jeton d’enregistrement à installer sur votre serveur distant.",
+      "step3_title": "Ajouter une note",
+      "step3_content": "Ajoutez une note optionnelle pour identifier ce nœud (par ex. <em>Serveur GPU Centre de données 2</em>).",
+      "step4_title": "Créer le jeton",
+      "step4_content": "Cliquez sur <strong>Créer le jeton</strong>. Copiez le jeton généré et exécutez la commande d’installation sur votre serveur distant."
+    },
+    "local_model": {
+      "title": "Exécuter un modèle local",
+      "description": "Déployez un LLM localement via Docker sur ce serveur.",
+      "step1_title": "Ajouter un fournisseur",
+      "step1_content": "Cliquez sur <strong>Ajouter un fournisseur</strong> pour ouvrir l’assistant d’enregistrement.",
+      "step2_title": "Assistant fournisseur",
+      "step2_content": "L’assistant vous guide à travers la configuration. Cette fois, nous configurons un modèle exécuté localement.",
+      "step3_title": "Nommer le fournisseur",
+      "step3_content": "Entrez un nom, par exemple <em>Llama Local</em> ou <em>Mistral Local</em>.",
+      "step4_title": "Choisir la cible",
+      "step4_content": "Sélectionnez <strong>Docker — ce serveur</strong> pour exécuter le modèle localement en tant que conteneur.",
+      "step5_title": "Créer et déployer",
+      "step5_content": "Cliquez sur <strong>Créer</strong>. llm.port téléchargera l’image du modèle et démarrera le conteneur automatiquement."
     }
   }
 }

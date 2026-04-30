@@ -400,6 +400,7 @@ export default function ProvidersPage() {
             variant="contained"
             startIcon={<AddIcon />}
             onClick={() => setShowWizard(true)}
+            data-tour-id="providers.add"
           >
             {t("llm_providers.add_provider")}
           </Button>

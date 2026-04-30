@@ -141,8 +141,12 @@
   "help": {
     "product_tour": "Tour del producto",
     "guided_setup": "Configuración guiada",
+    "how_to_guides": "Guías prácticas",
     "reset_guides": "Reiniciar guías",
-    "about_page": "Acerca de esta página"
+    "about_page": "Acerca de esta página",
+    "how_to_guides_subtitle": "Guías paso a paso para tareas comunes",
+    "start_guide": "Iniciar",
+    "no_guides_available": "No hay guías disponibles para su configuración actual."
   },
   "page_help": {
     "actions_heading": "Qué puedes hacer aquí",
@@ -435,6 +439,54 @@
       "description": "Vea y edite su información de cuenta — nombre, correo, contraseña y preferencias.",
       "action_info": "Actualizar nombre y correo electrónico",
       "action_password": "Cambiar su contraseña"
+    }
+  },
+  "taskflows": {
+    "remote_endpoint": {
+      "title": "Registrar un endpoint remoto",
+      "description": "Conecte un proveedor LLM en la nube (OpenAI, Anthropic, etc.) como endpoint remoto.",
+      "step1_title": "Añadir proveedor",
+      "step1_content": "Haga clic en <strong>Añadir proveedor</strong> para abrir el asistente de registro.",
+      "step2_title": "Asistente de proveedor",
+      "step2_content": "El asistente le guiará a través del registro. Complete cada sección en orden.",
+      "step3_title": "Nombrar el proveedor",
+      "step3_content": "Ingrese un nombre descriptivo para este endpoint, por ejemplo <em>OpenAI Producción</em>.",
+      "step4_title": "Seleccionar destino",
+      "step4_content": "Seleccione <strong>Endpoint remoto</strong> para conectarse a una API externa.",
+      "step5_title": "Tipo de proveedor",
+      "step5_content": "Elija el proveedor LLM de la lista desplegable (por ej. openai, anthropic, azure).",
+      "step6_title": "Ingresar clave API",
+      "step6_content": "Pegue su clave API. Se almacenará cifrada y nunca se mostrará en texto plano.",
+      "step7_title": "Probar conexión",
+      "step7_content": "Haga clic en <strong>Probar conexión</strong> para verificar que el endpoint es accesible y sus credenciales son válidas.",
+      "step8_title": "Crear proveedor",
+      "step8_content": "¡Todo listo! Haga clic en <strong>Crear</strong> para registrar el proveedor."
+    },
+    "remote_node": {
+      "title": "Configurar un nodo remoto",
+      "description": "Registre una máquina GPU remota como nodo en su flota.",
+      "step1_title": "Añadir nodo",
+      "step1_content": "Haga clic en <strong>Añadir nodo</strong> para iniciar el proceso de registro.",
+      "step2_title": "Registro de nodo",
+      "step2_content": "Este panel le guiará a través del registro de un nuevo nodo. Recibirá un token de registro para instalar en su servidor remoto.",
+      "step3_title": "Añadir nota",
+      "step3_content": "Añada una nota opcional para identificar este nodo (por ej. <em>Servidor GPU Centro de Datos 2</em>).",
+      "step4_title": "Crear token",
+      "step4_content": "Haga clic en <strong>Crear token</strong>. Copie el token generado y ejecute el comando de instalación en su servidor remoto."
+    },
+    "local_model": {
+      "title": "Ejecutar un modelo local",
+      "description": "Despliegue un LLM localmente mediante Docker en este servidor.",
+      "step1_title": "Añadir proveedor",
+      "step1_content": "Haga clic en <strong>Añadir proveedor</strong> para abrir el asistente de registro.",
+      "step2_title": "Asistente de proveedor",
+      "step2_content": "El asistente le guiará a través de la configuración. Esta vez configuraremos un modelo ejecutado localmente.",
+      "step3_title": "Nombrar el proveedor",
+      "step3_content": "Ingrese un nombre, por ejemplo <em>Llama Local</em> o <em>Mistral Local</em>.",
+      "step4_title": "Seleccionar destino",
+      "step4_content": "Seleccione <strong>Docker — este servidor</strong> para ejecutar el modelo localmente como contenedor.",
+      "step5_title": "Crear y desplegar",
+      "step5_content": "Haga clic en <strong>Crear</strong>. llm.port descargará la imagen del modelo e iniciará el contenedor automáticamente."
     }
   }
 }

@@ -9,7 +9,10 @@ can be queried.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
+
+import httpx
 
 from llm_port_backend.db.models.llm import (
     LLMModel,
@@ -25,6 +28,8 @@ from llm_port_backend.services.llm.base import (
     ProviderAdapter,
 )
 from llm_port_backend.services.llm.registry import register_adapter
+
+log = logging.getLogger(__name__)
 
 
 class CloudAdapter(ProviderAdapter):
@@ -51,8 +56,28 @@ class CloudAdapter(ProviderAdapter):
         )
 
     async def get_health(self, runtime: LLMRuntime) -> HealthStatus:
-        # Health is determined by the gateway's upstream probe, not here.
-        return HealthStatus(healthy=True, detail="remote endpoint")
+        """Probe the remote endpoint to verify reachability.
+
+        A lightweight GET to the base URL is used.  Any HTTP response
+        (including 401/403) proves the server is alive; only connection
+        errors or 5xx indicate a problem.
+        """
+        if not runtime.endpoint_url:
+            return HealthStatus(healthy=False, detail="No endpoint URL configured")
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(runtime.endpoint_url)
+                if resp.status_code >= 500:
+                    return HealthStatus(
+                        healthy=False,
+                        detail=f"Remote endpoint returned HTTP {resp.status_code}",
+                    )
+                return HealthStatus(healthy=True, detail=f"HTTP {resp.status_code}")
+        except httpx.TimeoutException:
+            return HealthStatus(healthy=False, detail="Remote endpoint timed out")
+        except Exception as exc:
+            log.debug("Cloud health probe failed for %s: %s", runtime.endpoint_url, exc)
+            return HealthStatus(healthy=False, detail=str(exc))
 
     def default_capabilities(self) -> dict[str, Any]:
         return {

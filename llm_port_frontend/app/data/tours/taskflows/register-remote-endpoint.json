@@ -1,0 +1,74 @@
+{
+  "flowId": "register_remote_endpoint",
+  "titleKey": "taskflows.remote_endpoint.title",
+  "descriptionKey": "taskflows.remote_endpoint.description",
+  "icon": "Cloud",
+  "route": "/admin/llm/providers",
+  "requires": {},
+  "steps": [
+    {
+      "target": "[data-tour-id='providers.add']",
+      "titleKey": "taskflows.remote_endpoint.step1_title",
+      "contentKey": "taskflows.remote_endpoint.step1_content",
+      "placement": "bottom",
+      "waitForTarget": false,
+      "disableBeacon": true
+    },
+    {
+      "target": "[data-tour-id='providers.wizard']",
+      "titleKey": "taskflows.remote_endpoint.step2_title",
+      "contentKey": "taskflows.remote_endpoint.step2_content",
+      "placement": "right",
+      "waitForTarget": true,
+      "disableBeacon": true
+    },
+    {
+      "target": "[data-tour-id='providers.wizard.name']",
+      "titleKey": "taskflows.remote_endpoint.step3_title",
+      "contentKey": "taskflows.remote_endpoint.step3_content",
+      "placement": "bottom",
+      "waitForTarget": true,
+      "disableBeacon": true
+    },
+    {
+      "target": "[data-tour-id='providers.wizard.target']",
+      "titleKey": "taskflows.remote_endpoint.step4_title",
+      "contentKey": "taskflows.remote_endpoint.step4_content",
+      "placement": "bottom",
+      "waitForTarget": true,
+      "disableBeacon": true
+    },
+    {
+      "target": "[data-tour-id='providers.wizard.litellm']",
+      "titleKey": "taskflows.remote_endpoint.step5_title",
+      "contentKey": "taskflows.remote_endpoint.step5_content",
+      "placement": "bottom",
+      "waitForTarget": true,
+      "disableBeacon": true
+    },
+    {
+      "target": "[data-tour-id='providers.wizard.apikey']",
+      "titleKey": "taskflows.remote_endpoint.step6_title",
+      "contentKey": "taskflows.remote_endpoint.step6_content",
+      "placement": "bottom",
+      "waitForTarget": true,
+      "disableBeacon": true
+    },
+    {
+      "target": "[data-tour-id='providers.wizard.test']",
+      "titleKey": "taskflows.remote_endpoint.step7_title",
+      "contentKey": "taskflows.remote_endpoint.step7_content",
+      "placement": "bottom",
+      "waitForTarget": true,
+      "disableBeacon": true
+    },
+    {
+      "target": "[data-tour-id='providers.wizard.create']",
+      "titleKey": "taskflows.remote_endpoint.step8_title",
+      "contentKey": "taskflows.remote_endpoint.step8_content",
+      "placement": "top",
+      "waitForTarget": true,
+      "disableBeacon": true
+    }
+  ]
+}

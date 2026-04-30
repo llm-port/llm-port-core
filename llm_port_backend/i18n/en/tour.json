@@ -141,6 +141,10 @@
   "help": {
     "product_tour": "Product Tour",
     "guided_setup": "Guided Setup",
+    "how_to_guides": "How-To Guides",
+    "how_to_guides_subtitle": "Step-by-step walkthroughs for common tasks. Each guide highlights the relevant controls and walks you through the process.",
+    "start_guide": "Start",
+    "no_guides_available": "No guides available for the current setup.",
     "reset_guides": "Reset Guides",
     "about_page": "About This Page"
   },
@@ -435,6 +439,54 @@
       "description": "View and edit your account information — display name, email, password, and personal preferences.",
       "action_info": "Update your display name and email",
       "action_password": "Change your password"
+    }
+  },
+  "taskflows": {
+    "remote_endpoint": {
+      "title": "Register a Remote Endpoint",
+      "description": "Connect a cloud LLM provider (OpenAI, Anthropic, Azure, etc.) by adding a remote API endpoint.",
+      "step1_title": "Add a Provider",
+      "step1_content": "Click the 'Add Provider' button to open the provider wizard.",
+      "step2_title": "Provider Wizard",
+      "step2_content": "The wizard will guide you through registering a new LLM endpoint. Let's walk through each field.",
+      "step3_title": "Provider Name",
+      "step3_content": "Enter a descriptive name for this provider — e.g., 'OpenAI Production' or 'Anthropic Claude'.",
+      "step4_title": "Select Target",
+      "step4_content": "Choose 'Remote Endpoint' to connect to a cloud API. (Choose 'Local Docker' for self-hosted models.)",
+      "step5_title": "Pick a Provider",
+      "step5_content": "Select the LLM provider type from the dropdown — OpenAI, Anthropic, Gemini, Azure, etc. For custom endpoints, choose 'Other (OpenAI-compatible)'.",
+      "step6_title": "API Key",
+      "step6_content": "Paste the API key from your provider's dashboard. It is stored encrypted at rest.",
+      "step7_title": "Test Connection",
+      "step7_content": "Click 'Test Connection' to verify the endpoint is reachable and the API key is valid. If successful, available models will be populated automatically.",
+      "step8_title": "Create Provider",
+      "step8_content": "Review your settings and click 'Create' to finalize the registration. The provider will appear in the list and be available for chat routing."
+    },
+    "remote_node": {
+      "title": "Set Up a Remote Node",
+      "description": "Register a GPU inference node so the scheduler can distribute workloads to it.",
+      "step1_title": "Add a Node",
+      "step1_content": "Click 'Add Node' to open the onboarding panel.",
+      "step2_title": "Node Onboarding",
+      "step2_content": "This panel lets you generate a single-use enrollment token that the node agent will exchange for permanent credentials.",
+      "step3_title": "Node Note",
+      "step3_content": "Optionally add a note for this node — e.g., host name, rack location, or role. This helps identify the node later.",
+      "step4_title": "Generate Token",
+      "step4_content": "Click 'Create Token' to generate the enrollment token. Copy it and pass it to the node agent installer on the target machine."
+    },
+    "local_model": {
+      "title": "Run a Model Locally",
+      "description": "Deploy a self-hosted LLM model on this server or a registered GPU node.",
+      "step1_title": "Add a Provider",
+      "step1_content": "Click 'Add Provider' to open the wizard. We'll set up a local Docker provider.",
+      "step2_title": "Provider Wizard",
+      "step2_content": "The wizard will walk you through deploying a model with a local inference engine.",
+      "step3_title": "Provider Name",
+      "step3_content": "Enter a name for this provider — e.g., 'Local Llama 3' or 'vLLM Dev'.",
+      "step4_title": "Select Target",
+      "step4_content": "Keep 'Local Docker' selected to run the model on this server, or choose a registered node for remote deployment.",
+      "step5_title": "Create & Deploy",
+      "step5_content": "Select your model, confirm the container image, then click 'Create'. The system will pull the image (if needed) and start the inference container."
     }
   }
 }

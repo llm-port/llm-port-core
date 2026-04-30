@@ -34,7 +34,7 @@ from llm_port_backend.db.models.llm import (
     ProviderType,
     RuntimeStatus,
 )
-from llm_port_backend.db.models.node_control import InfraNode, NodeCommandType
+from llm_port_backend.db.models.node_control import InfraNode, NodeCommandType, NodeHealthStatus
 from llm_port_backend.services.docker.client import DockerService
 from llm_port_backend.services.llm.base import ContainerSpec
 from llm_port_backend.services.llm.gateway_sync import GatewaySyncService, _normalize_base_url
@@ -981,8 +981,28 @@ class LLMService:
             return runtime
 
         # Node-deployed runtimes are managed by the remote agent, not
-        # the local Docker daemon — skip local container inspection.
+        # the local Docker daemon — but verify the node is still online.
         if runtime.execution_target == "node":
+            if runtime.status in (
+                RuntimeStatus.RUNNING,
+                RuntimeStatus.STARTING,
+                RuntimeStatus.CREATING,
+            ) and runtime.assigned_node_id:
+                node_dao = NodeControlDAO(runtime_dao.session)
+                node = await node_dao.get_node_by_id(runtime.assigned_node_id)
+                if node is None or node.status == NodeHealthStatus.OFFLINE:
+                    runtime.status_message = "Node offline"
+                    await runtime_dao.set_status(runtime.id, RuntimeStatus.ERROR)
+                    await self.gateway_sync.set_instance_health(
+                        runtime_id=runtime.id, health_status="unhealthy",
+                    )
+                    log.warning(
+                        "Runtime %r on offline node %s — marking ERROR",
+                        runtime.name,
+                        runtime.assigned_node_id,
+                    )
+                    updated = await runtime_dao.get(runtime.id)
+                    return updated or runtime
             return runtime
 
         # Only reconcile transient statuses

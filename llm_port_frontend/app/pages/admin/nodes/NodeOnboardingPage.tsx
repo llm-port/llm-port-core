@@ -66,6 +66,7 @@ export default function NodeOnboardingDrawer({
       open={open}
       onClose={handleClose}
       PaperProps={{ sx: { width: { xs: "100%", sm: 480 }, p: 3 } }}
+      data-tour-id="nodes.onboarding"
     >
       <Stack
         direction="row"
@@ -96,12 +97,14 @@ export default function NodeOnboardingDrawer({
               fullWidth
               size="small"
               placeholder="Optional host or rack note"
+              data-tour-id="nodes.onboarding.note"
             />
             <Button
               variant="contained"
               onClick={createToken}
               disabled={loading}
               fullWidth
+              data-tour-id="nodes.onboarding.create"
             >
               {loading ? "Creating..." : "Create Token"}
             </Button>

@@ -35,6 +35,7 @@ import SecurityIcon from "@mui/icons-material/Security";
 import TourIcon from "@mui/icons-material/Tour";
 import TranslateIcon from "@mui/icons-material/Translate";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
+import SchoolIcon from "@mui/icons-material/School";
 
 export interface AdminTopbarProps {
   mode: "light" | "dark";
@@ -50,6 +51,7 @@ export interface AdminTopbarProps {
   onLanguageChange: (code: string) => void;
   onProductTourOpen: () => void;
   onGuidedSetupOpen: () => void;
+  onHowToGuidesOpen: () => void;
   onResetGuides: () => void;
   onPageHelp: () => void;
   onRootFormOpen: () => void;
@@ -71,6 +73,7 @@ export function AdminTopbar({
   onLanguageChange,
   onProductTourOpen,
   onGuidedSetupOpen,
+  onHowToGuidesOpen,
   onResetGuides,
   onPageHelp,
   onRootFormOpen,
@@ -181,6 +184,22 @@ export function AdminTopbar({
               {t("help.guided_setup", {
                 ns: "tour",
                 defaultValue: "Guided Setup",
+              })}
+            </ListItemText>
+          </MenuItem>
+          <MenuItem
+            onClick={() => {
+              setHelpMenuAnchor(null);
+              onHowToGuidesOpen();
+            }}
+          >
+            <ListItemIcon>
+              <SchoolIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>
+              {t("help.how_to_guides", {
+                ns: "tour",
+                defaultValue: "How-To Guides",
               })}
             </ListItemText>
           </MenuItem>

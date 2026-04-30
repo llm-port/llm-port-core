@@ -2,6 +2,7 @@
  * tourEngine — loads step catalogs, resolves eligibility, manages progress.
  *
  * Tour flow:  orientation steps → profile-specific task steps
+ * Task flows: standalone sub-process guides (register endpoint, setup node, etc.)
  * Eligibility: steps filtered by module availability + superuser access
  */
 
@@ -12,6 +13,10 @@ import orientationData from "~/data/tours/orientation.json";
 import privateData from "~/data/tours/guided-setup-private.json";
 import teamData from "~/data/tours/guided-setup-team.json";
 import enterpriseData from "~/data/tours/guided-setup-enterprise.json";
+
+import registerRemoteEndpoint from "~/data/tours/taskflows/register-remote-endpoint.json";
+import setupRemoteNode from "~/data/tours/taskflows/setup-remote-node.json";
+import runLocalModel from "~/data/tours/taskflows/run-local-model.json";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -173,4 +178,101 @@ export async function getTourProgress(
 ): Promise<TourProgress | null> {
   const res = await preferences.get();
   return res.preferences?.tour_progress?.[tourId] ?? null;
+}
+
+// ── Task-flow sub-process guides ─────────────────────────────────────
+
+export interface TaskFlowStepDef {
+  target: string;
+  titleKey: string;
+  contentKey: string;
+  placement: string;
+  /** If true, the tour will wait (MutationObserver) until the target appears in the DOM. */
+  waitForTarget: boolean;
+  disableBeacon: boolean;
+}
+
+export interface TaskFlowCatalog {
+  flowId: string;
+  titleKey: string;
+  descriptionKey: string;
+  /** MUI icon name (e.g. "Cloud", "Dns", "Memory"). */
+  icon: string;
+  /** The route to navigate to before starting the flow. */
+  route: string;
+  requires: {
+    module?: string;
+    superuser?: boolean;
+  };
+  steps: TaskFlowStepDef[];
+}
+
+export interface ResolvedTaskFlowStep extends JoyrideStep {
+  /** Whether the tour should wait for this target to appear in the DOM. */
+  waitForTarget: boolean;
+  /** Skip the beacon animation. */
+  skipBeacon: boolean;
+  /** Index in the original catalog. */
+  originalIndex: number;
+}
+
+const TASK_FLOW_CATALOGS: TaskFlowCatalog[] = [
+  registerRemoteEndpoint as unknown as TaskFlowCatalog,
+  setupRemoteNode as unknown as TaskFlowCatalog,
+  runLocalModel as unknown as TaskFlowCatalog,
+];
+
+/**
+ * Return all registered task flow catalogs.
+ */
+export function listTaskFlows(): TaskFlowCatalog[] {
+  return TASK_FLOW_CATALOGS;
+}
+
+/**
+ * Look up a task flow by its ID.
+ */
+export function getTaskFlow(flowId: string): TaskFlowCatalog | undefined {
+  return TASK_FLOW_CATALOGS.find((f) => f.flowId === flowId);
+}
+
+/**
+ * Filter task flows based on module eligibility.
+ */
+export function resolveEligibleTaskFlows(
+  ctx: EligibilityContext,
+): TaskFlowCatalog[] {
+  return TASK_FLOW_CATALOGS.filter((flow) => {
+    if (flow.requires.module && !ctx.isModuleEnabled(flow.requires.module)) {
+      return false;
+    }
+    if (flow.requires.superuser && !ctx.isSuperuser) {
+      return false;
+    }
+    return true;
+  });
+}
+
+/**
+ * Resolve task flow steps with translations.
+ */
+export function resolveTaskFlowSteps(
+  flow: TaskFlowCatalog,
+  t: (key: string, opts?: Record<string, string>) => string,
+): ResolvedTaskFlowStep[] {
+  return flow.steps.map((step, i) => ({
+    target: step.target,
+    title: t(step.titleKey, { ns: "tour", defaultValue: step.titleKey }),
+    content: t(step.contentKey, {
+      ns: "tour",
+      defaultValue: step.contentKey,
+    }),
+    placement: step.placement as Placement,
+    // Hide the overlay for dialog/drawer steps so MUI portals stay
+    // interactive (Joyride's z-index is higher than MUI Dialog's).
+    hideOverlay: step.waitForTarget,
+    waitForTarget: step.waitForTarget,
+    skipBeacon: step.disableBeacon,
+    originalIndex: i,
+  }));
 }

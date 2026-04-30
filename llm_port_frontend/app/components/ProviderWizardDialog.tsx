@@ -663,7 +663,7 @@ export function ProviderWizardDialog({
   }
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth data-tour-id="providers.wizard">
       <DialogTitle>{t("llm_providers.new_provider")}</DialogTitle>
       <DialogContent
         sx={{
@@ -691,8 +691,9 @@ export function ProviderWizardDialog({
               required
               autoFocus
               fullWidth
+              data-tour-id="providers.wizard.name"
             />
-            <FormControl fullWidth>
+            <FormControl fullWidth data-tour-id="providers.wizard.target">
               <InputLabel>{t("llm_providers.target")}</InputLabel>
               <Select
                 value={target}
@@ -844,7 +845,7 @@ export function ProviderWizardDialog({
 
             {target === "remote_endpoint" && (
               <>
-                <FormControl fullWidth>
+                <FormControl fullWidth data-tour-id="providers.wizard.litellm">
                   <InputLabel>
                     {t("llm_providers.litellm_provider", "Provider")}
                   </InputLabel>
@@ -893,6 +894,7 @@ export function ProviderWizardDialog({
                   }}
                   fullWidth
                   helperText={t("llm_providers.api_key_help")}
+                  data-tour-id="providers.wizard.apikey"
                 />
                 <Autocomplete
                   freeSolo
@@ -935,6 +937,7 @@ export function ProviderWizardDialog({
                   }
                   onClick={() => void handleTestConnection()}
                   sx={{ alignSelf: "flex-start" }}
+                  data-tour-id="providers.wizard.test"
                 >
                   {testStatus === "testing"
                     ? t("llm_providers.test_connection_testing")
@@ -1313,6 +1316,7 @@ export function ProviderWizardDialog({
               busy || !name || (target === "local_docker" && localCreateBlocked)
             }
             onClick={() => void handleFinish()}
+            data-tour-id="providers.wizard.create"
           >
             {busy ? t("common.creating") : t("common.create")}
           </Button>

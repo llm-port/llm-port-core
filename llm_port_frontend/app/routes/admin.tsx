@@ -38,6 +38,8 @@ import {
 } from "~/components/ProfileSelectionDialog";
 import { ModuleRecommendationDialog } from "~/components/ModuleRecommendationDialog";
 import { GuidedSetupTour } from "~/components/GuidedSetupTour";
+import { TaskFlowTour } from "~/components/TaskFlowTour";
+import { TaskFlowDialog } from "~/components/TaskFlowDialog";
 import { PageHelpDrawer } from "~/components/PageHelpDrawer";
 import { preferences as preferencesApi } from "~/api/preferences";
 import { servicesApi } from "~/api/services";
@@ -91,6 +93,11 @@ function AdminLayoutInner() {
   const [prefsLoaded, setPrefsLoaded] = useState(false);
   const [guidedSetupActive, setGuidedSetupActive] = useState(false);
   const [guidedSetupInitialStep, setGuidedSetupInitialStep] = useState(0);
+
+  /* Task-flow sub-process guides */
+  const [showTaskFlowDialog, setShowTaskFlowDialog] = useState(false);
+  const [taskFlowId, setTaskFlowId] = useState<string | null>(null);
+  const [taskFlowActive, setTaskFlowActive] = useState(false);
 
   /* Page-help drawer (F1 / "About This Page") */
   const [pageHelpOpen, setPageHelpOpen] = useState(false);
@@ -420,6 +427,7 @@ function AdminLayoutInner() {
               setGuidedSetupActive(true);
             }
           }}
+          onHowToGuidesOpen={() => setShowTaskFlowDialog(true)}
           onResetGuides={handleResetGuides}
           onPageHelp={() => setPageHelpOpen(true)}
           onRootFormOpen={() => setShowRootForm(true)}
@@ -466,6 +474,27 @@ function AdminLayoutInner() {
           onFinish={() => setGuidedSetupActive(false)}
           initialStep={guidedSetupInitialStep}
         />
+
+        <TaskFlowDialog
+          open={showTaskFlowDialog}
+          isSuperuser={isSuperuser}
+          onClose={() => setShowTaskFlowDialog(false)}
+          onStart={(flowId) => {
+            setTaskFlowId(flowId);
+            setTaskFlowActive(true);
+          }}
+        />
+
+        {taskFlowId && (
+          <TaskFlowTour
+            run={taskFlowActive}
+            flowId={taskFlowId}
+            onFinish={() => {
+              setTaskFlowActive(false);
+              setTaskFlowId(null);
+            }}
+          />
+        )}
 
         <PageHelpDrawer
           open={pageHelpOpen}

@@ -1,0 +1,42 @@
+{
+  "flowId": "setup_remote_node",
+  "titleKey": "taskflows.remote_node.title",
+  "descriptionKey": "taskflows.remote_node.description",
+  "icon": "Dns",
+  "route": "/admin/nodes",
+  "requires": {},
+  "steps": [
+    {
+      "target": "[data-tour-id='nodes.add']",
+      "titleKey": "taskflows.remote_node.step1_title",
+      "contentKey": "taskflows.remote_node.step1_content",
+      "placement": "bottom",
+      "waitForTarget": false,
+      "disableBeacon": true
+    },
+    {
+      "target": "[data-tour-id='nodes.onboarding']",
+      "titleKey": "taskflows.remote_node.step2_title",
+      "contentKey": "taskflows.remote_node.step2_content",
+      "placement": "left",
+      "waitForTarget": true,
+      "disableBeacon": true
+    },
+    {
+      "target": "[data-tour-id='nodes.onboarding.note']",
+      "titleKey": "taskflows.remote_node.step3_title",
+      "contentKey": "taskflows.remote_node.step3_content",
+      "placement": "bottom",
+      "waitForTarget": true,
+      "disableBeacon": true
+    },
+    {
+      "target": "[data-tour-id='nodes.onboarding.create']",
+      "titleKey": "taskflows.remote_node.step4_title",
+      "contentKey": "taskflows.remote_node.step4_content",
+      "placement": "bottom",
+      "waitForTarget": true,
+      "disableBeacon": true
+    }
+  ]
+}
