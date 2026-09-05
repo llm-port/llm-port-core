@@ -29,6 +29,9 @@ class LokiClient:
         Static labels applied to every stream pushed.
     verify_tls:
         Whether to verify HTTPS certificates.
+    ca_bundle:
+        Optional path to a custom CA bundle. When set and ``verify_tls``
+        is True, this bundle is used as the trust store.
     """
 
     PUSH_PATH = "/loki/api/v1/push"
@@ -39,13 +42,15 @@ class LokiClient:
         loki_url: str,
         labels: dict[str, str],
         verify_tls: bool = True,
+        ca_bundle: str | None = None,
     ) -> None:
         self._url = loki_url.rstrip("/") + self.PUSH_PATH
         self._labels = labels
         self._buffer: list[LogEntry] = []
+        verify: Any = ca_bundle if (verify_tls and ca_bundle) else verify_tls
         self._http = httpx.AsyncClient(
             timeout=10,
-            verify=verify_tls,
+            verify=verify,
         )
 
     async def close(self) -> None:

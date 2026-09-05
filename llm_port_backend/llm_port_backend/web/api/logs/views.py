@@ -216,7 +216,12 @@ _loki_client: httpx.AsyncClient | None = None
 def _get_loki_client() -> httpx.AsyncClient:
     global _loki_client
     if _loki_client is None:
-        _loki_client = httpx.AsyncClient(timeout=15.0)
+        from llm_port_backend.services.tls import build_httpx_verify  # noqa: PLC0415
+
+        _loki_client = httpx.AsyncClient(
+            timeout=15.0,
+            verify=build_httpx_verify(settings.loki_verify_tls, settings.loki_ca_bundle),
+        )
     return _loki_client
 
 

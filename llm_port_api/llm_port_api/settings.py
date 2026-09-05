@@ -53,6 +53,9 @@ class Settings(BaseSettings):
     db_pool_size: int = max(5, _CPU_COUNT * 3)
     db_max_overflow: int = max(10, _CPU_COUNT * 3)
     db_url_override: str | None = None
+    # PostgreSQL TLS — disable | prefer | require | verify-ca | verify-full
+    db_ssl_mode: str = "disable"
+    db_ssl_ca_bundle: Optional[str] = None
 
     # Variables for Redis (optional — empty host disables Redis)
     redis_host: str = ""
@@ -60,6 +63,9 @@ class Settings(BaseSettings):
     redis_user: Optional[str] = None
     redis_pass: Optional[str] = None
     redis_base: Optional[int] = None
+    # Redis TLS — when True, the URL scheme is upgraded to rediss://
+    redis_ssl: bool = False
+    redis_ssl_ca_bundle: Optional[str] = None
 
     # Variables for RabbitMQ
     rabbit_host: str = "llm_port_api-rmq"
@@ -67,6 +73,8 @@ class Settings(BaseSettings):
     rabbit_user: str = "guest"
     rabbit_pass: str = "guest"
     rabbit_vhost: str = "/"
+    rabbit_ssl: bool = False
+    rabbit_ssl_ca_bundle: Optional[str] = None
 
     rabbit_pool_size: int = 2
     rabbit_channel_pool_size: int = 10
@@ -82,6 +90,8 @@ class Settings(BaseSettings):
     # Grpc endpoint for opentelemetry.
     # E.G. http://localhost:4317
     opentelemetry_endpoint: Optional[str] = None
+    # When True, OTLP exporter uses insecure=True (no TLS).
+    opentelemetry_insecure: bool = True
 
     # JWT settings (compatible with backend-issued tokens)
     jwt_secret: str = ""
@@ -169,6 +179,39 @@ class Settings(BaseSettings):
 
     langfuse_debug: bool = False
 
+    # ── Edge TLS (uvicorn-served HTTPS) ───────────────────────────────
+    # Mode: "off" (no TLS, default), "upload" (operator-provided cert),
+    # or "acme" (deferred — Phase 1 follow-up).
+    tls_edge_mode: str = "off"
+    tls_edge_cert_file: Optional[str] = None
+    tls_edge_key_file: Optional[str] = None
+    tls_edge_ca_file: Optional[str] = None  # optional intermediate chain
+    # Ports & hardening
+    tls_edge_https_port: int = 8443
+    # When True, refuse plaintext: bind only HTTPS and run a tiny :80
+    # redirect listener (managed elsewhere). Otherwise both http and
+    # https can be served (operator runs two processes).
+    tls_edge_strict: bool = False
+    # Min TLS version: "TLSv1_2" or "TLSv1_3"
+    tls_edge_min_version: str = "TLSv1_2"
+    # Optional cipher suite (OpenSSL string). Empty = OpenSSL default.
+    tls_edge_ciphers: str = ""
+    # Comma-separated allowlist of HTTP Host headers; "*" = allow any.
+    tls_edge_allowed_hosts: str = "*"
+    # Comma-separated CORS origin allowlist; empty disables CORS middleware.
+    tls_edge_cors_origins: str = ""
+    # HSTS: max-age (seconds). 0 disables. Recommend 31536000 (1y).
+    tls_edge_hsts_max_age: int = 0
+    tls_edge_hsts_include_subdomains: bool = False
+    tls_edge_hsts_preload: bool = False
+
+    # ── Outbound TLS to upstream LLM providers ────────────────────────
+    # Default CA bundle applied via litellm.ssl_verify when set.
+    tls_outbound_default_ca_bundle: Optional[str] = None
+    # When True, allows individual providers to disable verification.
+    # Off by default — providers must explicitly opt-in per-instance.
+    tls_outbound_allow_insecure: bool = False
+
     @property
     def db_url(self) -> URL:
         """
@@ -203,7 +246,7 @@ class Settings(BaseSettings):
         if self.redis_base is not None:
             path = f"/{self.redis_base}"
         return URL.build(
-            scheme="redis",
+            scheme="rediss" if self.redis_ssl else "redis",
             host=self.redis_host,
             port=self.redis_port,
             user=self.redis_user,

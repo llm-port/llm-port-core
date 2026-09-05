@@ -179,6 +179,27 @@ class LLMProviderInstance(Base):
         Text, nullable=True,
         doc="Fernet-encrypted provider API key.",
     )
+    # ── Outbound TLS (per provider) ────────────────────────────────
+    # One of: "default" (inherit global), "verify" (verify against
+    # system trust + optional ca bundle), "verify_custom_ca",
+    # "insecure" (skip verification — requires
+    # tls_outbound_allow_insecure=true to actually disable).
+    ssl_verify_mode: Mapped[str | None] = mapped_column(
+        String(32), nullable=True,
+        doc="Per-provider SSL verification mode for litellm.",
+    )
+    ssl_ca_bundle_pem: Mapped[str | None] = mapped_column(
+        EncryptedText("tls-outbound-ca"), nullable=True,
+        doc="Encrypted PEM bundle of trusted CAs for this provider.",
+    )
+    ssl_client_cert_pem: Mapped[str | None] = mapped_column(
+        EncryptedText("tls-outbound-cert"), nullable=True,
+        doc="Encrypted PEM client certificate for mTLS to this provider.",
+    )
+    ssl_client_key_pem: Mapped[str | None] = mapped_column(
+        EncryptedText("tls-outbound-cert"), nullable=True,
+        doc="Encrypted PEM client private key for mTLS to this provider.",
+    )
     litellm_provider: Mapped[str | None] = mapped_column(
         String(64), nullable=True,
         doc="LiteLLM provider prefix (e.g. 'anthropic', 'vertex_ai').",

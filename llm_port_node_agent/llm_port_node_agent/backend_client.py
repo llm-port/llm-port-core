@@ -7,6 +7,7 @@ from typing import Any
 import httpx
 
 from llm_port_node_agent.config import AgentConfig
+from llm_port_node_agent.tls import httpx_cert, httpx_verify
 
 
 class BackendClient:
@@ -17,7 +18,8 @@ class BackendClient:
         self._client = httpx.AsyncClient(
             base_url=config.backend_url,
             timeout=config.request_timeout_sec,
-            verify=config.verify_tls,
+            verify=httpx_verify(config),
+            cert=httpx_cert(config),
         )
 
     async def close(self) -> None:

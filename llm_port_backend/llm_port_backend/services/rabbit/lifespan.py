@@ -1,9 +1,21 @@
+import ssl
+
 import aio_pika
 from aio_pika.abc import AbstractChannel, AbstractRobustConnection
 from aio_pika.pool import Pool
 from fastapi import FastAPI
 
+from llm_port_backend.services.tls import rewrite_amqp_url_for_tls
 from llm_port_backend.settings import settings
+
+
+def _build_rabbit_kwargs() -> dict:
+    """Build aio_pika.connect_robust kwargs honoring TLS settings."""
+    kwargs: dict = {}
+    if settings.rabbit_ssl:
+        ctx = ssl.create_default_context(cafile=settings.rabbit_ssl_ca_bundle)
+        kwargs["ssl_context"] = ctx
+    return kwargs
 
 
 def init_rabbit(app: FastAPI) -> None:  # pragma: no cover
@@ -19,7 +31,8 @@ def init_rabbit(app: FastAPI) -> None:  # pragma: no cover
 
         :return: async connection to RabbitMQ.
         """
-        return await aio_pika.connect_robust(str(settings.rabbit_url))
+        url = rewrite_amqp_url_for_tls(str(settings.rabbit_url), settings.rabbit_ssl)
+        return await aio_pika.connect_robust(url, **_build_rabbit_kwargs())
 
     # This pool is used to open connections.
     connection_pool: Pool[AbstractRobustConnection] = Pool(

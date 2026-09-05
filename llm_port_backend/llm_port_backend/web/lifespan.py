@@ -44,6 +44,7 @@ from llm_port_backend.services.system_settings.runtime_mapping import (
     register_runtime_secret_key,
     register_runtime_value_key,
 )
+from llm_port_backend.services.tls import build_asyncpg_ssl
 from llm_port_backend.settings import settings
 from llm_port_backend.tkq import broker
 
@@ -84,7 +85,7 @@ def _setup_db(app: FastAPI) -> None:  # pragma: no cover
         echo=settings.db_echo,
         pool_size=settings.db_pool_size,
         max_overflow=settings.db_max_overflow,
-        connect_args={"ssl": False},
+        connect_args={"ssl": build_asyncpg_ssl(settings.db_ssl_mode, settings.db_ssl_ca_bundle)},
     )
     session_factory = async_sessionmaker(
         engine,
@@ -97,7 +98,7 @@ def _setup_db(app: FastAPI) -> None:  # pragma: no cover
         echo=False,
         pool_size=settings.db_pool_size,
         max_overflow=settings.db_max_overflow,
-        connect_args={"ssl": False},
+        connect_args={"ssl": build_asyncpg_ssl(settings.db_ssl_mode, settings.db_ssl_ca_bundle)},
     )
     app.state.llm_graph_trace_engine = graph_engine
     app.state.llm_graph_trace_session_factory = async_sessionmaker(
@@ -162,6 +163,7 @@ def setup_opentelemetry(app: FastAPI) -> None:  # pragma: no cover
         BatchSpanProcessor(
             OTLPSpanExporter(
                 endpoint=settings.opentelemetry_endpoint,
+                insecure=settings.opentelemetry_insecure,
             )
         )
     )
@@ -170,14 +172,26 @@ def setup_opentelemetry(app: FastAPI) -> None:  # pragma: no cover
     meter_provider = MeterProvider(
         resource=otlp_resource,
         metric_readers=[
-            (PeriodicExportingMetricReader(OTLPMetricExporter(endpoint=settings.opentelemetry_endpoint))),
+            (
+                PeriodicExportingMetricReader(
+                    OTLPMetricExporter(
+                        endpoint=settings.opentelemetry_endpoint,
+                        insecure=settings.opentelemetry_insecure,
+                    ),
+                )
+            ),
         ],
     )
     metrics.set_meter_provider(meter_provider)
 
     logger_provider = LoggerProvider(resource=otlp_resource)
     logger_provider.add_log_record_processor(
-        BatchLogRecordProcessor(OTLPLogExporter(endpoint=settings.opentelemetry_endpoint)),
+        BatchLogRecordProcessor(
+            OTLPLogExporter(
+                endpoint=settings.opentelemetry_endpoint,
+                insecure=settings.opentelemetry_insecure,
+            ),
+        ),
     )
     logging.getLogger().addHandler(
         LoggingHandler(

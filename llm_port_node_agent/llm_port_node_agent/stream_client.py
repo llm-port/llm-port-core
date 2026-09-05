@@ -26,6 +26,7 @@ from llm_port_node_agent.gpu import GpuCollector, NullCollector
 from llm_port_node_agent.health_supervisor import HealthSupervisor
 from llm_port_node_agent.runtimes import ContainerRuntime
 from llm_port_node_agent.state_store import StateStore
+from llm_port_node_agent.tls import websockets_ssl
 
 log = logging.getLogger(__name__)
 
@@ -76,6 +77,7 @@ class StreamClient:
             ping_timeout=20,
             close_timeout=10,
             max_size=2**22,
+            ssl=websockets_ssl(self._config) if ws_url.startswith("wss://") else None,
         ) as ws:
             tasks = {
                 asyncio.create_task(self._receive_loop(ws), name="receive"),

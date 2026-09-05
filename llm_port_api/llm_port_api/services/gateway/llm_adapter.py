@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
@@ -17,6 +18,7 @@ import litellm
 
 from llm_port_api.db.crypto import decrypt_value
 from llm_port_api.db.models.gateway import ProviderType
+from llm_port_api.services.gateway.ssl_helpers import build_ssl_kwargs
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +115,11 @@ class LLMAdapter:
         extra_params: dict[str, Any] | None,
         payload: dict[str, Any],
         stream: bool = False,
+        instance_id: uuid.UUID | None = None,
+        ssl_verify_mode: str | None = None,
+        ssl_ca_bundle_pem: str | None = None,
+        ssl_client_cert_pem: str | None = None,
+        ssl_client_key_pem: str | None = None,
     ) -> CompletionResult | AsyncIterator[Any]:
         """Run a chat completion (streaming or non-streaming).
 
@@ -165,6 +172,20 @@ class LLMAdapter:
                 kwargs["extra_headers"] = extra_headers
             # Remaining params go directly to litellm
             kwargs.update(extra_params)
+
+        # Apply per-provider TLS overrides (CA bundle / mTLS).  When the
+        # provider has nothing configured this is a no-op and LiteLLM
+        # inherits the global default set in lifespan.
+        if instance_id is not None:
+            kwargs.update(
+                build_ssl_kwargs(
+                    instance_id=instance_id,
+                    ssl_verify_mode=ssl_verify_mode,
+                    ssl_ca_bundle_pem=ssl_ca_bundle_pem,
+                    ssl_client_cert_pem=ssl_client_cert_pem,
+                    ssl_client_key_pem=ssl_client_key_pem,
+                ),
+            )
 
         if stream:
             # Request token usage in the final streaming chunk (OpenAI-compatible).
@@ -236,6 +257,11 @@ class LLMAdapter:
         litellm_model: str | None,
         extra_params: dict[str, Any] | None,
         payload: dict[str, Any],
+        instance_id: uuid.UUID | None = None,
+        ssl_verify_mode: str | None = None,
+        ssl_ca_bundle_pem: str | None = None,
+        ssl_client_cert_pem: str | None = None,
+        ssl_client_key_pem: str | None = None,
     ) -> CompletionResult:
         """Run an embedding request."""
         model_name = _build_litellm_model_name(
@@ -261,6 +287,17 @@ class LLMAdapter:
             kwargs["api_key"] = "EMPTY"
         if extra_params:
             kwargs.update(extra_params)
+
+        if instance_id is not None:
+            kwargs.update(
+                build_ssl_kwargs(
+                    instance_id=instance_id,
+                    ssl_verify_mode=ssl_verify_mode,
+                    ssl_ca_bundle_pem=ssl_ca_bundle_pem,
+                    ssl_client_cert_pem=ssl_client_cert_pem,
+                    ssl_client_key_pem=ssl_client_key_pem,
+                ),
+            )
 
         try:
             response = await litellm.aembedding(**kwargs)

@@ -42,6 +42,11 @@ class RoutedInstance:
     node_id: uuid.UUID | None = None
     node_metadata: dict | None = None
     capacity_hints: dict | None = None
+    # Per-provider outbound TLS (decrypted PEMs from the DB layer)
+    ssl_verify_mode: str | None = None
+    ssl_ca_bundle_pem: str | None = None
+    ssl_client_cert_pem: str | None = None
+    ssl_client_key_pem: str | None = None
 
 
 class GatewayDAO:
@@ -150,6 +155,10 @@ class GatewayDAO:
                     node_id=instance.node_id,
                     node_metadata=instance.node_metadata,
                     capacity_hints=instance.capacity_hints,
+                    ssl_verify_mode=instance.ssl_verify_mode,
+                    ssl_ca_bundle_pem=instance.ssl_ca_bundle_pem,
+                    ssl_client_cert_pem=instance.ssl_client_cert_pem,
+                    ssl_client_key_pem=instance.ssl_client_key_pem,
                 ),
             )
         return candidates

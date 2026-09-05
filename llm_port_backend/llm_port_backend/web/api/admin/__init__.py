@@ -15,6 +15,7 @@ from llm_port_backend.web.api.admin.root_mode.views import router as root_mode_r
 from llm_port_backend.web.api.admin.services.views import router as services_router
 from llm_port_backend.web.api.admin.stacks.views import router as stacks_router
 from llm_port_backend.web.api.admin.system.views import router as system_router
+from llm_port_backend.web.api.admin.tls.views import router as tls_router
 from llm_port_backend.web.api.admin.users.views import router as users_router
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,7 @@ admin_router.include_router(root_mode_router, prefix="/root-mode", tags=["admin-
 admin_router.include_router(audit_router, prefix="/audit", tags=["admin-audit"])
 admin_router.include_router(users_router, prefix="/users", tags=["admin-users"])
 admin_router.include_router(system_router, prefix="/system", tags=["admin-system"])
+admin_router.include_router(tls_router, prefix="/tls", tags=["admin-tls"])
 admin_router.include_router(services_router, tags=["admin-services"])
 
 # --- Scheduler (unified background jobs) ---

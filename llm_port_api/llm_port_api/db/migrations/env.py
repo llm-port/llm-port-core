@@ -7,6 +7,7 @@ from sqlalchemy.future import Connection
 
 from llm_port_api.db.meta import meta
 from llm_port_api.db.models import load_all_models
+from llm_port_api.services.tls import build_asyncpg_ssl
 from llm_port_api.settings import settings
 
 config = context.config
@@ -40,7 +41,10 @@ def do_run_migrations(connection: Connection) -> None:
 
 async def run_migrations_online() -> None:
     """Run migrations in online mode."""
-    connectable = create_async_engine(str(settings.db_url))
+    connectable = create_async_engine(
+        str(settings.db_url),
+        connect_args={"ssl": build_asyncpg_ssl(settings.db_ssl_mode, settings.db_ssl_ca_bundle)},
+    )
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)
 

@@ -135,6 +135,7 @@ class NodeAgentService:
                     "container": f"node-{self._config.agent_id}",
                 },
                 verify_tls=self._config.verify_tls,
+                ca_bundle=self._config.tls_ca_bundle,
             )
             self._loki = loki_client
             collector = LogCollector(max_lines=self._config.log_batch_size)

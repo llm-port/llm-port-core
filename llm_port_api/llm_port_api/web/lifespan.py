@@ -32,6 +32,7 @@ from llm_port_api.services.gateway.settings_loader import load_system_settings_f
 from llm_port_api.services.rabbit.lifespan import init_rabbit, shutdown_rabbit
 from llm_port_api.services.cache import NoOpCache, RedisCache
 from llm_port_api.services.registry import service_registry
+from llm_port_api.services.tls import build_asyncpg_ssl, build_redis_ssl_kwargs
 from llm_port_api.settings import settings
 from llm_port_api.tkq import broker
 
@@ -68,7 +69,7 @@ def setup_opentelemetry(app: FastAPI) -> None:  # pragma: no cover
         BatchSpanProcessor(
             OTLPSpanExporter(
                 endpoint=settings.opentelemetry_endpoint,
-                insecure=True,
+                insecure=settings.opentelemetry_insecure,
             ),
         ),
     )
@@ -141,7 +142,8 @@ def _init_cache(app: FastAPI) -> None:  # pragma: no cover
     if settings.redis_enabled:
         from redis.asyncio import ConnectionPool
 
-        pool = ConnectionPool.from_url(str(settings.redis_url))
+        ssl_kwargs = build_redis_ssl_kwargs(settings.redis_ssl, settings.redis_ssl_ca_bundle)
+        pool = ConnectionPool.from_url(str(settings.redis_url), **ssl_kwargs)
         app.state.cache_backend = RedisCache(pool)
     else:
         app.state.cache_backend = NoOpCache()
@@ -157,6 +159,7 @@ def _setup_db(app: FastAPI) -> None:  # pragma: no cover
         str(settings.db_url),
         echo=settings.db_echo,
         pool_size=settings.db_pool_size,
+        connect_args={"ssl": build_asyncpg_ssl(settings.db_ssl_mode, settings.db_ssl_ca_bundle)},
         max_overflow=settings.db_max_overflow,
     )
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -239,6 +242,11 @@ async def lifespan_setup(
     if not settings.litellm_verbose:
         _litellm.suppress_debug_info = True
         logging.getLogger("LiteLLM").setLevel(logging.WARNING)
+    # Apply default outbound trust bundle when configured. Per-provider
+    # ssl_verify kwargs (built in services.gateway.ssl_helpers) override
+    # this on a per-call basis.
+    if settings.tls_outbound_default_ca_bundle:
+        _litellm.ssl_verify = settings.tls_outbound_default_ca_bundle
 
     await _load_jwt_secret_from_backend_db()
     await load_system_settings_from_backend_db()
@@ -286,6 +294,12 @@ async def lifespan_setup(
     _init_cache(app)
     init_rabbit(app)
     setup_prometheus(app)
+    # Security middleware (HSTS, security headers, host allowlist, CORS,
+    # optional HTTPS redirect for strict mode). Must be added BEFORE
+    # build_middleware_stack() so it's part of the dispatch chain.
+    from llm_port_api.web.middleware import register_security_middleware  # noqa: PLC0415
+
+    register_security_middleware(app, settings)
     app.middleware_stack = app.build_middleware_stack()
 
     # Background task: refresh price cache every 30 seconds

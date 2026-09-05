@@ -40,6 +40,30 @@ from llm_port_api.settings import settings
 logger = logging.getLogger(__name__)
 
 
+def _candidate_adapter_kwargs(candidate: Any) -> dict[str, Any]:
+    """Return adapter kwargs derived from a routed provider candidate.
+
+    Centralises the mapping of the per-instance provider/credential
+    fields (including outbound TLS) into the kwargs accepted by
+    :meth:`LLMAdapter.completion` and :meth:`LLMAdapter.embedding`.
+    """
+    return {
+        "provider_type": candidate.provider_type,
+        "base_url": candidate.base_url,
+        "api_key_encrypted": candidate.api_key_encrypted,
+        "litellm_provider": candidate.litellm_provider,
+        "litellm_model": candidate.litellm_model,
+        "extra_params": (
+            dict(candidate.extra_params) if candidate.extra_params else None
+        ),
+        "instance_id": candidate.instance_id,
+        "ssl_verify_mode": getattr(candidate, "ssl_verify_mode", None),
+        "ssl_ca_bundle_pem": getattr(candidate, "ssl_ca_bundle_pem", None),
+        "ssl_client_cert_pem": getattr(candidate, "ssl_client_cert_pem", None),
+        "ssl_client_key_pem": getattr(candidate, "ssl_client_key_pem", None),
+    }
+
+
 class _PIIFallbackToLocalRequested(Exception):
     """Signal that cloud egress should be rerouted to a local provider."""
 
@@ -318,12 +342,7 @@ class GatewayService:
             for attempt in range(settings.retry_pre_first_token + 1):
                 try:
                     adapter_result = await self.adapter.completion(
-                        provider_type=decision.candidate.provider_type,
-                        base_url=decision.candidate.base_url,
-                        api_key_encrypted=decision.candidate.api_key_encrypted,
-                        litellm_provider=decision.candidate.litellm_provider,
-                        litellm_model=decision.candidate.litellm_model,
-                        extra_params=dict(decision.candidate.extra_params) if decision.candidate.extra_params else None,
+                        **_candidate_adapter_kwargs(decision.candidate),
                         payload=egress_payload,
                         stream=False,
                     )
@@ -665,12 +684,7 @@ class GatewayService:
                 from llm_port_api.services.gateway.llm_adapter import CompletionResult  # noqa: PLC0415
 
                 adapter_result = await self.adapter.completion(
-                    provider_type=decision.candidate.provider_type,
-                    base_url=decision.candidate.base_url,
-                    api_key_encrypted=decision.candidate.api_key_encrypted,
-                    litellm_provider=decision.candidate.litellm_provider,
-                    litellm_model=decision.candidate.litellm_model,
-                    extra_params=dict(decision.candidate.extra_params) if decision.candidate.extra_params else None,
+                    **_candidate_adapter_kwargs(decision.candidate),
                     payload=egress_payload,
                     stream=False,
                 )
@@ -723,12 +737,7 @@ class GatewayService:
                 )
             else:
                 raw_stream = self.adapter.completion(
-                    provider_type=decision.candidate.provider_type,
-                    base_url=decision.candidate.base_url,
-                    api_key_encrypted=decision.candidate.api_key_encrypted,
-                    litellm_provider=decision.candidate.litellm_provider,
-                    litellm_model=decision.candidate.litellm_model,
-                    extra_params=dict(decision.candidate.extra_params) if decision.candidate.extra_params else None,
+                    **_candidate_adapter_kwargs(decision.candidate),
                     payload=egress_payload,
                     stream=True,
                 )
@@ -1683,16 +1692,7 @@ class GatewayService:
             from llm_port_api.services.gateway.llm_adapter import CompletionResult  # noqa: PLC0415
 
             adapter_result = await adapter.completion(
-                provider_type=decision.candidate.provider_type,
-                base_url=decision.candidate.base_url,
-                api_key_encrypted=decision.candidate.api_key_encrypted,
-                litellm_provider=decision.candidate.litellm_provider,
-                litellm_model=decision.candidate.litellm_model,
-                extra_params=(
-                    dict(decision.candidate.extra_params)
-                    if decision.candidate.extra_params
-                    else None
-                ),
+                **_candidate_adapter_kwargs(decision.candidate),
                 payload=loop_payload,
                 stream=False,
             )

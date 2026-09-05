@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio.engine import create_async_engine
 from sqlalchemy.future import Connection
 from llm_port_backend.db.meta import meta
 from llm_port_backend.db.models import load_all_models
+from llm_port_backend.services.tls import build_asyncpg_ssl
 from llm_port_backend.settings import settings
 
 # this is the Alembic Config object, which provides
@@ -75,7 +76,7 @@ async def run_migrations_online() -> None:
     """
     connectable = create_async_engine(
         str(settings.db_url),
-        connect_args={"ssl": False},
+        connect_args={"ssl": build_asyncpg_ssl(settings.db_ssl_mode, settings.db_ssl_ca_bundle)},
     )
 
     async with connectable.connect() as connection:

@@ -62,6 +62,9 @@ class AgentConfig:
     reconnect_max_sec: float
     request_timeout_sec: float
     verify_tls: bool
+    tls_ca_bundle: str | None
+    tls_client_cert: str | None
+    tls_client_key: str | None
     log_level: str
     image_allowlist: list[str]
     model_store_root: str
@@ -106,6 +109,9 @@ class AgentConfig:
             reconnect_max_sec=float(os.getenv("LLM_PORT_NODE_AGENT_RECONNECT_MAX_SEC", "30")),
             request_timeout_sec=float(os.getenv("LLM_PORT_NODE_AGENT_REQUEST_TIMEOUT_SEC", "20")),
             verify_tls=_env_bool("LLM_PORT_NODE_AGENT_VERIFY_TLS", True),
+            tls_ca_bundle=os.getenv("LLM_PORT_NODE_AGENT_TLS_CA_BUNDLE") or None,
+            tls_client_cert=os.getenv("LLM_PORT_NODE_AGENT_TLS_CLIENT_CERT") or None,
+            tls_client_key=os.getenv("LLM_PORT_NODE_AGENT_TLS_CLIENT_KEY") or None,
             log_level=os.getenv("LLM_PORT_NODE_AGENT_LOG_LEVEL", "INFO").upper(),
             image_allowlist=[
                 prefix.strip()

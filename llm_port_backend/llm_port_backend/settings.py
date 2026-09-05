@@ -65,6 +65,10 @@ class Settings(BaseSettings):
     db_echo: bool = False
     db_pool_size: int = max(5, _CPU_COUNT * 3)
     db_max_overflow: int = max(10, _CPU_COUNT * 3)
+    # PostgreSQL TLS
+    # disable | prefer | require | verify-ca | verify-full
+    db_ssl_mode: str = "disable"
+    db_ssl_ca_bundle: str | None = None
 
     # Variables for RabbitMQ
     rabbit_host: str = "llm-port-rmq"
@@ -72,6 +76,10 @@ class Settings(BaseSettings):
     rabbit_user: str = "guest"
     rabbit_pass: str = "guest"  # noqa: S105
     rabbit_vhost: str = "/"
+    # RabbitMQ TLS — when True, the URL scheme is upgraded to amqps://
+    # at connection time. Configure CA bundle path for custom trust roots.
+    rabbit_ssl: bool = False
+    rabbit_ssl_ca_bundle: str | None = None
 
     rabbit_pool_size: int = 2
     rabbit_channel_pool_size: int = 10
@@ -87,6 +95,18 @@ class Settings(BaseSettings):
     # Grpc endpoint for opentelemetry.
     # E.G. http://localhost:4317
     opentelemetry_endpoint: str | None = None
+    # When True, the OTLP exporter is created with insecure=True
+    # (no TLS). Set to False for TLS-protected collectors.
+    opentelemetry_insecure: bool = True
+
+    # ── Edge TLS material output paths ─────────────────────────────────
+    # Where the admin "TLS activate" endpoint writes decrypted edge cert
+    # material so the API process can pick it up at restart. Must be on
+    # a volume the API container also mounts.
+    tls_edge_material_dir: str = "/etc/llmport/tls"
+    tls_edge_cert_basename: str = "edge.crt"
+    tls_edge_key_basename: str = "edge.key"
+    tls_edge_chain_basename: str = "edge-chain.pem"
 
     # LLM Server settings
     model_store_root: str = "/srv/llm-port/models"
@@ -209,6 +229,10 @@ class Settings(BaseSettings):
         ),
     )
     loki_base_url: str = "http://127.0.0.1:3100"
+    # Verify TLS when querying Loki over HTTPS. Set to False only for
+    # self-signed test setups; supply a CA bundle path for custom roots.
+    loki_verify_tls: bool = True
+    loki_ca_bundle: str | None = None
     logs_max_limit: int = 5000
     logs_default_limit: int = 200
     logs_allowed_labels_raw: str | None = Field(
