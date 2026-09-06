@@ -9,6 +9,7 @@ kernel-level setup that can't be safely automated.
 
 from __future__ import annotations
 
+import os
 import platform
 import shutil
 import subprocess
@@ -161,6 +162,19 @@ def check_prerequisites(
 
 # ── Install logic ────────────────────────────────────────────────
 
+def _add_to_session_path(directory: str) -> None:
+    """Prepend a tool directory to this process's PATH.
+
+    Lets a freshly installed binary (e.g. uv in ~/.local/bin) be invoked
+    by later subprocess calls in the same CLI run without a shell restart.
+    """
+    current = os.environ.get("PATH", "")
+    parts = current.split(os.pathsep)
+    if directory in parts:
+        return
+    os.environ["PATH"] = directory + (os.pathsep + current if current else "")
+
+
 def _run_install(cmd: list[str], name: str) -> bool:
     """Run an install command and return True on success."""
     console.print(f"  [cyan]Installing {name}…[/cyan]")
@@ -222,6 +236,8 @@ def install_missing(
 
             tc = check_tool(r.prereq.check_cmd)
             if tc.found:
+                # Make the tool usable by this run's subprocess calls too.
+                _add_to_session_path(os.path.dirname(tc.path))
                 success(f"  {r.prereq.name} {tc.version} ✓")
                 installed.append(r)
             else:

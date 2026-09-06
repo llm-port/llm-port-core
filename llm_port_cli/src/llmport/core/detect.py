@@ -390,13 +390,47 @@ def check_known_ports() -> list[PortCheck]:
     return [check_port(port, label) for port, label in KNOWN_PORTS]
 
 
-# ── Tool checks ───────────────────────────────────────────────────
+# Directories probed for freshly installed tools that are not yet on
+# the session PATH (e.g. the uv installer drops into ~/.local/bin).
+EXTRA_TOOL_DIRS: tuple[str, ...] = (
+    str(Path.home() / ".local" / "bin"),
+    str(Path.home() / ".cargo" / "bin"),
+)
+
+
+def ensure_tool_path() -> None:
+    """Prepend common tool dirs to this process's PATH (in-place).
+
+    Call once at CLI startup so child subprocesses (``uv sync``, ``npm``…)
+    can find tools that the user's shell put in ``~/.local/bin`` /
+    ``~/.cargo/bin`` but that are missing from the current PATH
+    (headless SSH sessions, cron, GUI-launched terminals).
+    """
+    import os
+
+    path_parts = os.environ.get("PATH", "").split(os.pathsep)
+    for extra in reversed(EXTRA_TOOL_DIRS):
+        if extra not in path_parts:
+            path_parts.insert(0, extra)
+    os.environ["PATH"] = os.pathsep.join(path_parts)
+
+
+def find_tool_path(name: str) -> str | None:
+    """Locate a CLI tool on PATH or in common post-install locations."""
+    path = shutil.which(name)
+    if path:
+        return path
+    for extra in EXTRA_TOOL_DIRS:
+        candidate = Path(extra) / name
+        if candidate.is_file() and candidate.stat().st_mode & 0o111:
+            return str(candidate)
+    return None
 
 
 def check_tool(name: str, *, version_flag: str = "--version") -> ToolCheck:
-    """Check if a CLI tool exists on PATH and get its version."""
+    """Check if a CLI tool exists on PATH (or a known install dir) + version."""
     hint = TOOL_INSTALL_HINTS.get(name, "")
-    path = shutil.which(name)
+    path = find_tool_path(name)
     if not path:
         return ToolCheck(name=name, found=False, install_hint=hint)
     try:

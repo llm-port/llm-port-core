@@ -13,6 +13,7 @@ from llmport.core.console import console, info
 from llmport.core.git import current_branch
 from llmport.core.registry import DEV_PROCESSES
 from llmport.core.settings import REPO_DIR_MAP, load_config
+from llmport.core.workspace import find_service_dir, resolve_shared_compose
 
 from .dev_group import dev_group
 
@@ -62,7 +63,7 @@ def dev_status() -> None:
     repo_table.add_column("Status")
 
     for _gh_name, local_name in sorted(REPO_DIR_MAP.items()):
-        repo_path = workspace / local_name
+        repo_path = find_service_dir(workspace, local_name)
         if repo_path.exists():
             branch = current_branch(repo_path) or "—"
             # Quick dirty check
@@ -88,9 +89,7 @@ def dev_status() -> None:
 
     # ── Shared infrastructure ─────────────────────────────────────
     console.print()
-    from llmport.commands.dev.dev_init import _resolve_shared_compose
-
-    compose_file = _resolve_shared_compose(workspace)
+    compose_file = resolve_shared_compose(workspace)
     if compose_file:
         env_file = compose_file.parent / ".env"
         ctx = ComposeContext(

@@ -6,10 +6,14 @@ infrastructure, runs migrations, and generates a VS Code workspace file.
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import click
@@ -17,7 +21,7 @@ import click
 from llmport.core.compose import ComposeContext, up as compose_up
 from llmport.core.console import console, success, warning, error, info
 from llmport.core.detect import detect_docker
-from llmport.core.env_gen import dev_env_vars, write_env_file
+from llmport.core.env_gen import dev_env_vars, read_env_file, write_env_file
 from llmport.core.git import clone_all_repos
 from llmport.core.install import ensure_prerequisites
 from llmport.core.registry import (
@@ -26,6 +30,10 @@ from llmport.core.registry import (
     INFRA_SERVICES,
     MODULES_COMPAT,
     POSTGRES_CONTAINER,
+    backend_dev_env_for,
+)
+from llmport.core.rmq import (
+    write_definitions as _write_rmq_definitions,
 )
 from llmport.core.settings import (
     DevConfig,
@@ -34,31 +42,14 @@ from llmport.core.settings import (
     load_config,
     save_config,
 )
+from llmport.core.workspace import find_service_dir, resolve_shared_compose
 
 from .dev_group import dev_group
 
-
-def _find_service_dir(workspace: Path, name: str) -> Path:
-    """Return the path to a service directory, checking monorepo first."""
-    monorepo = workspace / "llm-port-core" / name
-    if monorepo.is_dir():
-        return monorepo
-    return workspace / name
-
-
-def _resolve_shared_compose(workspace: Path) -> Path | None:
-    """Locate the shared docker-compose file."""
-    for candidate in (
-        workspace / "llm_port_shared" / "docker-compose.yaml",
-        workspace / "llm_port_shared" / "docker-compose.yml",
-        workspace / "llm-port-core" / "llm_port_shared" / "docker-compose.yaml",
-        workspace / "llm-port-core" / "llm_port_shared" / "docker-compose.yml",
-        workspace / "infra" / "shared" / "docker-compose.yaml",
-        workspace / "infra" / "shared" / "docker-compose.yml",
-    ):
-        if candidate.exists():
-            return candidate
-    return None
+# Backwards-compatible aliases — the canonical implementations live in
+# llmport.core.workspace so dev_up / dev_status resolve paths identically.
+_find_service_dir = find_service_dir
+_resolve_shared_compose = resolve_shared_compose
 
 
 def _wait_for_postgres(container: str = POSTGRES_CONTAINER, timeout: int = 60) -> bool:
@@ -302,9 +293,10 @@ def _generate_vscode_workspace(workspace: Path) -> None:
 
     folders = []
     for _gh_name, local_name in sorted(REPO_DIR_MAP.items()):
-        repo_path = workspace / local_name
+        repo_path = find_service_dir(workspace, local_name)
         if repo_path.exists():
-            folders.append({"path": local_name})
+            rel = os.path.relpath(repo_path, workspace).replace("\\", "/")
+            folders.append({"path": rel})
 
     content = {
         "folders": folders,
@@ -324,6 +316,101 @@ def _generate_vscode_workspace(workspace: Path) -> None:
     }
     workspace_file.write_text(json.dumps(content, indent=2) + "\n", encoding="utf-8")
     success(f"VS Code workspace file: {workspace_file}")
+
+
+def _resync_rmq_credentials(shared_dir: Path, *, skip_infra: bool) -> None:
+    """Regenerate RMQ ``definitions.json`` from the shared ``.env`` and
+    restart the broker so the on-disk users match the in-env passwords.
+
+    The repo ships a checked-in ``llm_port_shared/rabbitmq/definitions.json``
+    (deploy-time hashes from its original author). A fresh ``dev init``
+    writes a new shared ``.env`` (random ``RABBITMQ_*_PASS`` values), so the
+    broker's users drift out of sync and the backend/worker — which are
+    told to log in as ``llmport-backend`` / ``RABBITMQ_BACKEND_PASS`` — get
+    ``ACCESS_REFUSED`` from the mgmt API / AMQP layer.
+
+    Skipped when ``--skip-infra`` (no broker to restart), docker is
+    unavailable, or the shared ``.env`` predates the per-service users.
+    """
+    env_path = shared_dir / ".env"
+    env_vars = read_env_file(env_path)
+    admin_pass = env_vars.get("RABBITMQ_ADMIN_PASS")
+    backend_pass = env_vars.get("RABBITMQ_BACKEND_PASS")
+    if not admin_pass or not backend_pass:
+        warning("Shared .env has no RABBITMQ_*_PASS — skipping RMQ definitions resync.")
+        return
+
+    profiles = {
+        p.strip()
+        for p in env_vars.get("MODULES", "").split(",")
+        if p.strip()
+    }
+    defs_path = _write_rmq_definitions(
+        shared_dir,
+        admin_user=env_vars.get("RABBITMQ_ADMIN_USER", "admin"),
+        admin_pass=admin_pass,
+        backend_pass=backend_pass,
+        api_pass=env_vars.get("RABBITMQ_API_PASS", backend_pass),
+        pii_pass=env_vars.get("RABBITMQ_PII_PASS") if "pii" in profiles else None,
+    )
+    info(f"RMQ definitions regenerated: {defs_path}")
+
+    if skip_infra:
+        info("Skipping RMQ restart (--skip-infra); definitions load on next broker start.")
+        return
+    docker = shutil.which("docker")
+    if not docker or not _wait_for_postgres(timeout=10):
+        info("Docker not ready — RMQ definitions will load on next broker start.")
+        return
+
+    container = "llm-port-rmq"  # explicit container_name in the shared compose
+    running = subprocess.run(
+        [docker, "inspect", "-f", "{{.State.Running}}", container],
+        capture_output=True,
+        text=True,
+    )
+    if running.returncode != 0:
+        info("RMQ container not found — definitions will load on first broker start.")
+        return
+
+    # Recreate the broker: the container mounts ./rabbitmq/definitions.json,
+    # but load_definitions runs once at startup, so a plain restart of an
+    # already-running container keeps the old users.
+    if subprocess.run([docker, "rm", "-f", container], capture_output=True).returncode != 0:
+        warning("Could not remove the RMQ container — restart it manually to load new credentials.")
+        return
+    compose_file = next(
+        (p for p in (shared_dir / "docker-compose.yaml", shared_dir / "docker-compose.yml") if p.exists()),
+        None,
+    )
+    if not compose_file:
+        warning("Shared compose file not found for RMQ restart.")
+        return
+    ctx = ComposeContext(
+        compose_files=[str(compose_file)],
+        env_file=str(env_path),
+        project_dir=str(shared_dir),
+    )
+    rc = compose_up(ctx, services=["llm-port-rmq"], detach=True)
+    if rc != 0:
+        warning("docker compose up llm-port-rmq failed — retry after infra is up.")
+        return
+    # Wait until the broker accepts logins with the new service user.
+    # rabbitmqctl prints "… ok" (3.x) or "… Success" (4.x); either is
+    # accompanied by exit code 0, but we check both to be safe.
+    for _ in range(60):
+        time.sleep(2)
+        rc = subprocess.run(
+            [docker, "exec", container, "rabbitmqctl",
+             "authenticate_user", "llmport-backend", backend_pass],
+            capture_output=True,
+            text=True,
+        )
+        out = (rc.stdout or "").lower()
+        if rc.returncode == 0 and ("ok" in out or "success" in out):
+            success("RMQ credentials resynced (llmport-backend accepts login).")
+            return
+    warning("RMQ broker restarted; could not confirm llmport-backend login within 120s.")
 
 
 @dev_group.command("init")
@@ -447,11 +534,27 @@ def dev_init(
     # ── 2b. Backend local .env (so uv run uses localhost) ─────────
     backend_dir = _find_service_dir(workspace_path, "llm_port_backend")
     backend_env_path = backend_dir / ".env"
+    # Resolve the broker credentials from the shared env BEFORE writing the
+    # backend env, so the backend logs in as the per-service AMQP user that
+    # the shared RabbitMQ definitions create (llmport-backend /
+    # RABBITMQ_BACKEND_PASS), not the hard-coded guest/guest default.
+    shared_env_path = env_path if env_path.exists() else (
+        workspace_path / "llm_port_shared" / ".env"
+    )
+    backend_env = backend_dev_env_for(shared_env_path)
     if backend_env_path.exists() and not force_env:
         warning(f"Backend .env already exists at {backend_env_path} — skipping (use --force-env to regenerate).")
     elif backend_dir.exists():
-        write_env_file(backend_env_path, dict(BACKEND_DEV_ENV))
+        write_env_file(backend_env_path, backend_env)
         success(f"Backend .env written to {backend_env_path}")
+
+    # ── 2c. Resync RabbitMQ credentials with the shared .env ──────
+    # The repo ships a checked-in definitions.json with deploy-time
+    # hashes from its original author, while the fresh .env has new
+    # random RABBITMQ_*_PASS values. Regenerate definitions.json from
+    # the shared .env and recreate the broker so the backend and
+    # worker can authenticate as llmport-backend / RABBITMQ_BACKEND_PASS.
+    _resync_rmq_credentials(shared_dir, skip_infra=skip_infra)
 
     # ── 3. Start shared infrastructure ────────────────────────────
     if not skip_infra:

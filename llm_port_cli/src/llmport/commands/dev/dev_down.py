@@ -1,0 +1,234 @@
+"""``llmport dev down`` — stop the development environment (full reset).
+
+Counterpart of ``llmport dev up``:
+
+  1. Stops the dev host processes (backend, taskiq worker, API gateway,
+     frontend) launched by ``dev up`` — on Windows/macOS/Linux.
+  2. Runs ``docker compose down --volumes --remove-orphans`` on the shared
+     infrastructure compose file — removes the containers AND every named
+     data volume (postgres, redis, minio, clickhouse, langfuse, …).
+  3. Deletes the generated secret/env files
+     (``llm_port_shared/.env``, ``llm_port_backend/.env``,
+     ``llm_port_api/.env``) so the next ``dev up`` starts from a clean
+     slate with freshly generated credentials.
+
+The full reset avoids the failure modes that occur when stale volumes or
+env files from an older commit outlive a code update (alembic revision
+not found, RMQ credential drift, …).
+
+``llmport dev up`` regenerates any deleted env file (fresh dev
+credentials + RMQ definitions) before infra starts, so the workspace is
+always restorable with a plain ``dev up``.
+
+Use ``--keep-infra`` to only stop the host processes and leave the shared
+infra (and its data) running; ``dev up --skip-deps`` then restarts fast.
+"""
+
+from __future__ import annotations
+
+import platform
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+import click
+
+from llmport.core.console import console, error, info, success, warning
+from llmport.core.settings import load_config
+from llmport.core.workspace import CORE_DIRNAME, dev_logs_dir, resolve_shared_compose
+
+from .dev_group import dev_group
+
+# (label, [pattern, …]) — a service counts as "was running" if ANY of its
+# patterns matched a live process. Patterns are EREs over the full command
+# line, tuned to the real `ps` output of a live dev stack:
+#
+#   Backend        uv run -m llm_port_backend   → python3 -m llm_port_backend
+#   TaskIQ worker  uv run taskiq worker llm_port_backend.tkq:broker … (+ forkserver)
+#   API gateway    uv run -m llm_port_api       → python3 -m llm_port_api
+#   Frontend       npm run dev                  → node …/react-router dev
+#
+# The Backend pattern is ``m llm_port_backend`` (the ``-m`` module form),
+# NOT bare ``llm_port_backend``: the worker's cmdline also contains
+# ``llm_port_backend`` (so a bare match would kill the worker too), and
+# ``postgres: … llm_port_backend …`` backend sessions carry the db name in
+# their rewritten cmdline — both would be matched by a bare pattern. The
+# ``m …`` form (leading dash dropped so pkill doesn't parse it as its own
+# flag) hits only the real ``-m llm_port_backend`` server.
+_DEV_PROCESS_PATTERNS: list[tuple[str, list[str]]] = [
+    # ``taskiq worker`` hits the uv launcher + taskiq main; the broker URI
+    # additionally hits the forkserver workers whose argv no longer carries
+    # the word "taskiq".
+    ("TaskIQ worker", ["taskiq worker", "llm_port_backend.tkq:broker"]),
+    ("API gateway", ["m llm_port_api"]),
+    ("Backend", ["m llm_port_backend"]),
+    ("Frontend", ["npm run dev", "react-router dev"]),
+]
+
+
+def _kill_pattern(pattern: str) -> bool:
+    """Kill processes whose command line matches *pattern*.
+
+    Returns ``True`` if at least one process was matched & killed.
+    Cross-platform: ``pkill -f`` on Unix, Win32 query on Windows.
+    """
+    system = platform.system()
+
+    if system in ("Linux", "Darwin"):
+        if not shutil.which("pkill"):
+            warning("pkill not found — cannot stop host processes.")
+            return False
+        result = subprocess.run(["pkill", "-f", pattern])
+        return result.returncode == 0
+
+    # Windows: match on the full command line, kill the whole set.
+    ps_cmd = (
+        "$m = Get-CimInstance Win32_Process | "
+        f"Where-Object {{ $_.CommandLine -like '*{pattern}*' }} | "
+        "Select-Object -ExpandProperty ProcessId; "
+        "if ($m) { Stop-Process -Id $m -Force -ErrorAction SilentlyContinue; 'KILLED' } "
+        "else { 'NONE' }"
+    )
+    result = subprocess.run(
+        ["powershell", "-NoProfile", "-Command", ps_cmd],
+        capture_output=True,
+        text=True,
+    )
+    return "KILLED" in result.stdout
+
+
+def _stop_dev_processes() -> int:
+    """Stop every dev host process group. Returns how many groups matched."""
+    stopped = 0
+    for label, patterns in _DEV_PROCESS_PATTERNS:
+        matched = any(_kill_pattern(p) for p in patterns)
+        if matched:
+            stopped += 1
+            console.print(f"  [green]✓[/green] {label}")
+        else:
+            console.print(f"  [dim]○[/dim] {label} (not running)")
+    return stopped
+
+
+def _find_workspace() -> Path:
+    """Resolve the dev workspace from config or cwd (same as dev up)."""
+    cfg = load_config()
+    if cfg.dev and cfg.dev.workspace_dir:
+        return Path(cfg.dev.workspace_dir)
+    return Path.cwd()
+
+
+def _generated_env_files(workspace: Path) -> list[Path]:
+    """Locate the secret/env files generated by ``dev init`` / ``dev up``.
+
+    ``resolve_shared_compose`` handles the monorepo/flat layout for the
+    shared file; the service-local files follow the same two layouts, so
+    both candidate positions are collected and deduplicated.
+    """
+    env_files: list[Path] = []
+
+    compose_file = resolve_shared_compose(workspace)
+    if compose_file:
+        env_files.append(compose_file.parent / ".env")
+
+    for name in ("llm_port_backend", "llm_port_api"):
+        base = workspace / CORE_DIRNAME
+        for candidate in (base / name / ".env", workspace / name / ".env"):
+            if candidate not in env_files:
+                env_files.append(candidate)
+
+    return env_files
+
+
+@dev_group.command("down")
+@click.option(
+    "--keep-infra",
+    is_flag=True,
+    help="Only stop the dev host processes; leave shared infra containers, volumes and env files running/kept.",
+)
+@click.option("--yes", "-y", is_flag=True, help="Do not prompt for confirmation.")
+def dev_down(*, keep_infra: bool, yes: bool) -> None:
+    """Stop the dev environment and reset its state (full teardown).
+
+    Kills the host processes, then removes the infra containers, the named
+    data volumes (postgres, redis, minio, clickhouse, langfuse, …) and the
+    generated .env secret files. Everything is regenerated on the next
+    ``llmport dev up``.
+
+    \b
+    Examples:
+        llmport dev down          # full reset (prompts for confirmation)
+        llmport dev down -y       # full reset, no prompt (scripts)
+        llmport dev down --keep-infra  # stop only the host processes
+    """
+    console.print("\n[bold magenta]llm.port — Dev Environment Teardown[/bold magenta]\n")
+
+    # ── 1. Stop host processes ───────────────────────────────────
+    console.print("[cyan]Stopping dev processes…[/cyan]")
+    stopped = _stop_dev_processes()
+    if stopped:
+        success(f"Stopped {stopped} dev process group(s).")
+    else:
+        info("No dev processes running.")
+
+    # ── 2. Keep-infra mode: host processes only ──────────────────
+    if keep_infra:
+        console.print(
+            f"\n[dim]Shared infra, volumes and .env files left running. Logs kept: {dev_logs_dir()}\n"
+            "[dim]Restart with: llmport dev up --skip-deps[/dim]\n"
+        )
+        return
+
+    workspace = _find_workspace()
+    compose_file = resolve_shared_compose(workspace)
+    env_files = _generated_env_files(workspace)
+
+    if not yes:
+        if not click.confirm(
+            "[red]Full teardown:[/red] removes infra containers + "
+            "[red]all dev data volumes[/red] (postgres, redis, minio, "
+            "clickhouse, langfuse, …) and generated .env files. "
+            "Everything is regenerated on the next 'dev up'. Continue?",
+            default=False,
+        ):
+            error("Aborted — no changes made.")
+            sys.exit(1)
+
+    # ── 3. Stop shared infrastructure + volumes ──────────────────
+    if not compose_file:
+        warning(f"Shared compose file not found in {workspace}. Infra may have been started manually.")
+    else:
+        from llmport.core.compose import ComposeContext, down as compose_down
+
+        env_file = compose_file.parent / ".env"
+        ctx = ComposeContext(
+            compose_files=[compose_file],
+            env_file=env_file if env_file.exists() else None,
+            project_dir=compose_file.parent,
+        )
+        # NOTE: dev up only brings up INFRA_SERVICES, but `down` on the
+        # whole project is correct — it removes exactly the containers
+        # defined here that are actually running.
+        with console.status("[bold cyan]docker compose down --volumes --remove-orphans[/bold cyan]"):
+            rc = compose_down(ctx, volumes=True, remove_orphans=True)
+        if rc == 0:
+            success("Shared infrastructure and data volumes removed.")
+        else:
+            error(f"docker compose down exited with code {rc}.")
+            sys.exit(rc)
+
+    # ── 4. Remove generated env / secret files ───────────────────
+    removed = 0
+    for env_path in env_files:
+        if env_path.exists():
+            env_path.unlink()
+            removed += 1
+            info(f"Removed {env_path}")
+    if removed == 0:
+        info("No generated .env files to remove.")
+
+    console.print(
+        f"\n[dim]Dev state fully reset. Logs kept: {dev_logs_dir()}\n"
+        f"[dim]Start fresh with: llmport dev up[/dim]\n"
+    )

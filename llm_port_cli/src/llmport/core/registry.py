@@ -8,6 +8,7 @@ instead of hard-coding values.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 
 # ── GitHub organisation ───────────────────────────────────────────
@@ -178,8 +179,19 @@ INFRA_SERVICES: list[str] = [
 # ── Dev backend env vars ─────────────────────────────────────────
 
 BACKEND_DEV_ENV: dict[str, str] = {
-    "LLM_PORT_BACKEND_HOST": "localhost",
+    # Bind the dev backend to all interfaces so it is reachable from
+    # other machines on the LAN (remote dev server, node agents,
+    # external API clients). Override with LLM_PORT_BACKEND_HOST=
+    # 127.0.0.1 in the local .env to keep it local-only.
+    "LLM_PORT_BACKEND_HOST": "0.0.0.0",
     "LLM_PORT_BACKEND_PORT": "8000",
+    # Session cookies must not carry the Secure flag in dev: browsers
+    # drop Secure cookies over plain HTTP, which would silently break
+    # login on a remote LAN access (HTTP, no TLS). Prod keeps the
+    # default (True) behind TLS/nginx.
+    "LLM_PORT_BACKEND_COOKIE_SECURE": "false",
+    # The dev API gateway runs on the host's port 8001.
+    "LLM_PORT_BACKEND_GATEWAY_URL": "http://127.0.0.1:8001",
     "LLM_PORT_BACKEND_RELOAD": "true",
     "LLM_PORT_BACKEND_DB_HOST": "localhost",
     "LLM_PORT_BACKEND_DB_PORT": "5432",
@@ -188,12 +200,35 @@ BACKEND_DEV_ENV: dict[str, str] = {
     "LLM_PORT_BACKEND_DB_BASE": "llm_port_backend",
     "LLM_PORT_BACKEND_RABBIT_HOST": "localhost",
     "LLM_PORT_BACKEND_RABBIT_PORT": "5672",
-    "LLM_PORT_BACKEND_RABBIT_USER": "guest",
-    "LLM_PORT_BACKEND_RABBIT_PASS": "guest",
+    # Matches the per-service AMQP user created in
+    # llm_port_shared/rabbitmq/definitions.json by `llmport dev init`
+    # (see backend_dev_env_for for the password).
+    "LLM_PORT_BACKEND_RABBIT_USER": "llmport-backend",
+    "LLM_PORT_BACKEND_RABBIT_PASS": "devpassword",
     "LLM_PORT_BACKEND_RABBIT_VHOST": "/",
     "LLM_PORT_BACKEND_SETTINGS_MASTER_KEY": "dev-settings-master-key-change-me",
 }
 
+
+#: Default env for the API gateway dev process (``llmport dev up``).
+#:
+#: The gateway is the OpenAI-compatible ``/v1`` edge. In dev it runs as a
+#: host process on port 8001 (bound to all interfaces, mirroring the
+#: backend) and points at the shared 127.0.0.1-published infra (postgres
+#: / redis / rabbit). Chat-file uploads go to a host-local directory
+#: instead of the containerized ``/data/llm-port`` volume.
+GATEWAY_DEV_ENV: dict[str, str] = {
+    "LLM_PORT_API_HOST": "0.0.0.0",
+    "LLM_PORT_API_PORT": "8001",
+    "LLM_PORT_API_DB_HOST": "localhost",
+    "LLM_PORT_API_DB_PORT": "5432",
+    "LLM_PORT_API_REDIS_HOST": "localhost",
+    "LLM_PORT_API_REDIS_PORT": "6379",
+    "LLM_PORT_API_RABBIT_HOST": "localhost",
+    "LLM_PORT_API_RABBIT_PORT": "5672",
+    "LLM_PORT_API_RAG_LITE_BACKEND_URL": "http://127.0.0.1:8000",
+    "LLM_PORT_API_CHAT_FILE_STORE_ROOT": "~/.llmport-dev/chat-files",
+}
 
 # ── Dev process patterns (for status checks) ─────────────────────
 
@@ -211,6 +246,7 @@ DEV_PROCESSES: list[DevProcess] = [
     DevProcess("Backend", "llm_port_backend", "http://localhost:8000"),
     DevProcess("Worker", "taskiq worker", "—"),
     DevProcess("Frontend", "npm run dev", "http://localhost:5173"),
+    DevProcess("API gateway", "llm_port_api", "http://localhost:8001"),
 ]
 
 
@@ -222,7 +258,6 @@ DEV_ENDPOINTS: list[tuple[str, str]] = [
     ("Worker", "Taskiq (RabbitMQ)"),
     ("Frontend", "http://localhost:5173"),
     ("Grafana", "http://localhost:3001"),
-    ("pgAdmin", "http://localhost:5050"),
     ("RabbitMQ", "http://localhost:15672"),
     ("LLM API", "http://localhost:8001"),
     ("MCP Registry", "http://localhost:8007"),
@@ -334,6 +369,77 @@ def extend_dev_processes(extra: list[DevProcess]) -> None:
         if proc.name not in existing:
             DEV_PROCESSES.append(proc)
             existing.add(proc.name)
+
+
+def _read_env_values(path: Path) -> dict[str, str]:
+    """Parse a simple ``KEY=VALUE`` env file into a dict."""
+    path = Path(path)
+    if not path.is_file():
+        return {}
+    values: dict[str, str] = {}
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        values[key.strip()] = value.strip()
+    return values
+
+
+def backend_dev_env_for(shared_env_path: Path) -> dict[str, str]:
+    """Build the backend dev ``.env`` with correct RabbitMQ credentials.
+
+    The broker users are loaded from
+    ``llm_port_shared/rabbitmq/definitions.json``, which dev init regenerates
+    from the shared ``.env`` passwords. The backend must therefore log in as
+    ``llmport-backend`` with ``RABBITMQ_BACKEND_PASS`` — ``BACKEND_DEV_ENV``'s
+    historical ``guest/guest`` default does not exist once definitions are
+    loaded (RabbitMQ reports ``ACCESS_REFUSED``).
+    """
+    env = dict(BACKEND_DEV_ENV)
+    shared = _read_env_values(shared_env_path)
+    backend_pass = shared.get("RABBITMQ_BACKEND_PASS")
+    if backend_pass:
+        env["LLM_PORT_BACKEND_RABBIT_USER"] = "llmport-backend"
+        env["LLM_PORT_BACKEND_RABBIT_PASS"] = backend_pass
+        return env
+    # Shared env predates per-service users — the only account guaranteed to
+    # exist on the broker is the one the shared env configures for it.
+    if shared.get("RABBITMQ_ADMIN_USER") and shared.get("RABBITMQ_ADMIN_PASS"):
+        env["LLM_PORT_BACKEND_RABBIT_USER"] = shared["RABBITMQ_ADMIN_USER"]
+        env["LLM_PORT_BACKEND_RABBIT_PASS"] = shared["RABBITMQ_ADMIN_PASS"]
+    return env
+
+
+def gateway_dev_env_for(shared_env_path: Path) -> dict[str, str]:
+    """Build the gateway dev ``.env`` with credentials from the shared env.
+
+    Mirrors :func:`backend_dev_env_for`: DB credentials come from
+    ``POSTGRES_USER`` / ``POSTGRES_PASSWORD`` in
+    ``llm_port_shared/.env``, the RabbitMQ broker login from
+    ``RABBITMQ_API_USER`` / ``RABBITMQ_API_PASS`` (falling back to the
+    admin pair for pre-per-service-user envs), and the Redis password
+    from ``REDIS_PASSWORD``. Returns ``GATEWAY_DEV_ENV`` with the
+    defaults when the shared env does not exist.
+    """
+    env = dict(GATEWAY_DEV_ENV)
+    shared = _read_env_values(shared_env_path)
+    if not shared:
+        return env
+    if shared.get("POSTGRES_USER"):
+        env["LLM_PORT_API_DB_USER"] = shared["POSTGRES_USER"]
+    if shared.get("POSTGRES_PASSWORD"):
+        env["LLM_PORT_API_DB_PASS"] = shared["POSTGRES_PASSWORD"]
+    if shared.get("RABBITMQ_API_USER"):
+        env["LLM_PORT_API_RABBIT_USER"] = shared["RABBITMQ_API_USER"]
+        if shared.get("RABBITMQ_API_PASS"):
+            env["LLM_PORT_API_RABBIT_PASS"] = shared["RABBITMQ_API_PASS"]
+    elif shared.get("RABBITMQ_ADMIN_USER") and shared.get("RABBITMQ_ADMIN_PASS"):
+        env["LLM_PORT_API_RABBIT_USER"] = shared["RABBITMQ_ADMIN_USER"]
+        env["LLM_PORT_API_RABBIT_PASS"] = shared["RABBITMQ_ADMIN_PASS"]
+    if shared.get("REDIS_PASSWORD"):
+        env["LLM_PORT_API_REDIS_PASS"] = shared["REDIS_PASSWORD"]
+    return env
 
 
 def extend_backend_dev_env(extra: dict[str, str]) -> None:

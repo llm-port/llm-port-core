@@ -38,6 +38,13 @@ class AliasedGroup(click.Group):
 @click.pass_context
 def cli(ctx: click.Context, *, verbose: bool, quiet: bool) -> None:
     """llmport — CLI installer and management tool for llm.port."""
+    from llmport.core.detect import ensure_tool_path
+
+    # Make tools installed to ~/.local/bin / ~/.cargo/bin visible to
+    # every child subprocess, even when the current shell PATH lacks them
+    # (typical for fresh SSH sessions and GUI-launched terminals).
+    ensure_tool_path()
+
     ctx.ensure_object(dict)
     ctx.obj["verbose"] = verbose
     ctx.obj["quiet"] = quiet
