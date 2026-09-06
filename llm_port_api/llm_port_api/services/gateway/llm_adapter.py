@@ -150,9 +150,16 @@ class LLMAdapter:
             kwargs["api_base"] = effective_base
         if api_key:
             kwargs["api_key"] = api_key
-        elif provider_type in (ProviderType.VLLM, ProviderType.TGI, ProviderType.LLAMACPP):
-            # Local engines don't require auth but the OpenAI SDK
-            # refuses to initialise without an api_key value.
+        elif provider_type in (
+            ProviderType.VLLM,
+            ProviderType.TGI,
+            ProviderType.LLAMACPP,
+            ProviderType.REMOTE_CUSTOM,
+        ):
+            # Local engines don't require auth, but the OpenAI SDK
+            # refuses to initialise without an api_key value. Remote
+            # custom covers self-hosted OpenAI-compatible endpoints
+            # (LM Studio, llama.cpp server, …) that accept no auth.
             kwargs["api_key"] = "EMPTY"
 
         # Pass through supported OpenAI params
