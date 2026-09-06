@@ -61,7 +61,11 @@ services:
   # Langfuse (v3) dependencies
   # -----------------------------
   clickhouse:
-    image: clickhouse/clickhouse-server:latest
+    # Pinned: tags >= ~25.11 require AVX2. On QEMU/emulated CPUs that
+    # expose only SSE4.2 the binary crashes with "Illegal instruction"
+    # (SIGILL) and the container crash-loops. Override via .env:
+    # CLICKHOUSE_IMAGE=clickhouse/clickhouse-server:<tag>
+    image: ${CLICKHOUSE_IMAGE:-clickhouse/clickhouse-server:25.10}
     container_name: llm-port-clickhouse
     restart: unless-stopped
     user: "101:101"
@@ -173,6 +177,11 @@ services:
     image: docker.io/langfuse/langfuse:3
     container_name: llm-port-web
     restart: unless-stopped
+    ports:
+      # LLM observability UI (traces / evals / datasets) — exposed by
+      # default for remote dev access; it has its own login auth. Set
+      # LANGFUSE_BIND=127.0.0.1 to keep it local-only.
+      - "${LANGFUSE_BIND:-0.0.0.0}:3002:3000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -182,8 +191,6 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
-    ports:
-      - "127.0.0.1:3002:3000"
     environment:
       NEXTAUTH_URL: ${LANGFUSE_NEXTAUTH_URL:-http://localhost:3000}
       NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-mysecret} # CHANGEME
@@ -728,8 +735,11 @@ services:
     image: grafana/loki:3.0.0
     container_name: llm-port-loki
     restart: unless-stopped
+    # Loki has no authentication — it must never be reachable from the
+    # network. Default to the loopback interface only; set LOKI_BIND
+    # deliberately if you need to expose it behind a firewall/proxy.
     ports:
-      - "${LOKI_BIND:-0.0.0.0}:3100:3100"
+      - "${LOKI_BIND:-127.0.0.1}:3100:3100"
     command: -config.file=/etc/loki/local-config.yaml
     volumes:
       - ./loki/local-config.yaml:/etc/loki/local-config.yaml:ro
@@ -740,7 +750,10 @@ services:
     container_name: llm-port-grafana
     restart: unless-stopped
     ports:
-      - "127.0.0.1:3001:3000"
+      # Dashboards — exposed by default so the dev box's logs dashboards
+      # are reachable from the LAN. Runs in anonymous read-only Viewer mode
+      # (login form disabled). Set GRAFANA_BIND=127.0.0.1 to keep it local.
+      - "${GRAFANA_BIND:-0.0.0.0}:3001:3000"
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin} # CHANGEME
