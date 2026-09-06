@@ -27,7 +27,7 @@ dependencies = [
   "cryptography>=41.0",
   "aio-pika>=9.5.4",
   "prometheus-client>=0.21.1",
-  "prometheus-fastapi-instrumentator==7.0.0",
+  "prometheus-fastapi-instrumentator>=8.1.0,<9",  # 7.0.0 capped starlette<1.0; 8.x allows starlette 1.x (clears starlette CVEs)
   "sentry-sdk>=2.19.2",
   "opentelemetry-api>=1.29.0",
   "opentelemetry-sdk>=1.29.0",
@@ -98,6 +98,10 @@ filterwarnings = [
     "error",
     "ignore::DeprecationWarning",
     "ignore:.*unclosed.*:ResourceWarning",
+    # starlette>=1.6 TestClient prefers the new `httpx2` client; the httpx fallback
+    # is only used by tests (runtime never imports TestClient). Adopt httpx2 in a
+    # dedicated change; allow it here rather than widening the runtime dev surface.
+    "ignore:Using `httpx` with `starlette.testclient`:starlette.exceptions.StarletteDeprecationWarning",
 ]
 env = [
     "LLM_PORT_API_ENVIRONMENT=pytest",
