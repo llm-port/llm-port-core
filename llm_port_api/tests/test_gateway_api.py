@@ -20,9 +20,11 @@ from llm_port_api.db.models.gateway import (
     ProviderType,
     TenantLLMPolicy,
 )
+from llm_port_api.services.gateway.errors import GatewayError
+from llm_port_api.services.gateway.llm_adapter import CompletionResult, LLMAdapter
 from llm_port_api.services.gateway.observability import GatewayTraceContext
 from llm_port_api.services.gateway.pii_client import PIIClient, SanitizeResult
-from llm_port_api.services.gateway.proxy import UpstreamProxy, UpstreamResult
+from llm_port_api.services.gateway.proxy import UpstreamProxy
 from llm_port_api.services.gateway.routing import RouterService
 from llm_port_api.services.registry import service_registry
 
@@ -197,15 +199,31 @@ async def test_auth_missing_token_returns_401(client: AsyncClient) -> None:
 
 
 @pytest.mark.anyio
-async def test_auth_missing_tenant_claim_returns_403(client: AsyncClient) -> None:
-    token = _token(include_tenant=False)
+async def test_auth_missing_tenant_claim_defaults_to_default_tenant(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    # A token without a tenant_id claim is accepted (not 403) and routed
+    # to the well-known "default" tenant (single-tenant deployments).
+    # The seeded catalog is visible through either tenant, so both tokens
+    # must return the same model list.
+    await _seed_basic_graph(db_session)
+    token_no_tenant = _token(include_tenant=False)
+    token_tenant = _token()
     response = await client.get(
         "/v1/models",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={"Authorization": f"Bearer {token_no_tenant}"},
     )
-    assert response.status_code == 403
-    body = response.json()
-    assert body["error"]["code"] == "missing_tenant_id"
+    assert response.status_code == 200
+    data = response.json()["data"]
+    baseline = (
+        await client.get(
+            "/v1/models",
+            headers={"Authorization": f"Bearer {token_tenant}"},
+        )
+    ).json()["data"]
+    assert data == baseline
+    assert [m["id"] for m in data] == ["qwen3-32b"]
 
 
 @pytest.mark.anyio
@@ -238,13 +256,13 @@ async def test_chat_non_stream_passthrough_and_retry_once(
     token = _token()
     calls = {"count": 0}
 
-    async def fake_post_json(
-        self: UpstreamProxy, **kwargs: object,
-    ) -> UpstreamResult:  # noqa: ARG001
+    async def fake_completion(
+        self: LLMAdapter, **kwargs: object,
+    ) -> CompletionResult:  # noqa: ARG001
         calls["count"] += 1
         if calls["count"] == 1:
             raise RuntimeError("temporary upstream failure")
-        return UpstreamResult(
+        return CompletionResult(
             status_code=200,
             payload={
                 "id": "chatcmpl_x",
@@ -264,10 +282,9 @@ async def test_chat_non_stream_passthrough_and_retry_once(
                     "total_tokens": 13,
                 },
             },
-            headers={},
         )
 
-    monkeypatch.setattr(UpstreamProxy, "post_json", fake_post_json)
+    monkeypatch.setattr(LLMAdapter, "completion", fake_completion)
 
     response = await client.post(
         "/v1/chat/completions",
@@ -295,14 +312,19 @@ async def test_chat_stream_sse_done(
     fastapi_app.state.gateway_observability = _FakeObservability()
     token = _token()
 
-    async def fake_stream_post(
-        self: UpstreamProxy, **kwargs: object,
-    ) -> AsyncIterator[bytes]:  # noqa: ARG001
-        yield b'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","created":1,"model":"qwen3-32b","choices":[{"index":0,"delta":{"content":"Hel"},"finish_reason":null}]}\n\n'
-        yield b'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","created":1,"model":"qwen3-32b","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":4,"completion_tokens":2,"total_tokens":6}}\n\n'
-        yield b"data: [DONE]\n\n"
+    async def fake_completion(
+        self: LLMAdapter, **kwargs: object,
+    ) -> "AsyncIterator[bytes]":  # noqa: ARG001
+        assert kwargs.get("stream") is True
 
-    monkeypatch.setattr(UpstreamProxy, "stream_post", fake_stream_post)
+        async def _gen() -> AsyncIterator[bytes]:
+            yield b'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","created":1,"model":"qwen3-32b","choices":[{"index":0,"delta":{"content":"Hel"},"finish_reason":null}]}\n\n'
+            yield b'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","created":1,"model":"qwen3-32b","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":4,"completion_tokens":2,"total_tokens":6}}\n\n'
+            yield b"data: [DONE]\n\n"
+
+        return _gen()
+
+    monkeypatch.setattr(LLMAdapter, "completion", fake_completion)
 
     response = await client.post(
         "/v1/chat/completions",
@@ -332,10 +354,10 @@ async def test_embeddings_passthrough(
     fastapi_app.state.gateway_observability = _FakeObservability()
     token = _token()
 
-    async def fake_post_json(
-        self: UpstreamProxy, **kwargs: object,
-    ) -> UpstreamResult:  # noqa: ARG001
-        return UpstreamResult(
+    async def fake_embedding(
+        self: LLMAdapter, **kwargs: object,
+    ) -> CompletionResult:  # noqa: ARG001
+        return CompletionResult(
             status_code=200,
             payload={
                 "object": "list",
@@ -343,10 +365,9 @@ async def test_embeddings_passthrough(
                 "data": [{"object": "embedding", "embedding": [0.1, 0.2], "index": 0}],
                 "usage": {"prompt_tokens": 4, "total_tokens": 4},
             },
-            headers={},
         )
 
-    monkeypatch.setattr(UpstreamProxy, "post_json", fake_post_json)
+    monkeypatch.setattr(LLMAdapter, "completion", fake_embedding)
     response = await client.post(
         "/v1/embeddings",
         headers={"Authorization": f"Bearer {token}"},
@@ -371,13 +392,17 @@ async def test_stream_mid_failure_returns_502_on_call(
     await _seed_basic_graph(db_session)
     token = _token()
 
-    async def fake_stream_post(
-        self: UpstreamProxy, **kwargs: object,
-    ) -> AsyncIterator[bytes]:  # noqa: ARG001
-        yield b'data: {"id":"x","object":"chat.completion.chunk","created":1,"model":"q","choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":null}]}\n\n'
-        raise RuntimeError("broken stream")
+    async def fake_completion(
+        self: LLMAdapter, **kwargs: object,
+    ) -> "AsyncIterator[bytes]":  # noqa: ARG001
 
-    monkeypatch.setattr(UpstreamProxy, "stream_post", fake_stream_post)
+        async def _gen() -> AsyncIterator[bytes]:
+            yield b'data: {"id":"x","object":"chat.completion.chunk","created":1,"model":"q","choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":null}]}\n\n'
+            raise RuntimeError("broken stream")
+
+        return _gen()
+
+    monkeypatch.setattr(LLMAdapter, "completion", fake_completion)
     response = await client.post(
         "/v1/chat/completions",
         headers={"Authorization": f"Bearer {token}"},
@@ -409,11 +434,11 @@ async def test_non_stream_fallback_to_local_on_pii_failure(
     async def fake_sanitize(self: PIIClient, **kwargs: object) -> SanitizeResult:  # noqa: ARG001
         raise RuntimeError("pii service down")
 
-    async def fake_post_json(
-        self: UpstreamProxy, **kwargs: object,
-    ) -> UpstreamResult:
+    async def fake_completion(
+        self: LLMAdapter, **kwargs: object,
+    ) -> CompletionResult:  # noqa: ARG001
         assert kwargs.get("base_url") == "http://local-upstream.local"
-        return UpstreamResult(
+        return CompletionResult(
             status_code=200,
             payload={
                 "id": "chatcmpl_x",
@@ -433,11 +458,10 @@ async def test_non_stream_fallback_to_local_on_pii_failure(
                     "total_tokens": 13,
                 },
             },
-            headers={},
         )
 
     monkeypatch.setattr(PIIClient, "sanitize", fake_sanitize)
-    monkeypatch.setattr(UpstreamProxy, "post_json", fake_post_json)
+    monkeypatch.setattr(LLMAdapter, "completion", fake_completion)
 
     try:
         response = await client.post(

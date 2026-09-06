@@ -4,7 +4,7 @@ from pathlib import Path
 
 import sentry_sdk
 from fastapi import FastAPI, Request
-from fastapi.responses import Response, UJSONResponse
+from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.logging import LoggingIntegration
@@ -50,7 +50,6 @@ def get_app() -> FastAPI:
         docs_url=None,
         redoc_url=None,
         openapi_url="/api/openapi.json",
-        default_response_class=UJSONResponse,
     )
 
     @app.exception_handler(GatewayError)

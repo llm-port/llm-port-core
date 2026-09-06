@@ -1025,7 +1025,9 @@ class GatewayService:
             return egress_payload
 
         now = datetime.now(timezone.utc)
-        date_str = now.strftime("%A, %B %-d, %Y, %H:%M UTC")
+        # %-d (no zero-pad) is a GNU/POSIX extension that raises
+        # ValueError on Windows; zero-padded %d works everywhere.
+        date_str = now.strftime("%A, %B %d, %Y, %H:%M UTC")
         prompt = f"Current date and time: {date_str}."
         date_msg: dict[str, str] = {"role": "system", "content": prompt}
 

@@ -199,7 +199,7 @@ class ClientCapabilityDTO(BaseModel):
     client_id: str
     realm: str
     available: bool
-    schema_json: dict[str, Any] | None = None
+    tool_schema: dict[str, Any] | None = None  # was schema_json; pydantic BaseModel reserves `.schema_json()`
 
 
 class ClientHandshakeDTO(BaseModel):

@@ -167,15 +167,16 @@ async def db_session(db_engine: Any) -> AsyncGenerator[AsyncSession, None]:
 
 
 @pytest.fixture
-def fastapi_app(
+async def fastapi_app(
     db_session: AsyncSession,
     fake_redis_pool: ConnectionPool,
     test_rmq_pool: Pool[Channel],
-) -> FastAPI:
+) -> AsyncGenerator[FastAPI, None]:
     """
     Fixture for creating FastAPI app.
 
-    :return: fastapi app with mocked dependencies.
+    :yield: fastapi app with mocked dependencies, including a shared http
+            client (the production lifespan normally provides this).
     """
     application = get_app()
     application.state.cache_backend = RedisCache(fake_redis_pool)
@@ -183,7 +184,9 @@ def fastapi_app(
     application.state.gateway_observability = GatewayObservability(enabled=False)
     application.dependency_overrides[get_db_session] = lambda: db_session
     application.dependency_overrides[get_rmq_channel_pool] = lambda: test_rmq_pool
-    return application
+    async with AsyncClient(timeout=5.0) as app_http:
+        application.state.http_client = app_http
+        yield application
 
 
 @pytest.fixture

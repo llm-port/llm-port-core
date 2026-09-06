@@ -53,7 +53,7 @@ def test_observability_disabled_is_noop() -> None:
         privacy_mode=PrivacyMode.METADATA_ONLY,
         stream=False,
     )
-    assert ctx.trace_id is None
+    assert ctx.trace_id == "req-1"  # falls back to request_id when disabled
     obs.flush()
     obs.shutdown()
 
@@ -70,7 +70,11 @@ def test_observability_enabled_requires_credentials() -> None:
 
 def test_privacy_mode_redacted_sanitizes_input() -> None:
     dummy = _DummyClient()
-    obs = GatewayObservability(enabled=True, client=dummy)
+    obs = GatewayObservability(
+        enabled=True,
+        client=dummy,
+        observability_pro_available=True,  # REDACTED requires the Pro sidecar
+    )
     obs.start_request_trace(
         request_id="req-1",
         tenant_id="tenant-a",
