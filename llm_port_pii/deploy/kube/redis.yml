@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: redis
-          image: bitnami/redis:6.2.5
+          image: soldevelo/redis:6.2.16
           startupProbe:
             exec:
               command: ["redis-cli", "ping"]
