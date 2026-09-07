@@ -1,8 +1,8 @@
 """``llmport dev pull`` — pull the latest changes from a branch.
 
 Fetches and fast-forwards every repository checked out in the dev
-workspace to the latest commit of the target branch (default: ``dev``).
-This is the counterpart of ``dev init --overwrite`` for an already
+workspace to the latest commit of the target branch (default:
+``master``).  This is the counterpart of ``dev init --overwrite`` for an already
 bootstrapped workspace: no cloning and no dependency installation — it
 just brings the checkouts up to date.
 
@@ -111,12 +111,29 @@ def _find_repo_dirs(workspace: Path) -> list[tuple[str, Path]]:
     return found
 
 
-def _pull_repo(repo_dir: Path, branch: str, force: bool) -> tuple[str, str]:
+def _pull_repo(
+    repo_dir: Path, branch: str, force: bool = False, hard: bool = False
+) -> tuple[str, str]:
     """Pull *branch* into *repo_dir*.
 
     Returns a ``(status, detail)`` tuple where status is one of
-    ``up-to-date``, ``updated``, ``failed``, ``skipped`` and detail is a
-    human-readable explanation (current branch, error message, …).
+    ``up-to-date``, ``updated``, ``forced``, ``failed``, ``skipped`` and
+    detail is a human-readable explanation (current branch, error
+    message, …).
+
+    With *hard*, the checkout is forcibly aligned to
+    ``origin/<branch>`` via three steps, in order:
+
+    1. ``git clean -fd`` — remove untracked files; build artifacts that
+       are git-ignored (``node_modules/``, ``.venv/``, ``.env``) are
+       preserved, everything else that is not tracked is deleted.
+    2. ``git checkout -f <branch>`` — switch to the target branch,
+       discarding any changes that would be overwritten by the switch.
+    3. ``git reset --hard origin/<branch>`` — discard the remaining
+       tracked modifications and move the working tree exactly to the
+       remote branch tip.
+
+    **No backup is taken** — local edits are irrecoverable.
     """
     proc = _git(repo_dir, "fetch", "origin", "--prune")
     if proc is None:
@@ -128,6 +145,21 @@ def _pull_repo(repo_dir: Path, branch: str, force: bool) -> tuple[str, str]:
     check = _git(repo_dir, "rev-parse", "--verify", "--quiet", f"origin/{branch}")
     if check is not None and check.returncode != 0:
         return "skipped", f"branch '{branch}' not found on remote"
+
+    if hard:
+        cl = _git(repo_dir, "clean", "-fd", timeout=600)
+        if cl is None or cl.returncode != 0:
+            detail = (cl.stderr if cl else "git timed out").strip() or "git clean -fd failed"
+            return "failed", detail
+        co = _git(repo_dir, "checkout", "-f", branch)
+        if co is None or co.returncode != 0:
+            detail = (co.stderr if co else "git timed out").strip() or "git checkout -f failed"
+            return "failed", detail
+        rs = _git(repo_dir, "reset", "--hard", f"origin/{branch}")
+        if rs is None or rs.returncode != 0:
+            detail = (rs.stderr if rs else "git reset timed out").strip() or "git reset --hard failed"
+            return "failed", detail
+        return "forced", f"reset to origin/{branch} (untracked files cleaned, local changes discarded)"
 
     cur_proc = _git(repo_dir, "rev-parse", "--abbrev-ref", "HEAD")
     current = cur_proc.stdout.strip() if cur_proc and cur_proc.returncode == 0 else "unknown"
@@ -159,7 +191,7 @@ def _pull_repo(repo_dir: Path, branch: str, force: bool) -> tuple[str, str]:
 @click.option(
     "--branch",
     "-b",
-    default="dev",
+    default="master",
     show_default=True,
     help="Branch to pull from the remote.",
 )
@@ -169,19 +201,33 @@ def _pull_repo(repo_dir: Path, branch: str, force: bool) -> tuple[str, str]:
     is_flag=True,
     help="Switch repos to the target branch even if another branch is checked out.",
 )
-def dev_pull(*, branch: str, force: bool) -> None:
-    """Pull the latest changes from the dev branch.
+@click.option(
+    "--hard",
+    "-H",
+    is_flag=True,
+    help=(
+        "DESTRUCTIVE: clean untracked files, discard all local changes and "
+        "reset every checkout to the remote branch. Un-mergeable pull "
+        "errors (e.g. local changes or untracked files colliding with "
+        "incoming files) are resolved this way. No backup is taken."
+    ),
+)
+def dev_pull(*, branch: str, force: bool, hard: bool) -> None:
+    """Pull the latest changes from the default branch.
 
     Fetches and fast-forwards every repository checked out in the dev
     workspace to the latest commit of the target branch (default
-    ``dev``).  Working trees that cannot be fast-forwarded are reported
-    and left untouched.
+    ``master``).  Working trees that cannot be fast-forwarded are
+    reported and left untouched; ``--hard`` cleans untracked files,
+    discards all local changes and resets every checkout to the remote
+    branch (destructive).
 
     \b
     Examples:
         llmport dev pull
-        llmport dev pull --branch master
-        llmport dev pull -b dev --force
+        llmport dev pull --branch feature-x
+        llmport dev pull -b master --force
+        llmport dev pull --hard   # destructive
     """
     cfg = load_config()
     workspace = (
@@ -211,13 +257,14 @@ def dev_pull(*, branch: str, force: bool) -> None:
     style_by_status = {
         "up-to-date": "[green]up to date[/green]",
         "updated": "[green]updated[/green]",
+        "forced": "[green]forced[/green]",
         "failed": "[red]failed[/red]",
         "skipped": "[yellow]skipped[/yellow]",
     }
     counts: dict[str, int] = {}
 
     for name, repo_dir in repos:
-        status, detail = _pull_repo(repo_dir, branch, force)
+        status, detail = _pull_repo(repo_dir, branch, force, hard)
         counts[status] = counts.get(status, 0) + 1
         table.add_row(name, style_by_status.get(status, status), detail or "—")
 
@@ -226,6 +273,11 @@ def dev_pull(*, branch: str, force: bool) -> None:
     failed = counts.get("failed", 0)
     if counts.get("updated", 0):
         success(f"{counts['updated']} repository(ies) updated to [bold]{branch}[/bold].")
+    if counts.get("forced", 0):
+        success(
+            f"{counts['forced']} repository(ies) reset to [bold]{branch}[/bold]"
+            " (local changes discarded)."
+        )
     if counts.get("up-to-date", 0):
         info(f"{counts['up-to-date']} repository(ies) already up to date.")
     if counts.get("skipped", 0):
@@ -235,6 +287,11 @@ def dev_pull(*, branch: str, force: bool) -> None:
         )
     if failed:
         error(f"{failed} repository(ies) failed — resolve the reported issues and re-run.")
+        if not hard:
+            warning(
+                "If you want to discard ALL local changes and untracked files "
+                "and take the remote state as-is, re-run with [bold]--hard[/bold]."
+            )
         raise SystemExit(1)
 
     info("Next: [bold]llmport dev up[/bold] to run the services against the new code.")
