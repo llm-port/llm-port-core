@@ -70,7 +70,7 @@ def _build_litellm_model_name(
     # Google's API returns model names with a "models/" prefix
     # (e.g. "models/gemini-2.0-flash-lite") — strip it for LiteLLM.
     if model.startswith("models/"):
-        model = model[len("models/"):]
+        model = model[len("models/") :]
 
     # For local OpenAI-compatible engines (vLLM, TGI, llama.cpp) we
     # always route through LiteLLM's "openai" provider so it uses the
@@ -99,6 +99,57 @@ def _resolve_api_key(encrypted_key: str | None) -> str | None:
     except Exception:
         logger.warning("Failed to decrypt provider API key; sending without auth")
         return None
+
+
+def _upstream_kwargs(
+    *,
+    base_url: str | None,
+    api_key: str | None,
+    provider_type: ProviderType,
+) -> dict[str, Any]:
+    """Build the LiteLLM kwargs that select the upstream endpoint.
+
+    Two concerns live here so every calling method (chat completion,
+    streaming completion, embeddings) stays consistent:
+
+    * **``api_base``** — the engine and proxied OpenAI-compatible
+      servers whose Chat Completions / Embeddings API lives under a
+      ``/v1`` prefix.  The DB stores a normalised base URL with any
+      trailing ``/v1`` stripped (see the backend ``gateway_sync``
+      normaliser, which assumed the legacy HTTP proxy would re-add it),
+      so we restore it here for every type whose upstream expects the
+      ``/v1`` path segment.  LiteLLM (via the OpenAI SDK) appends the
+      endpoint path directly to ``api_base``, so we must not add a second
+      ``/v1`` for cloud providers reached at their default base URL.
+    * **``api_key``** — any endpoint the operator pointed us at
+      explicitly (self-hosted OpenAI-compatible server, local inference
+      engine, proxy, …) with no key configured for the provider.  The
+      OpenAI SDK refuses to initialise without an api_key value even
+      though the endpoint needs none, so we send the conventional
+      ``"EMPTY"`` placeholder.  Cloud providers reached at their default
+      base URL (no ``api_base`` set) never take this branch: they require
+      a real key and will fail with a clear 401 instead.
+    """
+    kwargs: dict[str, Any] = {}
+    if base_url and not base_url.startswith("litellm://"):
+        effective_base = base_url.rstrip("/")
+        # Local engines (vLLM/TGI) and proxied OpenAI-compatible servers
+        # serve the Chat Completions / Embeddings API under a /v1 prefix;
+        # restore the segment the backend normaliser stripped on save.
+        # (Full rationale: see the docstring above.)
+        v1_prefixed = (
+            ProviderType.VLLM,
+            ProviderType.TGI,
+            ProviderType.REMOTE_OPENAI,
+        )
+        if provider_type in v1_prefixed and not effective_base.endswith("/v1"):
+            effective_base += "/v1"
+        kwargs["api_base"] = effective_base
+    if api_key:
+        kwargs["api_key"] = api_key
+    elif kwargs.get("api_base"):
+        kwargs["api_key"] = "EMPTY"
+    return kwargs
 
 
 class LLMAdapter:
@@ -140,34 +191,31 @@ class LLMAdapter:
             "messages": payload.get("messages", []),
             "stream": stream,
         }
-        if base_url and not base_url.startswith("litellm://"):
-            # LiteLLM (via the OpenAI SDK) appends the path directly to
-            # api_base, so for engines that serve under /v1 we must
-            # include it in the base URL.
-            effective_base = base_url.rstrip("/")
-            if provider_type in (ProviderType.VLLM, ProviderType.TGI) and not effective_base.endswith("/v1"):
-                effective_base += "/v1"
-            kwargs["api_base"] = effective_base
-        if api_key:
-            kwargs["api_key"] = api_key
-        elif provider_type in (
-            ProviderType.VLLM,
-            ProviderType.TGI,
-            ProviderType.LLAMACPP,
-            ProviderType.REMOTE_CUSTOM,
-        ):
-            # Local engines don't require auth, but the OpenAI SDK
-            # refuses to initialise without an api_key value. Remote
-            # custom covers self-hosted OpenAI-compatible endpoints
-            # (LM Studio, llama.cpp server, …) that accept no auth.
-            kwargs["api_key"] = "EMPTY"
+        # Resolve the upstream endpoint (api_base + api_key) the same
+        # way every other Litellm method does (see :func:`_upstream_kwargs`).
+        kwargs.update(
+            _upstream_kwargs(
+                base_url=base_url,
+                api_key=api_key,
+                provider_type=provider_type,
+            )
+        )
 
         # Pass through supported OpenAI params
         for key in (
-            "temperature", "top_p", "max_tokens", "stop",
-            "presence_penalty", "frequency_penalty", "logit_bias",
-            "user", "tools", "tool_choice", "response_format",
-            "seed", "n",
+            "temperature",
+            "top_p",
+            "max_tokens",
+            "stop",
+            "presence_penalty",
+            "frequency_penalty",
+            "logit_bias",
+            "user",
+            "tools",
+            "tool_choice",
+            "response_format",
+            "seed",
+            "n",
         ):
             if key in payload:
                 kwargs[key] = payload[key]
@@ -283,15 +331,16 @@ class LLMAdapter:
             "model": model_name,
             "input": payload.get("input", ""),
         }
-        if base_url and not base_url.startswith("litellm://"):
-            effective_base = base_url.rstrip("/")
-            if provider_type in (ProviderType.VLLM, ProviderType.TGI) and not effective_base.endswith("/v1"):
-                effective_base += "/v1"
-            kwargs["api_base"] = effective_base
-        if api_key:
-            kwargs["api_key"] = api_key
-        elif provider_type in (ProviderType.VLLM, ProviderType.TGI, ProviderType.LLAMACPP):
-            kwargs["api_key"] = "EMPTY"
+        # Same upstream resolution as completion(): embeddings on a
+        # proxied OpenAI-compatible server need the identical /v1 and
+        # api_key handling as the chat path.
+        kwargs.update(
+            _upstream_kwargs(
+                base_url=base_url,
+                api_key=api_key,
+                provider_type=provider_type,
+            )
+        )
         if extra_params:
             kwargs.update(extra_params)
 

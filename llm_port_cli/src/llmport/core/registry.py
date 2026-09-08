@@ -419,8 +419,10 @@ def gateway_dev_env_for(shared_env_path: Path) -> dict[str, str]:
     ``llm_port_shared/.env``, the RabbitMQ broker login from
     ``RABBITMQ_API_USER`` / ``RABBITMQ_API_PASS`` (falling back to the
     admin pair for pre-per-service-user envs), and the Redis password
-    from ``REDIS_PASSWORD``. Returns ``GATEWAY_DEV_ENV`` with the
-    defaults when the shared env does not exist.
+    from ``REDIS_AUTH`` (the key ``dev init`` writes; ``REDIS_PASSWORD``
+    is the prod-template alias and is kept as a fallback). Returns
+    ``GATEWAY_DEV_ENV`` with the defaults when the shared env does not
+    exist.
     """
     env = dict(GATEWAY_DEV_ENV)
     shared = _read_env_values(shared_env_path)
@@ -437,8 +439,9 @@ def gateway_dev_env_for(shared_env_path: Path) -> dict[str, str]:
     elif shared.get("RABBITMQ_ADMIN_USER") and shared.get("RABBITMQ_ADMIN_PASS"):
         env["LLM_PORT_API_RABBIT_USER"] = shared["RABBITMQ_ADMIN_USER"]
         env["LLM_PORT_API_RABBIT_PASS"] = shared["RABBITMQ_ADMIN_PASS"]
-    if shared.get("REDIS_PASSWORD"):
-        env["LLM_PORT_API_REDIS_PASS"] = shared["REDIS_PASSWORD"]
+    redis_pass = shared.get("REDIS_AUTH") or shared.get("REDIS_PASSWORD")
+    if redis_pass:
+        env["LLM_PORT_API_REDIS_PASS"] = redis_pass
     return env
 
 
