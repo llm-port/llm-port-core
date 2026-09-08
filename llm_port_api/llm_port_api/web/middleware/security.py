@@ -34,6 +34,24 @@ def _split_csv(raw: str) -> list[str]:
     return [item.strip() for item in raw.split(",") if item.strip()]
 
 
+# Routes that are designed to be embedded in the UI (Swagger/ReDoc via
+# iframe on the API docs admin page; the UI builds a cross-origin URL in
+# dev/headless deploys where there is no nginx reverse proxy). ``DENY``
+# blocks framing even same-origin, so it must be omitted on this public,
+# unauthenticated docs surface. Everything else keeps ``DENY``.
+_EMBEDDABLE_DOCS_PREFIXES = (
+    "/api/docs",
+    "/api/redoc",
+    "/api/swagger-redirect",
+    "/api/openapi.json",
+    "/static/docs/",
+)
+
+
+def _allows_framing(path: str) -> bool:
+    return path.startswith(_EMBEDDABLE_DOCS_PREFIXES)
+
+
 class SecurityHeadersMiddleware:
     """Apply common HTTP response security headers.
 
@@ -71,11 +89,16 @@ class SecurityHeadersMiddleware:
 
         hsts = self._hsts_value()
 
+        path = scope.get("path", "")
+
         async def _send(message):  # type: ignore[no-untyped-def]
             if message["type"] == "http.response.start":
                 headers = list(message.get("headers", []))
                 _set_header(headers, b"x-content-type-options", b"nosniff")
-                _set_header(headers, b"x-frame-options", b"DENY")
+                if not _allows_framing(path):
+                    # The docs surface is public and embedded in the UI;
+                    # DENY would block the iframe even same-origin.
+                    _set_header(headers, b"x-frame-options", b"DENY")
                 _set_header(
                     headers,
                     b"referrer-policy",

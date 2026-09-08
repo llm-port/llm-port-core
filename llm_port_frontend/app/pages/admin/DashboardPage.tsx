@@ -38,6 +38,7 @@ import ModuleStatusSection from "~/components/dashboard/ModuleStatusSection";
 import NodeFleetRow from "~/components/dashboard/NodeFleetRow";
 import DashboardSection from "~/components/dashboard/DashboardSection";
 import { useDashboardLayout, type SectionId } from "~/lib/useDashboardLayout";
+import { grafanaOverviewUrl } from "~/lib/serviceUrls";
 import {
   DndContext,
   DragOverlay,
@@ -154,27 +155,14 @@ export default function DashboardPage() {
   };
 
   /* --- Data --- */
-  const grafanaDashboardBaseUrl =
-    (import.meta.env.VITE_GRAFANA_DASHBOARD_URL as string | undefined) ??
-    "/grafana/d/llm-port-overview/llm-port-overview?orgId=1&from=now-6h&to=now&timezone=browser&refresh=30s";
-
-  const grafanaDashboardUrl = useMemo(() => {
-    try {
-      const base = grafanaDashboardBaseUrl.startsWith("/")
-        ? window.location.origin
-        : undefined;
-      const url = new URL(grafanaDashboardBaseUrl, base);
-      url.searchParams.set(
-        "theme",
-        theme.palette.mode === "dark" ? "dark" : "light",
-      );
-      // Return path-only for same-origin to avoid cross-origin iframe issues
-      return base ? `${url.pathname}${url.search}` : url.toString();
-    } catch {
-      const separator = grafanaDashboardBaseUrl.includes("?") ? "&" : "?";
-      return `${grafanaDashboardBaseUrl}${separator}theme=${theme.palette.mode === "dark" ? "dark" : "light"}`;
-    }
-  }, [grafanaDashboardBaseUrl, theme.palette.mode]);
+  // In the dev/headless stack Grafana is exposed directly on the host
+  // (default :3001, served under the `/grafana/` sub-path with
+  // anonymous Viewer access) — there is no nginx reverse proxy, so
+  // the production same-origin `/grafana/...` URL 404s here.
+  const grafanaDashboardUrl = useMemo(
+    () => grafanaOverviewUrl(theme.palette.mode === "dark" ? "dark" : "light"),
+    [theme.palette.mode],
+  );
 
   const [overview, setOverview] = useState<DashboardOverview | null>(null);
   const [health, setHealth] = useState<DashboardHealth | null>(null);
@@ -598,7 +586,7 @@ export default function DashboardPage() {
                 <Box
                   component="iframe"
                   loading="lazy"
-                  src={`${grafanaDashboardUrl}&kiosk`}
+                  src={`${grafanaDashboardUrl}${grafanaDashboardUrl.includes("?") ? "&" : "?"}kiosk`}
                   title={t("dashboard.grafana_title")}
                   sx={{
                     display: "block",

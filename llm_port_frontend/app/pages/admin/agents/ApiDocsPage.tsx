@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import { containers, type ContainerSummary } from "~/api/admin";
 import { systemSettingsApi } from "~/api/systemSettings";
+import { apiDocsUrl } from "~/lib/serviceUrls";
 
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
@@ -21,9 +22,14 @@ import RestartAltIcon from "@mui/icons-material/RestartAlt";
 export default function ApiDocsPage() {
   const { t } = useTranslation();
   const [containerName, setContainerName] = useState("llm-port-api");
-  const [activeUrl, setActiveUrl] = useState(
-    `${window.location.protocol}//${window.location.hostname}:8001/api/docs`,
-  );
+  // In the dev/headless stack the llm_port_api gateway is exposed on
+  // port :8001 of the host serving this app (no nginx reverse proxy),
+  // so point the iframe directly at the exposed API port. The
+  // `api.server.endpoint_url` system setting (production nginx path
+  // `/gateway-docs/docs`) only resolves through the reverse proxy and
+  // is intentionally NOT used as the iframe target here — using it
+  // produced a 404 in the dev stack.
+  const [activeUrl] = useState(apiDocsUrl());
   const [serviceContainer, setServiceContainer] = useState<ContainerSummary | null>(null);
   const [loadingService, setLoadingService] = useState(false);
   const [actionBusy, setActionBusy] = useState<"start" | "stop" | "restart" | "register" | null>(null);
@@ -51,17 +57,7 @@ export default function ApiDocsPage() {
     async function loadSystemSettings() {
       try {
         const values = await systemSettingsApi.values();
-        const endpoint = values.items["api.server.endpoint_url"];
         const container = values.items["api.server.container_name"];
-        if (endpoint && !endpoint.is_secret && typeof endpoint.value === "string") {
-          // Replace hardcoded localhost/127.0.0.1 with the actual hostname so
-          // the Swagger page works when accessed from a remote machine.
-          const normalized = endpoint.value.replace(
-            /localhost|127\.0\.0\.1/g,
-            window.location.hostname,
-          );
-          setActiveUrl(endpoint.value);
-        }
         if (container && !container.is_secret && typeof container.value === "string") {
           setContainerName(container.value);
         }
