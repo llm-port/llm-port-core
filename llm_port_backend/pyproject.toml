@@ -36,7 +36,7 @@ dependencies = [
   "opentelemetry-instrumentation-aio-pika >=0.59b0,<1",
   "loguru >=0.7.3,<1",
   "taskiq >=0.12.0,<1",
-  "taskiq-fastapi >=0.3.6,<1",
+  "taskiq-fastapi >=0.5.0,<1",  # >=0.5.0: removes app.router.startup/shutdown calls, which crash-loop workers on starlette 1.x
   "taskiq-aio-pika >=0.5.0,<1",
   "aiodocker >=0.23.0,<1",
   "huggingface-hub >=0.27.0,<1",
