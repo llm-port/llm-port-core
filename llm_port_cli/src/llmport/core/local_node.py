@@ -551,7 +551,10 @@ HOME_DIR="$(eval echo ~"$SVC_USER")"
 STATE_DIR="$HOME_DIR/.local/share/llmport-agent"
 [ "$(id -u)" -eq 0 ] && STATE_DIR="/var/lib/llmport-agent"
 CONFIG_DIR="$HOME_DIR/.config/llmport-agent"
-MODEL_STORE="/srv/llm-port/models"
+# Model store: standard HuggingFace cache in the service user's home, so the
+# agent owns it without a root-owned /srv path (see
+# llm_port_node_agent.config._default_model_store_root).
+MODEL_STORE="$HOME_DIR/.cache/huggingface"
 PROTECT_HOME="yes"
 RW_PATHS="$MODEL_STORE $STATE_DIR"
 case "$STATE_DIR" in "$HOME_DIR"*) PROTECT_HOME="read-only"; RW_PATHS="$RW_PATHS $CONFIG_DIR" ;; esac

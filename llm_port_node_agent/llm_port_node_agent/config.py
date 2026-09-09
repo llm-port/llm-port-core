@@ -24,6 +24,22 @@ def _default_state_path() -> str:
     return str(Path.home() / ".local" / "share" / "llmport-agent" / "state.json")
 
 
+def _default_model_store_root() -> str:
+    """Default model store: the standard HuggingFace hub cache location.
+
+    ``%LOCALAPPDATA%\\huggingface`` on Windows when available,
+    ``~/.cache/huggingface`` elsewhere — the same spot ``huggingface_hub``
+    uses, so a plain user install owns its model store without root.
+    Override with ``LLM_PORT_NODE_AGENT_MODEL_STORE``.
+    """
+    if sys.platform == "win32":
+        local = os.environ.get("LOCALAPPDATA")
+        if local:
+            return str(Path(local) / "huggingface")
+        return str(Path.home() / "AppData" / "Local" / "huggingface")
+    return str(Path.home() / ".cache" / "huggingface")
+
+
 def _detect_routable_ip(backend_url: str) -> str | None:
     """Determine the local IP that routes to the backend (no traffic sent)."""
     try:
@@ -118,7 +134,10 @@ class AgentConfig:
                 for prefix in os.getenv("LLM_PORT_NODE_AGENT_IMAGE_ALLOWLIST", "").split(",")
                 if prefix.strip()
             ],
-            model_store_root=os.getenv("LLM_PORT_NODE_AGENT_MODEL_STORE", "/srv/llm-port/models"),
+            model_store_root=os.getenv(
+                "LLM_PORT_NODE_AGENT_MODEL_STORE",
+                _default_model_store_root(),
+            ),
             loki_url=os.getenv("LLM_PORT_NODE_AGENT_LOKI_URL") or None,
             log_batch_size=int(os.getenv("LLM_PORT_NODE_AGENT_LOG_BATCH_SIZE", "100")),
             log_flush_interval_sec=int(os.getenv("LLM_PORT_NODE_AGENT_LOG_FLUSH_INTERVAL_SEC", "5")),

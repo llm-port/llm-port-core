@@ -1,5 +1,6 @@
 import enum
 import os
+import sys
 from pathlib import Path
 from tempfile import gettempdir
 from typing import Any
@@ -11,6 +12,23 @@ from yarl import URL
 _CPU_COUNT = os.cpu_count() or 1
 
 TEMP_DIR = Path(gettempdir())
+
+
+def _default_model_store_root() -> str:
+    """Default model store: the standard HuggingFace hub cache location.
+
+    Mirrors ``huggingface_hub``'s own default (``%LOCALAPPDATA%\\huggingface``
+    on Windows when available, ``~/.cache/huggingface`` elsewhere) so an
+    unprivileged install owns its model store without a root-owned
+    ``/srv`` path. Containerized deployments override this via
+    ``LLM_PORT_BACKEND_MODEL_STORE_ROOT`` in their compose env.
+    """
+    if sys.platform == "win32":
+        local = os.environ.get("LOCALAPPDATA")
+        if local:
+            return str(Path(local) / "huggingface")
+        return str(Path.home() / "AppData" / "Local" / "huggingface")
+    return str(Path.home() / ".cache" / "huggingface")
 
 
 class LogLevel(enum.StrEnum):
@@ -109,7 +127,11 @@ class Settings(BaseSettings):
     tls_edge_chain_basename: str = "edge-chain.pem"
 
     # LLM Server settings
-    model_store_root: str = "/srv/llm-port/models"
+    # Defaults to the standard HuggingFace cache in the user's home so
+    # unprivileged host-process deployments (e.g. ``llmport dev up``) can
+    # own the store; containerized deployments override it via
+    # ``LLM_PORT_BACKEND_MODEL_STORE_ROOT``.
+    model_store_root: str = _default_model_store_root()
     hf_token: str | None = None
     # Absolute path to a host-mounted HuggingFace cache directory.
     # When set (e.g. via the GPU compose overlay), auto_import_hf_cache
