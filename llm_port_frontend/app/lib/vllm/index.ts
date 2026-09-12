@@ -21,15 +21,15 @@ export { VLLM_RECIPES, suggestRecipe } from "./recipes";
  * Tokens containing shell metacharacters are rejected so the string can
  * never be used to escape the container command.
  */
-export function parseRawVllmArgs(
-  raw: string,
-): { args: string[]; issues: string[] } {
+export function parseRawVllmArgs(raw: string): {
+  args: string[];
+  issues: string[];
+} {
   const args: string[] = [];
   const issues: string[] = [];
   let expectValue = false;
   for (const tok of raw.split(/\s+/)) {
-    if (!tok)
-      continue;
+    if (!tok) continue;
     if (tok.startsWith("--")) {
       const name = tok.slice(2);
       const eqIdx = name.indexOf("=");

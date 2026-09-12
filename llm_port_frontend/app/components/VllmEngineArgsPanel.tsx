@@ -284,10 +284,7 @@ export function VllmEngineArgsPanel({
       {/* ── Raw extra arguments (below all category sections) ─────── */}
       {onRawArgsChange && (
         <Box sx={{ mt: 2 }}>
-          <Typography
-            variant="subtitle2"
-            sx={{ mb: 0.5 }}
-          >
+          <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
             {t("vllm.raw_args", "Extra Arguments")}
           </Typography>
           <RawArgsInput value={rawArgs ?? ""} onChange={onRawArgsChange} />
@@ -506,10 +503,17 @@ export function RawArgsInput({ value, onChange }: RawArgsInputProps) {
         onChange={(e) => onChange(e.target.value)}
         helperText={
           issues.length > 0
-            ? t("vllm.raw_args_invalid", "Some tokens are invalid and will be ignored: {{issues}}", {
-                issues: issues.join(", "),
-              })
-            : t("vllm.raw_args_help", "Additional flags passed to the vLLM engine container (e.g. --enable-chunked-prefill or --max-num-seqs 64).")
+            ? t(
+                "vllm.raw_args_invalid",
+                "Some tokens are invalid and will be ignored: {{issues}}",
+                {
+                  issues: issues.join(", "),
+                },
+              )
+            : t(
+                "vllm.raw_args_help",
+                "Additional flags passed to the vLLM engine container (e.g. --enable-chunked-prefill or --max-num-seqs 64).",
+              )
         }
         slotProps={{
           input: { sx: { fontFamily: "monospace", fontSize: "0.75rem" } },

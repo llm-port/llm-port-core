@@ -314,9 +314,7 @@ export default function RuntimeDetailPage() {
       String((rt.provider_config as Record<string, unknown>)?.image ?? ""),
     );
     setEditExtraArgs(
-      Array.isArray(pc.extra_args)
-        ? (pc.extra_args as string[]).join(" ")
-        : "",
+      Array.isArray(pc.extra_args) ? (pc.extra_args as string[]).join(" ") : "",
     );
     setEditModelSource(
       ((rt.provider_config as Record<string, unknown>)?.model_source as

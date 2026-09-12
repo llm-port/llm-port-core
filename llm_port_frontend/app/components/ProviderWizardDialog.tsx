@@ -678,7 +678,13 @@ export function ProviderWizardDialog({
   }
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth data-tour-id="providers.wizard">
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="sm"
+      fullWidth
+      data-tour-id="providers.wizard"
+    >
       <DialogTitle>{t("llm_providers.new_provider")}</DialogTitle>
       <DialogContent
         sx={{
@@ -846,7 +852,11 @@ export function ProviderWizardDialog({
                       />
                     </RadioGroup>
                     {syncNeedsServerModelPrompt && (
-                      <Alert severity="warning" variant="outlined" sx={{ mt: 1 }}>
+                      <Alert
+                        severity="warning"
+                        variant="outlined"
+                        sx={{ mt: 1 }}
+                      >
                         {t(
                           "llm_providers.model_source_sync_requires_download",
                           "No model is currently available on this server for sync. Download a model first in the Models page, or switch to 'Download from HuggingFace'.",
