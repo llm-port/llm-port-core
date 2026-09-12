@@ -678,7 +678,15 @@
     "search_args": "Search parameters...",
     "args_modified": "{{count}} arg(s) modified",
     "reset_all": "Reset all to defaults",
-    "suggested": "suggested"
+    "suggested": "suggested",
+    "raw_args": "Extra Arguments",
+    "raw_args_help": "Additional flags passed to the vLLM engine container (e.g. --enable-chunked-prefill or --max-num-seqs 64).",
+    "raw_args_placeholder": "--enable-chunked-prefill --max-num-seqs 64",
+    "raw_args_invalid": "Some tokens are invalid and will be ignored: {{issues}}",
+    "raw_args": "Extra Arguments",
+    "raw_args_help": "Additional flags passed to the vLLM engine container (e.g. --enable-chunked-prefill or --max-num-seqs 64).",
+    "raw_args_placeholder": "--enable-chunked-prefill --max-num-seqs 64",
+    "raw_args_invalid": "Some tokens are invalid and will be ignored: {{issues}}"
   },
   "llm_runtime_detail": {
     "failed_load": "Failed to load runtime.",

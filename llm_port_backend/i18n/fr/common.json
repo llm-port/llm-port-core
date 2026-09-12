@@ -673,7 +673,15 @@
     "search_args": "Rechercher des paramètres…",
     "args_modified": "{{count}} argument(s) modifié(s)",
     "reset_all": "Réinitialiser tous les paramètres",
-    "suggested": "suggéré"
+    "suggested": "suggéré",
+    "raw_args": "Arguments supplémentaires",
+    "raw_args_help": "Arguments supplémentaires transmis au conteneur moteur vLLM (p. ex. --enable-chunked-prefill ou --max-num-seqs 64).",
+    "raw_args_placeholder": "--enable-chunked-prefill --max-num-seqs 64",
+    "raw_args_invalid": "Certains jetons sont invalides et seront ignorés : {{issues}}",
+    "raw_args": "Arguments supplémentaires",
+    "raw_args_help": "Arguments supplémentaires passés au conteneur moteur vLLM (p. ex. --enable-chunked-prefill ou --max-num-seqs 64).",
+    "raw_args_placeholder": "--enable-chunked-prefill --max-num-seqs 64",
+    "raw_args_invalid": "Certains jetons sont invalides et seront ignorés : {{issues}}"
   },
   "llm_runtime_detail": {
     "failed_load": "Échec du chargement de l'environnement.",

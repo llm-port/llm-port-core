@@ -17,6 +17,7 @@ import {
 import { nodesApi, type NodeCommandTimeline } from "~/api/nodes";
 import { RuntimeStatusChip, EngineChip } from "~/components/Chips";
 import { VllmEngineArgsPanel } from "~/components/VllmEngineArgsPanel";
+import { parseRawVllmArgs } from "~/lib/vllm";
 import {
   ContainerResourcesPanel,
   type ContainerResourceValues,
@@ -255,6 +256,7 @@ export default function RuntimeDetailPage() {
   const [editEndpointUrl, setEditEndpointUrl] = useState("");
   const [editApiKey, setEditApiKey] = useState("");
   const [editImage, setEditImage] = useState("");
+  const [editExtraArgs, setEditExtraArgs] = useState("");
   const [editModelSource, setEditModelSource] = useState<
     "sync_from_server" | "download_from_hf"
   >("sync_from_server");
@@ -310,6 +312,11 @@ export default function RuntimeDetailPage() {
     setEditApiKey("");
     setEditImage(
       String((rt.provider_config as Record<string, unknown>)?.image ?? ""),
+    );
+    setEditExtraArgs(
+      Array.isArray(pc.extra_args)
+        ? (pc.extra_args as string[]).join(" ")
+        : "",
     );
     setEditModelSource(
       ((rt.provider_config as Record<string, unknown>)?.model_source as
@@ -372,8 +379,20 @@ export default function RuntimeDetailPage() {
         } else {
           delete provider_config.engine_args;
         }
-        // Remove legacy extra_args — everything is in engine_args now
-        delete provider_config.extra_args;
+        // Extra arguments (raw flags not in the curated catalogue) →
+        // provider_config.extra_args passthrough list
+        const { args: parsedExtra, issues } = parseRawVllmArgs(editExtraArgs);
+        if (parsedExtra.length > 0) {
+          provider_config.extra_args = parsedExtra;
+        } else {
+          delete provider_config.extra_args;
+        }
+        if (issues.length > 0) {
+          alert(
+            "Some extra arguments were invalid and have been ignored: " +
+              issues.join(", "),
+          );
+        }
 
         // Image override
         if (editImage.trim()) {
@@ -813,6 +832,8 @@ export default function RuntimeDetailPage() {
                     onChange={setEngineArgs}
                     version={engineArgs["enforce-eager"] ? "0.6.6" : "0.7.3"}
                     modelName={model?.display_name}
+                    rawArgs={editExtraArgs}
+                    onRawArgsChange={setEditExtraArgs}
                   />
 
                   {/* Container Resources */}

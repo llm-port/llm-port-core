@@ -62,6 +62,7 @@ import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import NetworkCheckIcon from "@mui/icons-material/NetworkCheck";
 
 import { VllmEngineArgsPanel } from "~/components/VllmEngineArgsPanel";
+import { parseRawVllmArgs } from "~/lib/vllm";
 import {
   ContainerResourcesPanel,
   type ContainerResourceValues,
@@ -162,6 +163,7 @@ export function ProviderWizardDialog({
   >({});
   const [openaiCompat, setOpenaiCompat] = useState(true);
   const [legacyGpu, setLegacyGpu] = useState(false);
+  const [extraArgsRaw, setExtraArgsRaw] = useState("");
   const [containerRes, setContainerRes] = useState<ContainerResourceValues>({
     gpuRequest: "",
     ipcMode: "",
@@ -220,6 +222,7 @@ export function ProviderWizardDialog({
       setAdvancedOpen(false);
       setLegacyGpu(false);
       setEngineArgs({});
+      setExtraArgsRaw("");
       setContainerRes({
         gpuRequest: "",
         ipcMode: "",
@@ -575,6 +578,18 @@ export function ProviderWizardDialog({
         if (resolvedImage) provider_config.image = resolvedImage;
         if (Object.keys(mergedArgs).length > 0)
           provider_config.engine_args = mergedArgs;
+
+        // Extra arguments (raw flags not in the curated catalogue)
+        const { args: parsedExtra, issues } = parseRawVllmArgs(extraArgsRaw);
+        if (parsedExtra.length > 0) {
+          provider_config.extra_args = parsedExtra;
+        }
+        if (issues.length > 0) {
+          alert(
+            "Some extra arguments were invalid and have been ignored: " +
+              issues.join(", "),
+          );
+        }
 
         // Container resource fields
         if (containerRes.gpuRequest.trim())
@@ -1267,6 +1282,8 @@ export function ProviderWizardDialog({
                   onChange={setEngineArgs}
                   version={legacyGpu ? "0.6.6" : "0.7.3"}
                   modelName={models.find((m) => m.id === modelId)?.display_name}
+                  rawArgs={extraArgsRaw}
+                  onRawArgsChange={setExtraArgsRaw}
                 />
                 <FormControlLabel
                   control={

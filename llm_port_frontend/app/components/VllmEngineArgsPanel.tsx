@@ -38,6 +38,7 @@ import {
   filterArgsByVersion,
 } from "~/lib/vllm/registry";
 import { VLLM_RECIPES, suggestRecipe } from "~/lib/vllm/recipes";
+import { parseRawVllmArgs } from "~/lib/vllm";
 
 // ── Props ────────────────────────────────────────────────────────────
 
@@ -50,6 +51,12 @@ export interface VllmEngineArgsPanelProps {
   version?: string;
   /** Model display name for recipe auto-suggestion. */
   modelName?: string;
+  /**
+   * Raw extra arguments (free-form string) for flags not in the curated
+   * catalogue. Only rendered when `onRawArgsChange` is supplied.
+   */
+  rawArgs?: string;
+  onRawArgsChange?: (raw: string) => void;
 }
 
 // ── Component ────────────────────────────────────────────────────────
@@ -59,6 +66,8 @@ export function VllmEngineArgsPanel({
   onChange,
   version = "0.7.3",
   modelName,
+  rawArgs,
+  onRawArgsChange,
 }: VllmEngineArgsPanelProps) {
   const { t } = useTranslation();
   const [search, setSearch] = useState("");
@@ -271,6 +280,19 @@ export function VllmEngineArgsPanel({
           );
         })}
       </Box>
+
+      {/* ── Raw extra arguments (below all category sections) ─────── */}
+      {onRawArgsChange && (
+        <Box sx={{ mt: 2 }}>
+          <Typography
+            variant="subtitle2"
+            sx={{ mb: 0.5 }}
+          >
+            {t("vllm.raw_args", "Extra Arguments")}
+          </Typography>
+          <RawArgsInput value={rawArgs ?? ""} onChange={onRawArgsChange} />
+        </Box>
+      )}
     </Box>
   );
 }
@@ -448,5 +470,54 @@ function ArgField({ def, value, onChange }: ArgFieldProps) {
       }}
       sx={highlightSx}
     />
+  );
+}
+
+// ── Raw Extra Arguments Input ────────────────────────────────────────
+
+interface RawArgsInputProps {
+  /** Current raw argument string as the user typed it. */
+  value: string;
+  onChange: (raw: string) => void;
+}
+
+/**
+ * Free-form input for additional CLI flags that aren't in the curated
+ * parameter catalogue. Parsed with `parseRawVllmArgs` so invalid or
+ * dangerous input is flagged (and dropped) before it reaches the
+ * container command.
+ */
+export function RawArgsInput({ value, onChange }: RawArgsInputProps) {
+  const { t } = useTranslation();
+  const { issues } = useMemo(() => parseRawVllmArgs(value), [value]);
+  return (
+    <Box>
+      <TextField
+        size="small"
+        fullWidth
+        multiline
+        minRows={2}
+        maxRows={6}
+        placeholder={t(
+          "vllm.raw_args_placeholder",
+          "--enable-chunked-prefill --max-num-seqs 64",
+        )}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        helperText={
+          issues.length > 0
+            ? t("vllm.raw_args_invalid", "Some tokens are invalid and will be ignored: {{issues}}", {
+                issues: issues.join(", "),
+              })
+            : t("vllm.raw_args_help", "Additional flags passed to the vLLM engine container (e.g. --enable-chunked-prefill or --max-num-seqs 64).")
+        }
+        slotProps={{
+          input: { sx: { fontFamily: "monospace", fontSize: "0.75rem" } },
+          formHelperText: {
+            sx: { fontSize: "0.7rem", mx: 0.5, lineHeight: 1.2 },
+          },
+        }}
+      />
+    </Box>
   );
 }
