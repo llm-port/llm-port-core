@@ -103,11 +103,11 @@ export default function RuntimeMonitoringCardRow({
       sx={{
         display: "flex",
         flexDirection: "column",
-        gap: 1,
+        gap: 0.75,
         px: 1,
         py: 0.5,
-        mt: 1,
-        borderRadius: 2,
+        mt: 0.5,
+        borderRadius: "8px",
         bgcolor: "action.hover",
         border: "1px solid",
         borderColor: "divider",
@@ -139,7 +139,7 @@ export default function RuntimeMonitoringCardRow({
         )}
       </Stack>
 
-      <Stack direction="row" flexWrap="wrap" spacing={1}>
+      <Stack direction="row" flexWrap="wrap" spacing={0.5}>
         {STAT_DESCRIPTORS.map((d) => {
           const raw = values[d.key];
           const hasValue = raw != null;
@@ -164,6 +164,7 @@ export default function RuntimeMonitoringCardRow({
                 sx={{
                   minWidth: 96,
                   flex: "1 1 96px",
+                  borderRadius: "6px",
                   opacity: hasValue ? 1 : 0.6,
                   "&:hover": {
                     bgcolor: "action.hover",
@@ -171,7 +172,7 @@ export default function RuntimeMonitoringCardRow({
                   },
                 }}
               >
-                <Box sx={{ px: 1.25, py: 1 }}>
+                <Box sx={{ px: 1, py: 0.75 }}>
                   <Typography
                     variant="caption"
                     color="text.secondary"

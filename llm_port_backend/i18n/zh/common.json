@@ -676,7 +676,8 @@
     "section_hint": "vLLM 引擎统计 — 点击卡片打开完整 Grafana 仪表板",
     "dashboard": "打开 Grafana 仪表板",
     "no_data": "无数据",
-    "link": "监控"
+    "link": "监控",
+    "not_configured": "该提供商暂无实时指标"
   },
   "llm_runtime_detail": {
     "failed_load": "加载运行时失败。",

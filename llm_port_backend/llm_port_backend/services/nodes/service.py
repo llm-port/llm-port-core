@@ -421,6 +421,21 @@ class NodeControlService:
             # Container has (re)started — promote runtime back to RUNNING.
             prev = runtime.status
             if prev in (RuntimeStatus.ERROR, RuntimeStatus.STARTING, RuntimeStatus.CREATING):
+                # Guard: a container can report "running" while a deploy /
+                # restart is still in flight (image transfer, model pull, a
+                # crash-looping vLLM before its readiness probe passes).
+                # Promoting from STARTING/CREATING in that window flips the
+                # UI to a false "Running" the moment something dies. Promote
+                # from a prior ERROR outright (self-heal after a failure);
+                # while a provisioning command is still in flight, let the
+                # command's own result / the reaper settle the status.
+                if prev in (RuntimeStatus.STARTING, RuntimeStatus.CREATING) and await self._runtime_has_inflight_command(runtime):
+                    log.info(
+                        "Runtime %s health=running ignored (prev=%s): provisioning command still in flight",
+                        runtime_id,
+                        prev.value,
+                    )
+                    return
                 runtime.status = RuntimeStatus.RUNNING
                 runtime.status_message = None
                 # Update endpoint if the agent reported one
@@ -495,6 +510,30 @@ class NodeControlService:
             desired_state=runtime.desired_state,
             actual_state=runtime.status.value,
         )
+
+    _RUNTIME_COMMAND_TYPES = {
+        NodeCommandType.DEPLOY_WORKLOAD.value,
+        NodeCommandType.START_WORKLOAD.value,
+        NodeCommandType.RESTART_WORKLOAD.value,
+        NodeCommandType.UPDATE_WORKLOAD.value,
+    }
+
+    async def _runtime_has_inflight_command(self, runtime: LLMRuntime) -> bool:
+        """True when a provisioning command for this runtime is still open.
+
+        The command's payload carries the runtime_id it operates on, so we
+        scan the node's open (dispatched/acked/running) workload commands.
+        """
+        if not runtime.assigned_node_id:
+            return False
+        commands = await self._dao.list_inflight_commands(node_id=runtime.assigned_node_id)
+        for command in commands:
+            if command.command_type not in self._RUNTIME_COMMAND_TYPES:
+                continue
+            payload = command.payload_json or {}
+            if payload.get("runtime_id") in (None, runtime.id, str(runtime.id)):
+                return True
+        return False
 
     async def set_node_maintenance(
         self,

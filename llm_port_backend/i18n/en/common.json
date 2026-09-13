@@ -682,10 +682,6 @@
     "raw_args": "Extra Arguments",
     "raw_args_help": "Additional flags passed to the vLLM engine container (e.g. --enable-chunked-prefill or --max-num-seqs 64).",
     "raw_args_placeholder": "--enable-chunked-prefill --max-num-seqs 64",
-    "raw_args_invalid": "Some tokens are invalid and will be ignored: {{issues}}",
-    "raw_args": "Extra Arguments",
-    "raw_args_help": "Additional flags passed to the vLLM engine container (e.g. --enable-chunked-prefill or --max-num-seqs 64).",
-    "raw_args_placeholder": "--enable-chunked-prefill --max-num-seqs 64",
     "raw_args_invalid": "Some tokens are invalid and will be ignored: {{issues}}"
   },
   "llm_monitoring": {
@@ -702,7 +698,8 @@
     "stat.mtp_acceptance": "MTP Acceptance",
     "stat.generation_tokens_per_sec": "Generation tok/s",
     "stat.preemption_rate": "Preemptions/s",
-    "link": "Monitor"
+    "link": "Monitor",
+    "not_configured": "No live metrics for this provider — expand a row to view"
   },
   "llm_runtime_detail": {
     "failed_load": "Failed to load runtime.",

@@ -39,6 +39,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import tempfile
 import urllib.error
 import urllib.parse
@@ -70,23 +71,25 @@ _TPL_INSTANCE = "__INSTANCE__"
 #: Debounce window for Prometheus file_sd reloads (batch rapid writes).
 _RELOAD_DEBOUNCE_SEC = 2.5
 
-#: Stat-card metric expressions keyed by API field name.  ``{rt}`` is
-#: replaced with ``{runtime_name="<name>"}`` — the name is the same
-#: value baked into the dashboard template, so cards match panels.
+#: Stat-card metric expressions keyed by API field name.  ``{rt}`` is a
+#: ``str.format`` placeholder replaced with ``{runtime_name="<name>"}`` —
+#: the name is the same value baked into the dashboard template, so cards
+#: match panels.  (Single braces on purpose: ``{{rt}}`` would be escaped to
+#: the literal text ``{rt}``, which is invalid PromQL.)
 STAT_QUERIES: dict[str, str] = {
-    "running_requests": "sum(vllm:num_requests_running{{rt}})",
-    "waiting_requests": "sum(vllm:num_requests_waiting{{rt}})",
-    "kv_cache_usage": "100 * avg(vllm:kv_cache_usage_perc{{rt}})",
+    "running_requests": "sum(vllm:num_requests_running{rt})",
+    "waiting_requests": "sum(vllm:num_requests_waiting{rt})",
+    "kv_cache_usage": "100 * avg(vllm:kv_cache_usage_perc{rt})",
     "prefix_cache_hit_rate": (
-        '100 * sum(rate(vllm:prefix_cache_hits_total{{rt}}[5m])) '
-        "/ clamp_min(sum(rate(vllm:prefix_cache_queries_total{{rt}}[5m])), 1)"
+        '100 * sum(rate(vllm:prefix_cache_hits_total{rt}[5m])) '
+        "/ clamp_min(sum(rate(vllm:prefix_cache_queries_total{rt}[5m])), 1)"
     ),
     "mtp_acceptance": (
-        '100 * sum(rate(vllm:spec_decode_num_accepted_tokens_total{{rt}}[5m])) '
-        "/ clamp_min(sum(rate(vllm:spec_decode_num_draft_tokens_total{{rt}}[5m])), 1)"
+        '100 * sum(rate(vllm:spec_decode_num_accepted_tokens_total{rt}[5m])) '
+        "/ clamp_min(sum(rate(vllm:spec_decode_num_draft_tokens_total{rt}[5m])), 1)"
     ),
-    "generation_tokens_per_sec": "sum(rate(vllm:generation_tokens_total{{rt}}[1m]))",
-    "preemption_rate": "sum(rate(vllm:num_preemptions_total{{rt}}[5m]))",
+    "generation_tokens_per_sec": "sum(rate(vllm:generation_tokens_total{rt}[1m]))",
+    "preemption_rate": "sum(rate(vllm:num_preemptions_total{rt}[5m]))",
 }
 
 
@@ -123,21 +126,68 @@ def endpoint_host_for_target(endpoint_url: str) -> tuple[str, int | None] | None
     return host, parsed.port
 
 
+def _render_json_text(data: object) -> str:
+    return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+
+
 def _atomic_write_json(path: Path, data: object) -> None:
-    """Write JSON atomically (tmp file + replace) to avoid torn reads."""
+    """Write JSON atomically (tmp file + replace) to avoid torn reads.
+
+    Only safe for files that consumers *open from the directory each time*
+    (e.g. the Grafana dashboard file-provider).  ``os.replace`` swaps in a
+    **new inode**, so it must NOT be used for ``targets.json`` when it is
+    consumed through a Linux bind mount — the mount is pinned to the inode
+    that existed at mount time and would keep serving the original content
+    forever.  Use :func:`_atomic_write_json_inplace` for that case.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
+    # Containers read these files as an unprivileged user (prometheus
+    # runs as ``nobody``, grafana as uid 472); guarantee world-readable.
+    old_umask = os.umask(0o022)
     try:
-        with open(fd, "w", encoding="utf-8") as fh:
-            json.dump(data, fh, indent=2, ensure_ascii=False)
-            fh.write("\n")
-        Path(tmp_name).replace(path)
-    except BaseException:
+        fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
         try:
-            Path(tmp_name).unlink(missing_ok=True)
-        except OSError:  # pragma: no cover
-            pass
-        raise
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(_render_json_text(data))
+            os.chmod(tmp_name, 0o644)  # mkstemp starts at 0600
+            Path(tmp_name).replace(path)
+        except BaseException:
+            try:
+                Path(tmp_name).unlink(missing_ok=True)
+            except OSError:  # pragma: no cover
+                pass
+            raise
+    finally:
+        os.umask(old_umask)
+
+
+def _atomic_write_json_inplace(path: Path, data: object) -> None:
+    """Write JSON into ``path`` keeping the same inode (truncate + rewrite).
+
+    Required for Prometheus ``file_sd`` targets files that are bind-mounted
+    into the Prometheus container: bind mounts pin the inode, so a replace
+    would be invisible to Prometheus.  Truncating the open file in place
+    is atomic enough for file_sd — it re-reads by path on every
+    ``refresh_interval`` — and a reader that opens between open() and
+    truncate() observes either the complete old or the complete new
+    content (POSIX single-writer semantics).
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    old_umask = os.umask(0o022)
+    try:
+        if not path.exists():
+            # Seed (e.g. a fresh host dir not yet carrying the compose
+            # ``[]`` file): a new inode is fine, Prometheus hasn't read it.
+            path.write_text("[]\n", encoding="utf-8")
+        with open(path, "r+", encoding="utf-8") as fh:
+            os.chmod(path, 0o644)  # a 0600 tmp-created file would be unreadable
+            fh.truncate(0)
+            fh.seek(0)
+            fh.write(_render_json_text(data))
+            fh.flush()
+            os.fsync(fh.fileno())
+    finally:
+        os.umask(old_umask)
 
 
 class MonitoringProvisioner:
@@ -282,7 +332,7 @@ class MonitoringProvisioner:
         targets = self._read_targets()
         remaining = [t for t in targets if t.get("labels", {}).get("runtime_id") != str(runtime_id)]
         if len(remaining) != len(targets):
-            _atomic_write_json(self._targets_file, remaining)
+            _atomic_write_json_inplace(self._targets_file, remaining)
             changed = True
         dash = self.dashboard_path(runtime_id)
         if dash.exists():
@@ -343,7 +393,7 @@ class MonitoringProvisioner:
             _atomic_write_json(path, data)
             provisioned_paths.add(path.name)
         entries.sort(key=lambda t: str(t.get("labels", {}).get("runtime_name", "")))
-        _atomic_write_json(self._targets_file, entries)
+        _atomic_write_json_inplace(self._targets_file, entries)
 
         if self._dashboard_dir.exists():
             for dash in self._dashboard_dir.glob("vllm-rt-*.json"):
@@ -425,7 +475,7 @@ class MonitoringProvisioner:
         ]
         targets.append(entry)
         targets.sort(key=lambda t: str(t.get("labels", {}).get("runtime_name", "")))
-        _atomic_write_json(self._targets_file, targets)
+        _atomic_write_json_inplace(self._targets_file, targets)
 
     # ── debounced reload ───────────────────────────────────────────────
     def _schedule_reload(self) -> None:

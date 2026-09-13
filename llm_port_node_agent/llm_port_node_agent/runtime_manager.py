@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import shlex
 from collections.abc import Awaitable, Callable
@@ -21,7 +22,8 @@ log = logging.getLogger(__name__)
 # Readiness probe defaults
 _READINESS_TIMEOUT_SEC = 600  # 10 minutes — large models can take a while
 _READINESS_POLL_INTERVAL_SEC = 5
-_READINESS_PROGRESS_INTERVAL_SEC = 15  # emit progress update every 15s
+_READINESS_PROGRESS_INTERVAL_SEC = 15
+_LOGS_TAIL_MAX_LINES = 200  # hard cap on log-tail line counts sent to the backend
 
 
 class RuntimeManagerError(RuntimeError):
@@ -192,13 +194,21 @@ class RuntimeManager:
             log.info("Pulling image %s from registry on node", image)
             await self._runtime.pull(image, timeout_sec=1800)
         elif image_source == "transfer_from_server":
-            await _progress("pull_image", f"Transferring image {image} from backend")
-            log.info("Loading image %s from backend transfer", image)
+            # Re-transferring an image that is already present locally is
+            # wasted bandwidth (the vLLM image is ~15 GiB) and can fail on
+            # partial downloads — check first.
+            present = await self._image_exists_local(image)
+            if present:
+                await _progress("pull_image", f"Image {image} already present locally — skipping transfer")
+                log.info("Image %s already present on node — skipping backend transfer", image)
+            else:
+                await _progress("pull_image", f"Transferring image {image} from backend")
+                log.info("Loading image %s from backend transfer", image)
 
-            async def _image_progress(p: dict[str, Any]) -> None:
-                await _progress("pull_image", p.get("message", "Transferring image…"))
+                async def _image_progress(p: dict[str, Any]) -> None:
+                    await _progress("pull_image", p.get("message", "Transferring image…"))
 
-            await self._load_image_from_backend(image, payload, emit_progress=_image_progress)
+                await self._load_image_from_backend(image, payload, emit_progress=_image_progress)
         else:
             await _progress("pull_image", "Using locally available image")
 
@@ -321,10 +331,16 @@ class RuntimeManager:
         return {"runtime_id": runtime_id, "container_name": container_name, "endpoint_url": endpoint}
 
     async def stop_workload(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """Stop a running workload container."""
+        """Stop a running workload container.
+
+        Tolerates an already-absent container (it may have crashed and
+        been reaped, or a previous stop/remove may have removed it) so a
+        STOP command does not hard-fail on missing state.
+        """
         runtime_id = self._require_runtime_id(payload)
-        container_name = self._lookup_container(runtime_id, payload)
-        await self._runtime.stop(container_name)
+        container_name = self._lookup_container(runtime_id, payload, allow_missing=True)
+        if container_name and await self._runtime.exists(container_name):
+            await self._runtime.stop(container_name)
         self._events.add(
             event_type="workload.stopped",
             payload={"runtime_id": runtime_id, "container_name": container_name},
@@ -387,7 +403,11 @@ class RuntimeManager:
         container_name = self._lookup_container(runtime_id, payload, allow_missing=True)
         if not container_name:
             return {"logs": f"No container found for runtime {runtime_id}. Deploy or update the runtime to create the container."}
-        tail = str(payload.get("tail", 300))
+        try:
+            tail = int(payload.get("tail", 300))
+        except (TypeError, ValueError):
+            tail = 300
+        tail = str(max(10, min(tail, _LOGS_TAIL_MAX_LINES)))
         code, combined = await self._runtime.logs(
             container_name,
             tail=tail,
@@ -396,6 +416,25 @@ class RuntimeManager:
         if code != 0 and "no such container" in combined.lower():
             return {"logs": f"Container {container_name} does not exist on this node. Deploy or update the runtime to create it."}
         return {"logs": combined}
+
+    async def _tail_container_logs(self, container_name: str, lines: int = 30) -> str:
+        """Fetch a short, capped log tail for embedding in error context.
+
+        Returns an empty string when logs cannot be fetched so callers can
+        append the tail to an error message without masking the real error.
+        """
+        try:
+            code, out = await self._runtime.logs(container_name, tail=str(lines), timestamps=True)
+            text = out if code == 0 else f"(logs rc={code})\n{out}"
+        except Exception:  # noqa: BLE001 - a log fetch failure must not mask the caller's error
+            return ""
+        text = text.strip()
+        if not text:
+            return ""
+        log_lines = text.splitlines()
+        if len(log_lines) > _LOGS_TAIL_MAX_LINES:
+            log_lines = log_lines[-_LOGS_TAIL_MAX_LINES:]
+        return "\n".join(log_lines)
 
     async def _resolve_endpoint(self, container_name: str, *, container_port: str = "8000") -> str | None:
         host_port = await self._runtime.port(container_name, container_port)
@@ -410,8 +449,12 @@ class RuntimeManager:
         provider_type: str,
         container_name: str,
         progress: Callable[[str, str], Awaitable[None]],
-        timeout_sec: int = _READINESS_TIMEOUT_SEC,
+        timeout_sec: int | None = None,
     ) -> None:
+        # Read at call time (not the default) so tests/ops can monkeypatch the
+        # module constant without touching this signature.
+        if timeout_sec is None:
+            timeout_sec = _READINESS_TIMEOUT_SEC
         """Poll the container health endpoint until it returns HTTP 200.
 
         Emits periodic ``waiting_for_ready`` progress events so the frontend
@@ -440,11 +483,15 @@ class RuntimeManager:
                 now = asyncio.get_event_loop().time()
                 if now >= deadline:
                     log.warning("Readiness probe timed out after %ds for %s", timeout_sec, container_name)
+                    tail = await self._tail_container_logs(container_name)
                     await progress(
                         "waiting_for_ready",
-                        f"Readiness probe timed out after {timeout_sec}s — container may still be starting",
+                        f"Readiness probe timed out after {timeout_sec}s — container may be unhealthy",
                     )
-                    return
+                    raise RuntimeManagerError(
+                        f"Container {container_name} did not become ready within {timeout_sec}s"
+                        + (("\n\n--- container log tail ---\n" + tail) if tail else "")
+                    )
 
                 # Emit periodic progress so the UI knows we're still waiting
                 if now - last_progress_at >= _READINESS_PROGRESS_INTERVAL_SEC:
@@ -468,6 +515,29 @@ class RuntimeManager:
         if self._image_loader is None:
             raise RuntimeManagerError("Image loader not configured — cannot transfer image.")
         await self._image_loader(image=image, emit_progress=emit_progress)
+
+    async def _image_exists_local(self, image: str) -> bool:
+        """Return True if *image* (``repo:tag``) is already pulled locally.
+
+        Reads the runtime's ``images`` listing (raw JSON lines); any failure
+        to list is treated as "not present" so the transfer path still runs.
+        """
+        try:
+            lines = await self._runtime.images()
+        except Exception:  # noqa: BLE001 - listing images must not break the transfer
+            log.warning("Failed to list local images; assuming %s is not present", image)
+            return False
+        for line in lines:
+            try:
+                meta = json.loads(line)
+            except (ValueError, TypeError):
+                continue
+            if not isinstance(meta, dict):
+                continue
+            ref = f"{meta.get('Repository', '')}:{meta.get('Tag', '')}"
+            if ref == image:
+                return True
+        return False
 
     @staticmethod
     def _container_name(runtime_id: str, *, runtime_name: str | None = None) -> str:
@@ -535,8 +605,15 @@ class RuntimeManager:
         if not model:
             model = str(gc.get("model", "") or pc.get("model", "")).strip()
         if not model:
-            log.warning("Cannot build vLLM command — no model identifier found in payload")
-            return [], None
+            # Fail fast: an empty command would fall back to the image's
+            # default CMD (e.g. ``vllm serve facebook/opt-125m``), which
+            # crashes in a way that is hard to attribute. Surface the real
+            # cause to the operator instead.
+            raise RuntimeManagerError(
+                "Cannot build vLLM command: the deploy payload has no model. "
+                "Set the runtime's model, or pass provider_config.command or "
+                "generic_config.model explicitly."
+            )
 
         cmd: list[str] = [
             "serve", "--model", model,

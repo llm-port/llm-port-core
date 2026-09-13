@@ -676,7 +676,8 @@
     "section_hint": "vLLM-Engine-Statistiken — Klick auf eine Karte öffnet das vollständige Grafana-Dashboard",
     "dashboard": "Grafana-Dashboard öffnen",
     "no_data": "Keine Daten",
-    "link": "Monitor"
+    "link": "Monitor",
+    "not_configured": "Keine Live-Metriken für diesen Anbieter"
   },
   "llm_runtime_detail": {
     "failed_load": "Runtime konnte nicht geladen werden.",

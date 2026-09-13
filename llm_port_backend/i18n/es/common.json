@@ -583,21 +583,21 @@
     "new_provider": "New Provider",
     "edit_provider": "Edit Provider",
     "search_placeholder": "Search providers...",
-    "confirm_delete": "\u00bfEliminar este proveedor y su runtime? Esto no se puede deshacer.",
+    "confirm_delete": "¿Eliminar este proveedor y su runtime? Esto no se puede deshacer.",
     "target_local_docker": "Docker Local",
     "target_remote_endpoint": "Endpoint Remoto",
     "endpoint_url": "URL del Endpoint",
     "endpoint_url_help": "URL base de la API de inferencia remota (ej. https://api.example.com/v1)",
     "api_key": "Clave API",
-    "api_key_help": "Clave de autenticaci\u00f3n opcional para el endpoint remoto",
-    "test_connection": "Probar conexi\u00f3n",
+    "api_key_help": "Clave de autenticación opcional para el endpoint remoto",
+    "test_connection": "Probar conexión",
     "test_connection_testing": "Probando…",
-    "test_connection_success": "Conexi\u00f3n exitosa — {{count}} modelo(s) disponible(s).",
+    "test_connection_success": "Conexión exitosa — {{count}} modelo(s) disponible(s).",
     "test_connection_failed": "No compatible con la API de OpenAI",
-    "wizard_step_basics": "B\u00e1sicos",
+    "wizard_step_basics": "Básicos",
     "wizard_step_runtime": "Runtime",
-    "model_source_sync_requires_download": "Actualmente no hay ning\u00fan modelo disponible en este servidor para sincronizar. Primero descargue un modelo en la p\u00e1gina de Modelos, o cambie a 'Descargar desde HuggingFace'.",
-    "model_source_sync_requires_download_short": "No hay modelo local disponible. Desc\u00e1rguelo primero.",
+    "model_source_sync_requires_download": "Actualmente no hay ningún modelo disponible en este servidor para sincronizar. Primero descargue un modelo en la página de Modelos, o cambie a 'Descargar desde HuggingFace'.",
+    "model_source_sync_requires_download_short": "No hay modelo local disponible. Descárguelo primero.",
     "no_runtime": "Sin runtime"
   },
   "llm_models": {
@@ -676,7 +676,8 @@
     "section_hint": "Estadísticas del motor vLLM — haz clic en una tarjeta para abrir el panel completo de Grafana",
     "dashboard": "Abrir panel de Grafana",
     "no_data": "Sin datos",
-    "link": "Monitor"
+    "link": "Monitor",
+    "not_configured": "Sin métricas en vivo para este proveedor"
   },
   "llm_runtime_detail": {
     "failed_load": "Failed to load runtime.",

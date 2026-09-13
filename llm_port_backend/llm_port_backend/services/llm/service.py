@@ -97,6 +97,7 @@ class LLMService:
             "container_name": self._node_container_name(runtime.name),
             "provider_id": str(runtime.provider_id),
             "provider_type": provider.type.value if provider else "vllm",
+            "model": model.hf_repo_id or "" if model else "",
             "model_id": str(runtime.model_id),
             "generic_config": runtime.generic_config or {},
             "provider_config": prov_config,
@@ -497,10 +498,13 @@ class LLMService:
                     "provider_config": provider_config or {},
                     "openai_compat": openai_compat,
                     "placement_hints": placement_hints or {},
+                    "model": model.hf_repo_id or "",
                     "model_sync": self._build_model_sync_payload(
                         model, source=model_source or "sync_from_server",
                     ),
-                    "image_source": image_source,
+                    "image_source": image_source
+                    or (provider_config or {}).get("image_source")
+                    or "pull_from_registry",
                     "gpu_request": gpu_request,
                     "ipc_mode": ipc_mode,
                     "shm_size": (provider_config or {}).get("shm_size", ""),
@@ -767,6 +771,7 @@ class LLMService:
                     "model_id": str(runtime.model_id),
                     "generic_config": runtime.generic_config or {},
                     "provider_config": prov_config,
+                    "model": model.hf_repo_id or "" if model else "",
                     "openai_compat": runtime.openai_compat,
                     "placement_hints": placement_hints or {},
                     "model_sync": self._build_model_sync_payload(
@@ -1242,10 +1247,13 @@ class LLMService:
 
         model_dir = _model_cache_dir(model.hf_repo_id)
         if model_dir is None:
-            return None
+            # No local cache copy — still emit the base payload so the node
+            # can mount a model directory that already exists on the node
+            # (mount-only / already-synced path) and build the serve command.
+            return base
 
         manifest = _build_cache_manifest(model_dir)
         if not manifest["blobs"]:
-            return None
+            return base
 
         return base | manifest

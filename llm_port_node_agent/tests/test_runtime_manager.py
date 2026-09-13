@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, patch
@@ -97,6 +98,25 @@ def manager(tmp_path: Path, fake_runtime: FakeRuntime) -> RuntimeManager:
     )
 
 
+@pytest.fixture()
+def healthy_health(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
+    """Make the readiness probe report HTTP 200 immediately.
+
+    Deploys now *fail* if the container never becomes ready, so every test
+    that exercises a full deploy must stub the health endpoint.
+    """
+    from llm_port_node_agent import runtime_manager as rm
+
+    class _OKResponse:
+        status_code = 200
+
+    async def _fake_get(self, url, **kwargs):
+        return _OKResponse()
+
+    monkeypatch.setattr(rm.httpx.AsyncClient, "get", _fake_get)
+    return AsyncMock()
+
+
 def test_sanitize_rejects_privileged() -> None:
     with pytest.raises(RuntimeManagerError, match="--privileged"):
         RuntimeManager._sanitize_command_args(["--privileged"])
@@ -137,7 +157,7 @@ def test_container_name_is_deterministic() -> None:
 
 
 @pytest.mark.asyncio()
-async def test_deploy_workload_includes_gpu_flag(manager: RuntimeManager, fake_runtime: FakeRuntime) -> None:
+async def test_deploy_workload_includes_gpu_flag(manager: RuntimeManager, fake_runtime: FakeRuntime, healthy_health: AsyncMock) -> None:
     """Verify GPU and memory settings are passed to the runtime."""
     result = await manager.deploy_workload({
         "runtime_id": "rt-001",
@@ -145,6 +165,7 @@ async def test_deploy_workload_includes_gpu_flag(manager: RuntimeManager, fake_r
         "image": "vllm/vllm-openai:latest",
         "gpu_request": "all",
         "memory_limit": "16g",
+        "model_sync": {"hf_repo_id": "org/model"},
     })
     assert result["runtime_id"] == "rt-001"
 
@@ -158,24 +179,27 @@ async def test_deploy_workload_includes_gpu_flag(manager: RuntimeManager, fake_r
 
 
 @pytest.mark.asyncio()
-async def test_deploy_workload_custom_port(manager: RuntimeManager, fake_runtime: FakeRuntime) -> None:
+async def test_deploy_workload_custom_port(manager: RuntimeManager, fake_runtime: FakeRuntime, healthy_health: AsyncMock) -> None:
     """Verify custom container_port is used."""
     await manager.deploy_workload({
         "runtime_id": "rt-002",
         "image": "test:latest",
         "container_port": "3000",
+        "model_sync": {"hf_repo_id": "org/model"},
     })
     kw = fake_runtime.run_kwargs()
-    assert "3000" in (kw.get("ports") or [])
+    # Host port is pinned to the container port (host:container binding).
+    assert "3000:3000" in (kw.get("ports") or [])
 
 
 @pytest.mark.asyncio()
-async def test_deploy_workload_ipc_mode_default(manager: RuntimeManager, fake_runtime: FakeRuntime) -> None:
+async def test_deploy_workload_ipc_mode_default(manager: RuntimeManager, fake_runtime: FakeRuntime, healthy_health: AsyncMock) -> None:
     """vLLM with GPU defaults to --ipc host."""
     await manager.deploy_workload({
         "runtime_id": "rt-003",
         "provider_type": "vllm",
         "image": "vllm/vllm-openai:latest",
+        "model_sync": {"hf_repo_id": "org/model"},
     })
     kw = fake_runtime.run_kwargs()
     # gpu defaults to all for vllm, ipc defaults to host for vllm+gpu
@@ -191,7 +215,7 @@ async def test_deploy_workload_ipc_mode_default(manager: RuntimeManager, fake_ru
 
 @pytest.mark.asyncio()
 async def test_deploy_vllm_builds_command_from_model_sync(
-    manager: RuntimeManager, fake_runtime: FakeRuntime,
+    manager: RuntimeManager, fake_runtime: FakeRuntime, healthy_health: AsyncMock,
 ) -> None:
     """When no command is provided, vLLM deploys build a serve command."""
     await manager.deploy_workload({
@@ -213,7 +237,7 @@ async def test_deploy_vllm_builds_command_from_model_sync(
 
 @pytest.mark.asyncio()
 async def test_deploy_vllm_applies_generic_config(
-    manager: RuntimeManager, fake_runtime: FakeRuntime,
+    manager: RuntimeManager, fake_runtime: FakeRuntime, healthy_health: AsyncMock,
 ) -> None:
     """Generic config keys are mapped to vLLM CLI flags."""
     await manager.deploy_workload({
@@ -238,7 +262,7 @@ async def test_deploy_vllm_applies_generic_config(
 
 @pytest.mark.asyncio()
 async def test_deploy_vllm_applies_engine_args(
-    manager: RuntimeManager, fake_runtime: FakeRuntime,
+    manager: RuntimeManager, fake_runtime: FakeRuntime, healthy_health: AsyncMock,
 ) -> None:
     """engine_args from provider_config become CLI flags."""
     await manager.deploy_workload({
@@ -259,7 +283,7 @@ async def test_deploy_vllm_applies_engine_args(
 
 @pytest.mark.asyncio()
 async def test_deploy_vllm_explicit_command_skips_builder(
-    manager: RuntimeManager, fake_runtime: FakeRuntime,
+    manager: RuntimeManager, fake_runtime: FakeRuntime, healthy_health: AsyncMock,
 ) -> None:
     """An explicit command in provider_config should be used as-is."""
     await manager.deploy_workload({
@@ -274,3 +298,114 @@ async def test_deploy_vllm_explicit_command_skips_builder(
     assert cmd == ["vllm", "serve", "/data/model", "--port", "8000"]
     # No entrypoint override when explicit command is given
     assert kw.get("entrypoint") is None
+
+
+# ── vLLM command building: fail-fast ─────────────────────────
+
+
+@pytest.mark.asyncio()
+async def test_deploy_vllm_missing_model_fails_fast(
+    manager: RuntimeManager, fake_runtime: FakeRuntime, healthy_health: AsyncMock,
+) -> None:
+    """A vLLM deploy with no resolvable model must hard-fail, not emit an
+    empty command (which would run the image's default CMD)."""
+    with pytest.raises(RuntimeManagerError, match="no model"):
+        await manager.deploy_workload({
+            "runtime_id": "rt-vllm-nomodel",
+            "provider_type": "vllm",
+            "image": "nvcr.io/nvidia/vllm:26.01-py3",
+            # no model_sync, no generic_config.model, no provider_config.command
+        })
+    # The container must not have been started
+    assert fake_runtime.run_kwargs() == {}
+
+
+# ── readiness: timeout now fails with log tail ───────────────
+
+
+@pytest.mark.asyncio()
+async def test_deploy_readiness_timeout_fails_with_log_tail(
+    manager: RuntimeManager, fake_runtime: FakeRuntime, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If the health endpoint never returns 200 the deploy must report a
+    failure and include the container's log tail."""
+    # Make the health probe return 500 forever.
+    from llm_port_node_agent import runtime_manager as rm
+
+    class _BadResponse:
+        status_code = 500
+
+    async def _fake_get(self, url, **kwargs):
+        return _BadResponse()
+
+    monkeypatch.setattr(rm.httpx.AsyncClient, "get", _fake_get)
+    # Keep the test fast: cap the readiness window at 2 seconds.
+    monkeypatch.setattr(rm, "_READINESS_TIMEOUT_SEC", 2)
+
+    # The container's logs carry the root-cause line.
+    async def _fake_logs(name, **kw):
+        return (0, "ValueError: Too large swap space. 4.00 GiB out of 3.82 GiB total CPU memory")
+
+    fake_runtime.logs = _fake_logs
+
+    with pytest.raises(RuntimeManagerError, match="did not become ready") as excinfo:
+        await manager.deploy_workload({
+            "runtime_id": "rt-vllm-unhealthy",
+            "provider_type": "vllm",
+            "image": "nvcr.io/nvidia/vllm:26.01-py3",
+            "model_sync": {"hf_repo_id": "meta-llama/Llama-3-8B"},
+        }, emit_progress=None)
+    # The timeout branch must surface the container's log tail.
+    assert "container log tail" in str(excinfo.value)
+    assert "Too large swap space" in str(excinfo.value)
+
+
+# ── log tail cap ─────────────────────────────────────────────
+
+
+@pytest.mark.asyncio()
+async def test_fetch_container_logs_caps_tail(
+    manager: RuntimeManager, fake_runtime: FakeRuntime, healthy_health: AsyncMock,
+) -> None:
+    """fetch_container_logs must clamp the requested tail length."""
+    seen: dict[str, Any] = {}
+
+    async def _spy_logs(name, **kw):
+        seen["tail"] = kw.get("tail")
+        return (0, "")
+
+    fake_runtime.logs = _spy_logs
+    await manager.deploy_workload({
+        "runtime_id": "rt-logs-1",
+        "provider_type": "vllm",
+        "image": "img:latest",
+        "model_sync": {"hf_repo_id": "my/model"},
+    })
+    await manager.fetch_container_logs({"runtime_id": "rt-logs-1", "tail": 99999})
+    assert seen["tail"] == "200"
+    await manager.fetch_container_logs({"runtime_id": "rt-logs-1", "tail": 1})
+    assert seen["tail"] == "10"
+
+
+# ── image transfer skip when present ─────────────────────────
+
+
+@pytest.mark.asyncio()
+async def test_image_transfer_skipped_when_present(
+    manager: RuntimeManager, fake_runtime: FakeRuntime, healthy_health: AsyncMock,
+) -> None:
+    """transfer_from_server must not re-transfer an image already pulled."""
+    fake_runtime.images = AsyncMock(
+        return_value=[json.dumps({"Repository": "vllm/vllm-openai", "Tag": "latest"})]
+    )
+    # If the (unconfigured) loader were called, deploy would raise;
+    # success proves the transfer was skipped.
+    result = await manager.deploy_workload({
+        "runtime_id": "rt-img-skip",
+        "provider_type": "vllm",
+        "image": "vllm/vllm-openai:latest",
+        "image_source": "transfer_from_server",
+        "model_sync": {"hf_repo_id": "my/model"},
+    })
+    assert result["runtime_id"] == "rt-img-skip"
+    fake_runtime.images.assert_awaited()

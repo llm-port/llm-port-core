@@ -7,7 +7,14 @@
  *  - sticky header + scrollable body that fits into flex containers
  *  - optional client-side pagination
  */
-import { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import {
+  Fragment,
+  useState,
+  useMemo,
+  useEffect,
+  useRef,
+  useCallback,
+} from "react";
 import {
   useReactTable,
   getCoreRowModel,
@@ -46,6 +53,8 @@ import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 
 import ClearIcon from "@mui/icons-material/Clear";
+import ExpandLessIcon from "@mui/icons-material/ExpandLess";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import SearchIcon from "@mui/icons-material/Search";
 import ViewColumnIcon from "@mui/icons-material/ViewColumn";
@@ -150,6 +159,13 @@ export interface DataTableProps<T> {
   columnVisibilityKey?: string;
   /** CSS table-layout. Defaults to `"fixed"`. Use `"auto"` when columns should size to content. */
   tableLayout?: "fixed" | "auto";
+
+  /**
+   * Row-expansion content. When provided, each row gains a disclosure
+   * chevron (first column) and renders this content in a full-width
+   * sub-row below it.
+   */
+  expansion?: (row: T) => React.ReactNode;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -174,13 +190,21 @@ export function DataTable<T>({
   highlightId,
   columnVisibilityKey,
   tableLayout = "fixed",
+  expansion,
 }: DataTableProps<T>) {
   const [search, setSearch] = useState("");
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnSizing, setColumnSizing] = useState<ColumnSizingState>({});
   const highlightRef = useRef<HTMLTableRowElement>(null);
   const [colMenuAnchor, setColMenuAnchor] = useState<HTMLElement | null>(null);
-
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const toggleExpanded = (id: string) =>
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   // ── Column visibility ──────────────────────────────────────────────────
   const loadHiddenCols = useCallback((): Set<string> => {
     if (!columnVisibilityKey) return new Set();
@@ -620,65 +644,119 @@ export function DataTable<T>({
               {visibleRows.map((row) => {
                 const isHighlighted =
                   highlightId != null && row.id === highlightId;
+                const isExpandedRow = Boolean(
+                  expansion && expandedIds.has(row.id),
+                );
                 return (
-                  <TableRow
-                    key={row.id}
-                    ref={isHighlighted ? highlightRef : undefined}
-                    hover
-                    onClick={
-                      onRowClick ? () => onRowClick(row.original) : undefined
-                    }
-                    sx={{
-                      ...(onRowClick ? { cursor: "pointer" } : {}),
-                      ...(isHighlighted
-                        ? {
-                            bgcolor: "action.selected",
-                            animation: "highlight-fade 3s ease-out",
-                            "@keyframes highlight-fade": {
-                              "0%": { bgcolor: "primary.dark" },
-                              "100%": { bgcolor: "transparent" },
-                            },
-                          }
-                        : {}),
-                    }}
-                  >
-                    {row.getVisibleCells().map((cell) => {
-                      const meta = cell.column.columnDef.meta as
-                        | { align?: string }
-                        | undefined;
-                      return (
-                        <TableCell
-                          key={cell.id}
-                          align={
-                            (meta?.align ?? "left") as
-                              | "left"
-                              | "center"
-                              | "right"
-                          }
-                          style={
-                            tableLayout === "fixed"
-                              ? { width: cell.column.getSize() }
-                              : undefined
-                          }
-                          sx={{
-                            maxWidth:
+                  <Fragment key={row.id}>
+                    <TableRow
+                      ref={isHighlighted ? highlightRef : undefined}
+                      hover
+                      onClick={
+                        onRowClick ? () => onRowClick(row.original) : undefined
+                      }
+                      sx={{
+                        ...(onRowClick ? { cursor: "pointer" } : {}),
+                        ...(isHighlighted
+                          ? {
+                              bgcolor: "action.selected",
+                              animation: "highlight-fade 3s ease-out",
+                              "@keyframes highlight-fade": {
+                                "0%": { bgcolor: "primary.dark" },
+                                "100%": { bgcolor: "transparent" },
+                              },
+                            }
+                          : {}),
+                      }}
+                    >
+                      {row.getVisibleCells().map((cell, idx) => {
+                        const meta = cell.column.columnDef.meta as {
+                          align?: "left" | "center" | "right";
+                        };
+                        return (
+                          <TableCell
+                            key={cell.id}
+                            align={
+                              (meta?.align ?? "left") as
+                                | "left"
+                                | "center"
+                                | "right"
+                            }
+                            style={
                               tableLayout === "fixed"
-                                ? cell.column.getSize()
-                                : undefined,
-                            overflow: "hidden",
-                            whiteSpace: "normal",
-                            overflowWrap: "anywhere",
-                            wordBreak: "break-word",
+                                ? { width: cell.column.getSize() }
+                                : undefined
+                            }
+                            sx={{
+                              maxWidth:
+                                tableLayout === "fixed"
+                                  ? cell.column.getSize()
+                                  : undefined,
+                              overflow: "hidden",
+                              whiteSpace: "normal",
+                              overflowWrap: "anywhere",
+                              wordBreak: "break-word",
+                            }}
+                          >
+                            {expansion && idx === 0 ? (
+                              <span
+                                style={{
+                                  borderRadius: 4,
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: 4,
+                                }}
+                              >
+                                <IconButton
+                                  size="small"
+                                  aria-label="Toggle details"
+                                  aria-expanded={isExpandedRow}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleExpanded(row.id);
+                                  }}
+                                  sx={{ p: 0.5 }}
+                                >
+                                  {isExpandedRow ? (
+                                    <ExpandLessIcon fontSize="small" />
+                                  ) : (
+                                    <ExpandMoreIcon fontSize="small" />
+                                  )}
+                                </IconButton>
+                                {flexRender(
+                                  cell.column.columnDef.cell,
+                                  cell.getContext(),
+                                )}
+                              </span>
+                            ) : (
+                              flexRender(
+                                cell.column.columnDef.cell,
+                                cell.getContext(),
+                              )
+                            )}
+                          </TableCell>
+                        );
+                      })}
+                    </TableRow>
+                    {isExpandedRow && expansion && (
+                      <TableRow>
+                        <TableCell
+                          colSpan={visibleColumns.length}
+                          sx={{
+                            py: 1,
+                            px: 2,
+                            bgcolor: "background.paper",
+                            border: "1px solid",
+                            borderColor: "divider",
+                            borderRadius: 0.75,
+                            m: 0.5,
                           }}
                         >
-                          {flexRender(
-                            cell.column.columnDef.cell,
-                            cell.getContext(),
-                          )}
+                          {expansion(row.original)}
                         </TableCell>
-                      );
-                    })}
-                  </TableRow>
+                      </TableRow>
+                    )}
+                  </Fragment>
                 );
               })}
             </TableBody>

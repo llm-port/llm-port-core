@@ -255,21 +255,6 @@ export default function ProvidersPage() {
         ) : null,
     },
     {
-      // vLLM engines only — backend sets `monitoring` on the runtime DTO.
-      key: "monitoring",
-      label: t("llm_monitoring.section"),
-      width: 640,
-      render: (r) =>
-        r.runtime?.monitoring ? (
-          <RuntimeMonitoringCardRow runtime={r.runtime} />
-        ) : (
-          <Typography variant="caption" color="text.disabled">
-            —
-          </Typography>
-        ),
-    },
-    {
-      key: "endpoint",
       label: t("llm_runtimes.endpoint"),
       render: (r) => {
         const url = r.runtime?.endpoint_url ?? r.provider.endpoint_url;
@@ -409,6 +394,18 @@ export default function ProvidersPage() {
         emptyMessage={t("llm_providers.empty")}
         onRefresh={load}
         searchPlaceholder={t("llm_providers.search_placeholder")}
+        expansion={(r) =>
+          r.runtime?.monitoring ? (
+            <RuntimeMonitoringCardRow runtime={r.runtime} />
+          ) : (
+            <Typography variant="caption" color="text.disabled">
+              {t(
+                "llm_monitoring.not_configured",
+                "No live metrics configured for this provider",
+              )}
+            </Typography>
+          )
+        }
         toolbarActions={
           <Button
             size="small"

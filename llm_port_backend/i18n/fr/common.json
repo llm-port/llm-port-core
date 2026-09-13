@@ -261,7 +261,7 @@
     "search_placeholder": "Rechercher nom, image, état…",
     "failed_load": "Échec du chargement des conteneurs.",
     "confirm_delete": "Supprimer ce conteneur ?",
-    "endpoint": "Point d'acc\u00e8s"
+    "endpoint": "Point d'accès"
   },
   "create_container": {
     "title": "Créer un conteneur",
@@ -675,10 +675,6 @@
     "reset_all": "Réinitialiser tous les paramètres",
     "suggested": "suggéré",
     "raw_args": "Arguments supplémentaires",
-    "raw_args_help": "Arguments supplémentaires transmis au conteneur moteur vLLM (p. ex. --enable-chunked-prefill ou --max-num-seqs 64).",
-    "raw_args_placeholder": "--enable-chunked-prefill --max-num-seqs 64",
-    "raw_args_invalid": "Certains jetons sont invalides et seront ignorés : {{issues}}",
-    "raw_args": "Arguments supplémentaires",
     "raw_args_help": "Arguments supplémentaires passés au conteneur moteur vLLM (p. ex. --enable-chunked-prefill ou --max-num-seqs 64).",
     "raw_args_placeholder": "--enable-chunked-prefill --max-num-seqs 64",
     "raw_args_invalid": "Certains jetons sont invalides et seront ignorés : {{issues}}"
@@ -688,7 +684,8 @@
     "section_hint": "Statistiques du moteur vLLM — cliquez sur une carte pour ouvrir le tableau de bord Grafana",
     "dashboard": "Ouvrir le tableau de bord Grafana",
     "no_data": "Aucune donnée",
-    "link": "Moniteur"
+    "link": "Moniteur",
+    "not_configured": "Aucune métrique en direct pour ce fournisseur"
   },
   "llm_runtime_detail": {
     "failed_load": "Échec du chargement de l'environnement.",

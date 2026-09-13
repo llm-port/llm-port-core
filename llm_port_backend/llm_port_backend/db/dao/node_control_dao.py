@@ -285,6 +285,28 @@ class NodeControlDAO:
         )
         return list(result.scalars().all())
 
+    async def list_inflight_commands(self, *, node_id: uuid.UUID, limit: int = 50) -> list[InfraNodeCommand]:
+        """Commands the agent has accepted but not yet completed.
+
+        Includes DISPATCHED (sent, unacked), ACKED, and RUNNING — these are
+        the commands that need re-dispatch on reconnect and reaping when
+        they outlive their timeout.
+        """
+        result = await self.session.execute(
+            select(InfraNodeCommand)
+            .where(
+                InfraNodeCommand.node_id == node_id,
+                InfraNodeCommand.status.in_([
+                    NodeCommandStatus.DISPATCHED.value,
+                    NodeCommandStatus.ACKED.value,
+                    NodeCommandStatus.RUNNING.value,
+                ]),
+            )
+            .order_by(InfraNodeCommand.issued_at.asc())
+            .limit(limit),
+        )
+        return list(result.scalars().all())
+
     async def get_command(self, command_id: uuid.UUID) -> InfraNodeCommand | None:
         result = await self.session.execute(select(InfraNodeCommand).where(InfraNodeCommand.id == command_id))
         return result.scalar_one_or_none()
