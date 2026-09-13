@@ -1,0 +1,15 @@
+# Prometheus datasource for LLM runtime (vLLM) metrics.
+#
+# The uid `prometheus` is load-bearing: the generated per-runtime
+# dashboards (vllm-rt-*) and the reference dashboard from
+# llm_port_dev/vllm-dgx-monitoring all reference
+# {"type": "prometheus", "uid": "prometheus"}.
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: false
+    editable: true

@@ -19,6 +19,7 @@ import {
 } from "~/api/llm";
 import { DataTable, type ColumnDef } from "~/components/DataTable";
 import { EngineChip, RuntimeStatusChip } from "~/components/Chips";
+import RuntimeMonitoringCardRow from "~/pages/admin/llm/RuntimeMonitoringCardRow";
 import { FormDialog } from "~/components/FormDialog";
 import { ProviderWizardDialog } from "~/components/ProviderWizardDialog";
 import { useAsyncData } from "~/lib/useAsyncData";
@@ -252,6 +253,20 @@ export default function ProvidersPage() {
             sx={{ fontSize: "0.75rem" }}
           />
         ) : null,
+    },
+    {
+      // vLLM engines only — backend sets `monitoring` on the runtime DTO.
+      key: "monitoring",
+      label: t("llm_monitoring.section"),
+      width: 640,
+      render: (r) =>
+        r.runtime?.monitoring ? (
+          <RuntimeMonitoringCardRow runtime={r.runtime} />
+        ) : (
+          <Typography variant="caption" color="text.disabled">
+            —
+          </Typography>
+        ),
     },
     {
       key: "endpoint",

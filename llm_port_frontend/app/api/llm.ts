@@ -72,6 +72,28 @@ export interface ModelInstance {
   execution_target: string;
   node_id: string | null;
   node_host: string | null;
+  monitoring_url: string | null;
+}
+
+// ── Runtime monitoring (stat cards + Grafana deep-link) ────────────────────
+
+/** Stat keys exposed by /runtimes/{id}/monitoring-stats (vLLM engine). */
+export type StatKey =
+  | "running_requests"
+  | "waiting_requests"
+  | "kv_cache_usage"
+  | "prefix_cache_hit_rate"
+  | "mtp_acceptance"
+  | "generation_tokens_per_sec"
+  | "preemption_rate";
+
+export interface RuntimeMonitoring {
+  enabled: boolean;
+  /** True when Prometheus has no fresh data for this runtime. */
+  stale: boolean;
+  dashboard_url: string | null;
+  /** Stat-keyed values; null for individual absent series (e.g. no MTP). */
+  stats: Partial<Record<StatKey, number>>;
 }
 
 export interface Model {
@@ -118,6 +140,7 @@ export interface Runtime {
   status_message: string | null;
   created_at: string;
   updated_at: string;
+  monitoring: RuntimeMonitoring | null;
 }
 
 export interface RuntimeHealth {
@@ -358,6 +381,14 @@ export const runtimes = {
   },
   health(id: string) {
     return request<RuntimeHealth>(`/runtimes/${id}/health`);
+  },
+  /**
+   * Live stat-card values + dashboard URL (backend proxies Prometheus).
+   * Returns `{ enabled: false, stats: {} }` for non-scraped runtimes / when
+   * monitoring is disabled — treat as disabled, not as an error.
+   */
+  monitoringStats(id: string) {
+    return request<RuntimeMonitoring>(`/runtimes/${id}/monitoring-stats`);
   },
   fetchLogs(id: string, tail = 200): Promise<Response> {
     return fetch(`${BASE}/runtimes/${id}/logs?tail=${tail}`, {

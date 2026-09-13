@@ -671,6 +671,13 @@
     "image_pull_success": "Image erfolgreich heruntergeladen.",
     "image_pull_failed": "Image-Download fehlgeschlagen: {{error}}"
   },
+  "llm_monitoring": {
+    "section": "Live-Metriken",
+    "section_hint": "vLLM-Engine-Statistiken — Klick auf eine Karte öffnet das vollständige Grafana-Dashboard",
+    "dashboard": "Grafana-Dashboard öffnen",
+    "no_data": "Keine Daten",
+    "link": "Monitor"
+  },
   "llm_runtime_detail": {
     "failed_load": "Runtime konnte nicht geladen werden.",
     "not_found": "Runtime nicht gefunden.",

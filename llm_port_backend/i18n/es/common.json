@@ -671,6 +671,13 @@
     "image_pull_success": "Imagen descargada exitosamente.",
     "image_pull_failed": "Error al descargar imagen: {{error}}"
   },
+  "llm_monitoring": {
+    "section": "Métricas en vivo",
+    "section_hint": "Estadísticas del motor vLLM — haz clic en una tarjeta para abrir el panel completo de Grafana",
+    "dashboard": "Abrir panel de Grafana",
+    "no_data": "Sin datos",
+    "link": "Monitor"
+  },
   "llm_runtime_detail": {
     "failed_load": "Failed to load runtime.",
     "not_found": "Runtime not found.",

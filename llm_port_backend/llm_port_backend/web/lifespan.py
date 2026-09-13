@@ -382,6 +382,28 @@ def _init_rag_lite(app: FastAPI) -> None:
     )
 
 
+async def _reconcile_monitoring_on_startup(app: FastAPI) -> None:
+    """Re-provision runtime monitoring targets + dashboards after boot.
+
+    No-op when the feature is disabled.  Safe to fail — monitoring
+    must never block startup; lifecycle hooks keep things in sync
+    afterwards.
+    """
+    from llm_port_backend.services.llm.monitoring import (  # noqa: PLC0415
+        provision_all_on_startup,
+    )
+    from llm_port_backend.settings import settings as _settings  # noqa: PLC0415
+
+    if not _settings.llm_monitoring_enabled:
+        return
+    try:
+        async with app.state.db_session_factory() as session:
+            count = await provision_all_on_startup(session)
+            log.info("Monitoring reconciliation: %d runtime(s).", count)
+    except Exception:
+        log.exception("Monitoring startup reconciliation failed.")
+
+
 async def _recover_orphaned_downloads(app: FastAPI) -> None:
     """Mark downloads that were interrupted by a prior crash as FAILED.
 
@@ -515,6 +537,9 @@ async def lifespan_setup(
     # ── Recover orphaned download jobs from prior crash ──────
     await _recover_orphaned_downloads(app)
 
+    # ── Reconcile runtime monitoring (targets + dashboards) ──
+    await _reconcile_monitoring_on_startup(app)
+
     # ── Optional EE plugin bootstrap ─────────────────────────
     if _EE_AVAILABLE:
         try:
@@ -560,6 +585,18 @@ async def lifespan_setup(
     # ──────────────────────────────────────────────────────────
 
     await _stop_notification_runtime(app)
+
+    # Flush/cancel any pending debounced Prometheus reloads.
+    try:
+        from llm_port_backend.services.llm.monitoring import (  # noqa: PLC0415
+            get_monitoring_provisioner,
+        )
+
+        monitor_prov = get_monitoring_provisioner()
+        if monitor_prov is not None:
+            await monitor_prov.close()
+    except Exception:
+        log.exception("Monitoring provisioner teardown failed.")
 
     http_client: httpx.AsyncClient | None = getattr(app.state, "http_client", None)
     if http_client is not None:

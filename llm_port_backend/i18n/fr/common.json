@@ -683,6 +683,13 @@
     "raw_args_placeholder": "--enable-chunked-prefill --max-num-seqs 64",
     "raw_args_invalid": "Certains jetons sont invalides et seront ignorés : {{issues}}"
   },
+  "llm_monitoring": {
+    "section": "Métriques en direct",
+    "section_hint": "Statistiques du moteur vLLM — cliquez sur une carte pour ouvrir le tableau de bord Grafana",
+    "dashboard": "Ouvrir le tableau de bord Grafana",
+    "no_data": "Aucune donnée",
+    "link": "Moniteur"
+  },
   "llm_runtime_detail": {
     "failed_load": "Échec du chargement de l'environnement.",
     "not_found": "Environnement d'exécution introuvable.",

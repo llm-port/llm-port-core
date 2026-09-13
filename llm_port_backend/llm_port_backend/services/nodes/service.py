@@ -24,6 +24,10 @@ from llm_port_backend.db.models.node_control import (
     NodeHealthStatus,
 )
 from llm_port_backend.services.llm.gateway_sync import GatewaySyncService
+from llm_port_backend.services.llm.monitoring import (
+    deprovision_for_runtime,
+    provision_for_runtime,
+)
 from llm_port_backend.services.nodes.auth import constant_time_equal, hash_with_pepper, random_secret
 
 
@@ -428,6 +432,9 @@ class NodeControlService:
                     runtime.endpoint_url = endpoint_url
                 await self._publish_runtime_to_gateway(runtime=runtime)
                 await self._promote_model_status(runtime)
+                # Endpoint may have changed after a container restart —
+                # the provision rebuild keeps targets/dashboards aligned.
+                await provision_for_runtime(self._dao.session, runtime.id)
                 log.info(
                     "Runtime %s reconciled %s → running from agent health event",
                     runtime_id,
@@ -714,7 +721,13 @@ class NodeControlService:
                 # HuggingFace directly so the server-side record stayed
                 # at "downloading" or was marked "failed" on restart).
                 await self._promote_model_status(runtime)
+                # (Re)provision per-runtime monitoring (no-op when the
+                # feature flag is off or the provider isn't vLLM).
+                await provision_for_runtime(self._dao.session, runtime.id)
             elif command.command_type == NodeCommandType.STOP_WORKLOAD.value:
+                # NOTE: intentionally stopped runtimes KEEP their dashboard
+                # + scrape target — history stays browsable and the target
+                # simply reports up=0 until the next START re-provisions.
                 runtime.status = RuntimeStatus.STOPPED
                 if self._gateway_sync is not None:
                     await self._gateway_sync.set_instance_health(runtime_id=runtime.id, health_status="unhealthy")
@@ -722,6 +735,7 @@ class NodeControlService:
                 runtime.status = RuntimeStatus.STOPPED
                 if self._gateway_sync is not None:
                     await self._gateway_sync.unpublish_runtime(runtime_id=runtime.id, alias=runtime.name)
+                await deprovision_for_runtime(runtime.id)
         else:
             runtime.status = RuntimeStatus.ERROR
             runtime.status_message = str(payload.get("error_message") or payload.get("error_code") or "Command failed")

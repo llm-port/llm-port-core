@@ -688,6 +688,22 @@
     "raw_args_placeholder": "--enable-chunked-prefill --max-num-seqs 64",
     "raw_args_invalid": "Some tokens are invalid and will be ignored: {{issues}}"
   },
+  "llm_monitoring": {
+    "section": "Live Metrics",
+    "section_hint": "vLLM engine stats — click a card for the full Grafana dashboard",
+    "dashboard": "Open Grafana dashboard",
+    "no_data": "No data",
+    "no_data_hint": "Waiting for metrics — engine may still be warming up",
+    "stale_hint": "Metrics are stale (engine not reporting)",
+    "stat.running_requests": "Running Requests",
+    "stat.waiting_requests": "Waiting Requests",
+    "stat.kv_cache_usage": "KV Cache Usage",
+    "stat.prefix_cache_hit_rate": "Prefix Cache Hit",
+    "stat.mtp_acceptance": "MTP Acceptance",
+    "stat.generation_tokens_per_sec": "Generation tok/s",
+    "stat.preemption_rate": "Preemptions/s",
+    "link": "Monitor"
+  },
   "llm_runtime_detail": {
     "failed_load": "Failed to load runtime.",
     "not_found": "Runtime not found.",

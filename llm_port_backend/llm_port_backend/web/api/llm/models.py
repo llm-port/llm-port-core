@@ -11,7 +11,9 @@ from starlette import status
 from llm_port_backend.db.dao.audit_dao import AuditDAO
 from llm_port_backend.db.dao.llm_dao import ArtifactDAO, DownloadJobDAO, ModelDAO, RuntimeDAO
 from llm_port_backend.db.models.containers import AuditResult
+from llm_port_backend.db.models.llm import ProviderType
 from llm_port_backend.db.models.users import User
+from llm_port_backend.services.llm.monitoring import get_monitoring_provisioner
 from llm_port_backend.services.llm.service import LLMService
 from llm_port_backend.web.api.admin.dependencies import audit_action
 from llm_port_backend.web.api.llm.dependencies import get_llm_service
@@ -41,6 +43,12 @@ async def list_models(
     models = await model_dao.list_all()
     rows = await runtime_dao.list_grouped_by_model()
 
+    # Optional monitoring deep-link (None when the feature is disabled
+    # or the runtime isn't a scraped vLLM workload; dashboard_url is
+    # computed from a stable UID hash, so no provider lookup is needed
+    # for the URL itself).
+    provisioner = get_monitoring_provisioner()
+
     # Group runtime rows by model_id
     instances_by_model: dict[uuid.UUID, list[ModelInstanceDTO]] = defaultdict(list)
     for rt, prov, node in rows:
@@ -55,6 +63,11 @@ async def list_models(
                 execution_target=rt.execution_target,
                 node_id=node.id if node else None,
                 node_host=node.host if node else None,
+                monitoring_url=(
+                    provisioner.dashboard_url(rt.id)
+                    if provisioner is not None and prov.type == ProviderType.VLLM
+                    else None
+                ),
             ),
         )
 

@@ -271,6 +271,27 @@ class Settings(BaseSettings):
     node_command_default_timeout_sec: int = 900
     node_stream_idle_timeout_sec: int = 120
 
+    # Runtime monitoring — vLLM /metrics scraped by the shared-stack
+    # Prometheus service, with a per-runtime Grafana dashboard rendered
+    # from a local template. Off by default; when on, the backend
+    # generates prometheus/targets.json + dashboards/*.json in the
+    # monitored directories below and reloads Prometheus.
+    llm_monitoring_enabled: bool = False
+    # Prometheus base URL, as reachable from the backend container
+    # (compose service name in the shared stack, loopback in dev).
+    prom_url: str = "http://127.0.0.1:9090"
+    # Host path of the generated file_sd targets file (mounted into
+    # both the prometheus and backend containers in the shared stack).
+    prom_targets_file: str = "llm_port_shared/prometheus/targets.json"
+    # Host directory the Grafana dashboard file provider reads; rendered
+    # per-runtime dashboards (vllm-rt-*.json) are written here.
+    prom_dashboard_dir: str = "llm_port_shared/grafana/provisioning/dashboards/json"
+    # Reusable Grafana dashboard JSON template (see
+    # llm_port_shared/grafana/dashboards/templates/vllm-runtime.json).
+    dash_template: str = "llm_port_shared/grafana/dashboards/templates/vllm-runtime.json"
+    # Grafana folder (title) used when provisioning runtime dashboards.
+    dash_folder: str = "LLM Runtimes"
+
     @property
     def db_url(self) -> URL:
         """

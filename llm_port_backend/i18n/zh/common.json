@@ -671,6 +671,13 @@
     "image_pull_success": "镜像拉取成功。",
     "image_pull_failed": "镜像拉取失败：{{error}}"
   },
+  "llm_monitoring": {
+    "section": "实时指标",
+    "section_hint": "vLLM 引擎统计 — 点击卡片打开完整 Grafana 仪表板",
+    "dashboard": "打开 Grafana 仪表板",
+    "no_data": "无数据",
+    "link": "监控"
+  },
   "llm_runtime_detail": {
     "failed_load": "加载运行时失败。",
     "not_found": "未找到运行时。",

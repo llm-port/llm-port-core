@@ -168,6 +168,22 @@ class ModelInstanceDTO(BaseModel):
     execution_target: str  # "local" | "remote" | "node"
     node_id: uuid.UUID | None = None
     node_host: str | None = None
+    monitoring_url: str | None = None
+
+
+class RuntimeMonitoringDTO(BaseModel):
+    """Per-runtime observability: stat-card values + Grafana deep-link.
+
+    ``stale`` is True when Prometheus has no recent data for this
+    runtime (never provisioned / feature off / engine down). The stat
+    values mirror the generated dashboard's stat panels; cards render
+    a muted "no data" state when ``stale``.
+    """
+
+    enabled: bool
+    stale: bool
+    dashboard_url: str | None = None
+    stats: dict[str, float | None] = Field(default_factory=dict)
 
 
 class ModelWithInstancesDTO(ModelDTO):
@@ -260,6 +276,7 @@ class RuntimeDTO(BaseModel):
     status_message: str | None = None
     created_at: datetime
     updated_at: datetime
+    monitoring: RuntimeMonitoringDTO | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

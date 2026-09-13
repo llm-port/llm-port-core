@@ -60,6 +60,7 @@ import HeartBrokenIcon from "@mui/icons-material/HeartBroken";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import MemoryIcon from "@mui/icons-material/Memory";
+import MonitorIcon from "@mui/icons-material/Monitor";
 
 /* ── Node Deployment Progress ─────────────────────────────────────── */
 
@@ -665,6 +666,25 @@ export default function RuntimeDetailPage() {
                 size="small"
               />
             )}
+          </Tooltip>
+        )}
+        {rt.monitoring?.enabled && rt.monitoring.dashboard_url && (
+          <Tooltip title={t("llm_monitoring.dashboard")}>
+            <Chip
+              icon={<MonitorIcon />}
+              label={t("llm_monitoring.link")}
+              size="small"
+              color="primary"
+              variant="outlined"
+              onClick={() =>
+                window.open(
+                  rt.monitoring!.dashboard_url!,
+                  "_blank",
+                  "noopener,noreferrer",
+                )
+              }
+              sx={{ cursor: "pointer" }}
+            />
           </Tooltip>
         )}
         <Stack direction="row" spacing={1}>

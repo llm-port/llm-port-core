@@ -38,6 +38,7 @@ from llm_port_backend.db.models.node_control import InfraNode, NodeCommandType, 
 from llm_port_backend.services.docker.client import DockerService
 from llm_port_backend.services.llm.base import ContainerSpec
 from llm_port_backend.services.llm.gateway_sync import GatewaySyncService, _normalize_base_url
+from llm_port_backend.services.llm.monitoring import deprovision_for_runtime
 from llm_port_backend.services.llm.registry import get_adapter
 from llm_port_backend.services.llm.scanner import scan_model_directory
 from llm_port_backend.services.nodes import NodeControlService
@@ -867,16 +868,18 @@ class LLMService:
                 idempotency_key=f"runtime:{runtime.id}:remove",
             )
             await self.gateway_sync.unpublish_runtime(runtime_id=runtime_id, alias=runtime.name)
+            await deprovision_for_runtime(runtime_id)
             await runtime_dao.delete(runtime_id)
             return
         # Flush pending work and release the idle transaction before
         # slow Docker teardown.
         await runtime_dao.session.commit()
         await self._teardown_runtime(runtime)
-        # Remove gateway routing records before deleting the runtime
+        # Remove gateway routing records + generated dashboard/target
         await self.gateway_sync.unpublish_runtime(
             runtime_id=runtime_id, alias=runtime.name,
         )
+        await deprovision_for_runtime(runtime_id)
         await runtime_dao.delete(runtime_id)
 
     async def delete_provider(
@@ -921,10 +924,11 @@ class LLMService:
                 )
             else:
                 await self._teardown_runtime(rt)
-            # Remove gateway routing records
+            # Remove gateway routing records + generated dashboard/target
             await self.gateway_sync.unpublish_runtime(
                 runtime_id=rt.id, alias=rt.name,
             )
+            await deprovision_for_runtime(rt.id)
             await runtime_dao.delete(rt.id)
 
         await provider_dao.delete(provider_id)

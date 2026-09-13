@@ -8,6 +8,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from starlette import status
+from sqlalchemy import select
 
 from llm_port_backend.db.dao.audit_dao import AuditDAO
 from llm_port_backend.db.dao.llm_dao import ArtifactDAO, ModelDAO, ProviderDAO, RuntimeDAO
@@ -16,6 +17,9 @@ from llm_port_backend.db.models.containers import AuditResult
 from llm_port_backend.db.models.node_control import NodeCommandStatus, NodeCommandType
 from llm_port_backend.db.models.users import User
 from llm_port_backend.services.docker.client import DockerService
+from llm_port_backend.services.llm.monitoring import (
+    get_monitoring_provisioner,
+)
 from llm_port_backend.services.llm.service import LLMService
 from llm_port_backend.services.nodes.service import NodeControlService
 from llm_port_backend.settings import settings
@@ -55,7 +59,62 @@ async def list_runtimes(
 ) -> list[RuntimeDTO]:
     """List all runtimes (with container-state reconciliation)."""
     runtimes = await llm_service.reconcile_all_runtimes(runtime_dao)
-    return [RuntimeDTO.model_validate(r) for r in runtimes]
+    out = [RuntimeDTO.model_validate(r) for r in runtimes]
+    # Attach a lightweight monitoring summary (url / enabled / stale).
+    # Full stat values are fetched lazily via /{id}/monitoring-stats so
+    # the list endpoint stays a single DB round-trip.  Only vLLM
+    # runtimes are scraped, so we gate the badge on the provider type.
+    prov = get_monitoring_provisioner()
+    if prov is not None and out:
+        from llm_port_backend.db.models.llm import LLMProvider, ProviderType  # noqa: PLC0415
+        from llm_port_backend.web.api.llm.schema import (  # noqa: PLC0415
+            RuntimeMonitoringDTO,
+        )
+
+        provider_ids = {r.provider_id for r in runtimes}
+        res = await runtime_dao.session.execute(
+            select(LLMProvider).where(LLMProvider.id.in_(provider_ids)),
+        )
+        vllm_providers = {
+            p.id for p in res.scalars() if p.type == ProviderType.VLLM
+        }
+        for dto in out:
+            if dto.provider_id in vllm_providers:
+                dto.monitoring = RuntimeMonitoringDTO(
+                    enabled=True,
+                    stale=True,  # refined by the lazy stats endpoint
+                    dashboard_url=prov.dashboard_url(dto.id),
+                )
+    return out
+
+
+@router.get("/{runtime_id}/monitoring-stats")
+async def runtime_monitoring_stats(
+    runtime_id: uuid.UUID,
+    user: User = Depends(require_permission("llm.runtimes", "read")),
+    runtime_dao: RuntimeDAO = Depends(),
+) -> dict:
+    """Live stat-card values + dashboard URL from the Prometheus proxy.
+
+    Returns 200 with ``{enabled: false}`` when monitoring is disabled
+    or the runtime is not a scraped vLLM workload, so the UI can render
+    the card row either as disabled or in a muted "no data" state.
+    """
+    runtime = await runtime_dao.get(runtime_id)
+    if runtime is None:
+        raise HTTPException(status_code=404, detail="Runtime not found")
+    prov = get_monitoring_provisioner()
+    if prov is None:
+        return {"enabled": False, "stale": True, "stats": {}, "dashboard_url": None}
+    from llm_port_backend.db.models.llm import LLMProvider, ProviderType  # noqa: PLC0415
+
+    prov_res = await runtime_dao.session.execute(
+        select(LLMProvider).where(LLMProvider.id == runtime.provider_id),
+    )
+    provider = prov_res.scalar_one_or_none()
+    if provider is None or provider.type != ProviderType.VLLM:
+        return {"enabled": False, "stale": True, "stats": {}, "dashboard_url": None}
+    return await prov.stats(runtime.id, runtime.name)
 
 
 @router.post("/", response_model=RuntimeDTO, status_code=status.HTTP_201_CREATED)
