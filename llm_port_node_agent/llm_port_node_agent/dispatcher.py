@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -35,6 +36,11 @@ class CommandDispatcher:
         self._guard = policy_guard
         self._events = events
         self._on_refresh_inventory = on_refresh_inventory
+        # command_id -> running task.  The backend re-dispatches in-flight
+        # commands on reconnect (E); the stream connection must never run
+        # the same deploy twice concurrently (two ``docker run`` = two
+        # containers, or a second restart mid-flight).
+        self._inflight: dict[str, asyncio.Task[dict[str, Any]]] = {}
 
     async def handle(self, command: dict[str, Any], emit_progress: ProgressEmitter) -> dict[str, Any]:
         """Execute command and return normalized result payload."""
@@ -60,7 +66,9 @@ class CommandDispatcher:
         try:
             self._guard.validate(command_type=command_type, state=self._state.state)
             await emit_progress({"phase": "dispatched", "message": f"Executing {command_type}"})
-            result = await self._execute(command_type=command_type, payload=payload, emit_progress=emit_progress)
+            result = await self._guarded_execute(
+                command_id=command_id, command_type=command_type, payload=payload, emit_progress=emit_progress
+            )
             normalized = {"success": True, "result": result}
         except PolicyViolationError as exc:
             normalized = {
@@ -95,6 +103,46 @@ class CommandDispatcher:
             correlation_id=command_id,
         )
         return normalized
+
+    async def _guarded_execute(
+        self,
+        *,
+        command_id: str,
+        command_type: str,
+        payload: dict[str, Any],
+        emit_progress: ProgressEmitter,
+    ) -> dict[str, Any]:
+        """Run ``_execute`` at most once per command id at a time.
+
+        The backend re-dispatches in-flight commands on reconnect (so a command
+        whose result frame was lost is not stuck forever).  That is safe for
+        already-executed commands because ``handle`` replays their persisted
+        result *before* reaching this method.  But if a prior execution is
+        still running (e.g. the old websocket broke mid-deploy and the agent
+        is still doing the work), re-running it would double-execute: two
+        ``docker run`` calls, two containers.  In that case we do NOT run it
+        a second time — we await the in-flight execution and report the same
+        normalized result, so the new websocket's ``command_result`` frame
+        carries the real outcome.
+        """
+        prev = self._inflight.get(command_id)
+        if prev is None or prev.done():
+            task = asyncio.create_task(
+                self._execute(command_type=command_type, payload=payload, emit_progress=emit_progress),
+                name=f"command:{command_id}",
+            )
+            self._inflight[command_id] = task
+        else:
+            log.warning(
+                "Command %s re-dispatched while still executing; awaiting the in-flight run",
+                command_id,
+            )
+            task = prev
+        try:
+            return await task
+        finally:
+            if self._inflight.get(command_id) is task:
+                self._inflight.pop(command_id, None)
 
     async def _execute(
         self, *, command_type: str, payload: dict[str, Any], emit_progress: ProgressEmitter,

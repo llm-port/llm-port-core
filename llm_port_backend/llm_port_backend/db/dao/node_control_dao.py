@@ -307,6 +307,25 @@ class NodeControlDAO:
         )
         return list(result.scalars().all())
 
+    async def list_inflight_commands_all_nodes(self, *, limit: int = 200) -> list[InfraNodeCommand]:
+        """In-flight commands (DISPATCHED/ACKED/RUNNING) across all nodes.
+
+        Used by the stale-command reaper; callers filter by node.
+        """
+        result = await self.session.execute(
+            select(InfraNodeCommand)
+            .where(
+                InfraNodeCommand.status.in_([
+                    NodeCommandStatus.DISPATCHED.value,
+                    NodeCommandStatus.ACKED.value,
+                    NodeCommandStatus.RUNNING.value,
+                ]),
+            )
+            .order_by(InfraNodeCommand.issued_at.asc())
+            .limit(limit),
+        )
+        return list(result.scalars().all())
+
     async def get_command(self, command_id: uuid.UUID) -> InfraNodeCommand | None:
         result = await self.session.execute(select(InfraNodeCommand).where(InfraNodeCommand.id == command_id))
         return result.scalar_one_or_none()

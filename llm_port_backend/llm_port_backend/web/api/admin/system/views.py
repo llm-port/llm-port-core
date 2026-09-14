@@ -779,7 +779,12 @@ async def system_node_stream(websocket: WebSocket) -> None:
         # Don't overwrite node.host on connect; wait for the first
         # heartbeat which carries advertise_host from the agent.
         stream_session = await service.create_stream_session(node=node, credential=credential)
-        commands = await service.list_commands_for_dispatch(node_id=_node_id)
+        # Reconnect is the safe moment to re-send in-flight commands that
+        # went past their timeout without a result (agent WS died mid-deploy,
+        # result frame lost).  Done at hello_ack only — NOT on the per-message
+        # path — so a long-running transfer is never re-sent every heartbeat
+        # while the agent is still legitimately executing it.
+        commands = await service.list_dispatchable_commands(node_id=_node_id)
         profile_payload = await service.get_node_profile(node_id=_node_id)
         await websocket.send_json(
             {

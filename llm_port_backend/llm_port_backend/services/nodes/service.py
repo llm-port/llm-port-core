@@ -49,6 +49,12 @@ class NodeControlService:
         self._default_command_timeout_sec = default_command_timeout_sec
         self._gateway_sync = gateway_sync
 
+    # In-flight commands on an OFFLINE node get this grace period past
+    # their timeout before the reaper marks them TIMED_OUT.  A reconnect
+    # within the grace window re-dispatches the command first (hello_ack
+    # path) so a node that was briefly unreachable loses no work.
+    _REAPER_OFFLINE_GRACE_SEC = 600
+
     @staticmethod
     def _parse_bearer_token(header_value: str | None) -> str:
         if not header_value:
@@ -308,6 +314,139 @@ class NodeControlService:
                 )
             items.append(self.serialize_command(command))
         return items
+
+    async def list_dispatchable_commands(self, *, node_id: uuid.UUID, limit: int = 50) -> list[dict[str, Any]]:
+        """Pending commands plus overdue in-flight commands, for re-dispatch.
+
+        In-flight = dispatched-but-unacked, or acked/running.  These are only
+        re-sent once their timeout has elapsed (see ``_command_is_overdue``)
+        so a healthy in-progress deploy is never re-triggered.  Safe to
+        re-send because the agent deduplicates: an already-executed command
+        is replayed from its persisted result store.
+        """
+        items = await self.list_commands_for_dispatch(node_id=node_id, limit=limit)
+        try:
+            inflight = await self._dao.list_inflight_commands(node_id=node_id, limit=limit)
+        except Exception:  # pragma: no cover - defensive; DAO unavailable in some tests
+            log.exception("list_inflight_commands failed for node %s", node_id)
+            return items
+        for command in inflight:
+            if not self._command_is_overdue(command):
+                continue
+            log.info(
+                "Re-dispatching overdue in-flight command %s (%s, status=%s)",
+                command.id, command.command_type, command.status,
+            )
+            await self._dao.append_command_event(
+                command_id=command.id,
+                phase="re-dispatched",
+                message="Command re-dispatched (still in flight past timeout).",
+                payload_json=None,
+            )
+            item = self.serialize_command(command)
+            # Mark as server-driven re-dispatch so a new agent skips only the
+            # fresh-command age check (an overdue in-flight command is by
+            # definition older than the 5-minute freshness bound and would
+            # otherwise be rejected as "command_expired" before it ever runs).
+            item["redispatch"] = True
+            items.append(item)
+        return items
+
+    def _command_is_overdue(self, command: InfraNodeCommand) -> bool:
+        """True when an in-flight command has outlived its timeout budget.
+
+        Anchored to when the agent last made life (accepted or started the
+        command), falling back to when it was dispatched/issued.
+        """
+        if command.status not in (
+            NodeCommandStatus.DISPATCHED.value,
+            NodeCommandStatus.ACKED.value,
+            NodeCommandStatus.RUNNING.value,
+        ):
+            return False
+        timeout = command.timeout_sec
+        if not timeout or timeout <= 0:
+            timeout = self._default_command_timeout_sec
+        anchor: datetime | None = None
+        if command.status == NodeCommandStatus.RUNNING.value:
+            anchor = command.started_at or command.acked_at
+            # A transfer in progress can legitimately run long (multi-GB
+            # image push); give the agent up to 2x the stated timeout while
+            # we are actively running.
+            budget = timeout * 2
+        else:
+            anchor = command.acked_at or command.dispatched_at or command.issued_at
+            budget = timeout
+        if anchor is None:
+            return False
+        anchor = anchor if anchor.tzinfo else anchor.replace(tzinfo=UTC)
+        return (datetime.now(tz=UTC) - anchor) > timedelta(seconds=budget)
+
+    async def reap_stale_commands(self) -> int:
+        """Mark overdue in-flight commands TIMED_OUT when their node is offline.
+
+        A command that is still DISPATCHED/ACKED/RUNNING with no node
+        connection cannot complete — the agent's websocket is gone and the
+        result frame will never arrive.  Without a reaper such commands (and
+        the runtimes they drive) are stuck "in flight" forever, which is what
+        left the 220 deploy dead with "container cannot be found".
+
+        Only OFFLINE nodes are reaped: a command on a connected node past its
+        timeout may be legitimately long (large image transfer), and the
+        agent will still report its outcome.  A grace period lets a briefly
+        unreachable node reconnect and re-dispatch before being timed out.
+        """
+        now = datetime.now(tz=UTC)
+        try:
+            commands = await self._dao.list_inflight_commands_all_nodes()
+        except Exception:  # pragma: no cover - defensive
+            log.exception("Stale command reaper: failed to list in-flight commands")
+            return 0
+        reaped = 0
+        for command in commands:
+            node = await self._dao.get_node_by_id(command.node_id)
+            if node is None or node.status != NodeHealthStatus.OFFLINE:
+                continue
+            if not self._command_is_overdue(command):
+                continue
+            anchor = (
+                command.started_at or command.acked_at or command.dispatched_at or command.issued_at
+            )
+            if anchor is not None and (now - anchor) < timedelta(seconds=self._REAPER_OFFLINE_GRACE_SEC):
+                continue
+            timeout = command.timeout_sec or self._default_command_timeout_sec
+            try:
+                await self._dao.set_command_status(
+                    command,
+                    status=NodeCommandStatus.TIMED_OUT,
+                    error_code="command_timed_out",
+                    error_message=(
+                        f"Command timed out with no node connection (node offline, "
+                        f"in flight {timeout}s + grace past its limit)."
+                    ),
+                )
+                await self._dao.append_command_event(
+                    command_id=command.id,
+                    phase="timed_out",
+                    message="Command reaped: node offline with no result in flight.",
+                    payload_json=None,
+                )
+                await self._apply_runtime_side_effect(
+                    command=command, success=False,
+                    payload={
+                        "success": False,
+                        "error_code": "command_timed_out",
+                        "error_message": "Command timed out with no node connection (node offline).",
+                    },
+                )
+                reaped += 1
+                log.warning(
+                    "Reaped stale command %s (%s) on offline node %s",
+                    command.id, command.command_type, command.node_id,
+                )
+            except Exception:  # pragma: no cover - defensive
+                log.exception("Failed to reap command %s", command.id)
+        return reaped
 
     async def record_command_ack(
         self,
@@ -776,8 +915,35 @@ class NodeControlService:
                     await self._gateway_sync.unpublish_runtime(runtime_id=runtime.id, alias=runtime.name)
                 await deprovision_for_runtime(runtime.id)
         else:
+            # Failure: surface the real cause, not a generic "Command failed".
+            # New agents embed the container log tail in error_message
+            # (readiness timeouts) so the UI can show the actual crash line
+            # (e.g. vLLM swap-space overflow) instead of a retry button with
+            # no clue as to why it failed.
             runtime.status = RuntimeStatus.ERROR
-            runtime.status_message = str(payload.get("error_message") or payload.get("error_code") or "Command failed")
+            error_message = (
+                payload.get("error_message")
+                or payload.get("error_code")
+                or "Command failed"
+            )
+            runtime.status_message = str(error_message)[:2000]
+            # The previously-reported endpoint can no longer be trusted.
+            if command.command_type in {
+                NodeCommandType.DEPLOY_WORKLOAD.value,
+                NodeCommandType.START_WORKLOAD.value,
+                NodeCommandType.RESTART_WORKLOAD.value,
+                NodeCommandType.UPDATE_WORKLOAD.value,
+            } and self._gateway_sync is not None:
+                try:
+                    await self._gateway_sync.set_instance_health(
+                        runtime_id=runtime.id, health_status="unhealthy",
+                    )
+                except Exception:  # pragma: no cover - defensive
+                    log.exception("Failed to mark runtime %s unhealthy after command failure", runtime.id)
+            log.warning(
+                "Runtime %s marked ERROR after %s failure: %s",
+                runtime.id, command.command_type, runtime.status_message[:200],
+            )
 
         await self._dao.upsert_workload_assignment(
             runtime_id=runtime.id,

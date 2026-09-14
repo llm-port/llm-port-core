@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -338,6 +339,63 @@ async def _start_notification_runtime(app: FastAPI) -> None:
         await http_client.aclose()
 
 
+async def _node_command_reaper_loop(app: FastAPI) -> None:
+    """Periodically mark overdue commands on OFFLINE nodes as TIMED_OUT.
+
+    A command that is in flight (DISPATCHED/ACKED/RUNNING) with no live node
+    connection cannot complete — the result frame is lost forever.  Without a
+    reaper the command and any runtime it drives stay stuck "in flight"
+    indefinitely.  Runs on a dedicated background task so the API stays
+    responsive; skips the worker process which has no node connections.
+    """
+    interval_sec = 60
+    while True:
+        session = None
+        try:
+            await asyncio.sleep(interval_sec)
+            if broker.is_worker_process:
+                return
+            from llm_port_backend.db.dao.node_control_dao import (  # noqa: PLC0415
+                NodeControlDAO,
+            )
+            from llm_port_backend.services.nodes.service import (  # noqa: PLC0415
+                NodeControlService,
+            )
+
+            session = app.state.db_session_factory()
+            async with session:
+                dao = NodeControlDAO(session)
+                llm_service = getattr(app.state, "llm_service", None)
+                gateway_sync = getattr(llm_service, "gateway_sync", None)
+                service = NodeControlService(
+                    dao=dao,
+                    pepper=settings.settings_master_key,
+                    enrollment_ttl_minutes=settings.node_enrollment_ttl_minutes,
+                    default_command_timeout_sec=settings.node_command_default_timeout_sec,
+                    gateway_sync=gateway_sync,
+                )
+                reaped = await service.reap_stale_commands()
+                if reaped:
+                    await session.commit()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            if session is not None:
+                try:
+                    await session.rollback()
+                except Exception:
+                    pass
+            log.exception("Node command reaper pass failed.")
+
+
+def _start_node_command_reaper(app: FastAPI) -> None:
+    """Launch the reaper background task (no-op for the worker process)."""
+    if broker.is_worker_process:
+        return
+    task = asyncio.create_task(_node_command_reaper_loop(app), name="node_command_reaper")
+    app.state.node_command_reaper = task
+
+
 async def _stop_notification_runtime(app: FastAPI) -> None:
     """Stop notification background workers and close shared HTTP client."""
     monitor: GatewayAlertMonitor | None = getattr(app.state, "gateway_alert_monitor", None)
@@ -540,6 +598,9 @@ async def lifespan_setup(
     # ── Reconcile runtime monitoring (targets + dashboards) ──
     await _reconcile_monitoring_on_startup(app)
 
+    # ── Start node-command reaper background task ─────────────
+    _start_node_command_reaper(app)
+
     # ── Optional EE plugin bootstrap ─────────────────────────
     if _EE_AVAILABLE:
         try:
@@ -583,6 +644,15 @@ async def lifespan_setup(
         except Exception:
             log.exception("Error during Backend Enterprise plugin teardown.")
     # ──────────────────────────────────────────────────────────
+
+    # Stop the node-command reaper before closing the DB engine.
+    reaper_task = getattr(app.state, "node_command_reaper", None)
+    if reaper_task is not None:
+        reaper_task.cancel()
+        try:
+            await reaper_task
+        except (asyncio.CancelledError, Exception):
+            pass
 
     await _stop_notification_runtime(app)
 

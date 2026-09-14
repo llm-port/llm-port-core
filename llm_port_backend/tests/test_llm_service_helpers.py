@@ -132,12 +132,26 @@ def test_sync_payload_uses_cache_manifest(
         assert payload[key] == value
 
 
-def test_sync_payload_no_cache_dir_returns_none(monkeypatch) -> None:
+def test_sync_payload_no_cache_dir_returns_base(monkeypatch) -> None:
+    # No local cache copy → still emit the base payload so the node can
+    # mount a model directory that already exists and build the serve command.
     monkeypatch.setattr(node_files_views, "_model_cache_dir", lambda repo: None)
-    assert LLMService._build_model_sync_payload(_model()) is None  # type: ignore[arg-type]
+    payload = LLMService._build_model_sync_payload(_model())  # type: ignore[arg-type]
+    assert payload == {
+        "model_id": str(MODEL_ID),
+        "hf_repo_id": HF_REPO,
+        "source": "sync_from_server",
+    }
 
 
-def test_sync_payload_empty_blobs_returns_none(monkeypatch) -> None:
+def test_sync_payload_empty_blobs_returns_base(monkeypatch) -> None:
+    # Cache dir exists but has no blobs (fresh clone / un-synced model) →
+    # same: base payload only, no blob manifest.
     monkeypatch.setattr(node_files_views, "_model_cache_dir", lambda repo: "/models/x")
     monkeypatch.setattr(node_files_views, "_build_cache_manifest", lambda path: {"blobs": []})
-    assert LLMService._build_model_sync_payload(_model()) is None  # type: ignore[arg-type]
+    payload = LLMService._build_model_sync_payload(_model())  # type: ignore[arg-type]
+    assert payload == {
+        "model_id": str(MODEL_ID),
+        "hf_repo_id": HF_REPO,
+        "source": "sync_from_server",
+    }

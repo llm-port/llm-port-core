@@ -141,3 +141,50 @@ async def test_events_emitted(parts: dict, emit: AsyncMock) -> None:
     )
     events = parts["events"].drain()
     assert any(e.get("event_type") == "command.finished" for e in events)
+
+
+@pytest.mark.asyncio()
+async def test_inflight_redispatch_awaits_same_task(parts: dict, emit: AsyncMock) -> None:
+    """A re-dispatched copy arriving mid-execution must not re-execute.
+
+    When the node reconnects, the (new) agent stream re-dispatches any
+    in-flight past-timeout commands. If the original is still running on the
+    agent, the second copy must join the in-flight task rather than run the
+    workload a second time.
+    """
+    import asyncio
+
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def _slow_deploy(*args, **kwargs):
+        entered.set()
+        await release.wait()
+        return {"runtime_id": "r-inflight"}
+
+    parts["runtime"].deploy_workload = AsyncMock(side_effect=_slow_deploy)
+    cmd = {
+        "id": "cmd-9",
+        "command_type": "deploy_workload",
+        "payload": {"image": "test:latest"},
+    }
+    first = asyncio.create_task(parts["dispatcher"].handle(cmd, emit))
+    await entered.wait()  # original is now mid-execution
+
+    # A re-dispatched copy of the same command (e.g. from the new stream after
+    # a reconnect) arrives while the first is still running. It must join the
+    # in-flight task, so run it as a concurrent task.
+    second_task = asyncio.create_task(
+        parts["dispatcher"].handle(dict(cmd, redispatch=True), emit)
+    )
+    await asyncio.sleep(0)  # let the second handle observe the in-flight task
+
+    release.set()
+    first_result, second = await asyncio.gather(first, second_task)
+
+    # Both callers observe the same (single) execution outcome.
+    assert first_result["success"] is True
+    assert second["success"] is True
+    assert second["result"]["runtime_id"] == "r-inflight"
+    # deploy_workload ran exactly once, not twice.
+    assert parts["runtime"].deploy_workload.await_count == 1

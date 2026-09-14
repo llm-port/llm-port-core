@@ -203,8 +203,12 @@ class StreamClient:
             )
             return
 
-        # Reject expired commands
-        if not validate_command_age(command):
+        # Reject expired fresh commands.  Server-driven re-dispatch of an
+        # in-flight command (flagged by the backend) is exempt: it is by
+        # definition older than the freshness bound (that's why it was
+        # re-sent), the HMAC check above already authenticated it, and the
+        # dispatcher deduplicates an execution that already finished.
+        if command.get("redispatch") is not True and not validate_command_age(command):
             log.warning("Rejected command %s: expired issued_at.", command_id)
             await self._send_json(
                 ws,
