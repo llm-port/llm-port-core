@@ -39,13 +39,41 @@ const fmtFixed1 = (v: number) => v.toFixed(1);
 const fmtPct = (v: number) => `${v.toFixed(1)}%`;
 
 const STAT_DESCRIPTORS: StatDescriptor[] = [
-  { key: "running_requests", i18nKey: "llm_monitoring.stat.running_requests", format: fmtInt },
-  { key: "waiting_requests", i18nKey: "llm_monitoring.stat.waiting_requests", format: fmtInt },
-  { key: "kv_cache_usage", i18nKey: "llm_monitoring.stat.kv_cache_usage", format: fmtPct },
-  { key: "prefix_cache_hit_rate", i18nKey: "llm_monitoring.stat.prefix_cache_hit_rate", format: fmtPct },
-  { key: "mtp_acceptance", i18nKey: "llm_monitoring.stat.mtp_acceptance", format: fmtPct },
-  { key: "generation_tokens_per_sec", i18nKey: "llm_monitoring.stat.generation_tokens_per_sec", format: fmtFixed1 },
-  { key: "preemption_rate", i18nKey: "llm_monitoring.stat.preemption_rate", format: fmtFixed1 },
+  {
+    key: "running_requests",
+    i18nKey: "llm_monitoring.stat.running_requests",
+    format: fmtInt,
+  },
+  {
+    key: "waiting_requests",
+    i18nKey: "llm_monitoring.stat.waiting_requests",
+    format: fmtInt,
+  },
+  {
+    key: "kv_cache_usage",
+    i18nKey: "llm_monitoring.stat.kv_cache_usage",
+    format: fmtPct,
+  },
+  {
+    key: "prefix_cache_hit_rate",
+    i18nKey: "llm_monitoring.stat.prefix_cache_hit_rate",
+    format: fmtPct,
+  },
+  {
+    key: "mtp_acceptance",
+    i18nKey: "llm_monitoring.stat.mtp_acceptance",
+    format: fmtPct,
+  },
+  {
+    key: "generation_tokens_per_sec",
+    i18nKey: "llm_monitoring.stat.generation_tokens_per_sec",
+    format: fmtFixed1,
+  },
+  {
+    key: "preemption_rate",
+    i18nKey: "llm_monitoring.stat.preemption_rate",
+    format: fmtFixed1,
+  },
 ];
 
 export interface RuntimeMonitoringCardRowProps {
@@ -69,7 +97,11 @@ export default function RuntimeMonitoringCardRow({
   const statsReq = useAsyncData(
     async () => (enabled ? runtimes.monitoringStats(runtime.id) : null),
     [runtime.id, enabled],
-    { initialValue: null as Awaited<ReturnType<typeof runtimes.monitoringStats>> | null },
+    {
+      initialValue: null as Awaited<
+        ReturnType<typeof runtimes.monitoringStats>
+      > | null,
+    },
   );
 
   // Light polling so the cards track a live engine without touching the
@@ -95,7 +127,8 @@ export default function RuntimeMonitoringCardRow({
   if (!enabled) return null;
 
   const openDashboard = () => {
-    if (dashboardUrl) window.open(dashboardUrl, "_blank", "noopener,noreferrer");
+    if (dashboardUrl)
+      window.open(dashboardUrl, "_blank", "noopener,noreferrer");
   };
 
   return (
@@ -144,7 +177,9 @@ export default function RuntimeMonitoringCardRow({
           const raw = values[d.key];
           const hasValue = raw != null;
           const cardStale = liveStale && !hasValue;
-          const display = hasValue ? d.format(raw) : t("llm_monitoring.no_data");
+          const display = hasValue
+            ? d.format(raw)
+            : t("llm_monitoring.no_data");
           return (
             <Tooltip
               key={d.key}
