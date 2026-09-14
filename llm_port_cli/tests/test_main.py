@@ -23,3 +23,4 @@ def test_module_execution() -> None:
     )
     assert result.returncode == 0
     assert "llmport" in result.stdout
+
