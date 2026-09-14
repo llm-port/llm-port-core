@@ -18,7 +18,6 @@ from pathlib import Path
 
 import psutil
 
-
 # ── Result types ──────────────────────────────────────────────────
 
 
@@ -58,7 +57,15 @@ class DockerInfo:
         """Cross-platform hint for starting the Docker daemon."""
         system = platform.system()
         if system in ("Darwin", "Windows"):
-            return "Start Docker Desktop."
+            # Docker Desktop or its open-source alternative, Rancher
+            # Desktop.  The CLI automatically falls back to the Rancher
+            # Desktop endpoint when the active one is not reachable.
+            if self.error and "dockerDesktop" in self.error:
+                return (
+                    "Start Docker Desktop, or start Rancher Desktop "
+                    "(with Docker support enabled)."
+                )
+            return "Start Docker Desktop (or Rancher Desktop)."
         return "Start the Docker daemon: sudo systemctl start docker"
 
     @property
@@ -66,7 +73,10 @@ class DockerInfo:
         """Platform-specific install URL for Docker."""
         system = platform.system()
         if system == "Windows":
-            return "https://docs.docker.com/desktop/setup/install/windows-install/"
+            return (
+                "https://docs.docker.com/desktop/setup/install/windows-install/ "
+                "or https://docs.rancherdesktop.io/"
+            )
         if system == "Darwin":
             return "https://docs.docker.com/desktop/setup/install/mac-install/"
         return "https://docs.docker.com/engine/install/"
@@ -209,7 +219,14 @@ def _run(cmd: list[str], *, timeout: int = 10) -> subprocess.CompletedProcess[st
 
 
 def detect_docker() -> DockerInfo:
-    """Detect Docker Engine and Docker Compose v2."""
+    """Detect Docker Engine and Docker Compose v2.
+
+    Runs against the endpoint chosen by
+    :func:`llmport.core.docker_env.ensure_docker_host` (the CLI's default
+    context first, a live Rancher Desktop endpoint as a fallback).  That
+    endpoint is exported to ``os.environ`` at CLI startup, so every
+    ``docker`` subprocess here inherits it automatically — no re-plumbing.
+    """
     info = DockerInfo()
 
     docker_bin = shutil.which("docker")

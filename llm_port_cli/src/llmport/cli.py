@@ -45,6 +45,13 @@ def cli(ctx: click.Context, *, verbose: bool, quiet: bool) -> None:
     # (typical for fresh SSH sessions and GUI-launched terminals).
     ensure_tool_path()
 
+    from llmport.core.docker_env import ensure_docker_host
+
+    # If the configured Docker endpoint is dead but Rancher Desktop's
+    # answers, export DOCKER_HOST so every docker subprocess (detect,
+    # compose, logs, …) reaches the live daemon.  No-op otherwise.
+    ensure_docker_host(verbose=verbose, quiet=quiet)
+
     ctx.ensure_object(dict)
     ctx.obj["verbose"] = verbose
     ctx.obj["quiet"] = quiet
