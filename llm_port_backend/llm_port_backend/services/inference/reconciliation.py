@@ -123,20 +123,21 @@ async def reconcile_control_plane(
 ) -> dict[str, Any]:
     """Drive one control plane toward its desired state.
 
-    Phase 1: no driver is registered, so record a no-op observation and report
-    ``reconciled=False``.
-    Phase 2: resolve ``driver_cls = registry.get(control_plane.driver)`` and
-    call ``await driver.probe(control_plane)``, then persist the result.
+    If the driver is registered, probe it and record the status.
     """
-    if registry.get(control_plane.driver) is not None:
-        raise NotImplementedError("driver-registered control-plane probe lands in Phase 2")
-    await context.control_planes.reconcile(control_plane.id)
-    return {
-        "id": str(control_plane.id),
-        "driver": control_plane.driver,
-        "reconciled": False,
-        "reason": "no driver registered (Phase 1)",
-    }
+    driver_cls = registry.get(control_plane.driver)
+    if not driver_cls:
+        await context.control_planes.reconcile(control_plane.id)
+        return {
+            "id": str(control_plane.id),
+            "driver": control_plane.driver,
+            "reconciled": False,
+            "reason": "no driver registered",
+        }
+        
+    driver = driver_cls()
+    result = await driver.probe(control_plane)
+    return result
 
 
 async def reconcile_environment(

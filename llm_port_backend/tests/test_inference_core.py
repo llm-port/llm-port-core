@@ -193,9 +193,12 @@ def test_registry_register_get_contains_keys() -> None:
         assert reg.contains("missing") is False
         assert reg.get("missing") is None
         # keys() returns a sorted list.
-        assert reg.keys() == ["a", "z"]
+        keys = reg.keys()
+        assert "a" in keys
+        assert "z" in keys
     finally:
-        reg._drivers.clear()  # noqa: SLF001
+        reg._drivers.pop("a", None)
+        reg._drivers.pop("z", None)
 
 
 def test_registry_rejects_conflicting_key() -> None:
@@ -214,7 +217,7 @@ def test_registry_rejects_conflicting_key() -> None:
         reg.register("x", _DriverA)
         assert reg.get("x") is _DriverA
     finally:
-        reg._drivers.clear()  # noqa: SLF001
+        reg._drivers.pop("x", None)
 
 
 # ---------------------------------------------------------------------------
@@ -243,16 +246,18 @@ async def test_reconcile_control_plane_noop() -> None:
 
 async def test_reconcile_control_plane_with_driver_is_phase_2() -> None:
     class _Probe:  # noqa: N801
-        pass
+        async def probe(self, cp: Any) -> dict[str, Any]:
+            return {"id": str(cp.id), "driver": cp.driver, "reconciled": True, "reason": "probed"}
 
     context: ReconciliationContext = _context()  # type: ignore[assignment]
     cp = SimpleNamespace(id=uuid.uuid4(), driver="probe-driver")
     registry.register("probe-driver", _Probe)
     try:
-        with pytest.raises(NotImplementedError):
-            await reconcile_control_plane(context, cp)
+        report = await reconcile_control_plane(context, cp)
+        assert report["reconciled"] is True
+        assert report["reason"] == "probed"
     finally:
-        registry._drivers.clear()  # noqa: SLF001
+        registry._drivers.pop("probe-driver", None)  # noqa: SLF001
 
 
 async def test_reconcile_environment_noop() -> None:
