@@ -25,6 +25,9 @@ _DEFAULT_ROLES: dict[str, dict[str, list[str]]] = {
         "llm.jobs": ["read", "cancel", "create"],
         "llm.settings": ["read", "update"],
         "llm.graph": ["read"],
+        "inference.control_planes": ["read", "create", "update", "delete", "operate"],
+        "inference.environments": ["read", "create", "update", "delete", "operate"],
+        "inference.deployments": ["read", "create", "update", "delete", "operate"],
         "containers": [
             "create",
             "read",
@@ -70,6 +73,9 @@ _DEFAULT_ROLES: dict[str, dict[str, list[str]]] = {
         "llm.jobs": ["read"],
         "llm.settings": ["read"],
         "llm.graph": ["read"],
+        "inference.control_planes": ["read", "operate"],
+        "inference.environments": ["read", "operate"],
+        "inference.deployments": ["read", "operate"],
         "containers": ["read", "start", "stop", "restart", "logs"],
         "images": ["read"],
         "networks": ["read"],
@@ -102,6 +108,9 @@ _DEFAULT_ROLES: dict[str, dict[str, list[str]]] = {
         "llm.jobs": ["read"],
         "llm.settings": [],
         "llm.graph": ["read"],
+        "inference.control_planes": ["read"],
+        "inference.environments": ["read"],
+        "inference.deployments": ["read"],
         "containers": ["read", "logs"],
         "images": ["read"],
         "networks": ["read"],
@@ -329,7 +338,10 @@ class RbacDAO:
 
     async def get_user_permissions(self, user_id: uuid.UUID) -> list[Permission]:
         """Return the union of all permissions from the user's direct roles AND group-inherited roles."""
-        from llm_port_backend.db.models.groups import GroupRole, UserGroup  # noqa: PLC0415
+        from llm_port_backend.db.models.groups import (  # noqa: PLC0415
+            GroupRole,
+            UserGroup,
+        )
 
         # Direct role permissions
         direct = (
@@ -377,7 +389,10 @@ class RbacDAO:
         action: str,
     ) -> bool:
         """Check whether any of the user's direct or group-inherited roles grants (resource, action)."""
-        from llm_port_backend.db.models.groups import GroupRole, UserGroup  # noqa: PLC0415
+        from llm_port_backend.db.models.groups import (  # noqa: PLC0415
+            GroupRole,
+            UserGroup,
+        )
 
         # Direct assignment check
         direct = await self.session.execute(

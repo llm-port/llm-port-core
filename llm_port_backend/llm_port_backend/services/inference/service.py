@@ -1,0 +1,439 @@
+"""High-level orchestration service for the neutral inference domain (Phase 1).
+
+This is the **desired-state** entry point used by the ``/api/inference``
+routes.  It is deliberately transaction-scoped: every public method operates
+on an already-bound ``AsyncSession`` (injected as a DAO) and only *flushes*.
+The web layer owns the commit/rollback boundary (``get_db_session``).
+
+Live backend actions (talking to Ray, scheduling replicas, etc.) are NOT
+performed here.  The :mod:`reconciliation` seams and the driver
+:mod:`registry` exist so that Phase 2's ``RayDriver`` / ``DeploymentOrchestrator``
+implementations can be plugged in without reshaping these call sites.
+
+Boundary note: each service's public methods treat **absent arguments as
+"unspecified"** (pass the ``...`` sentinel through to the DAO).  ``None`` has a
+meaning (clear a nullable field / keep current).  The API layer maps an absent
+request field to ``...`` so the two never clash.
+"""
+
+from __future__ import annotations
+
+import uuid
+from typing import Any
+
+from fastapi import Depends
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from llm_port_backend.db.dao.inference_dao import (
+    ControlPlaneDAO,
+    DeploymentDAO,
+    EndpointDAO,
+    EnvironmentDAO,
+    EnvironmentNodeDAO,
+)
+from llm_port_backend.db.dependencies import get_db_session
+from llm_port_backend.db.models.inference import (
+    DeploymentDesiredState,
+    EnvironmentDesiredState,
+    EnvironmentNodeRole,
+    InferenceControlPlane,
+    InferenceDeployment,
+    InferenceEndpoint,
+    InferenceEnvironment,
+)
+from llm_port_backend.services.inference.reconciliation import (
+    control_plane_observation,
+    deployment_observation,
+    environment_observation,
+)
+from llm_port_backend.services.inference.schemas import (
+    InferenceDeploymentSpecV1Alpha1,
+    parse_inference_deployment_spec,
+)
+
+
+class InferenceError(Exception):
+    """Base for inference orchestration errors mapped to HTTP by the API layer."""
+
+
+class NotFoundError(InferenceError):
+    """A referenced domain object does not exist (HTTP 404)."""
+
+    def __init__(self, what: str, identifier: Any) -> None:
+        super().__init__(f"{what} not found: {identifier}")
+        self.what = what
+        self.identifier = identifier
+
+
+class ConflictError(InferenceError):
+    """A write violated a uniqueness/consistency constraint (HTTP 409)."""
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail)
+        self.detail = detail
+
+
+def _enum(value: str, enum_cls: type, *, what: str) -> Any:
+    """Coerce a string into ``enum_cls`` or raise :class:`ConflictError`."""
+    try:
+        return enum_cls(value)
+    except ValueError as exc:
+        raise ConflictError(f"invalid {what}: {value!r}") from exc
+
+
+# ---------------------------------------------------------------------------
+# Control planes
+# ---------------------------------------------------------------------------
+
+
+class ControlPlaneService:
+    """Control-plane lifecycle (Phase 1: desired state only, no live probes)."""
+
+    def __init__(self, session: AsyncSession = Depends(get_db_session)) -> None:
+        self.session = session
+        self.dao = ControlPlaneDAO(session)
+        self.environment_dao = EnvironmentDAO(session)
+
+    async def create(
+        self,
+        *,
+        name: str,
+        driver: str,
+        description: str | None = None,
+        config: dict[str, Any] | None = None,
+        credential_ref: str | None = None,
+        enabled: bool = True,
+    ) -> InferenceControlPlane:
+        """Create a control plane, guarding the unique ``name``."""
+        try:
+            return await self.dao.create(
+                name=name,
+                driver=driver,
+                description=description,
+                config=config,
+                credential_ref=credential_ref,
+                enabled=enabled,
+            )
+        except IntegrityError as exc:
+            raise ConflictError(f"control plane name already exists: {name}") from exc
+
+    async def get(self, control_plane_id: uuid.UUID) -> InferenceControlPlane:
+        """Fetch a control plane or raise :class:`NotFoundError`."""
+        control_plane = await self.dao.get(control_plane_id)
+        if control_plane is None:
+            raise NotFoundError("control plane", control_plane_id)
+        return control_plane
+
+    async def list(self) -> list[InferenceControlPlane]:
+        """List control planes."""
+        return await self.dao.list_all()
+
+    async def update(
+        self,
+        control_plane_id: uuid.UUID,
+        *,
+        name: str | None = None,
+        description: str | None = ...,
+        config: dict[str, Any] | None = ...,
+        credential_ref: str | None = ...,
+        enabled: bool | None = ...,
+    ) -> InferenceControlPlane:
+        """Patch a control plane; any config change bumps ``generation``.
+
+        ``driver`` is an immutable identity field in Phase 1 and is not
+        writable through this endpoint.
+        """
+        try:
+            updated = await self.dao.update(
+                control_plane_id,
+                name=name,
+                description=description,
+                config=config,
+                credential_ref=credential_ref,
+                enabled=enabled,
+            )
+        except IntegrityError as exc:
+            raise ConflictError("control plane update violated a constraint") from exc
+        if updated is None:
+            raise NotFoundError("control plane", control_plane_id)
+        return updated
+
+    async def delete(self, control_plane_id: uuid.UUID) -> None:
+        """Hard-delete a control plane, refused while environments exist."""
+        environment = await self.environment_dao.list_all(control_plane_id=control_plane_id)
+        if environment:
+            raise ConflictError("control plane has environments; delete them first")
+        if not await self.dao.delete(control_plane_id):
+            raise NotFoundError("control plane", control_plane_id)
+
+    # -- Reconciliation seam (no live actions in Phase 1). ----------------
+    async def reconcile(self, control_plane_id: uuid.UUID) -> InferenceControlPlane:
+        """Drive a control plane toward its desired state.
+
+        Phase 1: no driver is registered, so the driver is resolved through the
+        (currently empty) registry and an honest no-op observation is recorded
+        at the current generation.  No backend dependency is required.
+        """
+        control_plane = await self.get(control_plane_id)
+        control_plane.observed_generation = control_plane.generation
+        control_plane.observed_status_json = control_plane_observation(control_plane.driver)
+        await self.session.flush()
+        await self.session.refresh(control_plane)
+        return control_plane
+
+
+# ---------------------------------------------------------------------------
+# Environments
+# ---------------------------------------------------------------------------
+
+
+class EnvironmentService:
+    """Environment lifecycle (Phase 1: desired state only, no live actions)."""
+
+    def __init__(self, session: AsyncSession = Depends(get_db_session)) -> None:
+        self.session = session
+        self.dao = EnvironmentDAO(session)
+        self.control_plane_dao = ControlPlaneDAO(session)
+        self.deployment_dao = DeploymentDAO(session)
+        self.node_dao = EnvironmentNodeDAO(session)
+
+    async def create(
+        self,
+        *,
+        control_plane_id: uuid.UUID,
+        name: str,
+        description: str | None = None,
+        ray_version: str | None = None,
+        head_node_id: uuid.UUID | None = None,
+        address: str | None = None,
+        config: dict[str, Any] | None = None,
+    ) -> InferenceEnvironment:
+        """Create an environment under an existing control plane."""
+        if not await self.control_plane_dao.get(control_plane_id):
+            raise NotFoundError("control plane", control_plane_id)
+        try:
+            return await self.dao.create(
+                control_plane_id=control_plane_id,
+                name=name,
+                description=description,
+                ray_version=ray_version,
+                head_node_id=head_node_id,
+                address=address,
+                config=config,
+            )
+        except IntegrityError as exc:
+            raise ConflictError(f"environment name already exists: {name}") from exc
+
+    async def get(self, environment_id: uuid.UUID) -> InferenceEnvironment:
+        """Fetch an environment or raise :class:`NotFoundError`."""
+        environment = await self.dao.get(environment_id)
+        if environment is None:
+            raise NotFoundError("environment", environment_id)
+        return environment
+
+    async def list(self, control_plane_id: uuid.UUID | None = None) -> list[InferenceEnvironment]:
+        """List environments, optionally filtered by control plane."""
+        return await self.dao.list_all(control_plane_id=control_plane_id)
+
+    async def update(
+        self,
+        environment_id: uuid.UUID,
+        *,
+        description: str | None = ...,
+        desired_state: str | None = ...,
+        ray_version: str | None = ...,
+        head_node_id: uuid.UUID | None = ...,
+        address: str | None = ...,
+        config: dict[str, Any] | None = ...,
+    ) -> InferenceEnvironment:
+        """Patch an environment; config/desired-state changes bump ``generation``."""
+        ds: EnvironmentDesiredState | None = ...
+        if desired_state is not ...:
+            if desired_state is None:
+                ds = None
+            else:
+                ds = _enum(desired_state, EnvironmentDesiredState, what="desired_state")
+        try:
+            updated = await self.dao.update(
+                environment_id,
+                description=description,
+                desired_state=ds,
+                ray_version=ray_version,
+                head_node_id=head_node_id,
+                address=address,
+                config=config,
+            )
+        except IntegrityError as exc:
+            raise ConflictError("environment update violated a constraint") from exc
+        if updated is None:
+            raise NotFoundError("environment", environment_id)
+        return updated
+
+    async def add_node(
+        self, environment_id: uuid.UUID, node_id: uuid.UUID, role: str = "worker"
+    ) -> None:
+        """Register an infra node as a desired environment member."""
+        await self.get(environment_id)
+        node_role = _enum(role, EnvironmentNodeRole, what="role")
+        try:
+            await self.node_dao.add_node(environment_id, node_id, node_role)
+        except IntegrityError as exc:
+            raise ConflictError(
+                "node is already a member of this environment or unknown"
+            ) from exc
+
+    async def remove_node(self, environment_id: uuid.UUID, node_id: uuid.UUID) -> None:
+        """Remove an infra node from an environment (no-op if absent)."""
+        await self.get(environment_id)
+        await self.node_dao.remove_node(environment_id, node_id)
+
+    async def reconcile(self, environment_id: uuid.UUID) -> InferenceEnvironment:
+        """Drive an environment toward its desired state.
+
+        Phase 1: no live actions.  Records an honest no-op observation that
+        marks the environment observed at its current generation.
+        """
+        environment = await self.get(environment_id)
+        environment.observed_generation = environment.generation
+        environment.observed_status_json = environment_observation()
+        await self.session.flush()
+        await self.session.refresh(environment)
+        return environment
+
+    async def delete(self, environment_id: uuid.UUID) -> None:
+        """Delete an environment, refused while deployments exist."""
+        deployments = await self.deployment_dao.list_all(environment_id=environment_id)
+        if deployments:
+            raise ConflictError("environment has deployments; delete them first")
+        if not await self.dao.delete(environment_id):
+            raise NotFoundError("environment", environment_id)
+
+
+# ---------------------------------------------------------------------------
+# Deployments
+# ---------------------------------------------------------------------------
+
+
+class DeploymentService:
+    """Deployment lifecycle (Phase 1: spec validation + desired state)."""
+
+    def __init__(self, session: AsyncSession = Depends(get_db_session)) -> None:
+        self.session = session
+        self.dao = DeploymentDAO(session)
+        self.environment_dao = EnvironmentDAO(session)
+        self.endpoint_dao = EndpointDAO(session)
+
+    async def create(
+        self,
+        *,
+        environment_id: uuid.UUID,
+        model_id: uuid.UUID,
+        name: str,
+        spec: dict[str, Any],
+        description: str | None = None,
+    ) -> InferenceDeployment:
+        """Create a deployment from a validated versioned spec."""
+        if not await self.environment_dao.get(environment_id):
+            raise NotFoundError("environment", environment_id)
+        # Re-validate so the DB only ever holds well-formed documents; any
+        # malformed document surfaces as a 409, not a 500.
+        self.validate_spec(spec)
+        try:
+            return await self.dao.create(
+                environment_id=environment_id,
+                model_id=model_id,
+                name=name,
+                spec=spec,
+                description=description,
+                desired_state=DeploymentDesiredState.ACTIVE,
+            )
+        except IntegrityError as exc:
+            raise ConflictError(f"deployment name already exists: {name}") from exc
+
+    def validate_spec(self, spec: dict[str, Any]) -> InferenceDeploymentSpecV1Alpha1:
+        """Validate a spec without persisting.
+
+        :raises ConflictError: if the document is not a known, valid spec.
+        """
+        try:
+            return parse_inference_deployment_spec(spec)
+        except Exception as exc:  # noqa: BLE001 - map any validation failure
+            raise ConflictError(f"invalid deployment spec: {exc}") from exc
+
+    async def get(self, deployment_id: uuid.UUID) -> InferenceDeployment:
+        """Fetch a deployment or raise :class:`NotFoundError`."""
+        deployment = await self.dao.get(deployment_id)
+        if deployment is None:
+            raise NotFoundError("deployment", deployment_id)
+        return deployment
+
+    async def list(
+        self,
+        environment_id: uuid.UUID | None = None,
+        model_id: uuid.UUID | None = None,
+    ) -> list[InferenceDeployment]:
+        """List deployments, optionally filtered by environment or model."""
+        return await self.dao.list_all(environment_id=environment_id, model_id=model_id)
+
+    async def update(
+        self,
+        deployment_id: uuid.UUID,
+        *,
+        spec: dict[str, Any] | None = ...,
+        desired_state: str | None = ...,
+        description: str | None = ...,
+    ) -> InferenceDeployment:
+        """Patch a deployment; spec/desired-state changes bump ``generation``."""
+        dds: DeploymentDesiredState | None = ...
+        if desired_state is not ...:
+            if desired_state is None:
+                dds = None
+            else:
+                dds = _enum(desired_state, DeploymentDesiredState, what="desired_state")
+        # ``...`` here means "keep the current spec"; a real ``None`` is rejected
+        # by the DAO and would be an error, so we never translate absence to None.
+        provided_spec: dict[str, Any] | None = ...
+        if spec is not ...:
+            if spec is None:
+                raise ConflictError("spec cannot be cleared; omit it to keep the current spec")
+            self.validate_spec(spec)
+            provided_spec = spec
+        try:
+            updated = await self.dao.update(
+                deployment_id,
+                spec=provided_spec,
+                desired_state=dds,
+                description=description,
+            )
+        except IntegrityError as exc:
+            raise ConflictError("deployment update violated a constraint") from exc
+        if updated is None:
+            raise NotFoundError("deployment", deployment_id)
+        return updated
+
+    async def reconcile(self, deployment_id: uuid.UUID) -> InferenceDeployment:
+        """Drive a deployment toward its desired state.
+
+        Phase 1: no live actions.  We intentionally do NOT move the phase to
+        ``applying`` (nothing is actually applied); instead a no-op observation
+        is recorded at the current generation so the row is no longer
+        "pending observation."
+        """
+        deployment = await self.get(deployment_id)
+        await self.dao.set_observed(
+            deployment_id,
+            observed_generation=deployment.generation,
+            observed_status=deployment_observation(),
+        )
+        return await self.get(deployment_id)
+
+    async def delete(self, deployment_id: uuid.UUID) -> None:
+        """Delete a deployment (endpoints are cascade-deleted by the DB)."""
+        if not await self.dao.delete(deployment_id):
+            raise NotFoundError("deployment", deployment_id)
+
+    async def endpoints(self, deployment_id: uuid.UUID) -> list[InferenceEndpoint]:
+        """Return the endpoints declared for a deployment."""
+        await self.get(deployment_id)
+        return await self.endpoint_dao.list_for_deployment(deployment_id)
