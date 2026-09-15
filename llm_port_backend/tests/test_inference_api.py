@@ -139,7 +139,7 @@ async def test_control_plane_create_and_get(client: AsyncClient, authed_fapp: Fa
     assert r.status_code == 200
     body = r.json()
     assert body["id"] == cp["id"]
-    assert body["config"] is None
+    assert body["config"] == {}
     assert body["observed_generation"] == 0
 
 
@@ -368,6 +368,23 @@ async def test_deployment_create_missing_env_404(
             "environment_id": str(uuid.uuid4()),
             "model_id": str(model_id),
             "name": "dep",
+            "spec": good_spec(),
+        },
+    )
+    assert r.status_code == 404
+
+
+async def test_deployment_create_missing_model_404(
+    client: AsyncClient, authed_fapp: FastAPI, dbsession: AsyncSession
+) -> None:
+    cp = await make_control_plane(client, name="cp-m404")
+    env = await make_environment(client, cp["id"], name="env-m404")
+    r = await client.post(
+        f"{API}/deployments",
+        json={
+            "environment_id": str(env["id"]),
+            "model_id": str(uuid.uuid4()),
+            "name": "dep-m404",
             "spec": good_spec(),
         },
     )

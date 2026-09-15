@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from starlette import status
 
 from llm_port_backend.db.dao.audit_dao import AuditDAO
@@ -20,16 +20,18 @@ from llm_port_backend.web.api.rbac import require_permission
 router = APIRouter()
 
 
-@router.get("/", response_model=list[DownloadJobDTO])
+@router.get("", response_model=list[DownloadJobDTO])
+@router.get("/", response_model=list[DownloadJobDTO], include_in_schema=False)
 async def list_jobs(
-    status_filter: DownloadJobStatus | None = None,
+    status: DownloadJobStatus | None = Query(None, alias="status"),
+    status_filter: DownloadJobStatus | None = Query(None, alias="status_filter"),
     model_id: uuid.UUID | None = None,
     user: User = Depends(require_permission("llm.jobs", "read")),
     job_dao: DownloadJobDAO = Depends(),
 ) -> list[DownloadJobDTO]:
     """List download jobs with optional filters."""
     jobs = await job_dao.list_all(
-        status_filter=status_filter,
+        status_filter=status or status_filter,
         model_id=model_id,
     )
     return [DownloadJobDTO.model_validate(j) for j in jobs]

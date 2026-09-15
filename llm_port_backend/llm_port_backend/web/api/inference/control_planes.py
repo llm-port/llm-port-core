@@ -38,7 +38,8 @@ def _map_inference_error(exc: InferenceError) -> HTTPException:
     return HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
 
-@router.get("/", response_model=list[ControlPlaneDTO])
+@router.get("", response_model=list[ControlPlaneDTO])
+@router.get("/", response_model=list[ControlPlaneDTO], include_in_schema=False)
 async def list_control_planes(
     _user: User = Depends(require_permission(_CP, "read")),
     service: ControlPlaneService = Depends(),
@@ -61,7 +62,8 @@ async def get_control_plane(
     return _dto_from_cp(cp)
 
 
-@router.post("/", response_model=ControlPlaneDTO, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ControlPlaneDTO, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=ControlPlaneDTO, status_code=status.HTTP_201_CREATED, include_in_schema=False)
 async def create_control_plane(
     body: ControlPlaneCreate,
     _user: User = Depends(require_permission(_CP, "create")),

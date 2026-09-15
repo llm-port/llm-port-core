@@ -30,7 +30,8 @@ router = APIRouter()
 _ENV = "inference.environments"
 
 
-@router.get("/", response_model=list[EnvironmentDTO])
+@router.get("", response_model=list[EnvironmentDTO])
+@router.get("/", response_model=list[EnvironmentDTO], include_in_schema=False)
 async def list_environments(
     control_plane_id: uuid.UUID | None = None,
     _user: User = Depends(require_permission(_ENV, "read")),
@@ -40,7 +41,8 @@ async def list_environments(
     return [_dto_from_env(e) for e in await service.list(control_plane_id=control_plane_id)]
 
 
-@router.post("/", response_model=EnvironmentDTO, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=EnvironmentDTO, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=EnvironmentDTO, status_code=status.HTTP_201_CREATED, include_in_schema=False)
 async def create_environment(
     body: EnvironmentCreate,
     _user: User = Depends(require_permission(_ENV, "create")),

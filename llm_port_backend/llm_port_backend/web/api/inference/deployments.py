@@ -29,7 +29,8 @@ router = APIRouter()
 _DEP = "inference.deployments"
 
 
-@router.get("/", response_model=list[DeploymentDTO])
+@router.get("", response_model=list[DeploymentDTO])
+@router.get("/", response_model=list[DeploymentDTO], include_in_schema=False)
 async def list_deployments(
     environment_id: uuid.UUID | None = None,
     model_id: uuid.UUID | None = None,
@@ -40,7 +41,8 @@ async def list_deployments(
     return [_dto_from_dep(d) for d in await service.list(environment_id, model_id)]
 
 
-@router.post("/", response_model=DeploymentDTO, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=DeploymentDTO, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=DeploymentDTO, status_code=status.HTTP_201_CREATED, include_in_schema=False)
 async def create_deployment(
     body: DeploymentCreate,
     _user: User = Depends(require_permission(_DEP, "create")),

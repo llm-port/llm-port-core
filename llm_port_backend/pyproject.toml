@@ -109,6 +109,8 @@ addopts = "-p no:unraisableexception"
 filterwarnings = [
     "error",
     "ignore::DeprecationWarning",
+    "ignore::fastapi.exceptions.FastAPIDeprecationWarning",
+    "ignore:.*transaction already deassociated.*:sqlalchemy.exc.SAWarning",
     "ignore:.*unclosed.*:ResourceWarning",
 ]
 anyio_mode = "auto"

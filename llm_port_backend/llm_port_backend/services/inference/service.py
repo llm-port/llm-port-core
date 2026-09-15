@@ -32,6 +32,7 @@ from llm_port_backend.db.dao.inference_dao import (
     EnvironmentDAO,
     EnvironmentNodeDAO,
 )
+from llm_port_backend.db.dao.llm_dao import ModelDAO
 from llm_port_backend.db.dependencies import get_db_session
 from llm_port_backend.db.models.inference import (
     DeploymentDesiredState,
@@ -323,6 +324,7 @@ class DeploymentService:
         self.dao = DeploymentDAO(session)
         self.environment_dao = EnvironmentDAO(session)
         self.endpoint_dao = EndpointDAO(session)
+        self.model_dao = ModelDAO(session)
 
     async def create(
         self,
@@ -336,6 +338,8 @@ class DeploymentService:
         """Create a deployment from a validated versioned spec."""
         if not await self.environment_dao.get(environment_id):
             raise NotFoundError("environment", environment_id)
+        if not await self.model_dao.get(model_id):
+            raise NotFoundError("model", model_id)
         # Re-validate so the DB only ever holds well-formed documents; any
         # malformed document surfaces as a 409, not a 500.
         self.validate_spec(spec)
