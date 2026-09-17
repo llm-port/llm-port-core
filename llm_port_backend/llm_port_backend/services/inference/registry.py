@@ -63,3 +63,7 @@ class DriverRegistry:
 #: Process-wide registry instance.  Phase 1 leaves this empty; Phase 2
 #: registers the Ray driver here at import/lifespan time.
 registry = DriverRegistry()
+
+# Register the Ray driver
+from llm_port_backend.services.inference.drivers.ray.driver import RayDriver
+registry.register(RayDriver.key, RayDriver)

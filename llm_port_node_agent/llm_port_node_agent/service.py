@@ -94,6 +94,16 @@ class NodeAgentService:
                 emit_progress=emit_progress,
             )
 
+        from llm_port_node_agent.ray.manager import RayManager
+        
+        # Reuse the agent's configured backend HTTP client (TLS + base URL)
+        # to fetch the decrypted Ray cluster token for each command.
+        ray_manager = RayManager(
+            state_store=self._state_store,
+            events=events,
+            http=self._client.http,
+        )
+
         runtime_manager = RuntimeManager(
             runtime=runtime,
             state_store=self._state_store,
@@ -120,6 +130,7 @@ class NodeAgentService:
             policy_guard=PolicyGuard(image_allowlist=self._config.image_allowlist),
             events=events,
             on_refresh_inventory=stream.trigger_inventory,
+            ray_manager=ray_manager,
         )
         stream._dispatcher = dispatcher
         self._stream = stream

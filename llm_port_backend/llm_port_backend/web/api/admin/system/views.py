@@ -8,11 +8,13 @@ import uuid
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
+from sqlalchemy.ext.asyncio import AsyncSession
 from starlette import status
 
 from llm_port_backend.db.dao.audit_dao import AuditDAO
 from llm_port_backend.db.dao.node_control_dao import NodeControlDAO
 from llm_port_backend.db.dao.system_settings_dao import SystemSettingsDAO
+from llm_port_backend.db.dependencies import get_db_session
 from llm_port_backend.db.models.containers import AuditResult
 from llm_port_backend.db.models.system_settings import InfraAgentStatus
 from llm_port_backend.db.models.users import User
@@ -707,6 +709,72 @@ async def system_node_commands_list(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid node id.") from exc
     rows = await dao.list_node_commands(node_id=parsed)
     return [NodeCommandDTO(**service.serialize_command(item)) for item in rows]
+
+
+@router.get("/nodes/secrets/{credential_ref}", name="system_node_secret_delivery")
+async def system_node_secret_delivery(
+    credential_ref: str,
+    request: Request,
+    service: NodeControlService = Depends(get_node_control_service),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict[str, str]:
+    """Serve the Ray auth token to an *enrolled* node agent.
+
+    The caller must (a) present valid node credentials AND (b) be a current
+    member of an environment owned by the control plane the ``credential_ref``
+    points to.  The raw token is decrypted and returned in that case only;
+    every other caller gets an error and never a token.  The secret is never
+    cached, logged, or embedded in command payloads.
+    """
+    from sqlalchemy import select
+
+    from llm_port_backend.db.models.inference import (
+        InferenceEnvironment,
+        InferenceEnvironmentNode,
+    )
+    from llm_port_backend.services.inference.drivers.ray.secrets import (
+        control_plane_id_from_credential_ref,
+        retrieve_cluster_token,
+    )
+
+    try:
+        node, _credential = await service.authenticate_agent(
+            authorization=request.headers.get("authorization"),
+        )
+    except PermissionError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid node credentials.",
+        )
+
+    control_plane_id = control_plane_id_from_credential_ref(credential_ref)
+    if control_plane_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Unknown credential reference.",
+        )
+
+    result = await session.execute(
+        select(InferenceEnvironmentNode.node_id)
+        .join(InferenceEnvironment, InferenceEnvironment.id == InferenceEnvironmentNode.environment_id)
+        .where(InferenceEnvironment.control_plane_id == control_plane_id)
+        .where(InferenceEnvironmentNode.node_id == node.id)
+        .limit(1),
+    )
+    env_member = result.scalar_one_or_none()
+    if env_member is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Unknown credential reference.",
+        )
+
+    token = await retrieve_cluster_token(session, credential_ref)
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Unknown credential reference.",
+        )
+    return {"token": token}
 
 
 @router.get(

@@ -60,6 +60,14 @@ class NodeCommandType(enum.StrEnum):
     CHECK_SYSTEM_UPDATES = "check_system_updates"
     APPLY_SYSTEM_UPDATES = "apply_system_updates"
 
+    # --- Ray environment lifecycle (Phase 2) ---
+    ENSURE_RAY_RUNTIME = "ensure_ray_runtime"
+    START_RAY_HEAD = "start_ray_head"
+    JOIN_RAY_CLUSTER = "join_ray_cluster"
+    LEAVE_RAY_CLUSTER = "leave_ray_cluster"
+    STOP_RAY = "stop_ray"
+    GET_RAY_STATUS = "get_ray_status"
+
 
 class InfraNodeProfile(Base):
     """Reusable profile with platform-specific sub-configs for nodes."""

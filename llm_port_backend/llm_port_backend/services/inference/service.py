@@ -237,6 +237,10 @@ class EnvironmentService:
         """List environments, optionally filtered by control plane."""
         return await self.dao.list_all(control_plane_id=control_plane_id)
 
+    async def list_pending_reconciliation(self) -> list[InferenceEnvironment]:
+        """List environments requiring reconciliation."""
+        return await self.dao.list_pending_observation()
+
     async def update(
         self,
         environment_id: uuid.UUID,

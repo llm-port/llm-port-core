@@ -212,6 +212,22 @@ class EnvironmentDAO:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
+    async def list_pending_observation(self) -> list[InferenceEnvironment]:
+        """Return environments whose desired state is not yet observed.
+
+        The reconciler must visit every row where ``observed_generation``
+        lags ``generation`` (a change was requested that has not been applied
+        and acked yet).  Already-observed rows stay out of the queue so the
+        loop does not busy-spin on a live, stable cluster.
+        """
+        result = await self.session.execute(
+            select(InferenceEnvironment).where(
+                InferenceEnvironment.observed_generation
+                < InferenceEnvironment.generation
+            )
+        )
+        return list(result.scalars().all())
+
     async def update(
         self,
         environment_id: uuid.UUID,

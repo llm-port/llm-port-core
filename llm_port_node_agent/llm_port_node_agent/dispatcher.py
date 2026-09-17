@@ -10,6 +10,7 @@ from typing import Any
 from llm_port_node_agent.event_buffer import EventBuffer
 from llm_port_node_agent.models import NodeCommandType
 from llm_port_node_agent.policy_guard import PolicyGuard, PolicyViolationError
+from llm_port_node_agent.ray.manager import RayManager
 from llm_port_node_agent.runtime_manager import RuntimeManager, RuntimeManagerError
 from llm_port_node_agent.state_store import StateStore
 from llm_port_node_agent import system_updater
@@ -30,12 +31,14 @@ class CommandDispatcher:
         policy_guard: PolicyGuard,
         events: EventBuffer,
         on_refresh_inventory: Callable[[], None] | None = None,
+        ray_manager: RayManager | None = None,
     ) -> None:
         self._state = state_store
         self._runtime = runtime_manager
         self._guard = policy_guard
         self._events = events
         self._on_refresh_inventory = on_refresh_inventory
+        self._ray = ray_manager
         # command_id -> running task.  The backend re-dispatches in-flight
         # commands on reconnect (E); the stream connection must never run
         # the same deploy twice concurrently (two ``docker run`` = two
@@ -147,6 +150,35 @@ class CommandDispatcher:
     async def _execute(
         self, *, command_type: str, payload: dict[str, Any], emit_progress: ProgressEmitter,
     ) -> dict[str, Any]:
+        # --- Ray lifecycle commands ---
+        # Missing manager is an *error* (raise) so handle() normalizes it to
+        # success=False / runtime_error. Returning a dict here would be
+        # double-wrapped into success=True by _guarded_execute.
+        if command_type == NodeCommandType.ENSURE_RAY_RUNTIME.value:
+            if not self._ray:
+                raise RuntimeManagerError("Ray manager not available")
+            return await self._ray.ensure_runtime(payload)
+        if command_type == NodeCommandType.START_RAY_HEAD.value:
+            if not self._ray:
+                raise RuntimeManagerError("Ray manager not available")
+            return await self._ray.start_head(payload, emit_progress=emit_progress)
+        if command_type == NodeCommandType.JOIN_RAY_CLUSTER.value:
+            if not self._ray:
+                raise RuntimeManagerError("Ray manager not available")
+            return await self._ray.join_cluster(payload, emit_progress=emit_progress)
+        if command_type == NodeCommandType.LEAVE_RAY_CLUSTER.value:
+            if not self._ray:
+                raise RuntimeManagerError("Ray manager not available")
+            return await self._ray.leave_cluster(payload)
+        if command_type == NodeCommandType.STOP_RAY.value:
+            if not self._ray:
+                raise RuntimeManagerError("Ray manager not available")
+            return await self._ray.stop_ray(payload)
+        if command_type == NodeCommandType.GET_RAY_STATUS.value:
+            if not self._ray:
+                raise RuntimeManagerError("Ray manager not available")
+            return await self._ray.get_status(payload)
+
         if command_type in {
             NodeCommandType.DEPLOY_WORKLOAD.value,
             NodeCommandType.UPDATE_WORKLOAD.value,

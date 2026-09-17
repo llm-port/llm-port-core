@@ -396,6 +396,63 @@ def _start_node_command_reaper(app: FastAPI) -> None:
     app.state.node_command_reaper = task
 
 
+async def _inference_reconciler_loop(app: FastAPI) -> None:
+    """Periodically reconcile inference environments.
+
+    Each pass loads only the environments whose ``observed_generation`` lags
+    ``generation`` — a live, stable cluster never re-enters the queue, so the
+    loop is effectively event-driven by change.  Each environment is reconciled
+    in its own transactional scope so a single failure does not wed the rest.
+    """
+    interval_sec = 30
+    while True:
+        session = None
+        try:
+            await asyncio.sleep(interval_sec)
+            if broker.is_worker_process:
+                return
+
+            from llm_port_backend.db.dao.inference_dao import EnvironmentDAO
+            from llm_port_backend.services.inference.reconciliation import (
+                ReconciliationContext,
+                reconcile_environment,
+            )
+
+            session = app.state.db_session_factory()
+            async with session:
+                envs = await EnvironmentDAO(session).list_pending_observation()
+                if not envs:
+                    continue
+                context = ReconciliationContext.for_session(session)
+                for env in envs:
+                    try:
+                        await reconcile_environment(context, env)
+                    except Exception:
+                        log.exception("Failed to reconcile environment %s", env.id)
+                    finally:
+                        try:
+                            await session.commit()
+                        except Exception:
+                            await session.rollback()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            if session is not None:
+                try:
+                    await session.rollback()
+                except Exception:
+                    pass
+            log.exception("Inference reconciler pass failed.")
+
+
+def _start_inference_reconciler(app: FastAPI) -> None:
+    """Launch the inference reconciler background task."""
+    if broker.is_worker_process:
+        return
+    task = asyncio.create_task(_inference_reconciler_loop(app), name="inference_reconciler")
+    app.state.inference_reconciler = task
+
+
 async def _stop_notification_runtime(app: FastAPI) -> None:
     """Stop notification background workers and close shared HTTP client."""
     monitor: GatewayAlertMonitor | None = getattr(app.state, "gateway_alert_monitor", None)
@@ -601,6 +658,9 @@ async def lifespan_setup(
     # ── Start node-command reaper background task ─────────────
     _start_node_command_reaper(app)
 
+    # ── Start inference reconciler background task ────────────
+    _start_inference_reconciler(app)
+
     # ── Optional EE plugin bootstrap ─────────────────────────
     if _EE_AVAILABLE:
         try:
@@ -651,6 +711,15 @@ async def lifespan_setup(
         reaper_task.cancel()
         try:
             await reaper_task
+        except (asyncio.CancelledError, Exception):
+            pass
+
+    # Stop the inference reconciler before closing the DB engine.
+    reconciler_task = getattr(app.state, "inference_reconciler", None)
+    if reconciler_task is not None:
+        reconciler_task.cancel()
+        try:
+            await reconciler_task
         except (asyncio.CancelledError, Exception):
             pass
 
