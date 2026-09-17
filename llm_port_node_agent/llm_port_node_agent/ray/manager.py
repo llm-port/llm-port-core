@@ -1,5 +1,27 @@
-"""High-level coordinator for Ray lifecycle on a physical node."""
+"""High-level coordinator for Ray lifecycle on a physical node (facade).
 
+Spec section 2 target layout, implemented:
+
+* :class:`~llm_port_node_agent.ray.runtime.RayRuntime` — bootstrap/process,
+  the ONLY CLI layer (``ray start`` / ``ray stop``).
+* :class:`~llm_port_node_agent.ray.core.RayCoreClient` — live cluster state
+  via Ray Core Python APIs (GCS-direct; no Dashboard).
+* :class:`~llm_port_node_agent.ray.serve.RayServeManager` — Serve
+  lifecycle/status via the ``ray.serve`` Python API.
+* :class:`~llm_port_node_agent.ray.metrics.RayMetricsDiscovery` — Tier C
+  Prometheus scrape targets discovered from ``ray.nodes()``.
+* :class:`~llm_port_node_agent.ray.state.RayStateDiagnostics` — Tier B
+  optional ``ray.util.state`` (Dashboard-dependent; never gates health).
+
+``RayManager`` keeps the exact same public surface the dispatcher already
+calls (``ensure_runtime`` / ``start_head`` / ``join_cluster`` /
+``leave_cluster`` / ``stop_ray`` / ``get_status``), plus ``get_serve_status``.
+``get_status`` answers ``GET_RAY_STATUS`` with the enriched
+:class:`~llm_port_node_agent.ray.models.RayEnvironmentStatus` (flat fields
+preserved for the existing backend parser; tiers additive and non-gating).
+"""
+
+import asyncio
 import logging
 import os
 import stat
@@ -9,20 +31,26 @@ from typing import Any
 import httpx
 
 from llm_port_node_agent.event_buffer import EventBuffer
-from llm_port_node_agent.ray.process import RayProcessManager
+from llm_port_node_agent.ray import errors
+from llm_port_node_agent.ray.core import RayCoreClient
+from llm_port_node_agent.ray.metrics import RayMetricsDiscovery
+from llm_port_node_agent.ray.runtime import RayRuntime
 from llm_port_node_agent.ray.schemas import (
     EnsureRayRuntimePayload,
     JoinRayClusterPayload,
     StartRayHeadPayload,
     StopRayPayload,
+    GetRayServeStatusPayload,
     GetRayStatusPayload,
 )
-from llm_port_node_agent.ray.status import get_ray_status
+from llm_port_node_agent.ray.serve import RayServeManager
+from llm_port_node_agent.ray.state import RayStateDiagnostics
 from llm_port_node_agent.state_store import StateStore
 
 log = logging.getLogger(__name__)
 
 _SECRET_ENDPOINT = "/api/admin/system/nodes/secrets/"
+_DEFAULT_VERSION = "2.58.0"
 
 
 class RayManager:
@@ -41,7 +69,15 @@ class RayManager:
     ) -> None:
         self._state = state_store
         self._events = events
-        self._process = RayProcessManager(ray_base_path=ray_base_path)
+        # Process/bootstrap layer.  Aliased as ``_process`` (the historical
+        # attribute name) so existing code/tests that swap ``manager._process``
+        # with a mock keep working; it is now a :class:`RayRuntime`.
+        self._process = RayRuntime(ray_base_path=ray_base_path)
+        self._runtime = self._process
+        self._core = RayCoreClient()
+        self._serve = RayServeManager(core=self._core)
+        self._metrics = RayMetricsDiscovery(core=self._core)
+        self._state_diag = RayStateDiagnostics(core=self._core)
         self._token_dir = Path(token_dir)
         self._token_file = self._token_dir / "cluster.token"
         self._backend_url = backend_url.rstrip("/")
@@ -137,102 +173,183 @@ class RayManager:
         return env
 
     async def ensure_runtime(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """Check if Ray version is installed, install if missing."""
+        """Check whether the Ray CLI for the requested version is present.
+
+        The agent packages the matching SDK, so the interesting facts are the
+        CLI location plus the packaged SDK version (the same wheel, so parity
+        by construction).  A missing CLI is reported as ``installed=False``:
+        bootstrap must use a verified binary, never whatever ``ray`` happens
+        to be on PATH first.
+        """
         spec = EnsureRayRuntimePayload.model_validate(payload)
-        ray_bin = self._process.ray_binary_path(spec.version)
-        
-        # Option C implementation: Try pip/uv if not found
+        ray_bin = self._runtime.ray_binary_path(spec.version)
         installed = ray_bin.exists()
-        
         return {
             "installed": installed,
             "version": spec.version,
             "path": str(ray_bin.parent.parent),
+            "cli_path": str(ray_bin),
+            "sdk_version": _sdk_version(),
         }
 
     async def start_head(self, payload: dict[str, Any], emit_progress: Any) -> dict[str, Any]:
-        """Start a Ray head node."""
+        """Start a Ray head node (CLI bootstrap).
+
+        The Dashboard is optional (payload ``include_dashboard``): when
+        False the node boots GCS + raylet only, which is all the SDK status
+        path needs.
+        """
         spec = StartRayHeadPayload.model_validate(payload)
-        await emit_progress({"phase": "starting_head", "message": f"Starting Ray head on port {spec.port}"})
+        await emit_progress(
+            {"phase": "starting_head", "message": f"Starting Ray head on port {spec.port}"}
+        )
 
         # Ensure a live, 0600 cluster token file exists (fetch + write).
         await self._write_token_securely(payload)
 
-        args = [
-            "start",
-            "--head",
-            f"--port={spec.port}",
-            f"--dashboard-host={spec.dashboard_host}",
-            f"--dashboard-port={spec.dashboard_port}",
-        ]
-        
-        if spec.num_cpus is not None:
-            args.append(f"--num-cpus={spec.num_cpus}")
-        if spec.num_gpus is not None:
-            args.append(f"--num-gpus={spec.num_gpus}")
-
         try:
-            await self._process.start(args, version=spec.version, env=self.start_env())
-        except FileNotFoundError as exc:
-            raise RuntimeError(f"Ray CLI missing for version {spec.version}") from exc
+            result = await self._runtime.start_head(
+                version=spec.version,
+                port=spec.port,
+                dashboard_port=spec.dashboard_port,
+                dashboard_host=spec.dashboard_host,
+                num_cpus=spec.num_cpus,
+                num_gpus=spec.num_gpus,
+                include_dashboard=spec.include_dashboard,
+                env=self.start_env(),
+            )
+        except errors.RayRuntimeError:
+            last = self._runtime.last_error
+            raise RuntimeError(
+                f"Ray head start failed (version {spec.version}): "
+                f"{last.stderr if last else 'launch error'}"
+            ) from None
 
         return {
             "cluster_address": f"{spec.dashboard_host}:{spec.port}",
-            "dashboard_url": f"http://{spec.dashboard_host}:{spec.dashboard_port}",
+            "dashboard_url": result.get("dashboard_url"),
         }
 
     async def join_cluster(self, payload: dict[str, Any], emit_progress: Any) -> dict[str, Any]:
-        """Join a Ray cluster as a worker."""
+        """Join a Ray cluster as a worker (CLI bootstrap)."""
         spec = JoinRayClusterPayload.model_validate(payload)
-        await emit_progress({"phase": "joining_cluster", "message": f"Joining Ray cluster at {spec.head_address}"})
+        await emit_progress(
+            {"phase": "joining_cluster", "message": f"Joining Ray cluster at {spec.head_address}"}
+        )
 
         # Workers must hold the same token so the head's GCS accepts them.
         await self._write_token_securely(payload)
 
-        args = [
-            "start",
-            f"--address={spec.head_address}",
-        ]
-        
-        if spec.node_ip_address:
-            args.append(f"--node-ip-address={spec.node_ip_address}")
-        if spec.num_cpus is not None:
-            args.append(f"--num-cpus={spec.num_cpus}")
-        if spec.num_gpus is not None:
-            args.append(f"--num-gpus={spec.num_gpus}")
-
         try:
-            await self._process.start(args, version=spec.version, env=self.start_env())
-        except FileNotFoundError as exc:
-            raise RuntimeError(f"Ray CLI missing for version {spec.version}") from exc
+            result = await self._runtime.join_cluster(
+                version=spec.version,
+                head_address=spec.head_address,
+                node_ip_address=spec.node_ip_address,
+                num_cpus=spec.num_cpus,
+                num_gpus=spec.num_gpus,
+                env=self.start_env(),
+            )
+        except errors.RayRuntimeError:
+            last = self._runtime.last_error
+            raise RuntimeError(
+                f"Ray join failed (version {spec.version}): "
+                f"{last.stderr if last else 'launch error'}"
+            ) from None
 
-        return {
-            "joined": True,
-            "head_address": spec.head_address,
-        }
+        return {"joined": True, "head_address": spec.head_address}
 
     async def leave_cluster(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Stop Ray processes on this node (leave the cluster)."""
-        version = payload.get("version") or "2.58.0"
-        await self._process.stop(version=version)
+        version = payload.get("version") or _DEFAULT_VERSION
+        try:
+            self._core.disconnect()  # a stale attach must not outlive the cluster
+        except Exception:  # pragma: no cover - best effort
+            pass
+        await self._runtime.stop(version=version)
         return {"left": True}
 
     async def stop_ray(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Force stop Ray processes."""
         spec = StopRayPayload.model_validate(payload)
-        await self._process.stop(version=spec.version, force=spec.force)
+        try:
+            self._core.disconnect()
+        except Exception:  # pragma: no cover - best effort
+            pass
+        result = await self._runtime.stop(version=spec.version, force=spec.force)
 
         if self._token_file.exists():
             self._token_file.unlink()
         self._token_ref = None
         self._token_written_at = 0.0
 
-        return {"stopped": True}
+        return {"stopped": result.get("stopped", False) or result.get("best_effort", False)}
+
+    # ------------------------------------------------------------------
+    # Status (SDK-first, Dashboard-independent)
+    # ------------------------------------------------------------------
 
     async def get_status(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """Check process status and cluster connectivity."""
+        """Cluster status via the Ray Core Python APIs (GCS-direct).
+
+        Works with the Dashboard component disabled.  The result is the
+        enriched :class:`RayEnvironmentStatus` dict: flat fields preserved
+        for the existing backend parser, with ``serve`` / ``metrics`` /
+        ``state`` tiers additive and non-gating (an unhealthy tier never
+        flips overall cluster health).
+        """
         spec = GetRayStatusPayload.model_validate(payload)
-        version = payload.get("version") or "2.58.0"
-        result = await get_ray_status(self._process, version=version, address=spec.address)
-        return result.model_dump()
+
+        # Attach + probe are short synchronous GCS round-trips; run them off
+        # the event loop so a stuck GCS connection cannot wedge the agent.
+        status = await asyncio.to_thread(
+            self._core.probe, expected_version=spec.expected_version
+        )
+
+        # Additive Serve tier (never fails overall health).
+        if spec.include_serve:
+            serve = await asyncio.to_thread(self._serve.status)
+            status.serve = serve
+            status.capabilities.serve = serve and serve.available
+
+        # Additive Tier C metrics targets (discovered from ``ray.nodes()``).
+        if spec.include_metrics:
+            status.metrics = await asyncio.to_thread(self._metrics.discover)
+            status.capabilities.metrics = status.metrics.enabled
+
+        # Optional Tier B state diagnostics (Dashboard-dependent).
+        if spec.include_state:
+            status.state = await asyncio.to_thread(self._state_diag.availability)
+            status.capabilities.state = status.state is not None and status.state.available
+
+        return status.model_dump(mode="json")
+
+    async def get_serve_status(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Serve-tier status command (additive; Dashboard-independent).
+
+        The Serve control plane is a regular Ray job in the cluster — its
+        status comes from the Python API, so this works with the dashboard
+        disabled too.
+        """
+        spec = GetRayServeStatusPayload.model_validate(payload)
+        serve = await asyncio.to_thread(self._serve.status)
+        apps: dict[str, Any] = {}
+        if serve is not None and serve.available:
+            apps = serve.apps
+        if spec.app_name is not None:
+            apps = {spec.app_name: apps[spec.app_name]} if spec.app_name in apps else {}
+        dump = serve.model_dump(mode="json") if serve is not None else {}
+        return {
+            "alive": bool(serve is not None and serve.available),
+            "serve": dict(dump) | {"apps": apps},
+        }
+
+
+def _sdk_version() -> str | None:
+    """Version of the Ray SDK the agent packages (``ray.__version__``)."""
+    try:
+        import ray  # noqa: PLC0415  - packaged with the agent
+
+        return getattr(ray, "__version__", None)
+    except Exception:
+        return None
 

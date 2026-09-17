@@ -1,8 +1,16 @@
-"""Pydantic schemas for Ray node command payloads."""
+"""Pydantic schemas for Ray node command payloads.
+
+The status *result* contract is the enriched
+:class:`~llm_port_node_agent.ray.models.RayEnvironmentStatus` produced by the
+SDK layer; :class:`RayStatusResult` remains for importers/tests and is a
+backwards-compatible projection of the flat fields.
+"""
 
 from typing import Any
 
 from pydantic import BaseModel
+
+from llm_port_node_agent.ray.models import RayEnvironmentStatus
 
 
 class EnsureRayRuntimePayload(BaseModel):
@@ -18,6 +26,10 @@ class StartRayHeadPayload(BaseModel):
     num_cpus: int | None = None
     num_gpus: int | None = None
     resources: dict[str, float] = {}
+    # The dashboard is an optional component.  When False the head boots with
+    # ``--include-dashboard=false`` (GCS + raylet only) — the SDK status path
+    # does not need the dashboard.
+    include_dashboard: bool = True
 
 
 class JoinRayClusterPayload(BaseModel):
@@ -36,10 +48,42 @@ class StopRayPayload(BaseModel):
 
 
 class GetRayStatusPayload(BaseModel):
-    address: str | None = None  # defaults to localhost
+    """``GET_RAY_STATUS`` payload.
+
+    All fields are optional: the probe attaches in-process to the *local*
+    cluster (``ray.init(address="auto")``) — there is no remote ``address`` to
+    dial into.  ``expected_version`` selects the intended cluster version for
+    the parity check; ``include_serve``/``include_metrics``/``include_state``
+    opt into the additive sub-tiers (Serve / metrics targets / State API) so a
+    plain probe stays cheap.
+    """
+
+    expected_version: str | None = None
+    include_serve: bool = True
+    include_metrics: bool = False
+    include_state: bool = False
+
+
+class GetRayServeStatusPayload(BaseModel):
+    """``GET_RAY_SERVE_STATUS`` payload (additive Serve-tier command)."""
+
+    app_name: str | None = None  # optional: report a single app
+
+
+class RayServeStatusResult(BaseModel):
+    """Wire result for ``GET_RAY_SERVE_STATUS``."""
+
+    alive: bool = False
+    serve: dict[str, Any] = {}
 
 
 class RayStatusResult(BaseModel):
+    """Backwards-compatible flat status (legacy consumers/tests).
+
+    New consumers should use
+    :class:`~llm_port_node_agent.ray.models.RayEnvironmentStatus` directly.
+    """
+
     alive: bool
     version: str | None = None
     num_nodes: int = 0
@@ -47,4 +91,17 @@ class RayStatusResult(BaseModel):
     total_gpus: float = 0
     available_gpus: float = 0
     cluster_address: str | None = None
+
+    @classmethod
+    def from_environment_status(cls, status: RayEnvironmentStatus) -> "RayStatusResult":
+        """Project the flat fields out of the enriched status DTO."""
+        return cls(
+            alive=status.alive,
+            version=status.version,
+            num_nodes=status.num_nodes,
+            nodes=list(status.nodes),
+            total_gpus=status.total_gpus,
+            available_gpus=status.available_gpus,
+            cluster_address=status.cluster_address,
+        )
 

@@ -41,6 +41,7 @@ class NodeAgentService:
         self._client = BackendClient(config)
         self._stream: StreamClient | None = None
         self._loki: LokiClient | None = None
+        self._ray_manager: Any = None  # typed import is local (optional dep)
 
     async def run_forever(self) -> None:
         """Run agent forever with reconnect and re-enrollment handling."""
@@ -95,7 +96,7 @@ class NodeAgentService:
             )
 
         from llm_port_node_agent.ray.manager import RayManager
-        
+
         # Reuse the agent's configured backend HTTP client (TLS + base URL)
         # to fetch the decrypted Ray cluster token for each command.
         ray_manager = RayManager(
@@ -103,6 +104,7 @@ class NodeAgentService:
             events=events,
             http=self._client.http,
         )
+        self._ray_manager = ray_manager
 
         runtime_manager = RuntimeManager(
             runtime=runtime,
@@ -227,8 +229,13 @@ class NodeAgentService:
             backoff = min(backoff * 2, self._config.reconnect_max_sec)
 
     async def close(self) -> None:
-        """Close outbound HTTP resources and flush state."""
+        """Close outbound HTTP resources, SDK attach, and flush state."""
         self._state_store.flush_seq()
+        if self._ray_manager is not None:
+            try:
+                await self._ray_manager.close()
+            except Exception:  # pragma: no cover - best effort teardown
+                log.debug("ray manager close failed", exc_info=True)
         await self._client.close()
         if self._loki:
             await self._loki.flush()

@@ -34,6 +34,7 @@ class NodeCommandType(enum.StrEnum):
     LEAVE_RAY_CLUSTER = "leave_ray_cluster"
     STOP_RAY = "stop_ray"
     GET_RAY_STATUS = "get_ray_status"
+    GET_RAY_SERVE_STATUS = "get_ray_serve_status"
 
 
 class CommandResult(TypedDict, total=False):
