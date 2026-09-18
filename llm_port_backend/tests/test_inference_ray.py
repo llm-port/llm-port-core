@@ -92,11 +92,12 @@ def _command_row(
     command_id: uuid.UUID,
     status: str,
     result_json: dict[str, Any] | None = None,
+    command_type: str = NodeCommandType.GET_RAY_STATUS.value,
 ) -> InfraNodeCommand:
     return InfraNodeCommand(
         id=command_id,
         node_id=uuid.uuid4(),
-        command_type=NodeCommandType.GET_RAY_STATUS.value,
+        command_type=command_type,
         status=status,  # type: ignore[arg-type]
         idempotency_key="test",
         result_json=result_json,
@@ -135,32 +136,52 @@ def _healthy_probe_result() -> dict[str, Any]:
 
 
 class _FakeNodeControl:
-    """Minimal NodeControlService double with a scriptable command lifecycle."""
+    """Minimal NodeControlService double with a scriptable command lifecycle.
+
+    ``results`` maps command type -> result_json; the single ``result_json``
+    argument is the default (used by GET_RAY_STATUS and any type not in
+    ``results``).  Per-type scriptable results let a test assert the additive
+    GET_RAY_SERVE_STATUS command independently of the cluster probe.
+    """
 
     def __init__(
         self,
         *,
         result_json: dict[str, Any] | None,
         status: str = NodeCommandStatus.SUCCEEDED.value,
+        results: dict[str, dict[str, Any] | None] | None = None,
     ) -> None:
         self._result_json = result_json
         self._status = status
+        self._results = dict(results or {})
         self.issued: list[dict[str, Any]] = []
+        self._rows: dict[uuid.UUID, InfraNodeCommand] = {}
+
+    def _result_for(self, command_type: str) -> dict[str, Any] | None:
+        base = self._result_json
+        if command_type in self._results:
+            return self._results[command_type]
+        return base
 
     async def issue_command(self, **kwargs: Any) -> Any:
         self.issued.append(kwargs)
-        return _command_row(
+        row = _command_row(
             uuid.uuid4(),
             self._status,
-            self._result_json if self._status == NodeCommandStatus.SUCCEEDED.value else None,
+            self._result_for(kwargs["command_type"])
+            if self._status == NodeCommandStatus.SUCCEEDED.value
+            else None,
+            command_type=kwargs["command_type"],
         )
+        if row.id is not None:
+            self._rows[row.id] = row
+        return row
 
     async def get_command(self, *, command_id: uuid.UUID) -> InfraNodeCommand:
-        return _command_row(
-            command_id,
-            self._status,
-            self._result_json if self._status == NodeCommandStatus.SUCCEEDED.value else None,
-        )
+        if command_id in self._rows:
+            return self._rows[command_id]
+        # Command we haven't seen (shouldn't happen) — answer as the default.
+        return _command_row(command_id, self._status, self._result_json)
 
     def by_type(self, command_type: str) -> list[dict[str, Any]]:
         return [c for c in self.issued if c["command_type"] == command_type]
@@ -199,6 +220,84 @@ def test_conditions_partial_workers() -> None:
     # A head-only cluster (exactly one node) has no workers condition yet.
     head_only = {c["type"] for c in build_environment_conditions(_cluster(num_nodes=1), expected_nodes=3)}
     assert head_only == {"HeadActive"}
+    # Legacy results (no serve/metrics tiers reported) carry no tier
+    # conditions: health mapping stays stable for older agents.
+    by_type_legacy = {c["type"]: c for c in conditions}
+    assert "ServeReady" not in by_type_legacy
+    assert "MetricsDiscovery" not in by_type_legacy
+
+
+def _rich_cluster(serve_available: bool = True, metrics_enabled: bool = True) -> RayClusterStatus:
+    """An enriched (new-agent) probe result: flat tier + serve + metrics."""
+    c = _cluster(num_nodes=2)
+    c.total_cpus = 40.0
+    c.head_address = "10.0.0.1:6379"
+    c.capabilities = {"cluster_sdk": True, "serve": serve_available, "state": False, "metrics": metrics_enabled}
+    c.serve = {"available": serve_available, "active": serve_available, "detail": None, "apps": {}}
+    c.metrics = {"enabled": metrics_enabled, "targets": []}
+    return c
+
+
+def test_conditions_include_serve_and_metrics_tiers() -> None:
+    cond = {c["type"]: c for c in build_environment_conditions(_rich_cluster(), expected_nodes=2)}
+    assert cond["ServeReady"]["status"] == "True"
+    assert cond["MetricsDiscovery"]["status"] == "True"
+
+
+def test_conditions_serve_unavailable_is_false() -> None:
+    cond = {c["type"]: c for c in build_environment_conditions(_rich_cluster(serve_available=False, metrics_enabled=False), expected_nodes=2)}
+    assert cond["ServeReady"]["status"] == "False"
+    assert cond["ServeReady"]["reason"] == "ServeNotObserved"
+    assert cond["MetricsDiscovery"]["status"] == "False"
+
+
+def test_conditions_tiers_never_reported_when_dead() -> None:
+    dead = _rich_cluster()
+    dead.alive = False
+    cond = {c["type"] for c in build_environment_conditions(dead, expected_nodes=2)}
+    assert "ServeReady" not in cond
+    assert "MetricsDiscovery" not in cond
+    assert "HeadActive" in cond
+
+
+# ---------------------------------------------------------------------------
+# Enriched GET_RAY_STATUS result parsing (Tier A flat + additive tiers)
+# ---------------------------------------------------------------------------
+
+
+def test_parse_cluster_status_enriched_fields() -> None:
+    from llm_port_backend.services.inference.drivers.ray.client import (
+        _parse_cluster_status,
+        _parse_serve_status,
+    )
+
+    enriched = _rich_cluster().model_dump()
+    parsed = _parse_cluster_status(enriched)
+    assert parsed.total_cpus == 40.0
+    assert parsed.head_address == "10.0.0.1:6379"
+    assert parsed.capabilities["cluster_sdk"] is True
+    assert parsed.serve is not None and parsed.serve_available is True
+    assert parsed.metrics is not None and parsed.metrics_enabled is True
+    # Legacy mapping inputs are unchanged by the enrichment.
+    assert map_cluster_to_environment_status(parsed) is EnvironmentStatus.READY
+
+    serve = _parse_serve_status({"alive": True, "serve": {"available": True, "apps": {"a": {}}} | {"detail": None}})
+    assert serve.alive is True and serve.available is True and "a" in serve.apps
+
+
+def test_parse_cluster_status_legacy_result_still_parses() -> None:
+    from llm_port_backend.services.inference.drivers.ray.client import _parse_cluster_status
+
+    legacy = _healthy_probe_result()  # flat fields only, no tiers
+    parsed = _parse_cluster_status(legacy)
+    assert parsed.total_cpus == 0.0
+    assert parsed.head_address is None
+    assert parsed.capabilities == {}
+    assert parsed.serve is None and parsed.serve_available is False
+    assert parsed.metrics is None and parsed.metrics_enabled is False
+    # Legacy result must not generate tier conditions.
+    types = {c["type"] for c in build_environment_conditions(parsed, expected_nodes=2)}
+    assert types <= {"HeadActive", "WorkersJoined"}
 
 
 # ---------------------------------------------------------------------------
@@ -307,7 +406,10 @@ async def test_driver_probe_without_context_is_honest_noop(probe_env) -> None:
 
 async def test_driver_probe_dispatches_get_ray_status(probe_env, dbsession: AsyncSession) -> None:
     cp, _env, nodes = probe_env
-    fake = _FakeNodeControl(result_json=_healthy_probe_result())
+    fake = _FakeNodeControl(
+        result_json=_healthy_probe_result(),
+        results={NodeCommandType.GET_RAY_SERVE_STATUS.value: {"alive": True, "serve": {"available": True, "apps": {}}}},
+    )
     report = await _ray_driver().probe(cp, session=dbsession, node_control=fake)
 
     assert report["reconciled"] is True
@@ -315,12 +417,56 @@ async def test_driver_probe_dispatches_get_ray_status(probe_env, dbsession: Asyn
     assert report["alive"] is True
     assert report["num_nodes"] == 2
     assert report["cluster_address"] == "10.0.0.1:6379"
-    # Exactly one GET_RAY_STATUS, addressed at the head node, no secrets shipped.
-    assert len(fake.issued) == 1
-    issued = fake.issued[0]
-    assert issued["command_type"] == NodeCommandType.GET_RAY_STATUS.value
+    # The enriched cluster tier is carried through verbatim.
+    assert report["cluster"]["num_nodes"] == 2
+    # One cluster probe + one additive Serve probe, both at the head.
+    status_cmds = fake.by_type(NodeCommandType.GET_RAY_STATUS.value)
+    assert len(status_cmds) == 1
+    issued = status_cmds[0]
     assert issued["node_id"] == nodes[0].id
     assert not (issued["payload"] or {}).get("token")
+    # The Serve tier is best-effort and reported under the "serve" key.
+    serve = fake.by_type(NodeCommandType.GET_RAY_SERVE_STATUS.value)
+    assert len(serve) == 1 and serve[0]["node_id"] == nodes[0].id
+    assert report["serve"]["alive"] is True
+    assert report["serve"]["available"] is True
+
+
+async def test_driver_probe_serve_failure_never_fails_report(probe_env, dbsession: AsyncSession) -> None:
+    """A failed GET_RAY_SERVE_STATUS must not fail the probe report."""
+    cp, _env, _nodes = probe_env
+
+    class _ServeFailingControl(_FakeNodeControl):
+        """Succeeds the cluster probe, terminally fails the Serve probe."""
+
+        def __init__(self, **kw: Any) -> None:
+            super().__init__(**kw)
+            self._serve_ids: set[uuid.UUID] = set()
+
+        async def issue_command(self, **kwargs: Any) -> Any:
+            row = await super().issue_command(**kwargs)
+            if kwargs["command_type"] == NodeCommandType.GET_RAY_SERVE_STATUS.value:
+                self._serve_ids.add(row.id)
+            return row
+
+        async def get_command(self, *, command_id: uuid.UUID) -> InfraNodeCommand:
+            if command_id in self._serve_ids:
+                return _command_row(
+                    command_id, NodeCommandStatus.FAILED.value, None,
+                    command_type=NodeCommandType.GET_RAY_SERVE_STATUS.value,
+                )
+            return await super().get_command(command_id=command_id)
+
+    fake = _ServeFailingControl(
+        result_json=_healthy_probe_result(),
+        results={NodeCommandType.GET_RAY_SERVE_STATUS.value: {"alive": True, "serve": {"available": True, "apps": {}}}},
+    )
+    report = await _ray_driver().probe(cp, session=dbsession, node_control=fake)
+    assert report["reconciled"] is True
+    assert report["probed"] is True
+    assert report["alive"] is True  # cluster health is unaffected
+    assert report["serve"]["alive"] is False
+    assert report["serve"]["available"] is False
 
 
 async def test_driver_probe_failed_command_reports_not_alive(probe_env, dbsession: AsyncSession) -> None:
@@ -411,8 +557,10 @@ async def test_reconcile_control_plane_ray_dispatches_real_probe(
 
     assert report["reconciled"] is True
     assert report["driver"] == "ray"
-    assert len(fake.issued) == 1
+    # One cluster probe (+ one additive Serve probe, since the cluster is alive).
+    assert len(fake.issued) == 2
     assert fake.issued[0]["command_type"] == NodeCommandType.GET_RAY_STATUS.value
+    assert fake.issued[1]["command_type"] == NodeCommandType.GET_RAY_SERVE_STATUS.value
     # A successful live probe must NOT fall back to the domain-service no-op.
     context.control_planes.reconcile.assert_not_awaited()
     # The probe report is stamped as observed at the current generation.

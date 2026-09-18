@@ -126,7 +126,7 @@ class RayDriver(InferenceDriver):
                 "reason": f"probe dispatch failed: {exc}",
             }
 
-        return {
+        report: dict[str, Any] = {
             "reconciled": True,
             "probed": True,
             "driver": self.key,
@@ -134,10 +134,25 @@ class RayDriver(InferenceDriver):
             "version": status.version,
             "num_nodes": status.num_nodes,
             "total_gpus": status.total_gpus,
+            "total_cpus": status.total_cpus,
             "available_gpus": status.available_gpus,
             "cluster_address": status.cluster_address,
+            "head_address": status.head_address,
+            "cluster": status.model_dump(),
             "reason": None,
         }
+
+        # Additive Serve tier: an extra command per probe, best-effort.  A
+        # failed/dispatched-as-noop Serve probe must never fail the report.
+        if status.alive:
+            try:
+                serve = await client.probe_serve(head_node_id=head_node_id)
+                report["serve"] = serve.model_dump()
+            except Exception as exc:  # noqa: BLE001
+                log.warning("Ray probe: GET_RAY_SERVE_STATUS failed: %s", exc)
+                report["serve"] = {"alive": False, "available": False}
+
+        return report
 
     async def capabilities(self, environment: InferenceEnvironment) -> CapabilityDocument:
         """Report the ray driver's static capability document.
