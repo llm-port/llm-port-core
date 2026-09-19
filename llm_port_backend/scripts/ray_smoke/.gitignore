@@ -1,0 +1,2 @@
+# Per-run state: stage ids, enrollment token, JWT secret, backend log.
+.work/
