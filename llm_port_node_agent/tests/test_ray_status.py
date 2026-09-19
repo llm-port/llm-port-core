@@ -724,3 +724,28 @@ def test_serve_status_result_json_roundtrip() -> None:
     dumped = json.loads(json.dumps(res.model_dump(mode="json")))
     assert dumped["alive"] is True
     assert dumped["serve"]["apps"]["a"]["status"] == "RUNNING"
+
+
+def test_get_serve_status_real_handler_json_serializable(ray_manager: RayManager) -> None:
+    """Fix F38: ensure get_serve_status result produced by the manager with real app models
+    is directly serializable by json.dumps without pydantic error."""
+    import asyncio
+    import json
+
+    app = models.RayApplicationStatus(
+        name="test-app",
+        status="RUNNING",
+        message="",
+        route_prefix="/test-app",
+        deployments={"LLMServer:test-app": models.RayDeploymentStatus(name="LLMServer:test-app", status="HEALTHY", replicas=[])},
+    )
+    ray_manager._serve = MagicMock()
+    ray_manager._serve.status = MagicMock(
+        return_value=RayServeStatusTier(available=True, active=True, apps={"test-app": app})
+    )
+    res = asyncio.run(ray_manager.get_serve_status({}))
+    serialized = json.dumps(res)
+    loaded = json.loads(serialized)
+    assert loaded["alive"] is True
+    assert loaded["serve"]["apps"]["test-app"]["status"] == "RUNNING"
+    assert "LLMServer:test-app" in loaded["serve"]["apps"]["test-app"]["deployments"]

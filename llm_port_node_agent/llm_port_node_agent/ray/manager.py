@@ -76,12 +76,20 @@ class RayManager:
         # with a mock keep working; it is now a :class:`RayRuntime`.
         self._process = RayRuntime(ray_base_path=ray_base_path)
         self._runtime = self._process
-        self._core = RayCoreClient()
+        self._token_dir = Path(token_dir)
+        self._token_file = self._token_dir / "cluster.token"
+        # The agent's own SDK attach must present the cluster token.  Ray
+        # resolves its auth mode in native code when the SDK is first loaded,
+        # so setting these just before ``ray.init`` is ignored (verified live:
+        # InvalidAuthToken) — they must be in the process env before anything
+        # imports ``ray``, i.e. now.  The file itself only has to exist by
+        # attach time (START_RAY_HEAD / JOIN_RAY_CLUSTER write it).
+        os.environ.setdefault("RAY_AUTH_MODE", "token")
+        os.environ.setdefault("RAY_AUTH_TOKEN_PATH", str(self._token_file))
+        self._core = RayCoreClient(token_path=self._token_file)
         self._serve = RayServeManager(core=self._core)
         self._metrics = RayMetricsDiscovery(core=self._core)
         self._state_diag = RayStateDiagnostics(core=self._core)
-        self._token_dir = Path(token_dir)
-        self._token_file = self._token_dir / "cluster.token"
         self._backend_url = backend_url.rstrip("/")
         self._token_ttl_sec = token_ttl_sec
         # Owned http client (created lazily) vs injected (caller owns close).
@@ -168,10 +176,18 @@ class RayManager:
         self._token_ref = credential_ref
         self._token_written_at = time.monotonic()
 
-    def start_env(self) -> dict[str, str]:
+    def start_env(self, extra_env: dict[str, str] | None = None) -> dict[str, str]:
         """Env for ``ray start``: token auth on, token supplied via file path."""
         env = {"RAY_AUTH_MODE": "token"}
         env["RAY_AUTH_TOKEN_PATH"] = str(self._token_file)
+        if extra_env:
+            for k, v in extra_env.items():
+                if (
+                    k.startswith(("VLLM_", "HF_", "NCCL_", "CUDA_"))
+                    and not k.startswith("RAY_")
+                    and k != "CUDA_VISIBLE_DEVICES"
+                ):
+                    env[k] = str(v)
         return env
 
     async def ensure_runtime(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -186,12 +202,23 @@ class RayManager:
         spec = EnsureRayRuntimePayload.model_validate(payload)
         ray_bin = self._runtime.ray_binary_path(spec.version)
         installed = ray_bin.exists()
+        # Detect the Serve-LLM stack from installed distribution metadata
+        # instead of importing it: importing vLLM/torch in the agent process
+        # takes seconds on every ENSURE (blocking the command loop) and loads
+        # CUDA libraries the agent never uses.
+        vllm_version = _dist_version("vllm")
+        torch_version = _dist_version("torch")
+        serve_llm_available = bool(vllm_version and _dist_version("pyarrow"))
+
         return {
             "installed": installed,
             "version": spec.version,
             "path": str(ray_bin.parent.parent),
             "cli_path": str(ray_bin),
             "sdk_version": _sdk_version(),
+            "serve_llm_available": serve_llm_available,
+            "vllm_version": vllm_version,
+            "torch_version": torch_version,
         }
 
     async def start_head(self, payload: dict[str, Any], emit_progress: Any) -> dict[str, Any]:
@@ -215,10 +242,11 @@ class RayManager:
                 port=spec.port,
                 dashboard_port=spec.dashboard_port,
                 dashboard_host=spec.dashboard_host,
+                node_ip_address=spec.node_ip_address,
                 num_cpus=spec.num_cpus,
                 num_gpus=spec.num_gpus,
                 include_dashboard=spec.include_dashboard,
-                env=self.start_env(),
+                env=self.start_env(spec.env),
             )
         except errors.RayRuntimeError:
             last = self._runtime.last_error
@@ -227,8 +255,10 @@ class RayManager:
                 f"{last.stderr if last else 'launch error'}"
             ) from None
 
+        resolved_host = spec.node_ip_address or spec.dashboard_host
         return {
-            "cluster_address": f"{spec.dashboard_host}:{spec.port}",
+            "cluster_address": result.get("cluster_address", f"{resolved_host}:{spec.port}"),
+            "head_address": result.get("head_address", f"{resolved_host}:{spec.port}"),
             "dashboard_url": result.get("dashboard_url"),
         }
 
@@ -249,7 +279,7 @@ class RayManager:
                 node_ip_address=spec.node_ip_address,
                 num_cpus=spec.num_cpus,
                 num_gpus=spec.num_gpus,
-                env=self.start_env(),
+                env=self.start_env(spec.env),
             )
         except errors.RayRuntimeError:
             last = self._runtime.last_error
@@ -300,6 +330,11 @@ class RayManager:
         flips overall cluster health).
         """
         spec = GetRayStatusPayload.model_validate(payload)
+        if spec.credential_ref:
+            try:
+                await self._ensure_token({"credential_ref": spec.credential_ref})
+            except Exception as e:
+                log.warning("Could not ensure token for get_status: %s", e)
 
         # Attach + probe are short synchronous GCS round-trips; run them off
         # the event loop so a stuck GCS connection cannot wedge the agent.
@@ -337,7 +372,11 @@ class RayManager:
         # build_openai_app + serve.run are driver-side Python API calls that
         # do GCS round-trips; run off the event loop.
         return await asyncio.to_thread(
-            self._serve.run_app, spec.app_name, spec.llm_serving_args
+            self._serve.run_app,
+            spec.app_name,
+            spec.llm_serving_args,
+            proxy_location=spec.proxy_location,
+            http_options=spec.http_options,
         )
 
     async def delete_serve_app(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -353,17 +392,37 @@ class RayManager:
         disabled too.
         """
         spec = GetRayServeStatusPayload.model_validate(payload)
+        if spec.credential_ref:
+            try:
+                await self._ensure_token({"credential_ref": spec.credential_ref})
+            except Exception as e:
+                log.warning("Could not ensure token for get_serve_status: %s", e)
         serve = await asyncio.to_thread(self._serve.status)
         apps: dict[str, Any] = {}
         if serve is not None and serve.available:
-            apps = serve.apps
+            for k, v in (serve.apps or {}).items():
+                if hasattr(v, "model_dump"):
+                    apps[k] = v.model_dump(mode="json")
+                else:
+                    apps[k] = dict(v) if isinstance(v, dict) else v
         if spec.app_name is not None:
             apps = {spec.app_name: apps[spec.app_name]} if spec.app_name in apps else {}
         dump = serve.model_dump(mode="json") if serve is not None else {}
+        dump["apps"] = apps
         return {
             "alive": bool(serve is not None and serve.available),
-            "serve": dict(dump) | {"apps": apps},
+            "serve": dump,
         }
+
+
+def _dist_version(name: str) -> str | None:
+    """Installed version of distribution *name* (no import), else ``None``."""
+    from importlib import metadata  # noqa: PLC0415
+
+    try:
+        return metadata.version(name)
+    except metadata.PackageNotFoundError:
+        return None
 
 
 def _sdk_version() -> str | None:

@@ -153,6 +153,7 @@ class RayRuntime:
         port: int,
         dashboard_port: int,
         dashboard_host: str,
+        node_ip_address: str | None = None,
         num_cpus: int | None = None,
         num_gpus: int | None = None,
         include_dashboard: bool = True,
@@ -164,6 +165,8 @@ class RayRuntime:
             "--head",
             f"--port={port}",
         ]
+        if node_ip_address:
+            args.append(f"--node-ip-address={node_ip_address}")
         if include_dashboard:
             args += [f"--dashboard-host={dashboard_host}", f"--dashboard-port={dashboard_port}"]
         else:
@@ -173,11 +176,20 @@ class RayRuntime:
         if num_gpus is not None:
             args.append(f"--num-gpus={num_gpus}")
 
-        proc = await self._exec(args, version=version, env=env, label="ray start --head")
+        proc = await self._exec(
+            args,
+            version=version,
+            env=env,
+            label="ray start --head",
+            tolerate_already_running=True,
+        )
+        resolved_host = node_ip_address or dashboard_host
+        dash_url_host = resolved_host if dashboard_host in ("0.0.0.0", "127.0.0.1") and node_ip_address else dashboard_host
         return {
             "started": True,
-            "head_address": f"{dashboard_host}:{port}",
-            "dashboard_url": f"http://{dashboard_host}:{dashboard_port}" if include_dashboard else None,
+            "head_address": f"{resolved_host}:{port}",
+            "cluster_address": f"{resolved_host}:{port}",
+            "dashboard_url": f"http://{dash_url_host}:{dashboard_port}" if include_dashboard else None,
         }
 
     async def join_cluster(
@@ -199,7 +211,13 @@ class RayRuntime:
         if num_gpus is not None:
             args.append(f"--num-gpus={num_gpus}")
 
-        await self._exec(args, version=version, env=env, label="ray start --address")
+        await self._exec(
+            args,
+            version=version,
+            env=env,
+            label="ray start --address",
+            tolerate_already_running=True,
+        )
         return {"joined": True, "head_address": head_address}
 
     async def stop(self, *, version: str, force: bool = False) -> dict[str, Any]:
@@ -247,6 +265,7 @@ class RayRuntime:
         env: dict[str, str] | None,
         label: str,
         tolerate_missing_processes: bool = False,
+        tolerate_already_running: bool = False,
     ) -> asyncio.subprocess.Process:
         ray_bin = self.ray_binary_path(version)
         if not ray_bin.exists():
@@ -279,6 +298,9 @@ class RayRuntime:
             if tolerate_missing_processes and _means_nothing_running(detail):
                 log.info("%s reported no local processes (idempotent no-op)", label)
                 return proc
+            if tolerate_already_running and _means_already_running(detail):
+                log.info("%s reported node already running/joined (idempotent no-op)", label)
+                return proc
             self.last_error = RayLastError(
                 command=label,
                 returncode=proc.returncode,
@@ -302,4 +324,16 @@ def _means_nothing_running(detail: str) -> bool:
         or "nothing to stop" in d
         or "not running" in d
         or "not found" in d
+    )
+
+
+def _means_already_running(detail: str) -> bool:
+    d = detail.lower()
+    return (
+        "already part of a ray cluster" in d
+        or "already running" in d
+        or "already started" in d
+        or "address is already in use" in d
+        or "already joined" in d
+        or "connection to the ray cluster already exists" in d
     )

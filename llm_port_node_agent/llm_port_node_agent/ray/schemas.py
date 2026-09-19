@@ -23,6 +23,7 @@ class StartRayHeadPayload(BaseModel):
     port: int = 6379
     dashboard_port: int = 8265
     dashboard_host: str = "127.0.0.1"
+    node_ip_address: str | None = None
     num_cpus: int | None = None
     num_gpus: int | None = None
     resources: dict[str, float] = {}
@@ -30,6 +31,7 @@ class StartRayHeadPayload(BaseModel):
     # ``--include-dashboard=false`` (GCS + raylet only) — the SDK status path
     # does not need the dashboard.
     include_dashboard: bool = True
+    env: dict[str, str] = {}
 
 
 class JoinRayClusterPayload(BaseModel):
@@ -40,6 +42,7 @@ class JoinRayClusterPayload(BaseModel):
     num_cpus: int | None = None
     num_gpus: int | None = None
     resources: dict[str, float] = {}
+    env: dict[str, str] = {}
 
 
 class StopRayPayload(BaseModel):
@@ -59,6 +62,7 @@ class GetRayStatusPayload(BaseModel):
     """
 
     expected_version: str | None = None
+    credential_ref: str | None = None
     include_serve: bool = True
     include_metrics: bool = False
     include_state: bool = False
@@ -68,6 +72,7 @@ class GetRayServeStatusPayload(BaseModel):
     """``GET_RAY_SERVE_STATUS`` payload (additive Serve-tier command)."""
 
     app_name: str | None = None  # optional: report a single app
+    credential_ref: str | None = None
 
 
 class RunServeAppPayload(BaseModel):
@@ -84,6 +89,10 @@ class RunServeAppPayload(BaseModel):
 
     app_name: str
     llm_serving_args: dict[str, Any]
+    # Serve HTTP proxy placement, applied when Serve first starts on the
+    # cluster (``serve.start``); ignored by Ray once Serve is running.
+    proxy_location: str | None = None
+    http_options: dict[str, Any] | None = None
 
 
 class DeleteServeAppPayload(BaseModel):

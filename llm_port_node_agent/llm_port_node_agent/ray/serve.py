@@ -30,6 +30,11 @@ from llm_port_node_agent.ray.core import RayCoreClient
 log = logging.getLogger(__name__)
 
 
+REPLICA_READY_STATE = "RUNNING"
+REPLICA_READY_STATES = {"RUNNING", "READY"}
+DEPLOYMENT_HEALTHY_STATUSES = {"HEALTHY", "RUNNING", "UP"}
+
+
 def _enum_name(value: Any) -> str | None:
     """``Enum`` -> its ``.name``; plain strings pass through."""
     if value is None:
@@ -104,7 +109,7 @@ class RayServeManager:
             )
         has_apps = bool(apps)
         active = has_apps and all(
-            (a.status == "RUNNING" and all(d.status in ("RUNNING", "UP") for d in a.deployments.values()))
+            (a.status == "RUNNING" and all(d.status in DEPLOYMENT_HEALTHY_STATUSES for d in a.deployments.values()))
             for a in apps.values()
         )
         return models.RayServeStatusTier(
@@ -120,9 +125,9 @@ class RayServeManager:
         pending = 0
         raw_rs = getattr(dep, "replica_states", {}) or {}
         for state, count in raw_rs.items():
-            name = _enum_name(state) or str(state)
-            replica_states.append(models.RayReplicaState(state=name, count=int(count)))
-            if name == "READY":
+            state_name = _enum_name(state) or str(state)
+            replica_states.append(models.RayReplicaState(state=state_name, count=int(count)))
+            if state_name in REPLICA_READY_STATES:
                 ready += int(count)
             else:
                 pending += int(count)
@@ -140,12 +145,15 @@ class RayServeManager:
     # lifecycle (Python API first; no Dashboard REST)
     # ------------------------------------------------------------------
 
-    def start(self) -> dict[str, Any]:
+    def start(self, *, http_options: dict[str, Any] | None = None) -> dict[str, Any]:
         """Start the Serve controller without deploying an application."""
         serve = self._require_serve()
         try:
             self._core.ensure_attached()
-            serve.start()
+            if http_options:
+                serve.start(http_options=http_options)
+            else:
+                serve.start()
             return {"started": True}
         except errors.RayAttachError:
             raise
@@ -176,7 +184,14 @@ class RayServeManager:
         except Exception as exc:
             raise errors.RayServeError(f"serve.delete({name!r}) failed: {exc}") from exc
 
-    def run_app(self, name: str, llm_serving_args: dict[str, Any]) -> dict[str, Any]:
+    def run_app(
+        self,
+        name: str,
+        llm_serving_args: dict[str, Any],
+        *,
+        proxy_location: str | None = None,
+        http_options: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Build and deploy a named LLM Serve application.
 
         The application is built *in-process* with
@@ -184,17 +199,17 @@ class RayServeManager:
         that imports the (GPU-oriented) LLM stack.  ``llm_serving_args`` is the
         plain ``LLMServingArgs`` document shipped in the command payload.
 
-        Deployment uses ``serve.run(app, name=...)`` with an *explicit* name,
-        which is Ray's verified per-application update path: it deploys or
+        Deployment uses ``serve.run_many`` (or ``serve.run``) with an *explicit*
+        name, which is Ray's verified per-application update path: it deploys or
         updates exactly this application and leaves any other named
         applications on the cluster untouched (an unnamed ``serve.run``
         would delete every other app — never used here).
 
-        ``serve.run`` is called non-blocking (``blocking=False``): the
-        controller deploy is asynchronous and the caller observes convergence
-        through ``status()`` / ``GET_RAY_SERVE_STATUS``.  Build failures
-        (invalid engine args, unknown accelerator, bad model source) raise
-        synchronously here and surface as a command failure.
+        Deployment is called non-blocking: the controller deploy is asynchronous
+        and the caller observes convergence through ``status()`` /
+        ``GET_RAY_SERVE_STATUS``. Build failures (invalid engine args, unknown
+        accelerator, bad model source) raise synchronously here and surface as
+        a command failure.
         """
         serve = self._require_serve()
         try:
@@ -210,8 +225,25 @@ class RayServeManager:
         except Exception as exc:
             raise errors.RayServeError(f"build_openai_app failed: {exc}") from exc
 
+        if proxy_location or http_options:
+            # The proxy's bind address/placement only take effect when the
+            # Serve controller is first created (Ray's default is 127.0.0.1,
+            # unreachable off-node).  ``serve.status()`` never starts Serve,
+            # so this runs before anything else can create the controller;
+            # once Serve is running Ray ignores the options.
+            try:
+                serve.start(proxy_location=proxy_location, http_options=http_options)
+            except Exception as exc:
+                raise errors.RayServeError(f"serve.start(http_options) failed: {exc}") from exc
+
         try:
-            serve.run(app, name=name, blocking=False)
+            if hasattr(serve, "run_many") and hasattr(serve, "RunTarget"):
+                serve.run_many(
+                    [serve.RunTarget(target=app, name=name, route_prefix=f"/{name}")],
+                    wait_for_applications_running=False,
+                )
+            else:
+                serve.run(app, name=name, route_prefix=f"/{name}", blocking=False)
             return {"app": name, "deployed": True}
         except errors.RayAttachError:
             raise

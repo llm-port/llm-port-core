@@ -95,6 +95,23 @@ class CommandDispatcher:
                 "result": {},
             }
 
+        # Guarantee JSON serializability before committing to the persistent state store
+        try:
+            import json
+            import pydantic_core
+
+            jsonable = pydantic_core.to_jsonable_python(normalized)
+            json.dumps(jsonable)
+            normalized = jsonable
+        except Exception as exc:
+            log.exception("Command result for %s (%s) is not JSON-serializable: %s", command_id, command_type, exc)
+            normalized = {
+                "success": False,
+                "error_code": "result_not_serializable",
+                "error_message": f"Handler result could not be serialized to JSON: {exc}",
+                "result": {},
+            }
+
         try:
             self._state.remember_command_result(command_id, normalized)
         except OSError:

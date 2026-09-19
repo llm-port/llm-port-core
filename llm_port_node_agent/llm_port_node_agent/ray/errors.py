@@ -55,6 +55,23 @@ class RayAttachError(RayError):
     recoverable = True
 
 
+class RayAuthError(RayAttachError):
+    """The agent could not attach due to missing or invalid cluster auth token."""
+
+    code = "ray_auth_failed"
+    recoverable = False
+
+    def __init__(
+        self,
+        message: str = "Ray cluster authentication failed",
+        *,
+        error_code: str = "auth_token_rejected",
+        detail: str | None = None,
+    ) -> None:
+        super().__init__(message, detail=detail)
+        self.error_code = error_code
+
+
 class RayVersionMismatchError(RayAttachError):
     """The attached cluster runs a different Ray version than the SDK.
 

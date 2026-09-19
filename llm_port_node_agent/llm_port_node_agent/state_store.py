@@ -93,6 +93,30 @@ class StateStore:
             tmp.replace(self.path)
             if sys.platform == "win32":
                 _win_restrict_file(self.path)
+        except (TypeError, ValueError) as exc:
+            log.error("Non-serializable entry in state store (%s); evicting invalid completed commands and retrying", exc)
+            bad_keys = []
+            for cmd_id, cmd_res in list(self.state.completed_commands.items()):
+                try:
+                    json.dumps(cmd_res)
+                except Exception:
+                    bad_keys.append(cmd_id)
+            for cmd_id in bad_keys:
+                self.state.completed_commands.pop(cmd_id, None)
+            payload["completed_commands"] = self.state.completed_commands
+            try:
+                if sys.platform == "win32":
+                    with open(tmp, "w", encoding="utf-8") as handle:
+                        json.dump(payload, handle, indent=2, sort_keys=True)
+                else:
+                    fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                        json.dump(payload, handle, indent=2, sort_keys=True)
+                tmp.replace(self.path)
+                if sys.platform == "win32":
+                    _win_restrict_file(self.path)
+            except Exception as retry_exc:
+                log.error("StateStore retry save failed: %s", retry_exc)
         except OSError as exc:
             log.warning("Cannot persist state to %s: %s", self.path, exc)
 

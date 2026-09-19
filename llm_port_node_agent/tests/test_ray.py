@@ -466,3 +466,68 @@ async def test_leave_cluster_stops_ray(ray_manager: RayManager, fake_runtime: Ma
     fake_runtime.stop.assert_awaited_once()
     assert result["left"] is True
     assert ray_manager._core.disconnect.called
+
+
+# ---------------------------------------------------------------------------
+# Serve deploy path (2026-09-19 implementation review)
+# ---------------------------------------------------------------------------
+
+
+def test_run_app_places_proxy_before_non_blocking_deploy(monkeypatch: pytest.MonkeyPatch) -> None:
+    """F13: the proxy bind/placement must be set before Serve first starts
+    (Ray's default 127.0.0.1 is unreachable off-node); the deploy itself must
+    not wait for the model to load (F11) and must mount the app at /<name>."""
+    import sys
+    import types
+
+    from llm_port_node_agent.ray.serve import RayServeManager
+
+    fake_llm = types.ModuleType("ray.serve.llm")
+    fake_llm.build_openai_app = lambda args: ("app", args)  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "ray.serve.llm", fake_llm)
+
+    calls: list[tuple[str, Any]] = []
+    serve = MagicMock()
+    serve.start.side_effect = lambda **kw: calls.append(("start", kw))
+    serve.run_many.side_effect = lambda targets, **kw: calls.append(("run_many", (targets, kw)))
+    serve.RunTarget = lambda **kw: kw
+    manager = RayServeManager(core=MagicMock())
+    monkeypatch.setattr(manager, "_serve_module", lambda: serve)
+
+    result = manager.run_app(
+        "llmport-x",
+        {"llm_configs": []},
+        proxy_location="HeadOnly",
+        http_options={"host": "10.0.0.1", "port": 8000},
+    )
+
+    assert calls[0] == (
+        "start",
+        {"proxy_location": "HeadOnly", "http_options": {"host": "10.0.0.1", "port": 8000}},
+    )
+    targets, kwargs = calls[1][1]
+    assert calls[1][0] == "run_many"
+    assert targets[0]["name"] == "llmport-x"
+    assert targets[0]["route_prefix"] == "/llmport-x"
+    assert kwargs == {"wait_for_applications_running": False}
+    assert result == {"app": "llmport-x", "deployed": True}
+
+
+@pytest.mark.asyncio()
+async def test_ensure_runtime_reports_llm_stack_without_importing_it(
+    ray_manager: RayManager, fake_runtime: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ENSURE reads distribution metadata instead of importing vLLM/torch into
+    the agent process (seconds per call, blocking the command loop)."""
+    from llm_port_node_agent.ray import manager as manager_mod
+
+    versions = {"vllm": "0.26.0", "torch": "2.11.0", "pyarrow": "25.0.1"}
+    monkeypatch.setattr(manager_mod, "_dist_version", versions.get)
+    result = await ray_manager.ensure_runtime({"version": "2.58.0"})
+    assert result["serve_llm_available"] is True
+    assert result["vllm_version"] == "0.26.0"
+    assert result["torch_version"] == "2.11.0"
+
+    monkeypatch.setattr(manager_mod, "_dist_version", {"torch": "2.11.0"}.get)
+    result = await ray_manager.ensure_runtime({"version": "2.58.0"})
+    assert result["serve_llm_available"] is False

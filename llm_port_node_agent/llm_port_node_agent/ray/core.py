@@ -39,6 +39,8 @@ version (the node table carries no version field in 2.58).
 from __future__ import annotations
 
 import logging
+import os
+from pathlib import Path
 from types import ModuleType
 from typing import Any, Callable, Mapping
 
@@ -56,9 +58,15 @@ _ACCELERATOR_PREFIX = "accelerator_type:"
 class RayCoreClient:
     """Idempotent in-process attach + normalization of Ray Core state."""
 
-    def __init__(self, *, ray_module: ModuleType | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        ray_module: ModuleType | None = None,
+        token_path: Path | str | None = None,
+    ) -> None:
         # Injectable for tests; production uses the real ``ray`` module.
         self._ray = ray_module
+        self._token_path = Path(token_path) if token_path else None
 
     # ------------------------------------------------------------------
     # module access
@@ -78,6 +86,21 @@ class RayCoreClient:
     # attach / detach
     # ------------------------------------------------------------------
 
+    def _apply_auth_env(self) -> None:
+        """Best-effort: mirror the token auth env before ``ray.init``.
+
+        Not sufficient on its own: Ray resolves the auth mode when the SDK is
+        first loaded, so the agent sets these at startup
+        (``RayManager.__init__``).  This only covers a client constructed
+        standalone before any ``import ray``.
+        """
+        token_file = self._token_path
+        if token_file is None and "RAY_AUTH_TOKEN_PATH" in os.environ:
+            token_file = Path(os.environ["RAY_AUTH_TOKEN_PATH"])
+        if token_file is not None and token_file.exists():
+            os.environ["RAY_AUTH_MODE"] = "token"
+            os.environ["RAY_AUTH_TOKEN_PATH"] = str(token_file)
+
     def ensure_attached(self) -> None:
         """Attach in-process to the local cluster, idempotently.
 
@@ -85,10 +108,12 @@ class RayCoreClient:
             errors.RayAttachError: no local cluster reachable
                 (including ``address="auto"`` finding nothing after the
                 reconnect attempt).
+            errors.RayAuthError: cluster rejected authentication token.
             errors.RayVersionMismatchError: attached cluster version
                 differs from the packaged SDK version.
         """
         ray = self.ray
+        self._apply_auth_env()
         try:
             if not ray.is_initialized():
                 ray.init(address="auto", ignore_reinit_error=True)
@@ -98,6 +123,13 @@ class RayCoreClient:
         except errors.RayAttachError:
             raise
         except Exception as exc:
+            msg = str(exc)
+            if "InvalidAuthToken" in msg or "AuthenticationError" in type(exc).__name__:
+                raise errors.RayAuthError(
+                    "Ray cluster authentication rejected auth token",
+                    error_code="auth_token_rejected",
+                    detail=msg,
+                ) from exc
             self._reconnect_once(exc)
 
     def _reconnect_once(self, original: Exception) -> None:
@@ -106,14 +138,24 @@ class RayCoreClient:
             ray.shutdown()
         except Exception:  # pragma: no cover - best effort
             log.debug("shutdown during reconnect failed", exc_info=True)
+        self._apply_auth_env()
         try:
             ray.init(address="auto", ignore_reinit_error=True)
             ray.nodes()
+        except errors.RayAttachError:
+            raise
         except Exception as reconnect_exc:
+            msg = f"init: {original!r}; reconnect: {reconnect_exc!r}"
+            if "InvalidAuthToken" in msg or "AuthenticationError" in type(reconnect_exc).__name__:
+                raise errors.RayAuthError(
+                    "Ray cluster authentication rejected auth token",
+                    error_code="auth_token_rejected",
+                    detail=msg,
+                ) from reconnect_exc
             raise errors.RayAttachError(
                 "Could not attach to a local Ray cluster "
                 "(no cluster running, or GCS unreachable)",
-                detail=f"init: {original!r}; reconnect: {reconnect_exc!r}",
+                detail=msg,
             ) from reconnect_exc
 
     def check_version(self, expected_version: str | None) -> None:

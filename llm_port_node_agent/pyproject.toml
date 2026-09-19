@@ -30,8 +30,11 @@ dependencies = [
 llmport-agent = "llm_port_node_agent.__main__:main"
 
 [project.optional-dependencies]
+llm = [
+  "ray[serve,llm]==2.58.0",
+]
 hf = [
-  "huggingface-hub>=0.27,<1",
+  "huggingface-hub>=0.27,<2",
 ]
 build = [
   "pyinstaller>=6.0,<7.0",
