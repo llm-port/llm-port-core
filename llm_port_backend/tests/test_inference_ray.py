@@ -38,9 +38,11 @@ from llm_port_backend.db.dependencies import get_db_session
 from llm_port_backend.db.models.inference import (
     EnvironmentStatus,
     InferenceControlPlane,
+    InferenceDeployment,
     InferenceEnvironment,
     InferenceEnvironmentNode,
 )
+from llm_port_backend.db.models.llm import LLMModel, ModelSource, ModelStatus
 from llm_port_backend.db.models.node_control import (
     InfraNode,
     InfraNodeCommand,
@@ -659,3 +661,238 @@ async def test_secret_endpoint_rejects_unknown_ref_format(secret_app) -> None:
     ref = str(uuid.uuid4())  # not a cp-<uuid> ref
     resp = await client.get(_secret_url(ref), headers={"Authorization": f"Bearer {ctx['credential']}"})
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Phase 3: Ray deployment orchestrator (run -> readiness -> publish; delete)
+# ---------------------------------------------------------------------------
+
+
+def _deployment_spec(*, replicas: int = 1, path: str = "/v1") -> dict[str, Any]:
+    """A minimal valid v1alpha1 spec the compiler accepts end-to-end."""
+    return {
+        "api_version": "inference.llmport.ai/v1alpha1",
+        "engine": {"name": "vllm", "config": {}},
+        "scale": {"replicas": replicas},
+        "resources": {"replica": {"gpus": 1.0}},
+        "service": {"path": path},
+    }
+
+
+def _run_serve_result(app_name: str) -> dict[str, Any]:
+    return {"deleted": False, "ran": True, "app_name": app_name, "status": "ok"}
+
+
+def _serve_status(app_name: str) -> dict[str, Any]:
+    return {
+        "alive": True,
+        "serve": {
+            "available": True,
+            "active": True,
+            "detail": None,
+            "apps": {
+                app_name: {
+                    "status": "RUNNING",
+                    "message": None,
+                    "deployments": {
+                        app_name: {
+                            "status": "RUNNING",
+                            "num_replicas_ready": 1,
+                            "num_replicas_pending": 0,
+                            "message": None,
+                        }
+                    },
+                }
+            },
+        },
+    }
+
+
+@pytest.fixture()
+async def deployment_env(dbsession: AsyncSession) -> tuple[InferenceDeployment, InfraNode]:
+    """A Ray control plane + environment + head node + model + active deployment."""
+    cp = InferenceControlPlane(name=f"cp-{uuid.uuid4().hex[:12]}", driver="ray")
+    dbsession.add(cp)
+    await dbsession.flush()
+    node = InfraNode(agent_id=f"ray-head-{uuid.uuid4().hex[:8]}", host="10.0.0.1")
+    dbsession.add(node)
+    await dbsession.flush()
+    env = InferenceEnvironment(
+        control_plane_id=cp.id,
+        name=f"env-{uuid.uuid4().hex[:12]}",
+        head_node_id=node.id,
+    )
+    dbsession.add(env)
+    await dbsession.flush()  # env.id must exist before membership rows reference it
+    dbsession.add(InferenceEnvironmentNode(environment_id=env.id, node_id=node.id, role="head"))
+    model = LLMModel(
+        display_name="org/tiny-model",
+        source=ModelSource.HUGGINGFACE,
+        status=ModelStatus.AVAILABLE,
+        hf_repo_id="org/tiny-model",
+        hf_revision="main",
+    )
+    dbsession.add(model)
+    await dbsession.flush()
+    dep = InferenceDeployment(
+        environment_id=env.id,
+        model_id=model.id,
+        name=f"dep-{uuid.uuid4().hex[:12]}",
+        spec_json=_deployment_spec(),
+    )
+    dbsession.add(dep)
+    await dbsession.flush()
+    return dep, node
+
+
+async def test_deployment_active_runs_and_publishes(deployment_env, dbsession: AsyncSession) -> None:
+    """Desired active compiles the spec, runs the named app, waits for
+    readiness, marks RUNNING, and publishes the OpenAI endpoint."""
+    from llm_port_backend.db.dao.inference_dao import EndpointDAO
+
+    dep, node = deployment_env
+    app = f"llmport-{dep.id}"
+    fake = _FakeNodeControl(
+        result_json=_healthy_probe_result(),
+        results={
+            NodeCommandType.RUN_SERVE_APP.value: _run_serve_result(app),
+            NodeCommandType.GET_RAY_SERVE_STATUS.value: _serve_status(app),
+        },
+    )
+    await _ray_driver().deployment_manager.reconcile_deployment(dbsession, dep, node_control=fake)
+
+    assert dep.phase == "running"
+    assert dep.ready_replicas == 1
+    assert dep.total_replicas == 1
+    assert dep.observed_generation == dep.generation
+    obs = dep.observed_status_json["observation"]
+    assert obs["reconciled"] is True
+    assert obs["app"] == app
+
+    # The named-app run went to the head node with the per-(dep,generation)
+    # idempotency key and a compiled LLMServingArgs document.
+    runs = fake.by_type(NodeCommandType.RUN_SERVE_APP.value)
+    assert len(runs) == 1
+    assert runs[0]["node_id"] == node.id
+    assert runs[0]["payload"]["app_name"] == app
+    assert runs[0]["payload"]["llm_serving_args"]
+    assert runs[0]["idempotency_key"].startswith(f"inference-dep:run:{dep.id}:{dep.generation}")
+
+    # Readiness was observed through the Serve tier (best-effort probe).
+    serves = fake.by_type(NodeCommandType.GET_RAY_SERVE_STATUS.value)
+    assert len(serves) == 1 and serves[0]["node_id"] == node.id
+
+    # A logical OpenAI endpoint is published for the running app.
+    endpoints = await EndpointDAO(dbsession).list_for_deployment(dep.id)
+    assert len(endpoints) == 1
+    assert endpoints[0].name == "openai"
+    assert endpoints[0].status == "published"
+    assert app in endpoints[0].address
+
+
+async def test_deployment_delete_converges_and_retires(deployment_env, dbsession: AsyncSession) -> None:
+    """Desired deleted removes the named app and retires its endpoints."""
+    from llm_port_backend.db.dao.inference_dao import EndpointDAO
+
+    dep, node = deployment_env
+    # Seed a published endpoint so the delete has something to retire.
+    ep_dao = EndpointDAO(dbsession)
+    await ep_dao.create(dep.id, name="openai", address="10.0.0.1/x", path="/v1")
+    dep.desired_state = "deleted"
+    app = f"llmport-{dep.id}"
+
+    fake = _FakeNodeControl(
+        result_json=_healthy_probe_result(),
+        results={NodeCommandType.DELETE_SERVE_APP.value: {"deleted": True, "app_name": app}},
+    )
+    await _ray_driver().deployment_manager.reconcile_deployment(dbsession, dep, node_control=fake)
+
+    assert dep.phase == "deleted"
+    deletions = fake.by_type(NodeCommandType.DELETE_SERVE_APP.value)
+    assert len(deletions) == 1
+    assert deletions[0]["node_id"] == node.id
+    assert deletions[0]["payload"]["app_name"] == app
+    # No lifecycle run is issued for a delete.
+    assert fake.by_type(NodeCommandType.RUN_SERVE_APP.value) == []
+    endpoints = await EndpointDAO(dbsession).list_for_deployment(dep.id)
+    assert len(endpoints) == 1
+    assert endpoints[0].status == "retired"
+    assert dep.observed_status_json["observation"]["action"] == "delete"
+
+
+async def test_deployment_without_node_control_is_honest(deployment_env, dbsession: AsyncSession) -> None:
+    """Without a node control service the row stays pending and honest - no
+    live action is taken and it is NOT marked observed."""
+    dep, _node = deployment_env
+    await _ray_driver().deployment_manager.reconcile_deployment(dbsession, dep)  # node_control=None
+    assert dep.phase == "pending"
+    assert "node control" in dep.observed_status_json["observation"]["reason"]
+    assert dep.observed_generation != dep.generation  # stays in the pending queue
+
+
+async def test_deployment_missing_model_is_failed(deployment_env, dbsession: AsyncSession) -> None:
+    """A deployment whose model row is gone is a terminal (non-transient)
+    FAILED phase; no live action is taken."""
+    dep, _node = deployment_env
+    dep.model_id = uuid.uuid4()  # not present in llm_models
+    fake = _FakeNodeControl(result_json=_healthy_probe_result())
+    await _ray_driver().deployment_manager.reconcile_deployment(dbsession, dep, node_control=fake)
+    assert dep.phase == "failed"
+    assert fake.issued == []  # no node command was dispatched
+
+
+async def test_reconcile_deployment_ray_dispatches_real_manager(deployment_env, dbsession: AsyncSession) -> None:
+    """The reconciler seam drives a driver="ray" deployment through the real
+    RayDeploymentManager instead of the Phase 1 no-op."""
+    from llm_port_backend.services.inference.reconciliation import reconcile_deployment
+
+    dep, _node = deployment_env
+    context = ReconciliationContext(session=dbsession, **_services_stub())
+    app = f"llmport-{dep.id}"
+    fake = _FakeNodeControl(
+        result_json=_healthy_probe_result(),
+        results={
+            NodeCommandType.RUN_SERVE_APP.value: _run_serve_result(app),
+            NodeCommandType.GET_RAY_SERVE_STATUS.value: _serve_status(app),
+        },
+    )
+    context._node_control = fake  # noqa: SLF001 - inject the fake service
+    report = await reconcile_deployment(context, dep)
+
+    assert report["reconciled"] is True
+    assert report["reason"] == "dispatched to driver"
+    # The real manager ran the app and converged to RUNNING.
+    # The domain-service no-op was never invoked for a live dispatch.
+    context.deployments.reconcile.assert_not_awaited()
+
+
+async def test_reconcile_deployment_no_driver_is_domain_noop(
+    deployment_env, dbsession: AsyncSession
+) -> None:
+    """A deployment whose control plane uses an unregistered driver falls
+    through to the domain service no-op (the Phase 1 behavior)."""
+    from llm_port_backend.services.inference.reconciliation import reconcile_deployment
+
+    dep, _node = deployment_env
+    # Reparent the deployment's environment to an unregistered (noop) control
+    # plane so the registry lookup returns None.
+    cp = InferenceControlPlane(name=f"cp-{uuid.uuid4().hex[:12]}", driver="noop")
+    dbsession.add(cp)
+    await dbsession.flush()
+    env = InferenceEnvironment(control_plane_id=cp.id, name=f"env-{uuid.uuid4().hex[:12]}")
+    dbsession.add(env)
+    await dbsession.flush()
+    dep.environment_id = env.id
+    await dbsession.flush()
+
+    dep_reconcile = AsyncMock()
+    context = ReconciliationContext(
+        session=dbsession,
+        control_planes=SimpleNamespace(reconcile=AsyncMock()),
+        environments=SimpleNamespace(reconcile=AsyncMock()),
+        deployments=SimpleNamespace(reconcile=dep_reconcile),
+    )
+    report = await reconcile_deployment(context, dep)
+    assert report["reconciled"] is False
+    assert report["reason"] == "no driver registered"
+    dep_reconcile.assert_awaited_once_with(dep.id)

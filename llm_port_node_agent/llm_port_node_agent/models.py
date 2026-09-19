@@ -36,6 +36,10 @@ class NodeCommandType(enum.StrEnum):
     GET_RAY_STATUS = "get_ray_status"
     GET_RAY_SERVE_STATUS = "get_ray_serve_status"
 
+    # --- Ray Serve application lifecycle (Phase 3) ---
+    RUN_SERVE_APP = "run_serve_app"
+    DELETE_SERVE_APP = "delete_serve_app"
+
 
 class CommandResult(TypedDict, total=False):
     """Normalized command result sent over stream."""

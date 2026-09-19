@@ -182,6 +182,14 @@ class CommandDispatcher:
             if not self._ray:
                 raise RuntimeManagerError("Ray manager not available")
             return await self._ray.get_serve_status(payload)
+        if command_type == NodeCommandType.RUN_SERVE_APP.value:
+            if not self._ray:
+                raise RuntimeManagerError("Ray manager not available")
+            return await self._ray.run_serve_app(payload)
+        if command_type == NodeCommandType.DELETE_SERVE_APP.value:
+            if not self._ray:
+                raise RuntimeManagerError("Ray manager not available")
+            return await self._ray.delete_serve_app(payload)
 
         if command_type in {
             NodeCommandType.DEPLOY_WORKLOAD.value,

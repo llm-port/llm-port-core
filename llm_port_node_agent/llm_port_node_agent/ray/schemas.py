@@ -70,6 +70,28 @@ class GetRayServeStatusPayload(BaseModel):
     app_name: str | None = None  # optional: report a single app
 
 
+class RunServeAppPayload(BaseModel):
+    """``RUN_SERVE_APP`` payload (Phase 3: deploy an LLM Serve application).
+
+    ``app_name`` is the *explicit* Ray Serve application name.  Deploying with
+    a name makes ``serve.run`` a per-application operation: it replaces only
+    this application and never touches other named apps on the cluster.
+
+    ``llm_serving_args`` is the ``LLMServingArgs``-shaped document compiled by
+    the backend (``llm_configs`` + ``ingress_cls_config``); it is validated by
+    Ray's ``build_openai_app`` on the agent side.
+    """
+
+    app_name: str
+    llm_serving_args: dict[str, Any]
+
+
+class DeleteServeAppPayload(BaseModel):
+    """``DELETE_SERVE_APP`` payload (Phase 3: delete a named application)."""
+
+    app_name: str
+
+
 class RayServeStatusResult(BaseModel):
     """Wire result for ``GET_RAY_SERVE_STATUS``."""
 

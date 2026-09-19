@@ -176,6 +176,48 @@ class RayServeManager:
         except Exception as exc:
             raise errors.RayServeError(f"serve.delete({name!r}) failed: {exc}") from exc
 
+    def run_app(self, name: str, llm_serving_args: dict[str, Any]) -> dict[str, Any]:
+        """Build and deploy a named LLM Serve application.
+
+        The application is built *in-process* with
+        ``ray.serve.llm.build_openai_app`` — the agent is the only component
+        that imports the (GPU-oriented) LLM stack.  ``llm_serving_args`` is the
+        plain ``LLMServingArgs`` document shipped in the command payload.
+
+        Deployment uses ``serve.run(app, name=...)`` with an *explicit* name,
+        which is Ray's verified per-application update path: it deploys or
+        updates exactly this application and leaves any other named
+        applications on the cluster untouched (an unnamed ``serve.run``
+        would delete every other app — never used here).
+
+        ``serve.run`` is called non-blocking (``blocking=False``): the
+        controller deploy is asynchronous and the caller observes convergence
+        through ``status()`` / ``GET_RAY_SERVE_STATUS``.  Build failures
+        (invalid engine args, unknown accelerator, bad model source) raise
+        synchronously here and surface as a command failure.
+        """
+        serve = self._require_serve()
+        try:
+            self._core.ensure_attached()
+        except errors.RayAttachError:
+            raise
+        try:
+            from ray.serve.llm import build_openai_app  # noqa: PLC0415  (lazy)
+
+            app = build_openai_app(llm_serving_args)
+        except errors.RayAttachError:
+            raise
+        except Exception as exc:
+            raise errors.RayServeError(f"build_openai_app failed: {exc}") from exc
+
+        try:
+            serve.run(app, name=name, blocking=False)
+            return {"app": name, "deployed": True}
+        except errors.RayAttachError:
+            raise
+        except Exception as exc:
+            raise errors.RayServeError(f"serve.run({name!r}) failed: {exc}") from exc
+
     def _require_serve(self) -> Any:
         serve = self._serve_module()
         if serve is None:

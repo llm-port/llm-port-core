@@ -16,6 +16,9 @@ from llm_port_backend.db.models.inference import (
 from llm_port_backend.services.inference.capabilities import CapabilityDocument
 from llm_port_backend.services.inference.contracts import InferenceDriver
 from llm_port_backend.services.inference.drivers.ray.client import RayClusterClient
+from llm_port_backend.services.inference.drivers.ray.deployment import (
+    RayDeploymentManager,
+)
 from llm_port_backend.services.inference.drivers.ray.environment import (
     RayEnvironmentManager,
 )
@@ -74,6 +77,7 @@ class RayDriver(InferenceDriver):
 
     def __init__(self) -> None:
         self.environment_manager = RayEnvironmentManager()
+        self.deployment_manager = RayDeploymentManager()
 
     async def probe(
         self,

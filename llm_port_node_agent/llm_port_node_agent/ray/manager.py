@@ -36,8 +36,10 @@ from llm_port_node_agent.ray.core import RayCoreClient
 from llm_port_node_agent.ray.metrics import RayMetricsDiscovery
 from llm_port_node_agent.ray.runtime import RayRuntime
 from llm_port_node_agent.ray.schemas import (
+    DeleteServeAppPayload,
     EnsureRayRuntimePayload,
     JoinRayClusterPayload,
+    RunServeAppPayload,
     StartRayHeadPayload,
     StopRayPayload,
     GetRayServeStatusPayload,
@@ -322,6 +324,26 @@ class RayManager:
             status.capabilities.state = status.state is not None and status.state.available
 
         return status.model_dump(mode="json")
+
+    async def run_serve_app(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Deploy (or update) a named LLM Serve application (Phase 3).
+
+        The head node builds the ingress application *in-process* with
+        ``ray.serve.llm.build_openai_app`` and runs it under an explicit
+        application name — Ray's per-application update path.  The deploy is
+        non-blocking: convergence is observed through the serve status tier.
+        """
+        spec = RunServeAppPayload.model_validate(payload)
+        # build_openai_app + serve.run are driver-side Python API calls that
+        # do GCS round-trips; run off the event loop.
+        return await asyncio.to_thread(
+            self._serve.run_app, spec.app_name, spec.llm_serving_args
+        )
+
+    async def delete_serve_app(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Delete a named Serve application (Phase 3)."""
+        spec = DeleteServeAppPayload.model_validate(payload)
+        return await asyncio.to_thread(self._serve.delete_app, spec.app_name)
 
     async def get_serve_status(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Serve-tier status command (additive; Dashboard-independent).

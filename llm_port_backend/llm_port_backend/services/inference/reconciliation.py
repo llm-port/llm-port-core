@@ -32,14 +32,14 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from llm_port_backend.db.models.inference import InferenceControlPlane
+from llm_port_backend.db.models.inference import (
+    InferenceControlPlane,
+    InferenceEnvironment,
+)
 from llm_port_backend.services.inference.registry import registry
 
 if TYPE_CHECKING:  # pragma: no cover - import-time only, avoids a runtime cycle
-    from llm_port_backend.db.models.inference import (
-        InferenceDeployment,
-        InferenceEnvironment,
-    )
+    from llm_port_backend.db.models.inference import InferenceDeployment
     from llm_port_backend.services.inference.service import (
         ControlPlaneService,
         DeploymentService,
@@ -325,15 +325,56 @@ async def reconcile_deployment(
 ) -> dict[str, Any]:
     """Drive one deployment toward its desired state.
 
-    Phase 1: no live actions; records a no-op observation at the current
-    generation so the row is no longer "pending observation."
-    Phase 3+: call the ``DeploymentOrchestrator`` ``validate``/``plan``/
-    ``apply``/``observe``/``delete`` for the desired state and persist the
-    resulting phase, replica counts, and endpoint status.
+    Phase 3: resolve the bound control plane's driver and dispatch
+    ``RayDeploymentManager.reconcile_deployment`` when a driver is registered.
+    The manager owns the load → compile → external action → fresh-write
+    discipline and persists its own observed state.  When no driver (or no
+    deployment manager) is registered, record an honest no-op observation.
+
+    This function does not commit; the background loop commits after it
+    returns.  Per-resource errors are isolated by the caller.
     """
-    await context.deployments.reconcile(deployment.id)
+    driver_cls: Any = None
+    env_id = getattr(deployment, "environment_id", None)
+    cp_id = None
+    if env_id is not None:
+        env = await context.session.get(InferenceEnvironment, env_id)
+        if env is not None:
+            cp_id = env.control_plane_id
+    if cp_id is not None:
+        cp = await context.session.get(InferenceControlPlane, cp_id)
+        if cp is not None:
+            driver_cls = registry.get(cp.driver)
+
+    if driver_cls is None:
+        # No registered driver → delegate to the domain service, which records
+        # an honest no-op observation at the current generation.
+        await context.deployments.reconcile(deployment.id)
+        return {
+            "id": str(deployment.id),
+            "reconciled": False,
+            "reason": "no driver registered",
+        }
+
+    driver = driver_cls()
+    mgr = getattr(driver, "deployment_manager", None)
+    if mgr is None:
+        await context.deployments.reconcile(deployment.id)
+        return {
+            "id": str(deployment.id),
+            "reconciled": False,
+            "reason": "driver exposes no deployment manager",
+        }
+
+    # The manager protocol declares ``reconcile_deployment(session,
+    # deployment)``; the Ray manager extends it with ``node_control``.  Pass
+    # the live node control service only when the manager accepts it.
+    mgr_kwargs: dict[str, Any] = {}
+    if _accepts_param(mgr.reconcile_deployment, "node_control"):
+        mgr_kwargs["node_control"] = _node_control_or_none(context)
+    await mgr.reconcile_deployment(context.session, deployment, **mgr_kwargs)
     return {
         "id": str(deployment.id),
-        "reconciled": False,
-        "reason": "no live actions in Phase 1",
+        "reconciled": True,
+        "reason": "dispatched to driver",
     }

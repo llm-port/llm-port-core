@@ -17,10 +17,15 @@ from llm_port_backend.services.nodes.service import NodeControlService
 log = logging.getLogger(__name__)
 
 # How often (seconds) to poll a dispatched command for completion, and the
-# total budget (seconds) before a probe is abandoned rather than blocking the
-# reconcile loop indefinitely.
+# total budget applied to *probes* (status observation) before they are
+# abandoned rather than blocking the reconcile loop indefinitely.
 _POLL_INTERVAL_SEC = 1.0
 _PROBE_BUDGET_SEC = 90.0
+
+# Budget for *mutating* Serve lifecycle commands (RUN_SERVE_APP /
+# DELETE_SERVE_APP).  build_openai_app + serve.run do GCS round-trips and can
+# take longer than a probe, so they get a larger (but still bounded) budget.
+_LIFECYCLE_BUDGET_SEC = 300.0
 
 _SUCCESS = NodeCommandStatus.SUCCEEDED.value
 _TERMINAL = {
@@ -28,6 +33,30 @@ _TERMINAL = {
     NodeCommandStatus.CANCELED.value,
     NodeCommandStatus.TIMED_OUT.value,
 }
+
+
+class RayCommandError(Exception):
+    """A mutating Ray command reached a terminal failure state.
+
+    Carries the agent-reported ``error_code`` / ``error_message`` so the
+    deployment orchestrator can surface the real cause (e.g.
+    "build_openai_app failed: ...") in the deployment phase message.
+    """
+
+    def __init__(
+        self,
+        *,
+        command_type: str,
+        node_id: uuid.UUID | None,
+        error_code: str | None,
+        error_message: str | None,
+    ) -> None:
+        self.command_type = command_type
+        self.node_id = node_id
+        self.error_code = error_code
+        detail = error_message or error_code or "unknown agent error"
+        super().__init__(f"{command_type} to {node_id if node_id else 'node'} failed: {detail}")
+        self.detail = detail
 
 
 def _parse_cluster_status(result: dict[str, Any] | None) -> RayClusterStatus:
@@ -60,6 +89,7 @@ class RayServeStatus(BaseModel):
 
     alive: bool = False
     available: bool = False
+    active: bool = False
     apps: dict[str, Any] = {}
     detail: str | None = None
 
@@ -72,6 +102,7 @@ def _parse_serve_status(result: dict[str, Any] | None) -> RayServeStatus:
     return RayServeStatus(
         alive=bool(result.get("alive", False)),
         available=bool(serve.get("available", False)),
+        active=bool(serve.get("active", False)),
         apps=dict(apps) if isinstance(apps, dict) else {},
         detail=serve.get("detail"),
     )
@@ -89,6 +120,59 @@ class RayClusterClient:
     def __init__(self, control_service: NodeControlService) -> None:
         self._nodes = control_service
 
+    async def _dispatch_until_terminal(
+        self,
+        *,
+        node_id: str | uuid.UUID,
+        command_type: str,
+        payload: dict[str, Any] | None = None,
+        idem_prefix: str = "inference-deployment:apply",
+        issued_by: uuid.UUID | None = None,
+        timeout_sec: int | None = None,
+    ) -> Any:
+        """Dispatch a strictly-observed command, polling until terminal.
+
+        Unlike :meth:`_dispatch_and_poll` (the probe path, where failure means
+        "not observed"), a terminal failure here raises
+        :class:`RayCommandError` carrying the agent's error detail — the
+        mutation (RUN/DELETE_SERVE_APP) must be observed.  Node-not-found
+        from :meth:`issue_command` is mapped to the same error type.  There is
+        no wall-clock budget: the node command's own ``timeout_sec`` (enforced
+        by the reaper) bounds its lifetime; this loop only observes.
+        """
+        node_id = node_id if isinstance(node_id, uuid.UUID) else uuid.UUID(str(node_id))
+        try:
+            command = await self._nodes.issue_command(
+                node_id=node_id,
+                command_type=command_type,
+                payload=payload or {},  # no secrets in the payload
+                issued_by=issued_by,
+                correlation_id=None,
+                timeout_sec=timeout_sec,
+                idempotency_key=f"{idem_prefix}:{node_id}:{uuid.uuid4().hex[:12]}",
+            )
+        except ValueError as exc:
+            raise RayCommandError(
+                command_type=command_type,
+                node_id=node_id,
+                error_code="node_not_found",
+                error_message=str(exc),
+            ) from exc
+
+        while True:
+            current = await self._nodes.get_command(command_id=command.id)
+            if current is not None:
+                if current.status == _SUCCESS:
+                    return current
+                if current.status in _TERMINAL:
+                    raise RayCommandError(
+                        command_type=command_type,
+                        node_id=node_id,
+                        error_code=current.error_code,
+                        error_message=current.error_message,
+                    )
+            await asyncio.sleep(_POLL_INTERVAL_SEC)
+
     async def _dispatch_and_poll(
         self,
         *,
@@ -97,6 +181,7 @@ class RayClusterClient:
         payload: dict[str, Any] | None = None,
         idem_prefix: str = "inference-env:probe",
         issued_by: uuid.UUID | None = None,
+        timeout_sec: int | None = None,
     ) -> dict[str, Any] | None:
         """Dispatch *command_type* to *node_id* and poll until terminal.
 
@@ -105,15 +190,19 @@ class RayClusterClient:
         that as "not observed").
         """
         node_id = node_id if isinstance(node_id, uuid.UUID) else uuid.UUID(str(node_id))
-        command = await self._nodes.issue_command(
-            node_id=node_id,
-            command_type=command_type,
-            payload=payload or {},  # no secrets in the payload
-            issued_by=issued_by,
-            correlation_id=None,
-            timeout_sec=None,
-            idempotency_key=f"{idem_prefix}:{node_id}:{uuid.uuid4().hex[:12]}",
-        )
+        try:
+            command = await self._nodes.issue_command(
+                node_id=node_id,
+                command_type=command_type,
+                payload=payload or {},  # no secrets in the payload
+                issued_by=issued_by,
+                correlation_id=None,
+                timeout_sec=timeout_sec,
+                idempotency_key=f"{idem_prefix}:{node_id}:{uuid.uuid4().hex[:12]}",
+            )
+        except ValueError:
+            log.warning("%s dispatch: node %s not found", command_type, node_id)
+            return None
 
         deadline = asyncio.get_event_loop().time() + _PROBE_BUDGET_SEC
         while True:
@@ -162,4 +251,58 @@ class RayClusterClient:
             issued_by=issued_by,
         )
         return _parse_serve_status(result)
+
+    # ------------------------------------------------------------------
+    # Serve application lifecycle (Phase 3, strict)
+    # ------------------------------------------------------------------
+
+    async def run_serve_app(
+        self,
+        *,
+        head_node_id: str | uuid.UUID,
+        app_name: str,
+        llm_serving_args: dict[str, Any],
+        issued_by: uuid.UUID | None = None,
+        idem_prefix: str = "inference-deployment:run",
+    ) -> dict[str, Any]:
+        """Deploy or update a named LLM Serve app on the head node.
+
+        Strict: raises :class:`RayCommandError` when the agent reports a
+        terminal failure (build error, serve.run rejection, ...), so the
+        orchestrator can persist a FAILED phase with the real cause instead
+        of waiting for a readiness probe that can never converge.
+
+        ``idem_prefix`` scopes the idempotency key (with the node id folded in
+        below); the orchestrator passes a per-(deployment, generation) prefix
+        so a spec change re-keys and re-dispatches while a same-generation
+        re-run is a cheap dedupe/retired-key no-op.
+        """
+        row = await self._dispatch_until_terminal(
+            node_id=head_node_id,
+            command_type=NodeCommandType.RUN_SERVE_APP.value,
+            payload={"app_name": app_name, "llm_serving_args": llm_serving_args},
+            idem_prefix=idem_prefix,
+            issued_by=issued_by,
+            timeout_sec=int(_LIFECYCLE_BUDGET_SEC),
+        )
+        return dict(row.result_json or {})
+
+    async def delete_serve_app(
+        self,
+        *,
+        head_node_id: str | uuid.UUID,
+        app_name: str,
+        issued_by: uuid.UUID | None = None,
+        idem_prefix: str = "inference-deployment:delete",
+    ) -> dict[str, Any]:
+        """Delete a named Serve app on the head node (strict)."""
+        row = await self._dispatch_until_terminal(
+            node_id=head_node_id,
+            command_type=NodeCommandType.DELETE_SERVE_APP.value,
+            payload={"app_name": app_name},
+            idem_prefix=idem_prefix,
+            issued_by=issued_by,
+            timeout_sec=int(_LIFECYCLE_BUDGET_SEC),
+        )
+        return dict(row.result_json or {})
 
