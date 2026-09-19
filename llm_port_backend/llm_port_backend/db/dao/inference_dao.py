@@ -13,7 +13,7 @@ import uuid
 from typing import Any
 
 from fastapi import Depends
-from sqlalchemy import or_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from llm_port_backend.db.dependencies import get_db_session
@@ -23,6 +23,7 @@ from llm_port_backend.db.models.inference import (
     EndpointStatus,
     EnvironmentDesiredState,
     EnvironmentNodeRole,
+    EnvironmentStatus,
     InferenceControlPlane,
     InferenceDeployment,
     InferenceEndpoint,
@@ -215,15 +216,21 @@ class EnvironmentDAO:
     async def list_pending_observation(self) -> list[InferenceEnvironment]:
         """Return environments whose desired state is not yet observed.
 
-        The reconciler must visit every row where ``observed_generation``
-        lags ``generation`` (a change was requested that has not been applied
-        and acked yet).  Already-observed rows stay out of the queue so the
-        loop does not busy-spin on a live, stable cluster.
+        The reconciler must visit:
+        * Rows where observed_generation lags generation (new desired state or config change);
+        * Rows whose desired state is running but status is not ready (pending, preparing, degraded, failed)
+          so failed or converging clusters are retried (F05).
         """
         result = await self.session.execute(
             select(InferenceEnvironment).where(
-                InferenceEnvironment.observed_generation
-                < InferenceEnvironment.generation
+                or_(
+                    InferenceEnvironment.observed_generation
+                    < InferenceEnvironment.generation,
+                    and_(
+                        InferenceEnvironment.desired_state == "running",
+                        InferenceEnvironment.status != EnvironmentStatus.READY.value,
+                    ),
+                )
             )
         )
         return list(result.scalars().all())
@@ -497,15 +504,28 @@ class DeploymentDAO:
     async def list_pending_observation(self) -> list[InferenceDeployment]:
         """Return deployments whose desired state is not yet observed.
 
-        These are the rows the reconciler must visit.
+        These are the rows the reconciler must visit:
+        * Rows where observed_generation lags generation (new desired state or spec change);
+        * Rows in an active transition phase (pending, preparing, applying) where
+          convergence is still in progress.
+        Terminal rows (running, stopped, failed, deleted) whose generation is
+        observed stay out of the queue so the reconciler does not busy-spin.
         """
         result = await self.session.execute(
             select(InferenceDeployment).where(
                 or_(
                     InferenceDeployment.observed_generation
                     < InferenceDeployment.generation,
-                    InferenceDeployment.desired_state
-                    != DeploymentDesiredState.DELETED.value,
+                    and_(
+                        InferenceDeployment.phase.in_([
+                            DeploymentPhase.PENDING.value,
+                            DeploymentPhase.PREPARING.value,
+                            DeploymentPhase.APPLYING.value,
+                            DeploymentPhase.DEGRADED.value,
+                        ]),
+                        InferenceDeployment.desired_state
+                        != DeploymentDesiredState.DELETED.value,
+                    ),
                 )
             )
         )

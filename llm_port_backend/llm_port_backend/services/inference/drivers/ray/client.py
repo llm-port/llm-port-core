@@ -11,6 +11,7 @@ from llm_port_backend.db.models.node_control import (
     NodeCommandStatus,
     NodeCommandType,
 )
+from llm_port_backend.services.inference.drivers.ray.commands import NodeCommandGateway
 from llm_port_backend.services.inference.drivers.ray.schemas import RayClusterStatus
 from llm_port_backend.services.nodes.service import NodeControlService
 
@@ -117,8 +118,19 @@ class RayClusterClient:
     agent fetches the cluster auth token out-of-band.
     """
 
-    def __init__(self, control_service: NodeControlService) -> None:
-        self._nodes = control_service
+    def __init__(self, control_service: Any) -> None:
+        self._gateway = (
+            control_service
+            if isinstance(control_service, NodeCommandGateway)
+            else NodeCommandGateway(control_service)
+        )
+
+    def _format_idempotency_key(self, prefix: str, node_id: uuid.UUID) -> str:
+        """Construct deterministic idempotency key without random uuid suffixes."""
+        node_str = str(node_id)
+        if node_str in prefix:
+            return prefix
+        return f"{prefix}:{node_str}"
 
     async def _dispatch_until_terminal(
         self,
@@ -130,26 +142,18 @@ class RayClusterClient:
         issued_by: uuid.UUID | None = None,
         timeout_sec: int | None = None,
     ) -> Any:
-        """Dispatch a strictly-observed command, polling until terminal.
-
-        Unlike :meth:`_dispatch_and_poll` (the probe path, where failure means
-        "not observed"), a terminal failure here raises
-        :class:`RayCommandError` carrying the agent's error detail — the
-        mutation (RUN/DELETE_SERVE_APP) must be observed.  Node-not-found
-        from :meth:`issue_command` is mapped to the same error type.  There is
-        no wall-clock budget: the node command's own ``timeout_sec`` (enforced
-        by the reaper) bounds its lifetime; this loop only observes.
-        """
+        """Dispatch a strictly-observed command, polling until terminal with a bounded budget."""
         node_id = node_id if isinstance(node_id, uuid.UUID) else uuid.UUID(str(node_id))
+        key = self._format_idempotency_key(idem_prefix, node_id)
         try:
-            command = await self._nodes.issue_command(
+            command = await self._gateway.issue(
                 node_id=node_id,
                 command_type=command_type,
-                payload=payload or {},  # no secrets in the payload
+                payload=payload or {},
                 issued_by=issued_by,
                 correlation_id=None,
                 timeout_sec=timeout_sec,
-                idempotency_key=f"{idem_prefix}:{node_id}:{uuid.uuid4().hex[:12]}",
+                idempotency_key=key,
             )
         except ValueError as exc:
             raise RayCommandError(
@@ -159,19 +163,29 @@ class RayClusterClient:
                 error_message=str(exc),
             ) from exc
 
-        while True:
-            current = await self._nodes.get_command(command_id=command.id)
-            if current is not None:
-                if current.status == _SUCCESS:
-                    return current
-                if current.status in _TERMINAL:
-                    raise RayCommandError(
-                        command_type=command_type,
-                        node_id=node_id,
-                        error_code=current.error_code,
-                        error_message=current.error_message,
-                    )
-            await asyncio.sleep(_POLL_INTERVAL_SEC)
+        budget_sec = float((timeout_sec or _LIFECYCLE_BUDGET_SEC) + 15.0)
+        current = await self._gateway.wait(
+            command.id,
+            budget_sec=budget_sec,
+            poll_interval_sec=_POLL_INTERVAL_SEC,
+        )
+        if current is None:
+            raise RayCommandError(
+                command_type=command_type,
+                node_id=node_id,
+                error_code="command_timeout",
+                error_message=f"Command {command.id} exceeded budget of {budget_sec:.0f}s",
+            )
+        if current.status == _SUCCESS:
+            return current
+        if current.status in _TERMINAL:
+            raise RayCommandError(
+                command_type=command_type,
+                node_id=node_id,
+                error_code=current.error_code,
+                error_message=current.error_message,
+            )
+        return current
 
     async def _dispatch_and_poll(
         self,
@@ -183,45 +197,46 @@ class RayClusterClient:
         issued_by: uuid.UUID | None = None,
         timeout_sec: int | None = None,
     ) -> dict[str, Any] | None:
-        """Dispatch *command_type* to *node_id* and poll until terminal.
+        """Dispatch a read-only probe to *node_id* and poll until terminal or budget exhausted.
 
-        Returns the command's ``result_json`` on success, else ``None``
-        (terminal failure or polling budget exhausted — callers interpret
-        that as "not observed").
+        Probes get a *unique* key per call.  Unlike mutations, a probe must
+        never resume an earlier in-flight probe: one sent to an agent that has
+        since died stays ``running`` until the reaper expires it, and resuming
+        it would make every later probe wait on a result that never comes.
         """
         node_id = node_id if isinstance(node_id, uuid.UUID) else uuid.UUID(str(node_id))
+        key = f"{self._format_idempotency_key(idem_prefix, node_id)}:{uuid.uuid4().hex[:12]}"
         try:
-            command = await self._nodes.issue_command(
+            command = await self._gateway.issue(
                 node_id=node_id,
                 command_type=command_type,
-                payload=payload or {},  # no secrets in the payload
+                payload=payload or {},
                 issued_by=issued_by,
                 correlation_id=None,
                 timeout_sec=timeout_sec,
-                idempotency_key=f"{idem_prefix}:{node_id}:{uuid.uuid4().hex[:12]}",
+                idempotency_key=key,
             )
         except ValueError:
             log.warning("%s dispatch: node %s not found", command_type, node_id)
             return None
 
-        deadline = asyncio.get_event_loop().time() + _PROBE_BUDGET_SEC
-        while True:
-            current = await self._nodes.get_command(command_id=command.id)
-            if current is not None:
-                if current.status == _SUCCESS:
-                    return current.result_json
-                if current.status in _TERMINAL:
-                    log.warning(
-                        "%s command %s ended in state %s (%s: %s)",
-                        command_type, command.id, current.status,
-                        current.error_code, current.error_message,
-                    )
-                    return None
-
-            if asyncio.get_event_loop().time() > deadline:
-                log.warning("%s command %s did not finish in %.0fs", command_type, command.id, _PROBE_BUDGET_SEC)
+        budget_sec = float(timeout_sec or _PROBE_BUDGET_SEC)
+        current = await self._gateway.wait(
+            command.id,
+            budget_sec=budget_sec,
+            poll_interval_sec=_POLL_INTERVAL_SEC,
+        )
+        if current is not None:
+            if current.status == _SUCCESS:
+                return current.result_json
+            if current.status in _TERMINAL:
+                log.warning(
+                    "%s command %s ended in state %s (%s: %s)",
+                    command_type, command.id, current.status,
+                    current.error_code, current.error_message,
+                )
                 return None
-            await asyncio.sleep(_POLL_INTERVAL_SEC)
+        return None
 
     async def probe_cluster(
         self, *, head_node_id: str | uuid.UUID, issued_by: uuid.UUID | None = None,
@@ -262,8 +277,9 @@ class RayClusterClient:
         head_node_id: str | uuid.UUID,
         app_name: str,
         llm_serving_args: dict[str, Any],
+        serve_options: dict[str, Any] | None = None,
         issued_by: uuid.UUID | None = None,
-        idem_prefix: str = "inference-deployment:run",
+        idem_prefix: str | None = None,
     ) -> dict[str, Any]:
         """Deploy or update a named LLM Serve app on the head node.
 
@@ -275,13 +291,20 @@ class RayClusterClient:
         ``idem_prefix`` scopes the idempotency key (with the node id folded in
         below); the orchestrator passes a per-(deployment, generation) prefix
         so a spec change re-keys and re-dispatches while a same-generation
-        re-run is a cheap dedupe/retired-key no-op.
+        re-run resumes the in-flight command.  The default is keyed by app so
+        two apps on one head can never share a command.
+
+        ``serve_options`` (``proxy_location`` / ``http_options``) configure the
+        Serve HTTP proxy the first time Serve starts on the cluster.
         """
+        payload: dict[str, Any] = {"app_name": app_name, "llm_serving_args": llm_serving_args}
+        if serve_options:
+            payload.update(serve_options)
         row = await self._dispatch_until_terminal(
             node_id=head_node_id,
             command_type=NodeCommandType.RUN_SERVE_APP.value,
-            payload={"app_name": app_name, "llm_serving_args": llm_serving_args},
-            idem_prefix=idem_prefix,
+            payload=payload,
+            idem_prefix=idem_prefix or f"inference-deployment:run:{app_name}",
             issued_by=issued_by,
             timeout_sec=int(_LIFECYCLE_BUDGET_SEC),
         )
@@ -293,14 +316,14 @@ class RayClusterClient:
         head_node_id: str | uuid.UUID,
         app_name: str,
         issued_by: uuid.UUID | None = None,
-        idem_prefix: str = "inference-deployment:delete",
+        idem_prefix: str | None = None,
     ) -> dict[str, Any]:
         """Delete a named Serve app on the head node (strict)."""
         row = await self._dispatch_until_terminal(
             node_id=head_node_id,
             command_type=NodeCommandType.DELETE_SERVE_APP.value,
             payload={"app_name": app_name},
-            idem_prefix=idem_prefix,
+            idem_prefix=idem_prefix or f"inference-deployment:delete:{app_name}",
             issued_by=issued_by,
             timeout_sec=int(_LIFECYCLE_BUDGET_SEC),
         )

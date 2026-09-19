@@ -1,7 +1,7 @@
 """Inference control-plane CRUD endpoints.
 
-Phase 1: desired-state only.  The reconcile endpoint is an honest stub that
-records a no-op observation; no backend driver is contacted.
+Desired-state CRUD.  The reconcile endpoint queues the control plane's
+environments for the background reconciler; it contacts no node itself.
 """
 
 from __future__ import annotations
@@ -119,14 +119,13 @@ async def reconcile_control_plane(
     _user: User = Depends(require_permission(_CP, "operate")),
     service: ControlPlaneService = Depends(),
 ) -> ControlPlaneDTO:
-    """Drive a control plane toward its desired state.
+    """Request a reconcile of every environment bound to the control plane.
 
-    Phase 1: no driver is registered — records a no-op observation and
-    returns the control plane (``observed_status_json`` explains that no
-    live probe ran).
+    Returns immediately with the control plane; its environments are
+    reconciled by the next background reconciler pass.
     """
     try:
-        cp = await service.reconcile(control_plane_id)
+        cp = await service.request_reconcile(control_plane_id)
     except InferenceError as exc:
         raise _map_inference_error(exc)
     return _dto_from_cp(cp)

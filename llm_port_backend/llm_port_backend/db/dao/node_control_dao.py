@@ -236,6 +236,7 @@ class NodeControlDAO:
             payload_json=payload_json,
             idempotency_key=idempotency_key,
             issued_by=issued_by,
+            issued_at=datetime.now(UTC),
             correlation_id=correlation_id,
             timeout_sec=timeout_sec,
             status=NodeCommandStatus.QUEUED.value,

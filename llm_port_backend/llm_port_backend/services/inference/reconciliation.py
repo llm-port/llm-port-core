@@ -69,15 +69,19 @@ def _accepts_param(func: Callable, name: str) -> bool:
 
 
 def _node_control_or_none(context: Any) -> Any:
-    """Best-effort node control service from the context, else ``None``.
+    """Best-effort node command gateway or control service from the context, else ``None``.
 
     The real :class:`ReconciliationContext` builds one lazily; lightweight
     test contexts (``SimpleNamespace`` stubs) carry no such attribute.  Probe
-    and manager dispatch only receive a node control service when it can
+    and manager dispatch receive a gateway/control service when it can
     actually be produced — otherwise the driver takes its honest no-op path.
     """
     try:
-        return context.node_control  # type: ignore[no-any-return]
+        if getattr(context, "_node_control", None) is not None:
+            return context._node_control
+        if hasattr(context, "command_gateway") and context.command_gateway is not None:
+            return context.command_gateway
+        return context.node_control
     except Exception:  # noqa: BLE001 - AttributeError on stub contexts is expected
         return None
 
@@ -131,7 +135,9 @@ class ReconciliationContext:
     control_planes: ControlPlaneService
     environments: EnvironmentService
     deployments: DeploymentService
+    session_factory: Any | None = None
     _node_control: NodeControlService | None = None
+    _command_gateway: Any | None = None
 
     @property
     def node_control(self) -> NodeControlService:
@@ -140,8 +146,20 @@ class ReconciliationContext:
             self._node_control = _build_node_control_service(self.session)
         return self._node_control
 
+    @property
+    def command_gateway(self) -> Any:
+        """Lazily built command gateway using session_factory (or session fallback)."""
+        if self._command_gateway is None:
+            from llm_port_backend.services.inference.drivers.ray.commands import (  # noqa: PLC0415
+                NodeCommandGateway,
+            )
+
+            target = self.session_factory if self.session_factory is not None else self.session
+            self._command_gateway = NodeCommandGateway(target)
+        return self._command_gateway
+
     @classmethod
-    def for_session(cls, session: AsyncSession) -> ReconciliationContext:
+    def for_session(cls, session: AsyncSession, session_factory: Any | None = None) -> ReconciliationContext:
         # Lazy import: ``service`` imports the observation builders from *this*
         # module, so importing the services at module top would be a cycle.
         from llm_port_backend.services.inference.service import (  # noqa: PLC0415
@@ -155,6 +173,7 @@ class ReconciliationContext:
             control_planes=ControlPlaneService(session),
             environments=EnvironmentService(session),
             deployments=DeploymentService(session),
+            session_factory=session_factory,
         )
 
 

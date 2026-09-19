@@ -12,6 +12,10 @@ class RayEnvironmentConfig(BaseModel):
     dashboard_host: str = "127.0.0.1"
     object_store_memory: int | None = None
     extra_ray_start_args: dict[str, str] = {}
+    node_env_vars: dict[str, str] = {}
+    serve_proxy_location: str = "HeadOnly"
+    serve_http_host: str | None = None
+    serve_http_port: int = 8000
 
 
 class RayProbeResult(BaseModel):

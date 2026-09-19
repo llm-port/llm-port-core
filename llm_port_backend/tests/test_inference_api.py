@@ -172,14 +172,15 @@ async def test_control_plane_update_renames(client: AsyncClient, authed_fapp: Fa
     assert r.json()["name"] == "cp-renamed"
 
 
-async def test_control_plane_reconcile_is_noop_stub(client: AsyncClient, authed_fapp: FastAPI) -> None:
+async def test_control_plane_reconcile_queues_environments(client: AsyncClient, authed_fapp: FastAPI) -> None:
     cp = await make_control_plane(client, name="cp")
+    env = await make_environment(client, cp["id"], name="env")
     r = await client.post(f"{API}/control-planes/{cp['id']}/reconcile")
     assert r.status_code == 200
-    body = r.json()
-    assert body["observed_generation"] == body["generation"]
-    assert body["observed_status"]["reconciled"] is False
-    assert body["observed_status"]["probed"] is False
+    # The route no longer stamps a Phase 1 "no live actions" observation.
+    assert "no driver registered" not in str(r.json().get("observed_status"))
+    env_body = (await client.get(f"{API}/environments/{env['id']}")).json()
+    assert env_body["observed_generation"] < env_body["generation"]  # queued
 
 
 async def test_control_plane_get_missing_404(client: AsyncClient, authed_fapp: FastAPI) -> None:
@@ -295,14 +296,14 @@ async def test_environment_add_node_invalid_role_409(
     assert r.status_code == 409
 
 
-async def test_environment_reconcile_is_noop_stub(client: AsyncClient, authed_fapp: FastAPI) -> None:
+async def test_environment_reconcile_queues_for_reconciler(client: AsyncClient, authed_fapp: FastAPI) -> None:
     cp = await make_control_plane(client, name="cp")
     env = await make_environment(client, cp["id"], name="env")
     r = await client.post(f"{API}/environments/{env['id']}/reconcile")
     assert r.status_code == 200
     body = r.json()
-    assert body["observed_generation"] == body["generation"]
-    assert body["observed_status"]["reconciled"] is False
+    assert body["observed_generation"] < body["generation"]  # queued for the reconciler
+    assert "no live actions" not in str(body.get("observed_status"))
 
 
 async def test_environment_delete_when_deployment_exists_409(
@@ -486,7 +487,7 @@ async def test_deployment_update_invalid_desired_state_409(
     assert r.status_code == 409
 
 
-async def test_deployment_reconcile_is_noop_stub(
+async def test_deployment_reconcile_queues_for_reconciler(
     client: AsyncClient, authed_fapp: FastAPI, dbsession: AsyncSession
 ) -> None:
     env, model_id = await _seed_env_and_model(client, dbsession, "cp-r1", "env-r1")
@@ -494,9 +495,8 @@ async def test_deployment_reconcile_is_noop_stub(
     r = await client.post(f"{API}/deployments/{dep['id']}/reconcile")
     assert r.status_code == 200
     body = r.json()
-    assert body["observed_generation"] == body["generation"]
-    assert body["observed_status"]["reconciled"] is False
-    assert body["observed_status"]["applied"] is False
+    assert body["observed_generation"] < body["generation"]  # queued for the reconciler
+    assert "no live actions" not in str(body.get("observed_status"))
 
 
 async def test_deployment_delete_204(

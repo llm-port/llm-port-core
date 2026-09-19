@@ -45,20 +45,21 @@ def build_environment_conditions(
         })
 
     # Workers Joined Condition
-    if status.num_nodes >= expected_nodes and expected_nodes > 0:
-        conditions.append({
-            "type": "WorkersJoined",
-            "status": "True",
-            "reason": "AllWorkersJoined",
-            "message": f"All {expected_nodes} nodes have joined.",
-        })
-    elif status.num_nodes > 1:
-         conditions.append({
-            "type": "WorkersJoined",
-            "status": "False",
-            "reason": "PartialWorkersJoined",
-            "message": f"Only {status.num_nodes} of {expected_nodes} nodes joined.",
-        })
+    if expected_nodes > 0:
+        if status.num_nodes >= expected_nodes:
+            conditions.append({
+                "type": "WorkersJoined",
+                "status": "True",
+                "reason": "AllWorkersJoined",
+                "message": f"All {expected_nodes} nodes have joined.",
+            })
+        else:
+            conditions.append({
+                "type": "WorkersJoined",
+                "status": "False",
+                "reason": "PartialWorkersJoined",
+                "message": f"Only {status.num_nodes} of {expected_nodes} nodes joined.",
+            })
 
     # Serve Ready condition (additive tier, non-gating).  Only reported when
     # the probe actually carried the Serve tier (None = tier not present for

@@ -219,9 +219,17 @@ def test_conditions_partial_workers() -> None:
     by_type = {c["type"]: c for c in conditions}
     assert by_type["HeadActive"]["status"] == "True"
     assert by_type["WorkersJoined"]["status"] == "False"
-    # A head-only cluster (exactly one node) has no workers condition yet.
-    head_only = {c["type"] for c in build_environment_conditions(_cluster(num_nodes=1), expected_nodes=3)}
-    assert head_only == {"HeadActive"}
+    # 1 of 2 expected nodes (F31): workers condition is False, not omitted.
+    conditions_1_of_2 = build_environment_conditions(_cluster(num_nodes=1), expected_nodes=2)
+    by_type_1_of_2 = {c["type"]: c for c in conditions_1_of_2}
+    assert by_type_1_of_2["HeadActive"]["status"] == "True"
+    assert by_type_1_of_2["WorkersJoined"]["status"] == "False"
+    assert by_type_1_of_2["WorkersJoined"]["reason"] == "PartialWorkersJoined"
+
+    # 1 of 3 expected nodes: workers condition is also False.
+    conditions_1_of_3 = build_environment_conditions(_cluster(num_nodes=1), expected_nodes=3)
+    by_type_1_of_3 = {c["type"]: c for c in conditions_1_of_3}
+    assert by_type_1_of_3["WorkersJoined"]["status"] == "False"
     # Legacy results (no serve/metrics tiers reported) carry no tier
     # conditions: health mapping stays stable for older agents.
     by_type_legacy = {c["type"]: c for c in conditions}
@@ -336,16 +344,27 @@ def test_secret_ref_inversion() -> None:
 
 
 async def _seed_environment(
-    session: AsyncSession, *, generation: int = 1, observed_generation: int = 0
+    session: AsyncSession,
+    *,
+    generation: int = 1,
+    observed_generation: int = 0,
+    status: str | None = None,
 ) -> InferenceEnvironment:
     cp = InferenceControlPlane(name=f"cp-{uuid.uuid4().hex[:12]}", driver="noop")
     session.add(cp)
     await session.flush()
+    if status is None:
+        status = (
+            EnvironmentStatus.READY.value
+            if observed_generation >= generation
+            else EnvironmentStatus.PENDING.value
+        )
     env = InferenceEnvironment(
         control_plane_id=cp.id,
         name=f"env-{uuid.uuid4().hex[:12]}",
         generation=generation,
         observed_generation=observed_generation,
+        status=status,
     )
     session.add(env)
     await session.flush()
@@ -355,6 +374,9 @@ async def _seed_environment(
 async def test_pending_observation_only_lags(dbsession: AsyncSession) -> None:
     pending_env = await _seed_environment(dbsession, generation=1, observed_generation=0)
     observed_env = await _seed_environment(dbsession, generation=2, observed_generation=2)
+    failed_env = await _seed_environment(
+        dbsession, generation=2, observed_generation=2, status=EnvironmentStatus.FAILED.value
+    )
     assert pending_env.id != observed_env.id
 
     pending = await EnvironmentDAO(dbsession).list_pending_observation()
@@ -362,6 +384,8 @@ async def test_pending_observation_only_lags(dbsession: AsyncSession) -> None:
     assert pending_env.id in ids
     # A non-deleted, fully observed environment must NOT be pending (bug B10).
     assert observed_env.id not in ids
+    # A failed environment with desired_state=running must be retried (F05).
+    assert failed_env.id in ids
 
 
 # ---------------------------------------------------------------------------
@@ -527,10 +551,32 @@ async def test_environment_loop_stopped_state_tears_down(probe_env, dbsession: A
     leaves = fake.by_type(NodeCommandType.LEAVE_RAY_CLUSTER.value)
     assert len(stops) == 1 and stops[0]["node_id"] == nodes[0].id
     assert len(leaves) == 1 and leaves[0]["node_id"] == nodes[1].id
+    # F23: Confirmation that workers leave first, head stops last
+    issued_types = [c["command_type"] for c in fake.issued]
+    assert issued_types == [NodeCommandType.LEAVE_RAY_CLUSTER.value, NodeCommandType.STOP_RAY.value]
     # No lifecycle start/join work for a stopped environment.
     assert fake.by_type(NodeCommandType.START_RAY_HEAD.value) == []
     assert fake.by_type(NodeCommandType.JOIN_RAY_CLUSTER.value) == []
     assert env.status is EnvironmentStatus.STOPPED
+
+
+async def test_environment_loop_ensure_runtime_failure_marks_failed(probe_env, dbsession: AsyncSession) -> None:
+    _cp, env, nodes = probe_env
+    # Fake node control where ENSURE_RAY_RUNTIME reports installed: False
+    fake = _FakeNodeControl(
+        result_json={"alive": True, "num_nodes": 2},
+        results={
+            NodeCommandType.ENSURE_RAY_RUNTIME.value: {"installed": False, "version": "2.58.0"},
+        },
+    )
+    await _ray_driver().environment_manager.reconcile_environment(dbsession, env, node_control=fake)
+
+    # Failed ENSURE stops the pass immediately with FAILED status and reason
+    assert env.status is EnvironmentStatus.FAILED
+    assert "not installed" in env.observed_status_json["observation"]["reason"]
+    # No START_RAY_HEAD or JOIN_RAY_CLUSTER was attempted
+    assert fake.by_type(NodeCommandType.START_RAY_HEAD.value) == []
+    assert fake.by_type(NodeCommandType.JOIN_RAY_CLUSTER.value) == []
 
 
 async def test_environment_loop_without_node_control_is_honest(probe_env, dbsession: AsyncSession) -> None:
@@ -683,29 +729,49 @@ def _run_serve_result(app_name: str) -> dict[str, Any]:
     return {"deleted": False, "ran": True, "app_name": app_name, "status": "ok"}
 
 
-def _serve_status(app_name: str) -> dict[str, Any]:
+def _serve_status(app_name: str, *, app_status: str = "RUNNING", message: str | None = None) -> dict[str, Any]:
+    """A GET_RAY_SERVE_STATUS result shaped like Ray 2.58's.
+
+    ``build_openai_app`` creates an ``LLMServer:<model>`` deployment and an
+    ``OpenAiIngress`` deployment; a healthy deployment reports ``HEALTHY``
+    and serving replicas are in state ``RUNNING``.
+    """
     return {
         "alive": True,
         "serve": {
             "available": True,
-            "active": True,
+            "active": app_status == "RUNNING",
             "detail": None,
             "apps": {
                 app_name: {
-                    "status": "RUNNING",
-                    "message": None,
+                    "name": app_name,
+                    "status": app_status,
+                    "message": message,
                     "deployments": {
-                        app_name: {
-                            "status": "RUNNING",
+                        "LLMServer:tiny-model": {
+                            "name": "LLMServer:tiny-model",
+                            "status": "HEALTHY",
                             "num_replicas_ready": 1,
                             "num_replicas_pending": 0,
-                            "message": None,
-                        }
+                            "message": "",
+                        },
+                        "OpenAiIngress": {
+                            "name": "OpenAiIngress",
+                            "status": "HEALTHY",
+                            "num_replicas_ready": 1,
+                            "num_replicas_pending": 0,
+                            "message": "",
+                        },
                     },
                 }
             },
         },
     }
+
+
+def _serve_status_without_apps() -> dict[str, Any]:
+    """Serve is up but the app is gone (e.g. the cluster restarted)."""
+    return {"alive": True, "serve": {"available": True, "active": False, "detail": None, "apps": {}}}
 
 
 @pytest.fixture()
@@ -721,6 +787,8 @@ async def deployment_env(dbsession: AsyncSession) -> tuple[InferenceDeployment, 
         control_plane_id=cp.id,
         name=f"env-{uuid.uuid4().hex[:12]}",
         head_node_id=node.id,
+        # Deployments only act on a ready environment (F40).
+        status=EnvironmentStatus.READY.value,
     )
     dbsession.add(env)
     await dbsession.flush()  # env.id must exist before membership rows reference it
@@ -777,6 +845,10 @@ async def test_deployment_active_runs_and_publishes(deployment_env, dbsession: A
     assert runs[0]["payload"]["app_name"] == app
     assert runs[0]["payload"]["llm_serving_args"]
     assert runs[0]["idempotency_key"].startswith(f"inference-dep:run:{dep.id}:{dep.generation}")
+    # F13: the Serve proxy is placed on the head and bound to its cluster IP
+    # (Ray's default 127.0.0.1 is unreachable off-node).
+    assert runs[0]["payload"]["proxy_location"] == "HeadOnly"
+    assert runs[0]["payload"]["http_options"] == {"host": "10.0.0.1", "port": 8000}
 
     # Readiness was observed through the Serve tier (best-effort probe).
     serves = fake.by_type(NodeCommandType.GET_RAY_SERVE_STATUS.value)
@@ -787,7 +859,9 @@ async def test_deployment_active_runs_and_publishes(deployment_env, dbsession: A
     assert len(endpoints) == 1
     assert endpoints[0].name == "openai"
     assert endpoints[0].status == "published"
-    assert app in endpoints[0].address
+    # Reachable URL: scheme + head IP + Serve port + the app's route prefix.
+    assert endpoints[0].address == f"http://10.0.0.1:8000/{app}"
+    assert endpoints[0].published_json["base_url"] == f"http://10.0.0.1:8000/{app}/v1"
 
 
 async def test_deployment_delete_converges_and_retires(deployment_env, dbsession: AsyncSession) -> None:
@@ -896,3 +970,242 @@ async def test_reconcile_deployment_no_driver_is_domain_noop(
     assert report["reconciled"] is False
     assert report["reason"] == "no driver registered"
     dep_reconcile.assert_awaited_once_with(dep.id)
+
+
+# ---------------------------------------------------------------------------
+# Real-path regressions (2026-09-19 implementation review).  Each test pins a
+# defect the earlier suite could not see because its fakes bypassed the
+# production wiring.
+# ---------------------------------------------------------------------------
+
+
+async def test_probes_never_resume_an_earlier_in_flight_probe(probe_env) -> None:
+    """A probe stuck on a dead agent must not capture every later probe."""
+    from llm_port_backend.services.inference.drivers.ray.client import RayClusterClient
+
+    _cp, _env, nodes = probe_env
+    fake = _FakeNodeControl(result_json=_healthy_probe_result())
+    client = RayClusterClient(fake)
+    await client.probe_cluster(head_node_id=nodes[0].id)
+    await client.probe_cluster(head_node_id=nodes[0].id)
+    keys = [c["idempotency_key"] for c in fake.by_type(NodeCommandType.GET_RAY_STATUS.value)]
+    assert len(keys) == 2 and keys[0] != keys[1]
+
+
+def test_ray_command_error_is_raisable() -> None:
+    """Raising the error must not itself fail (``self`` was keyword-only)."""
+    from llm_port_backend.services.inference.drivers.ray.client import RayCommandError
+
+    with pytest.raises(RayCommandError) as info:
+        raise RayCommandError(
+            command_type="run_serve_app", node_id=None, error_code="x", error_message="boom"
+        )
+    assert info.value.detail == "boom"
+    assert info.value.error_code == "x"
+
+
+async def test_environment_loop_accepts_command_gateway(probe_env, dbsession: AsyncSession) -> None:
+    """The reconciler hands managers a NodeCommandGateway, not a NodeControlService."""
+    from llm_port_backend.services.inference.drivers.ray.commands import NodeCommandGateway
+
+    _cp, env, _nodes = probe_env
+    fake = _FakeNodeControl(result_json=_healthy_probe_result())
+    await _ray_driver().environment_manager.reconcile_environment(
+        dbsession, env, node_control=NodeCommandGateway(fake)
+    )
+    assert env.status is EnvironmentStatus.READY
+    assert fake.by_type(NodeCommandType.START_RAY_HEAD.value)
+
+
+async def test_environment_missing_runtime_fails_with_reason(probe_env, dbsession: AsyncSession) -> None:
+    """ENSURE results are awaited and checked: a missing runtime fails the env."""
+    _cp, env, _nodes = probe_env
+    fake = _FakeNodeControl(
+        result_json=_healthy_probe_result(),
+        results={NodeCommandType.ENSURE_RAY_RUNTIME.value: {"installed": False}},
+    )
+    await _ray_driver().environment_manager.reconcile_environment(dbsession, env, node_control=fake)
+    assert env.status is EnvironmentStatus.FAILED
+    assert "not installed" in env.observed_status_json["observation"]["reason"]
+    assert not fake.by_type(NodeCommandType.START_RAY_HEAD.value)
+
+
+async def test_environment_teardown_not_confirmed_is_not_stopped(
+    probe_env, dbsession: AsyncSession
+) -> None:
+    """STOPPED is recorded only after the stop commands succeed."""
+    _cp, env, _nodes = probe_env
+    env.desired_state = "stopped"
+    env.generation += 1
+    await dbsession.flush()
+    before = env.observed_generation
+    fake = _FakeNodeControl(result_json=None, status=NodeCommandStatus.FAILED.value)
+    await _ray_driver().environment_manager.reconcile_environment(dbsession, env, node_control=fake)
+    assert env.status != EnvironmentStatus.STOPPED
+    assert env.observed_generation == before  # still queued for a retry
+    assert "teardown not confirmed" in env.observed_status_json["observation"]["reason"]
+
+
+async def test_deployment_waits_for_ready_environment(deployment_env, dbsession: AsyncSession) -> None:
+    """F40: no RUN against an environment that is not ready."""
+    dep, _node = deployment_env
+    env = await dbsession.get(InferenceEnvironment, dep.environment_id)
+    env.status = EnvironmentStatus.PREPARING.value
+    await dbsession.flush()
+    fake = _FakeNodeControl(result_json=_healthy_probe_result())
+    await _ray_driver().deployment_manager.reconcile_deployment(dbsession, dep, node_control=fake)
+    assert dep.phase == "pending"
+    assert dep.observed_generation != dep.generation
+    assert not fake.by_type(NodeCommandType.RUN_SERVE_APP.value)
+
+
+def _fast_readiness(monkeypatch: pytest.MonkeyPatch) -> None:
+    from llm_port_backend.services.inference.drivers.ray import deployment as deployment_mod
+
+    monkeypatch.setattr(deployment_mod, "_READINESS_PASS_BUDGET_SEC", 0.0)
+    monkeypatch.setattr(deployment_mod, "_READINESS_POLL_SEC", 0.0)
+
+
+async def test_deployment_observes_only_then_reapplies_when_app_lost(
+    deployment_env, dbsession: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Unchanged config + app present -> no RUN (a RUN restarts replicas);
+    app missing after a cluster restart -> re-apply."""
+    _fast_readiness(monkeypatch)
+    dep, _node = deployment_env
+    app = f"llmport-{dep.id}"
+
+    def _fake(serve_result: dict[str, Any]) -> _FakeNodeControl:
+        return _FakeNodeControl(
+            result_json=_healthy_probe_result(),
+            results={
+                NodeCommandType.RUN_SERVE_APP.value: _run_serve_result(app),
+                NodeCommandType.GET_RAY_SERVE_STATUS.value: serve_result,
+            },
+        )
+
+    first = _fake(_serve_status(app))
+    await _ray_driver().deployment_manager.reconcile_deployment(dbsession, dep, node_control=first)
+    assert dep.phase == "running"
+    assert len(first.by_type(NodeCommandType.RUN_SERVE_APP.value)) == 1
+
+    again = _fake(_serve_status(app))
+    await _ray_driver().deployment_manager.reconcile_deployment(dbsession, dep, node_control=again)
+    assert again.by_type(NodeCommandType.RUN_SERVE_APP.value) == []
+    assert dep.phase == "running"
+
+    lost = _fake(_serve_status_without_apps())
+    await _ray_driver().deployment_manager.reconcile_deployment(dbsession, dep, node_control=lost)
+    assert len(lost.by_type(NodeCommandType.RUN_SERVE_APP.value)) == 1
+
+
+async def test_deployment_deploy_failed_surfaces_ray_message(
+    deployment_env, dbsession: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _fast_readiness(monkeypatch)
+    dep, _node = deployment_env
+    app = f"llmport-{dep.id}"
+    fake = _FakeNodeControl(
+        result_json=_healthy_probe_result(),
+        results={
+            NodeCommandType.RUN_SERVE_APP.value: _run_serve_result(app),
+            NodeCommandType.GET_RAY_SERVE_STATUS.value: _serve_status(
+                app, app_status="DEPLOY_FAILED", message="Engine core initialization failed"
+            ),
+        },
+    )
+    await _ray_driver().deployment_manager.reconcile_deployment(dbsession, dep, node_control=fake)
+    assert dep.phase == "failed"
+    assert "Engine core initialization failed" in dep.phase_message
+
+
+async def test_deployment_run_timeout_stays_applying(
+    deployment_env, dbsession: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A command timeout is 'outcome unknown', never FAILED."""
+    from llm_port_backend.services.inference.drivers.ray.client import (
+        RayClusterClient,
+        RayCommandError,
+    )
+
+    async def _timeout(self: Any, **_kwargs: Any) -> dict[str, Any]:
+        raise RayCommandError(
+            command_type="run_serve_app", node_id=None,
+            error_code="command_timeout", error_message="no result",
+        )
+
+    monkeypatch.setattr(RayClusterClient, "run_serve_app", _timeout)
+    dep, _node = deployment_env
+    fake = _FakeNodeControl(result_json=_healthy_probe_result())
+    await _ray_driver().deployment_manager.reconcile_deployment(dbsession, dep, node_control=fake)
+    assert dep.phase == "applying"
+    assert dep.observed_generation != dep.generation
+
+
+async def test_request_reconcile_preserves_driver_bookkeeping(
+    deployment_env, dbsession: AsyncSession
+) -> None:
+    """The API's reconcile request must not erase the applied config hash."""
+    from llm_port_backend.services.inference.service import DeploymentService
+
+    dep, _node = deployment_env
+    dep.observed_generation = dep.generation
+    dep.observed_status_json = {"applied_config_hash": "abc", "observation": {"reconciled": True}}
+    await dbsession.flush()
+    await DeploymentService(dbsession).request_reconcile(dep.id)
+    assert dep.observed_generation == dep.generation - 1
+    assert dep.observed_status_json["applied_config_hash"] == "abc"
+
+
+async def test_reconcile_pass_hands_context_the_session_factory(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The loop must give the context its session factory so node commands are
+    committed in their own transactions (visible to the stream handler)."""
+    from llm_port_backend.db.dao import inference_dao
+    from llm_port_backend.services.inference import reconciliation
+    from llm_port_backend.web import lifespan
+
+    row = SimpleNamespace(id=uuid.uuid4())
+
+    class _Session:
+        async def __aenter__(self) -> "_Session":
+            return self
+
+        async def __aexit__(self, *exc: Any) -> bool:
+            return False
+
+        async def get(self, _model: Any, _id: Any) -> Any:
+            return row
+
+        async def commit(self) -> None:
+            return None
+
+        async def rollback(self) -> None:
+            return None
+
+    def factory() -> _Session:
+        return _Session()
+
+    seen: dict[str, Any] = {}
+
+    def _for_session(session: Any, session_factory: Any = None) -> Any:
+        seen["factory"] = session_factory
+        return SimpleNamespace()
+
+    async def _pending(self: Any) -> list[Any]:
+        return [row]
+
+    reconciled: list[Any] = []
+
+    async def _reconcile(_context: Any, obj: Any) -> None:
+        reconciled.append(obj)
+
+    monkeypatch.setattr(reconciliation.ReconciliationContext, "for_session", staticmethod(_for_session))
+    monkeypatch.setattr(inference_dao.EnvironmentDAO, "list_pending_observation", _pending)
+    monkeypatch.setattr(inference_dao.DeploymentDAO, "list_pending_observation", _pending)
+    monkeypatch.setattr(reconciliation, "reconcile_environment", _reconcile)
+    monkeypatch.setattr(reconciliation, "reconcile_deployment", _reconcile)
+
+    app = SimpleNamespace(state=SimpleNamespace(db_session_factory=factory))
+    await lifespan._run_inference_reconcile_pass(app)
+    assert seen["factory"] is factory
+    assert len(reconciled) == 2

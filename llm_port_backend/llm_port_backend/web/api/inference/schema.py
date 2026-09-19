@@ -242,3 +242,20 @@ class ReconcileReport(BaseModel):
     reconciled: bool
     reason: str | None = None
     extra: dict[str, Any] | None = None
+
+
+class EndpointDTO(BaseModel):
+    """Logical endpoint representation returned by the API."""
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    id: uuid.UUID
+    deployment_id: uuid.UUID
+    name: str
+    path: str
+    address: str
+    status: str
+    status_message: str | None = None
+    published: dict[str, Any] = Field(default_factory=dict, validation_alias="published_json")
+    created_at: datetime
+    updated_at: datetime

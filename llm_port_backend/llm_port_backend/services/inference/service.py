@@ -183,6 +183,31 @@ class ControlPlaneService:
         await self.session.refresh(control_plane)
         return control_plane
 
+    async def request_reconcile(self, control_plane_id: uuid.UUID) -> InferenceControlPlane:
+        """Queue every environment of the control plane for the reconciler.
+
+        A control plane has no reconcile pass of its own; its live state is
+        its environments'.  Observed state is left untouched.
+        """
+        control_plane = await self.get(control_plane_id)
+        for environment in await self.environment_dao.list_all(control_plane_id=control_plane_id):
+            _queue_for_reconcile(environment)
+        await self.session.flush()
+        return control_plane
+
+
+def _queue_for_reconcile(row: Any) -> None:
+    """Put *row* back in the reconciler's queue without touching its observed state.
+
+    The loop selects rows whose ``observed_generation`` lags ``generation``;
+    the next pass re-stamps it.  Unlike :meth:`reconcile` (the no-driver
+    fallback), this never overwrites ``observed_status_json`` — the driver's
+    bookkeeping there (e.g. the applied config hash) must survive, or the next
+    pass would redeploy and restart the model.
+    """
+    if row.observed_generation >= row.generation:
+        row.observed_generation = row.generation - 1
+
 
 # ---------------------------------------------------------------------------
 # Environments
@@ -293,11 +318,20 @@ class EnvironmentService:
         await self.get(environment_id)
         await self.node_dao.remove_node(environment_id, node_id)
 
-    async def reconcile(self, environment_id: uuid.UUID) -> InferenceEnvironment:
-        """Drive an environment toward its desired state.
+    async def request_reconcile(self, environment_id: uuid.UUID) -> InferenceEnvironment:
+        """Queue the environment for the reconciler (observed state untouched)."""
+        environment = await self.get(environment_id)
+        _queue_for_reconcile(environment)
+        await self.session.flush()
+        await self.session.refresh(environment)
+        return environment
 
-        Phase 1: no live actions.  Records an honest no-op observation that
-        marks the environment observed at its current generation.
+    async def reconcile(self, environment_id: uuid.UUID) -> InferenceEnvironment:
+        """Record an honest no-op observation (no driver can act).
+
+        Used by the reconciliation seam when the environment's driver is not
+        registered; marks the environment observed at its current generation.
+        API callers use :meth:`request_reconcile`.
         """
         environment = await self.get(environment_id)
         environment.observed_generation = environment.generation
@@ -420,13 +454,25 @@ class DeploymentService:
             raise NotFoundError("deployment", deployment_id)
         return updated
 
-    async def reconcile(self, deployment_id: uuid.UUID) -> InferenceDeployment:
-        """Drive a deployment toward its desired state.
+    async def request_reconcile(self, deployment_id: uuid.UUID) -> InferenceDeployment:
+        """Queue the deployment for the reconciler (observed state untouched).
 
-        Phase 1: no live actions.  We intentionally do NOT move the phase to
-        ``applying`` (nothing is actually applied); instead a no-op observation
-        is recorded at the current generation so the row is no longer
-        "pending observation."
+        A ``failed`` deployment is re-applied on that pass; a ``running`` one
+        is only re-observed (its applied config hash is preserved).
+        """
+        deployment = await self.get(deployment_id)
+        _queue_for_reconcile(deployment)
+        await self.session.flush()
+        await self.session.refresh(deployment)
+        return deployment
+
+    async def reconcile(self, deployment_id: uuid.UUID) -> InferenceDeployment:
+        """Record an honest no-op observation (no driver can act).
+
+        Used by the reconciliation seam when the deployment's driver is not
+        registered.  We intentionally do NOT move the phase to ``applying``
+        (nothing is actually applied).  API callers use
+        :meth:`request_reconcile`.
         """
         deployment = await self.get(deployment_id)
         await self.dao.set_observed(

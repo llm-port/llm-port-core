@@ -19,7 +19,11 @@ The mapping (see the Ray migration plan, Phase 3):
     engine.config       -> ``engine_kwargs``
     scale.replicas      -> ``deployment_config.num_replicas``
     scale.autoscale     -> ``deployment_config.autoscaling_config``
-    resources.replica   -> ``placement_group_config`` (explicit bundles)
+    resources.replica   -> ``placement_group_config.bundle_per_worker`` (only
+                           for fractional GPU / explicit CPU; else Ray's
+                           per-device default bundles)
+    resources.placement,
+    topology.nodes      -> ``placement_group_config.strategy``
     topology.*          -> ``engine_kwargs.tensor/pipeline_parallel_size``
     (accelerator)       -> ``accelerator_type``   (whitelisted, else omitted)
     (model/artifacts)   -> ``model_loading_config`` (HF id or local path)
@@ -98,6 +102,46 @@ class ArtifactResolutionError(ValueError):
     ``validate``/``plan`` error handling and surfaced as a deployment
     ``FAILED`` phase rather than an unhandled loop crash.
     """
+
+
+class DeploymentValidationError(ValueError):
+    """Raised when an InferenceDeploymentSpec is unsupported or invalid for Ray."""
+
+
+def validate_spec(spec: InferenceDeploymentSpecV1Alpha1) -> None:
+    """Validate that the spec is supported by the Ray driver.
+
+    Raises:
+        DeploymentValidationError: if any unsupported field or invalid combination is detected.
+    """
+    engine_name = (spec.engine.name or "").strip().lower()
+    if engine_name not in _SUPPORTED_ENGINE_NAMES:
+        raise DeploymentValidationError(
+            f"unsupported engine for Ray: {spec.engine.name!r} (expected one of {sorted(_SUPPORTED_ENGINE_NAMES)})"
+        )
+    if spec.replica_routing and spec.replica_routing.kv_aware:
+        raise DeploymentValidationError(
+            "KV-aware replica routing is not supported on Ray Serve v1alpha1"
+        )
+    if spec.scale.autoscale is not None:
+        autoscale = spec.scale.autoscale
+        min_rep = autoscale.min_replicas
+        max_rep = autoscale.max_replicas
+        if min_rep is not None and max_rep is not None and min_rep > max_rep:
+            raise DeploymentValidationError(
+                f"min_replicas ({min_rep}) cannot be greater than max_replicas ({max_rep})"
+            )
+        # Ray Serve autoscales on ongoing requests per replica, not on a
+        # utilisation fraction; mapping one onto the other would scale to
+        # max_replicas under any load.  Require Ray's own knob explicitly.
+        if autoscale.target_utilization is not None or autoscale.metrics is not None:
+            raise DeploymentValidationError(
+                "scale.autoscale.target_utilization/metrics have no Ray Serve equivalent; "
+                "use extensions.ray.target_ongoing_requests instead"
+            )
+    _ray_target_ongoing_requests(spec)  # validates the extension's type
+    _placement(spec)  # validates the GPU / topology combination
+    _extension_env_vars(spec)  # validates extension runtime_env keys
 
 
 @dataclass(frozen=True)
@@ -228,24 +272,23 @@ def _deployment_config(
     replicas: int,
     min_replicas: int | None,
     max_replicas: int | None,
-    target_utilization: float | None,
+    target_ongoing_requests: float | None = None,
+    upscale_delay_s: float | None = None,
+    downscale_delay_s: float | None = None,
 ) -> dict[str, Any]:
     """Build ``LLMConfig.deployment_config`` for a resolved replica count.
 
     * ACTIVE with fixed replicas → ``num_replicas``.
-    * ACTIVE with autoscaling bounds → ``autoscaling_config`` (min/max); the
-      target utilization is mapped to the engine metric vLLM understands best
-      (``target_ongoing_requests`` is left to Ray's engine default since
-      ``target_utilization`` is a fraction, not a request count — emitting a
-      fractional ``target_ongoing_requests`` would be meaningless to Serve).
+    * ACTIVE with autoscaling bounds → ``autoscaling_config`` (min/max).
+      When ``autoscaling_config`` is emitted, ``num_replicas`` is NEVER emitted.
     * STOPPED → ``num_replicas: 0`` (scale to zero, no live workers).
 
     ``num_replicas`` and ``autoscaling_config`` are mutually exclusive in Ray's
     ``DeploymentConfig``; exactly one path is taken here.
     """
     config: dict[str, Any] = {}
-    if replicas <= 0:
-        # Scale to zero.  Serve accepts num_replicas=0 (no live replicas).
+    if replicas <= 0 and max_replicas is None:
+        # Scale to zero with fixed replicas. Serve accepts num_replicas=0.
         config["num_replicas"] = 0
         return config
 
@@ -254,10 +297,13 @@ def _deployment_config(
             "min_replicas": int(min_replicas if min_replicas is not None else 1),
             "max_replicas": int(max_replicas),
         }
+        if target_ongoing_requests is not None:
+            autoscaling["target_ongoing_requests"] = target_ongoing_requests
+        if upscale_delay_s is not None:
+            autoscaling["upscale_delay_s"] = float(upscale_delay_s)
+        if downscale_delay_s is not None:
+            autoscaling["downscale_delay_s"] = float(downscale_delay_s)
         config["autoscaling_config"] = autoscaling
-        # ``num_replicas`` is the *initial* replica count for an autoscaled
-        # deployment; anchor it at the min so we start at the lower bound.
-        config["num_replicas"] = int(min_replicas if min_replicas is not None else 1)
     else:
         config["num_replicas"] = int(replicas)
     return config
@@ -268,8 +314,9 @@ def _engine_kwargs(
     engine_config: dict[str, Any],
     tensor_parallel_size: int | None,
     pipeline_parallel_size: int | None,
+    revision: str | None = None,
 ) -> dict[str, Any]:
-    """Merge spec engine kwargs with topology-derived TP/PP.
+    """Merge spec engine kwargs with topology-derived TP/PP and model revision.
 
     The operator-provided ``engine.config`` wins for any key it sets (an
     explicit override), but a topology TP/PP that the operator did *not* also
@@ -281,57 +328,124 @@ def _engine_kwargs(
         kwargs.setdefault("tensor_parallel_size", int(tensor_parallel_size))
     if pipeline_parallel_size is not None:
         kwargs.setdefault("pipeline_parallel_size", int(pipeline_parallel_size))
+    if revision:
+        kwargs.setdefault("revision", str(revision))
     return kwargs
 
 
-def _placement_group_config(
-    *,
-    gpus: float | None,
-    cpu: float | None,
-    accelerator_type: str | None,
-) -> dict[str, Any] | None:
-    """Build an explicit ``placement_group_config`` honouring the resource spec.
+_PLACEMENT_STRATEGIES = frozenset({"PACK", "STRICT_PACK", "SPREAD", "STRICT_SPREAD"})
 
-    vLLM will generate its own placement-group bundles from TP/PP when none is
-    supplied (one ``GPU:1`` bundle per device).  We only emit an *explicit*
-    bundle list when the operator asked for a non-default per-replica shape —
-    a fractional or >1 GPU-per-bundle request — because those cannot be
-    inferred from TP/PP alone.  ``cpu`` is applied as the per-bundle CPU
-    request.  ``memory`` is intentionally not modelled (Ray bundles use GB of
-    object-store/CPU, not the container-memory string the spec carries) and is
-    a later-phase concern.
+# Env vars a (user-controlled) spec may set on replicas.  Everything else in
+# ``runtime_env`` (pip, working_dir, py_modules, ...) installs or runs code on
+# the GPU nodes and is therefore not accepted from a spec.
+_ENV_VAR_PREFIXES = ("VLLM_", "HF_", "NCCL_", "CUDA_")
+_ENV_VAR_DENYLIST = frozenset({"CUDA_VISIBLE_DEVICES"})
 
-    Uses the ``bundles`` (not ``bundle_per_worker``) form: ``bundle_per_worker``
-    is auto-replicated by ``tp*pp`` to GPU:1 per device, which would mis-size a
-    fractional-GPU request; an explicit list keeps the request exactly as asked
-    for.  Note that a single GPU bundle (the common "1 GPU per replica, TP=1"
-    case) is *omitted* and left to vLLM's default generation, which is the
-    exact same shape.
+
+def _ray_extension(spec: InferenceDeploymentSpecV1Alpha1) -> dict[str, Any]:
+    ext = (spec.extensions or {}).get("ray") if isinstance(spec.extensions, dict) else None
+    return ext if isinstance(ext, dict) else {}
+
+
+def _ray_target_ongoing_requests(spec: InferenceDeploymentSpecV1Alpha1) -> float | None:
+    value = _ray_extension(spec).get("target_ongoing_requests")
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+        raise DeploymentValidationError("extensions.ray.target_ongoing_requests must be a positive number")
+    return float(value)
+
+
+def _extension_env_vars(spec: InferenceDeploymentSpecV1Alpha1) -> dict[str, str]:
+    """Allow-listed env vars from the spec's extensions.
+
+    Accepted sources: ``extensions.env_vars``, ``extensions.runtime_env.env_vars``
+    and ``extensions.ray.runtime_env.env_vars``.
+
+    Raises:
+        DeploymentValidationError: for any other ``runtime_env`` key or an env
+            var outside the allow-list.
     """
-    gpus = float(gpus) if gpus is not None else None
-    cpu = float(cpu) if cpu is not None else None
+    exts = spec.extensions if isinstance(spec.extensions, dict) else {}
+    merged: dict[str, Any] = {}
+    if isinstance(exts.get("env_vars"), dict):
+        merged.update(exts["env_vars"])
+    for label, runtime_env in (
+        ("extensions.runtime_env", exts.get("runtime_env")),
+        ("extensions.ray.runtime_env", _ray_extension(spec).get("runtime_env")),
+    ):
+        if not isinstance(runtime_env, dict):
+            continue
+        for key, value in runtime_env.items():
+            if key != "env_vars":
+                raise DeploymentValidationError(
+                    f"{label}.{key} is not accepted from a deployment spec; only env_vars may be set"
+                )
+            if isinstance(value, dict):
+                merged.update(value)
+    for key in merged:
+        if key in _ENV_VAR_DENYLIST or not str(key).startswith(_ENV_VAR_PREFIXES):
+            raise DeploymentValidationError(
+                f"env var {key!r} is not allowed (allowed prefixes: {', '.join(_ENV_VAR_PREFIXES)}; "
+                f"never {', '.join(sorted(_ENV_VAR_DENYLIST))})"
+            )
+    return {str(k): str(v) for k, v in merged.items()}
 
-    need_explicit = (
-        (gpus is not None and not (gpus > 0 and gpus == int(gpus) and int(gpus) == 1))
-    )
-    # CPU-only or explicit-CPU requests also need a bundle so the CPU count is
-    # honoured (the default GPU bundle carries no CPU).
-    need_explicit = need_explicit or (cpu is not None and gpus is None)
 
-    if not need_explicit:
+def _placement(spec: InferenceDeploymentSpecV1Alpha1) -> dict[str, Any] | None:
+    """``placement_group_config`` for the replica, or ``None`` for Ray's default.
+
+    Ray LLM's default is one ``{"GPU": 1}`` bundle per device (TP×PP) with
+    strategy ``PACK`` (cross-node, best effort) — the right shape for
+    integral GPUs, including TP/PP spread over several 1-GPU nodes.  A config
+    is emitted only to change that: a fractional GPU per worker, an explicit
+    CPU request, or a placement strategy.  It always uses ``bundle_per_worker``
+    (Ray expands it to TP×PP bundles; a config without bundles would produce
+    *no* bundles), and never a hand-built ``accelerator_type:X`` key — Ray adds
+    its own fractional accelerator hint from ``LLMConfig.accelerator_type``.
+
+    Raises:
+        DeploymentValidationError: GPU count inconsistent with TP×PP, or an
+            unknown/impossible placement request.
+    """
+    topology = spec.topology
+    num_devices = int(topology.tensor_parallel_size or 1) * int(topology.pipeline_parallel_size or 1)
+    replica = spec.resources.replica
+    gpus = float(replica.gpus) if replica.gpus is not None else None
+
+    per_worker_gpu = 1.0
+    if gpus is not None and gpus != num_devices:
+        if num_devices == 1 and 0 < gpus < 1:
+            per_worker_gpu = gpus  # fractional single-device replica
+        else:
+            raise DeploymentValidationError(
+                f"resources.replica.gpus ({replica.gpus}) must equal tensor_parallel_size x "
+                f"pipeline_parallel_size ({num_devices}), or be a fraction when that is 1"
+            )
+
+    strategy: str | None = None
+    if spec.resources.placement:
+        strategy = spec.resources.placement.strip().upper()
+        if strategy not in _PLACEMENT_STRATEGIES:
+            raise DeploymentValidationError(
+                f"resources.placement {spec.resources.placement!r} is not one of {sorted(_PLACEMENT_STRATEGIES)}"
+            )
+    elif topology.nodes is not None:
+        if topology.nodes > num_devices:
+            raise DeploymentValidationError(
+                f"topology.nodes ({topology.nodes}) exceeds the replica's devices ({num_devices})"
+            )
+        strategy = "STRICT_PACK" if topology.nodes == 1 else "SPREAD"
+
+    if per_worker_gpu == 1.0 and replica.cpu is None and strategy is None:
         return None
-
-    bundle: dict[str, float] = {}
-    if gpus is not None and gpus > 0:
-        bundle["GPU"] = gpus
-    if cpu is not None:
-        bundle["CPU"] = cpu
-    if accelerator_type is not None:
-        # Hint so the accelerator resource is reserved alongside the GPU.
-        bundle[f"accelerator_type:{accelerator_type}"] = 1
-    if not bundle:
-        return None
-    return {"bundles": [bundle], "strategy": "STRICT_PACK"}
+    bundle: dict[str, float] = {"GPU": per_worker_gpu}
+    if replica.cpu is not None:
+        bundle["CPU"] = float(replica.cpu) / num_devices
+    config: dict[str, Any] = {"bundle_per_worker": bundle}
+    if strategy is not None:
+        config["strategy"] = strategy
+    return config
 
 
 def compile_spec(
@@ -340,6 +454,8 @@ def compile_spec(
     artifact: ArtifactResolution,
     desired_state: str = "active",
     accelerator_type: str | None = None,
+    revision: str | None = None,
+    runtime_env: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Compile one resolved deployment into a Ray ``LLMServingArgs`` document.
 
@@ -349,29 +465,26 @@ def compile_spec(
         desired_state: ``"active"`` or ``"stopped"`` (affects replica count).
         accelerator_type: resolved accelerator name *before* the Ray whitelist
             mapping (the caller passes the raw spec value; this function maps).
+        revision: optional model revision to thread into engine_kwargs.
+        runtime_env: optional runtime_env dictionary to inject into LLMConfig.
 
     Returns:
         A plain dictionary shaped like ``ray.serve.llm.LLMServingArgs`` with a
         single ``llm_configs`` entry.  It carries only JSON-safe values and no
         Ray types, so it can be embedded in a control-plane command payload.
     """
-    engine = spec.engine
-    if (engine.name or "").strip().lower() not in _SUPPORTED_ENGINE_NAMES:
-        raise ValueError(f"unsupported engine for Ray: {engine.name!r}")
+    validate_spec(spec)
 
     topology = spec.topology
     tp = topology.tensor_parallel_size
     pp = topology.pipeline_parallel_size
 
-    # Resolve TP/PP for both the engine kwargs and the (default) bundle
-    # inference.  vLLM treats a missing value as 1.
-    tp_int = int(tp) if tp else 1
-    pp_int = int(pp) if pp else 1
-
+    effective_revision = spec.artifacts.revision or revision
     engine_kwargs = _engine_kwargs(
-        engine_config=engine.config,
+        engine_config=spec.engine.config,
         tensor_parallel_size=tp,
         pipeline_parallel_size=pp,
+        revision=effective_revision,
     )
 
     # Determine the active replica representation.
@@ -382,7 +495,7 @@ def compile_spec(
         min_replicas = int(scale.autoscale.min_replicas)
         max_replicas = int(scale.autoscale.max_replicas)
     else:
-        replicas = int(scale.replicas or 1)
+        replicas = int(scale.replicas if scale.replicas is not None else 1)
         min_replicas = None
         max_replicas = None
 
@@ -390,21 +503,14 @@ def compile_spec(
         replicas=0 if stopped else replicas,
         min_replicas=None if stopped else min_replicas,
         max_replicas=None if stopped else max_replicas,
-        target_utilization=(scale.autoscale.target_utilization if scale.autoscale else None),
+        target_ongoing_requests=_ray_target_ongoing_requests(spec),
+        upscale_delay_s=(scale.autoscale.scale_up_timeout if scale.autoscale else None),
+        downscale_delay_s=(scale.autoscale.scale_down_timeout if scale.autoscale else None),
     )
 
     effective_accelerator = _accelerator_type(accelerator_type)
 
-    resources = spec.resources.replica
-    placement_group_config = (
-        None
-        if stopped
-        else _placement_group_config(
-            gpus=resources.gpus,
-            cpu=resources.cpu,
-            accelerator_type=effective_accelerator,
-        )
-    )
+    placement_group_config = None if stopped else _placement(spec)
 
     model_loading_config: dict[str, Any] = {
         "model_id": artifact.model_id,
@@ -417,6 +523,18 @@ def compile_spec(
         "engine_kwargs": engine_kwargs,
         "deployment_config": deployment_config,
     }
+
+    # runtime_env: the spec (user-controlled) may only contribute allow-listed
+    # env vars; ``runtime_env`` passed by the backend itself is trusted.
+    effective_runtime_env: dict[str, Any] = dict(runtime_env or {})
+    spec_env_vars = _extension_env_vars(spec)
+    if spec_env_vars:
+        env_vars = dict(effective_runtime_env.get("env_vars") or {})
+        env_vars.update(spec_env_vars)
+        effective_runtime_env["env_vars"] = env_vars
+    if effective_runtime_env:
+        llm_config["runtime_env"] = effective_runtime_env
+
     # accelerator_type only when Ray will accept it (None is a valid omission).
     if effective_accelerator is not None:
         llm_config["accelerator_type"] = effective_accelerator
@@ -439,6 +557,7 @@ def compile_deployment(
     availability_root_path: str | None = None,
     capabilities: dict[str, Any] | None = None,
     desired_state: str = "active",
+    runtime_env: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """End-to-end, testable compiler entrypoint.
 
@@ -450,12 +569,13 @@ def compile_deployment(
     from the spec's ``resources.replica.accelerator``.
     """
     spec = parse_inference_deployment_spec(spec_data)
+    effective_revision = spec.artifacts.revision or hf_revision
     artifact = resolve_artifact(
         spec=spec,
         model_display_name=model_display_name,
         model_source=model_source,
         hf_repo_id=hf_repo_id,
-        hf_revision=hf_revision,
+        hf_revision=effective_revision,
         availability_root_path=availability_root_path,
     )
     accelerator = (spec.resources.replica.accelerator or None)
@@ -464,6 +584,8 @@ def compile_deployment(
         artifact=artifact,
         desired_state=desired_state,
         accelerator_type=accelerator,
+        revision=effective_revision,
+        runtime_env=runtime_env,
     )
 
 
@@ -471,8 +593,10 @@ def compile_deployment(
 __all__ = [
     "ArtifactResolution",
     "ArtifactResolutionError",
+    "DeploymentValidationError",
     "_RAY_ACCELERATOR_WHITELIST",
     "compile_deployment",
     "compile_spec",
     "resolve_artifact",
+    "validate_spec",
 ]

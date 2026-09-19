@@ -397,52 +397,101 @@ def _start_node_command_reaper(app: FastAPI) -> None:
 
 
 async def _inference_reconciler_loop(app: FastAPI) -> None:
-    """Periodically reconcile inference environments.
+    """Periodically reconcile inference environments and deployments.
 
-    Each pass loads only the environments whose ``observed_generation`` lags
-    ``generation`` — a live, stable cluster never re-enters the queue, so the
-    loop is effectively event-driven by change.  Each environment is reconciled
-    in its own transactional scope so a single failure does not wed the rest.
+    Each pass loads only the environments and deployments whose ``observed_generation`` lags
+    ``generation`` (or in active transition phases) — a live, stable cluster/deployment never
+    re-enters the queue, so the loop is effectively event-driven by change.
+    Protected by PostgreSQL advisory lock across multi-replica backends.
     """
+    from sqlalchemy import text  # noqa: PLC0415
+
     interval_sec = 30
+    lock_sql = "hashtext('llmport.inference_reconciler')"
     while True:
-        session = None
         try:
             await asyncio.sleep(interval_sec)
             if broker.is_worker_process:
                 return
 
-            from llm_port_backend.db.dao.inference_dao import EnvironmentDAO
-            from llm_port_backend.services.inference.reconciliation import (
-                ReconciliationContext,
-                reconcile_environment,
-            )
+            engine = app.state.db_engine
+            if engine.dialect.name != "postgresql":
+                await _run_inference_reconcile_pass(app)
+                continue
 
-            session = app.state.db_session_factory()
-            async with session:
-                envs = await EnvironmentDAO(session).list_pending_observation()
-                if not envs:
+            # Every uvicorn worker runs this loop; only the lock holder acts.
+            # Session-level advisory locks belong to the *connection*, so hold
+            # one dedicated connection for the whole pass and unlock on it —
+            # through a pooled session the lock would leak with the connection.
+            async with engine.connect() as lock_conn:
+                acquired = (
+                    await lock_conn.execute(text(f"SELECT pg_try_advisory_lock({lock_sql})"))
+                ).scalar()
+                # End the implicit transaction; the session-level lock persists.
+                await lock_conn.commit()
+                if not acquired:
                     continue
-                context = ReconciliationContext.for_session(session)
-                for env in envs:
-                    try:
-                        await reconcile_environment(context, env)
-                    except Exception:
-                        log.exception("Failed to reconcile environment %s", env.id)
-                    finally:
-                        try:
-                            await session.commit()
-                        except Exception:
-                            await session.rollback()
+                try:
+                    await _run_inference_reconcile_pass(app)
+                finally:
+                    await lock_conn.execute(text(f"SELECT pg_advisory_unlock({lock_sql})"))
+                    await lock_conn.commit()
         except asyncio.CancelledError:
             raise
         except Exception:
-            if session is not None:
-                try:
-                    await session.rollback()
-                except Exception:
-                    pass
             log.exception("Inference reconciler pass failed.")
+
+
+async def _run_inference_reconcile_pass(app: FastAPI) -> None:
+    """One reconcile pass: environments first, then deployments.
+
+    The context gets the session *factory* so node commands are issued and
+    polled in their own short transactions (visible to the node stream
+    handler immediately); the pass session only carries the rows' observed
+    state and is committed after each resource.
+    """
+    from llm_port_backend.db.dao.inference_dao import (  # noqa: PLC0415
+        DeploymentDAO,
+        EnvironmentDAO,
+    )
+    from llm_port_backend.db.models.inference import (  # noqa: PLC0415
+        InferenceDeployment,
+        InferenceEnvironment,
+    )
+    from llm_port_backend.services.inference.reconciliation import (  # noqa: PLC0415
+        ReconciliationContext,
+        reconcile_deployment,
+        reconcile_environment,
+    )
+
+    factory = app.state.db_session_factory
+    async with factory() as session:
+        env_ids = [e.id for e in await EnvironmentDAO(session).list_pending_observation()]
+        dep_ids = [d.id for d in await DeploymentDAO(session).list_pending_observation()]
+        if not env_ids and not dep_ids:
+            return
+        context = ReconciliationContext.for_session(session, session_factory=factory)
+        # Rows are re-fetched by id: a rollback after one failed resource
+        # expires every loaded object, and touching an expired attribute
+        # would trigger implicit (non-async) IO.
+        for env_id in env_ids:
+            try:
+                env = await session.get(InferenceEnvironment, env_id)
+                if env is not None:
+                    await reconcile_environment(context, env)
+                await session.commit()
+            except Exception:
+                log.exception("Failed to reconcile environment %s", env_id)
+                await session.rollback()
+        for dep_id in dep_ids:
+            try:
+                dep = await session.get(InferenceDeployment, dep_id)
+                if dep is not None:
+                    await reconcile_deployment(context, dep)
+                await session.commit()
+            except Exception:
+                log.exception("Failed to reconcile deployment %s", dep_id)
+                await session.rollback()
 
 
 def _start_inference_reconciler(app: FastAPI) -> None:

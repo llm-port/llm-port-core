@@ -1,4 +1,4 @@
-"""Ray deployment lifecycle orchestrator (Phase 3).
+r"""Ray deployment lifecycle orchestrator (Phase 3).
 
 Drives an :class:`~llm_port_backend.db.models.inference.InferenceDeployment`
 toward its desired state by compiling the stored spec into a Ray
@@ -8,35 +8,35 @@ node agent (via :class:`~...drivers.ray.client.RayClusterClient`).
 
 Lifecycle (observed ``DeploymentPhase``):
 
-    VALIDATING -> PLANNED -> APPLYING -> RUNNING
-                                    \\-> FAILED
-    DELETED (desired delete/stop converged)
+    PENDING -> PREPARING -> APPLYING -> RUNNING
+                                    \-> DEGRADED
+                                    \-> FAILED
+    STOPPED (desired stop converged)
+    DELETED (desired delete converged)
 
-Design constraints (verified against the Phase 2 code):
+Design constraints (verified against the Phase 2/3 code):
 
 * **No Ray imports.** The backend stays Ray-free; the agent is the only
   component that imports ``ray.serve``.  This module only builds plain
   dictionaries and talks to the node agent through node commands.
 * **Named-app semantics.** Every deployment owns a stable app name
-  (``llmport-<deployment-id>``).  ``serve.run(app, name=...)`` deploys/updates
-  exactly that application and leaves other named apps untouched; delete uses
+  (``llmport-<deployment-id>``).  Serve deploys/updates exactly that
+  application and leaves other named apps untouched; delete uses
   ``serve.delete(name)``.
 * **Strict mutations, best-effort probes.**  RUN/DELETE_SERVE_APP go through
   the client's strict path (a terminal agent failure raises with the real
   cause and is recorded as a FAILED phase).  Status probes are best-effort:
   "not observed" never wedges the reconcile loop.
-* **Idempotency by (generation, app).**  The RUN idempotency key embeds the
-  row's ``generation``, so a spec change re-keys and re-dispatches (an
-  in-flight command with a *different* key is never deduped away), while
-  re-runs within the same generation are cheap no-ops (Serve updates the same
-  named app; a terminal key is retired so a later retry can proceed).
+* **Act vs. Observe gating.**  The orchestrator checks whether the desired
+  config hash and generation match the applied state. If already applied and
+  healthy, it skips re-deployment and performs status observation only, avoiding
+  wasteful rollout cycles.
 * **Readiness convergence.**  After a successful run, the orchestrator polls
   the Serve status tier (``GET_RAY_SERVE_STATUS``) for the app's deployment to
   reach RUNNING with >=1 ready replica, then publishes the
   :class:`InferenceEndpoint`.  Readiness is NOT part of the same transaction
   as the mutation: if the probe is merely unobserved, the row stays pending
-  (generation un-observed) and a later pass re-observes — the named app is
-  already deployed, so this converges without re-running.
+  and a later pass re-observes.
 
 This module is imported lazily by :class:`~...drivers.ray.driver.RayDriver`
 (like ``environment.py``) so importing the driver does not pull the
@@ -46,6 +46,8 @@ orchestrator's dependencies at registry time.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 import uuid
 from dataclasses import dataclass
@@ -61,6 +63,7 @@ from llm_port_backend.db.models.inference import (
     DeploymentDesiredState,
     DeploymentPhase,
     EndpointStatus,
+    EnvironmentStatus,
     InferenceDeployment,
     InferenceEnvironment,
     InferenceEnvironmentNode,
@@ -76,6 +79,7 @@ from llm_port_backend.services.inference.drivers.ray.compiler import (
     ArtifactResolutionError,
     compile_deployment,
 )
+from llm_port_backend.services.inference.drivers.ray.schemas import RayEnvironmentConfig
 
 if TYPE_CHECKING:  # pragma: no cover - import-time only
     from llm_port_backend.services.nodes.service import NodeControlService
@@ -111,46 +115,63 @@ def _serve_app_entry(status: Any, name: str) -> dict[str, Any] | None:
     return app
 
 
+def _model_server_deployments(app: dict[str, Any]) -> dict[str, Any]:
+    """The app's model-serving deployments (the ``OpenAiIngress`` excluded).
+
+    ``build_openai_app`` creates one ``LLMServer:<model>`` deployment per
+    model plus one ingress deployment; only the former are model replicas.
+    """
+    deployments = app.get("deployments") or {}
+    servers = {k: v for k, v in deployments.items() if str(k).startswith("LLMServer")}
+    if not servers:  # naming changed upstream: fall back to "not the ingress"
+        servers = {k: v for k, v in deployments.items() if "Ingress" not in str(k)}
+    return servers
+
+
+def _replica_counts(app: dict[str, Any]) -> tuple[int, int]:
+    """(ready, total) model replicas of *app*."""
+    ready = total = 0
+    for dep in _model_server_deployments(app).values():
+        dep_ready = int(dep.get("num_replicas_ready") or 0)
+        ready += dep_ready
+        total += dep_ready + int(dep.get("num_replicas_pending") or 0)
+    return ready, total
+
+
 def _app_deployment_readiness(app: dict[str, Any], *, want_active: bool) -> tuple[bool, str | None]:
     """Decide whether a named app's deployment has converged.
 
     Returns ``(converged, reason)``.  ``converged`` is True when:
 
-    * ``want_active`` and the app is RUNNING with a deployment whose status is
-      RUNNING/UP and which reports >=1 ready replica; or
+    * ``want_active`` and the app is RUNNING with >=1 ready model replica; or
     * not ``want_active`` and the app is absent (deleted) or RUNNING with
-      zero ready replicas (scaled to zero).
+      zero ready model replicas (scaled to zero).
 
     Ray's ``ApplicationStatus`` is the app-level signal; the per-deployment
     status + ``replica_states`` (flattened by the agent into
-    ``num_replicas_ready``) is the replica-level signal.
+    ``num_replicas_ready``) is the replica-level signal.  The ingress
+    deployment is never counted as a model replica.
     """
-    deployments = app.get("deployments") or {}
     status = (app.get("status") or "").upper()
     message = app.get("message")
+    ready, _total = _replica_counts(app)
 
     if want_active:
         if status != "RUNNING":
-            # DEPLOYING / RESTARTING / DOWN / FAILED / ...
+            # DEPLOYING / DEPLOY_FAILED / UNHEALTHY / DELETING / ...
             return False, f"application {status or 'UNKNOWN'}: {message}".strip()
-        ready = 0
-        dep_messages = []
-        for dep in deployments.values():
-            dep_status = (dep.get("status") or "").upper()
-            ready += int(dep.get("num_replicas_ready") or 0)
-            if dep_status not in ("RUNNING", "UP"):
-                dep_messages.append(
-                    f"{dep.get('name', '?')}={dep_status} {dep.get('message', '')}".strip()
-                )
         if ready < 1:
-            detail = "; ".join(dep for dep in dep_messages if dep) or "no ready replicas yet"
+            dep_messages = [
+                f"{name}={(dep.get('status') or '').upper()} {dep.get('message', '')}".strip()
+                for name, dep in _model_server_deployments(app).items()
+            ]
+            detail = "; ".join(m for m in dep_messages if m) or "no ready replicas yet"
             return False, f"waiting for ready replicas: {detail}"
         return True, f"running ({ready} ready replica(s))"
 
     # want_active is False: converged when the app is gone or has no replicas.
-    if not deployments:
+    if not (app.get("deployments") or {}):
         return True, f"application {status or 'absent'}"
-    ready = sum(int(dep.get("num_replicas_ready") or 0) for dep in deployments.values())
     if ready == 0:
         return True, "scaled to zero"
     return False, f"application still {status or 'active'} with {ready} ready replica(s)"
@@ -163,6 +184,7 @@ class _DeploymentFacts:
     app_name: str
     environment: InferenceEnvironment | None = None
     head_node_id: uuid.UUID | None = None
+    head_host: str | None = None
     model: LLMModel | None = None
     model_source: str | None = None
     hf_repo_id: str | None = None
@@ -210,10 +232,13 @@ class RayDeploymentManager:
             deployment.id, deployment.desired_state, deployment.phase,
         )
         if node_control is None:
+            # Honest no-op: nothing was observed live, so the row must stay
+            # in the pending-observation queue (do NOT stamp observed_generation).
             self._observe(
                 deployment, DeploymentPhase.PENDING,
                 "node control service unavailable; no live action taken", False,
                 observed={"reconciled": False, "reason": "no node control"},
+                mark_observed=False,
             )
             return
 
@@ -226,6 +251,9 @@ class RayDeploymentManager:
             self._observe(
                 deployment, phase, facts.detail, False,
                 observed={"reconciled": not failed, "reason": facts.detail},
+                # Transient PENDING (e.g. no head yet) must stay in the
+                # pending-observation queue; only terminal FAILED is observed.
+                mark_observed=failed,
             )
             return
 
@@ -236,13 +264,16 @@ class RayDeploymentManager:
             DeploymentDesiredState.STOPPED.value,
             DeploymentDesiredState.DELETED.value,
         ):
+            is_stop = (deployment.desired_state == DeploymentDesiredState.STOPPED.value)
+            converged_phase = DeploymentPhase.STOPPED if is_stop else DeploymentPhase.DELETED
+            action_name = "stop" if is_stop else "delete"
             # Resolve failure is fine here: without a head there is
             # nothing remote to delete; mark stopped/deleted observed.
             if facts.head_node_id is None:
                 self._observe(
-                    deployment, DeploymentPhase.DELETED,
-                    "no head node bound; nothing to delete", True,
-                    observed={"reconciled": True, "action": "no-op-delete"},
+                    deployment, converged_phase,
+                    f"no head node bound; nothing to {action_name}", True,
+                    observed={"reconciled": True, "action": f"no-op-{action_name}"},
                 )
                 return
             try:
@@ -257,12 +288,12 @@ class RayDeploymentManager:
                 # converged (the desired absence already holds locally).
                 log.info("delete_serve_app(%s) on %s: %s", app_name, facts.head_node_id, exc.detail)
                 ok = True
-            phase = DeploymentPhase.DELETED if ok else DeploymentPhase.FAILED
+            phase = converged_phase if ok else DeploymentPhase.FAILED
             self._observe(
                 deployment, phase,
                 f"serve.delete({app_name}) {'ok' if ok else 'failed'}",
                 ok,
-                observed={"reconciled": ok, "action": "delete", "app": app_name},
+                observed={"reconciled": ok, "action": action_name, "app": app_name},
             )
             if ok:
                 await self._retire_endpoints(session, deployment.id)
@@ -303,35 +334,108 @@ class RayDeploymentManager:
             )
             return
 
-        client = self._client_for(node_control)
-
-        # 4. Apply (strict run of the named app).
-        try:
-            run_result = await client.run_serve_app(
-                head_node_id=facts.head_node_id,
-                app_name=app_name,
-                llm_serving_args=llm_serving_args,
-                idem_prefix=f"inference-dep:run:{deployment.id}:{deployment.generation}",
-            )
-        except RayCommandError as exc:
+        # 3b. Gate on environment readiness (F40): a deployment never acts on
+        # a cluster that is not up — that would fail RUN_SERVE_APP and park
+        # the deployment in FAILED.  Stay PENDING (unobserved) and re-check.
+        env_status = getattr(facts.environment, "status", None)
+        if env_status != EnvironmentStatus.READY:
             self._observe(
-                deployment, DeploymentPhase.FAILED,
-                f"serve.run({app_name}) failed: {exc.detail}", False,
-                observed={"reconciled": False, "reason": "apply", "error_code": exc.error_code},
+                deployment, DeploymentPhase.PENDING,
+                f"environment not ready ({env_status}); waiting", False,
+                observed={"reconciled": False, "reason": "environment not ready"},
+                mark_observed=False,
             )
             return
+
+        client = self._client_for(node_control)
+
+        # 4. Apply only when needed (act vs. observe): the config changed, the
+        # last apply failed, or the app is missing from the cluster (e.g. the
+        # cluster restarted).  Re-running an unchanged app restarts replicas.
+        config_hash = hashlib.sha256(
+            json.dumps(llm_serving_args, sort_keys=True).encode()
+        ).hexdigest()
+        applied_hash = (deployment.observed_status_json or {}).get("applied_config_hash")
+        need_apply = (applied_hash != config_hash) or (deployment.phase == DeploymentPhase.FAILED.value)
+        if not need_apply:
+            serve_status = await self._probe_serve(client, facts.head_node_id, app_name)
+            if serve_status is not None and serve_status.alive:
+                current = _serve_app_entry(serve_status, app_name)
+                if current is None or (current.get("status") or "").upper() == "DEPLOY_FAILED":
+                    need_apply = True
+            # An unobserved probe (alive=False) is not proof of absence: do
+            # not redeploy on it — readiness below keeps the row pending.
+
+        run_result: dict[str, Any] = {}
+        if need_apply:
+            try:
+                run_result = await client.run_serve_app(
+                    head_node_id=facts.head_node_id,
+                    app_name=app_name,
+                    llm_serving_args=llm_serving_args,
+                    serve_options=self._serve_options(facts),
+                    idem_prefix=f"inference-dep:run:{deployment.id}:{deployment.generation}",
+                )
+            except RayCommandError as exc:
+                if exc.error_code == "command_timeout":
+                    # Outcome unknown, not a failure: the next pass resumes the
+                    # same in-flight command through its idempotency key.
+                    self._observe(
+                        deployment, DeploymentPhase.APPLYING,
+                        f"serve.run({app_name}) submitted; result not observed yet", False,
+                        observed={"reconciled": False, "reason": "apply-unobserved"},
+                        mark_observed=False,
+                    )
+                    return
+                self._observe(
+                    deployment, DeploymentPhase.FAILED,
+                    f"serve.run({app_name}) failed: {exc.detail}", False,
+                    observed={"reconciled": False, "reason": "apply", "error_code": exc.error_code},
+                )
+                return
+        else:
+            run_result = (deployment.observed_status_json or {}).get("observation", {}).get(
+                "run", {"app": app_name, "deployed": True, "cached": True}
+            )
+            log.info(
+                "Deployment %s config_hash %s already applied; observing only",
+                deployment.id, config_hash[:8],
+            )
 
         # 5. Observe readiness (best-effort; unobserved stays pending).
         observed, ready, total = await self._poll_readiness(
             client, head_node_id=facts.head_node_id, app_name=app_name,
         )
 
+        app_status = ((observed or {}).get("status") or "").upper()
+        if app_status == "DEPLOY_FAILED":
+            # Terminal on Ray's side (replica startup exhausted its retries):
+            # surface Ray's message.  Out of the queue until the spec changes
+            # or a reconcile is requested (phase FAILED forces a re-apply).
+            self._observe(
+                deployment, DeploymentPhase.FAILED,
+                f"application DEPLOY_FAILED: {(observed or {}).get('message') or ''}".strip(), False,
+                observed={"reconciled": False, "reason": "deploy-failed", "app": app_name},
+                config_hash=config_hash,
+            )
+            return
+        if app_status == "UNHEALTHY":
+            self._observe(
+                deployment, DeploymentPhase.DEGRADED,
+                f"application UNHEALTHY: {(observed or {}).get('message') or ''}".strip(), False,
+                observed={"reconciled": False, "reason": "unhealthy", "app": app_name},
+                mark_observed=False,
+                ready_replicas=ready,
+                total_replicas=total,
+                config_hash=config_hash,
+            )
+            return
+
         if not observed:
             # Mutation succeeded but we can't see the app yet: leave the row
             # lagging (do NOT mark observed) so a later pass re-observes.  The
-            # named app is already deployed; re-running it within the same
-            # generation is a cheap idempotent no-op update (same idempotency
-            # key, terminal key retired, serve.run of identical args).
+            # applied config hash is recorded, so that pass only observes —
+            # re-running an unchanged app would restart its replicas.
             self._observe(
                 deployment, DeploymentPhase.APPLYING,
                 "serve.run accepted; waiting for readiness observation", False,
@@ -342,6 +446,7 @@ class RayDeploymentManager:
                     "run": run_result,
                 },
                 mark_observed=False,
+                config_hash=config_hash,
             )
             return
 
@@ -357,6 +462,7 @@ class RayDeploymentManager:
                     "app_status": (observed or {}).get("status"),
                 },
                 mark_observed=False,
+                config_hash=config_hash,
             )
             return
 
@@ -372,6 +478,7 @@ class RayDeploymentManager:
             },
             ready_replicas=ready,
             total_replicas=total,
+            config_hash=config_hash,
         )
         await self._publish_endpoint(
             session, deployment, facts, app_name, ready_replicas=ready,
@@ -401,6 +508,7 @@ class RayDeploymentManager:
                 "environment has no head node", failed=False
             )
         facts.head_node_id = head
+        facts.head_host = await self._host_of(session, head)
 
         model = await self._model_of(session, deployment.model_id)
         if model is None:
@@ -411,7 +519,7 @@ class RayDeploymentManager:
         facts.hf_revision = model.hf_revision
 
         availability_root = await self._availability_root(
-            session, model.id, facts.head_node_id
+            session, model.id, facts.head_node_id, environment=environment
         )
         facts.availability_root_path = availability_root
         return facts
@@ -465,20 +573,45 @@ class RayDeploymentManager:
             return None
 
     async def _availability_root(
-        self, session, model_id: uuid.UUID, head_node_id: uuid.UUID
+        self,
+        session,
+        model_id: uuid.UUID,
+        head_node_id: uuid.UUID,
+        *,
+        environment: InferenceEnvironment | None = None,
     ) -> str | None:
         """Return the per-node synced artifact root if the artifact is READY
-        on the head node; else ``None`` (the engine falls back to a download).
+        on the head node and all environment members; else ``None`` (falls back to remote HF) (F29).
         """
         try:
             row = await ModelAvailabilityDAO(session).get(model_id, head_node_id)
         except Exception:
             row = None
-        if row is None:
+        if row is None or row.status != ModelAvailabilityStatus.READY.value or not row.root_path:
             return None
-        if row.status == ModelAvailabilityStatus.READY.value and row.root_path:
-            return row.root_path
-        return None
+
+        if environment is not None:
+            try:
+                res = await session.execute(
+                    select(InferenceEnvironmentNode).where(
+                        InferenceEnvironmentNode.environment_id == environment.id
+                    )
+                )
+                for member in res.scalars().all():
+                    if member.node_id == head_node_id:
+                        continue
+                    m_row = await ModelAvailabilityDAO(session).get(model_id, member.node_id)
+                    if m_row is None or m_row.status != ModelAvailabilityStatus.READY.value:
+                        log.info(
+                            "Model %s not ready on member %s; falling back to remote source (F29)",
+                            model_id,
+                            member.node_id,
+                        )
+                        return None
+            except Exception as e:
+                log.warning("Failed checking model availability across members: %s", e)
+
+        return row.root_path
 
     # ------------------------------------------------------------------
     # Plan (compile)
@@ -522,31 +655,59 @@ class RayDeploymentManager:
         """
         deadline = asyncio.get_event_loop().time() + _READINESS_PASS_BUDGET_SEC
         last: dict[str, Any] | None = None
+        ready = total = 0
         while True:
-            try:
-                status = await client.probe_serve(head_node_id=head_node_id)
-            except Exception as exc:  # noqa: BLE001 - probe never wedges the loop
-                log.warning("probe_serve for %s failed: %s", app_name, exc)
-                status = None
+            status = await self._probe_serve(client, head_node_id, app_name)
             entry = _serve_app_entry(status, app_name)
             if entry is not None:
                 last = entry
-
-            # Converged? (RUNNING with >=1 ready, or the app is already fine)
-            ready = 0
-            total = 0
-            if entry is not None:
-                for dep in (entry.get("deployments") or {}).values():
-                    ready += int(dep.get("num_replicas_ready") or 0)
-                    pending = int(dep.get("num_replicas_pending") or 0)
-                    total += ready + pending
+                ready, total = _replica_counts(entry)
                 app_status = (entry.get("status") or "").upper()
-                if app_status == "RUNNING":
+                if app_status == "RUNNING" and ready >= 1:
                     return entry, ready, total
+                if app_status in ("DEPLOY_FAILED", "UNHEALTHY"):
+                    return entry, ready, total  # decided by the caller; no point polling
 
             if asyncio.get_event_loop().time() > deadline:
                 return last, ready, total
             await asyncio.sleep(_READINESS_POLL_SEC)
+
+    async def _probe_serve(
+        self, client: RayClusterClient, head_node_id: uuid.UUID, app_name: str
+    ) -> Any:
+        """Best-effort Serve status probe; ``None`` when the probe itself errors."""
+        try:
+            return await client.probe_serve(head_node_id=head_node_id)
+        except Exception as exc:  # noqa: BLE001 - probe never wedges the loop
+            log.warning("probe_serve for %s failed: %s", app_name, exc)
+            return None
+
+    def _environment_config(self, facts: _DeploymentFacts) -> RayEnvironmentConfig:
+        raw = (facts.environment.config_json or {}) if facts.environment else {}
+        try:
+            return RayEnvironmentConfig.model_validate(raw)
+        except Exception:  # noqa: BLE001 - a bad env config must not break deploys
+            return RayEnvironmentConfig()
+
+    def _serve_options(self, facts: _DeploymentFacts) -> dict[str, Any]:
+        """Serve HTTP proxy placement for the environment (F13).
+
+        ``HeadOnly`` binds the single proxy to the head's cluster IP — the
+        address the endpoint is published under.  ``EveryNode`` applies one
+        ``host`` to every node's proxy, so it must be a wildcard.
+        """
+        cfg = self._environment_config(facts)
+        location = cfg.serve_proxy_location or "HeadOnly"
+        if cfg.serve_http_host:
+            host = cfg.serve_http_host
+        elif location == "HeadOnly" and facts.head_host:
+            host = facts.head_host
+        else:
+            host = "0.0.0.0"  # noqa: S104 - wildcard required for per-node proxies
+        return {
+            "proxy_location": location,
+            "http_options": {"host": host, "port": int(cfg.serve_http_port)},
+        }
 
     # ------------------------------------------------------------------
     # Endpoints
@@ -564,15 +725,14 @@ class RayDeploymentManager:
         """Publish (or refresh) the logical OpenAI endpoint for a RUNNING app."""
         endpoint_dao: EndpointDAO = EndpointDAO(session)
         path = str(((facts.spec_data or {}).get("service") or {}).get("path") or "/v1")
-        # Best-effort: the OpenAI ingress on the head node's Serve proxy is the
-        # single published upstream.  We record the head host + app name so the
-        # gateway can route; the exact proxy URL is an environment concern.
-        host = (
-            await self._host_of(session, facts.head_node_id)
-            if facts.head_node_id is not None
-            else None
-        ) or (facts.environment.address if facts.environment else None) or "head"
-        address = f"{host}/{app_name}"
+        # The OpenAI ingress on the head's Serve proxy is the single published
+        # upstream; the app is mounted at route prefix ``/<app_name>`` (the
+        # agent sets it), so the base URL is <proxy>/<app_name><path>.
+        http = self._serve_options(facts)["http_options"]
+        host = http["host"]
+        if host in ("0.0.0.0", "::"):  # noqa: S104 - wildcard bind: publish the head's address
+            host = facts.head_host or (facts.environment.address if facts.environment else None) or "head"
+        address = f"http://{host}:{http['port']}/{app_name}"
 
         existing = await endpoint_dao.list_for_deployment(deployment.id)
         target = next(
@@ -584,6 +744,7 @@ class RayDeploymentManager:
             "model": facts.model.display_name,
             "ready_replicas": ready_replicas,
             "path": path,
+            "base_url": f"{address}{path}",
         }
         if target is None:
             await endpoint_dao.create(
@@ -593,7 +754,9 @@ class RayDeploymentManager:
                 path=path,
                 status=EndpointStatus.PUBLISHED,
             )
-            target = (await endpoint_dao.list_for_deployment(deployment.id))[0]
+            target = next(
+                e for e in await endpoint_dao.list_for_deployment(deployment.id) if e.name == "openai"
+            )
         await endpoint_dao.update(
             target.id,
             address=address,
@@ -630,6 +793,7 @@ class RayDeploymentManager:
         mark_observed: bool = True,
         ready_replicas: int | None = None,
         total_replicas: int | None = None,
+        config_hash: str | None = None,
     ) -> None:
         """Record the pass's observation on the row (attribute mutation only).
 
@@ -644,6 +808,8 @@ class RayDeploymentManager:
         payload.setdefault("driver", "ray")
         observed_status = dict(deployment.observed_status_json or {})
         observed_status["observation"] = payload
+        if config_hash:
+            observed_status["applied_config_hash"] = config_hash
         if mark_observed:
             deployment.observed_generation = deployment.generation
         deployment.phase = phase.value

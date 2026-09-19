@@ -113,13 +113,13 @@ async def reconcile_environment(
     _user: User = Depends(require_permission(_ENV, "operate")),
     service: EnvironmentService = Depends(),
 ) -> EnvironmentDTO:
-    """Drive an environment toward its desired state.
+    """Request a reconcile: queue the environment for the background reconciler.
 
-    Phase 1: no live actions — records a no-op observation and returns the
-    environment (``observed_status_json`` explains that no node was contacted).
+    Returns immediately with the current environment; observed state is
+    updated by the next reconciler pass.
     """
     try:
-        env = await service.reconcile(environment_id)
+        env = await service.request_reconcile(environment_id)
     except InferenceError as exc:
         raise _map_inference_error(exc)
     return _dto_from_env(env)

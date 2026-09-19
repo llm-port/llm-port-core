@@ -22,6 +22,7 @@ from llm_port_backend.web.api.inference.schema import (
     DeploymentCreate,
     DeploymentDTO,
     DeploymentUpdate,
+    EndpointDTO,
 )
 from llm_port_backend.web.api.rbac import require_permission
 
@@ -111,16 +112,30 @@ async def reconcile_deployment(
     _user: User = Depends(require_permission(_DEP, "operate")),
     service: DeploymentService = Depends(),
 ) -> DeploymentDTO:
-    """Drive a deployment toward its desired state.
+    """Request a reconcile: queue the deployment for the background reconciler.
 
-    Phase 1: no live actions — records a no-op observation at the current
-    generation and returns the deployment.
+    Returns immediately with the current deployment; the next reconciler pass
+    re-applies a ``failed`` deployment or re-observes a running one.
     """
     try:
-        dep = await service.reconcile(deployment_id)
+        dep = await service.request_reconcile(deployment_id)
     except InferenceError as exc:
         raise _map_inference_error(exc)
     return _dto_from_dep(dep)
+
+
+@router.get("/{deployment_id}/endpoints", response_model=list[EndpointDTO])
+async def list_deployment_endpoints(
+    deployment_id: uuid.UUID,
+    _user: User = Depends(require_permission(_DEP, "read")),
+    service: DeploymentService = Depends(),
+) -> list[EndpointDTO]:
+    """Return the active published endpoints for a deployment."""
+    try:
+        endpoints = await service.endpoints(deployment_id)
+    except InferenceError as exc:
+        raise _map_inference_error(exc)
+    return [EndpointDTO.model_validate(e) for e in endpoints]
 
 
 def _dto_from_dep(dep) -> DeploymentDTO:
