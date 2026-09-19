@@ -1,0 +1,6 @@
+# Force LF line endings: bash fails on CRLF scripts ($'\r': command not found)
+# and Dockerfile continuations break, so a Windows checkout with
+# core.autocrlf=true must not convert these.
+*.sh              text eol=lf
+*.py              text eol=lf
+Dockerfile*       text eol=lf
