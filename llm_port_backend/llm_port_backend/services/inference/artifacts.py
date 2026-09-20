@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -52,6 +53,37 @@ class ArtifactReadiness(BaseModel):
     blockers: list[str] = Field(default_factory=list)
     root_paths: dict[str, str] = Field(default_factory=dict)  # node_id -> host root path
     all_ready: bool = False
+
+
+# A node whose sync already failed is retried, but not on every pass: the
+# reconciler runs continuously and re-issuing immediately would hammer a node
+# that is genuinely broken.
+_FAILED_RETRY_BACKOFF_SEC = 300.0
+
+# States that mean "a sync for this digest is already under way".  Re-marking
+# these would destroy the progress the agent is reporting.
+_IN_FLIGHT_STATUSES = frozenset({
+    ModelAvailabilityStatus.PENDING.value,
+    ModelAvailabilityStatus.SYNCING.value,
+})
+
+
+def _default_revision(refs: list[dict[str, Any]]) -> str | None:
+    """Pick the revision a sync will actually land on.
+
+    Mirrors the agent's own precedence (``main`` -> ``master`` -> first ref).
+    Taking ``refs[0]`` instead meant the backend recorded the alphabetically
+    first ref - ``dev`` in a cache holding ``dev`` and ``main`` - while the
+    agent synced ``main``.
+    """
+    by_name = {str(r.get("name")): r.get("commit") for r in refs if isinstance(r, dict)}
+    for preferred in ("main", "master"):
+        if by_name.get(preferred):
+            return str(by_name[preferred])
+    for commit in by_name.values():
+        if commit:
+            return str(commit)
+    return None
 
 
 def is_ready_for(row: ModelAvailability | None, desired_digest: str | None) -> bool:
@@ -107,11 +139,15 @@ class ModelArtifactCoordinator:
         *,
         model: LLMModel,
         environment: InferenceEnvironment,
+        persist: bool = True,
     ) -> ArtifactReadiness:
         """Evaluate artifact readiness for *model* across eligible nodes in *environment*.
 
         Reconciles ModelAvailability rows (marks MISSING or STALE when detected).
         Does NOT issue commands.
+
+        ``persist=False`` reports the same readiness without writing any row, so
+        a read-only caller does not mutate state just by looking at it.
         """
         desired_revision = model.hf_revision
         manifest_sha256: str | None = None
@@ -121,8 +157,8 @@ class ModelArtifactCoordinator:
             if m_dir is not None:
                 manifest = build_cache_manifest(m_dir)
                 manifest_sha256 = manifest.get("manifest_sha256")
-                if not desired_revision and manifest.get("refs"):
-                    desired_revision = manifest["refs"][0].get("commit")
+                if not desired_revision:
+                    desired_revision = _default_revision(manifest.get("refs") or [])
 
         nodes = await self.eligible_nodes(environment)
         blockers: list[str] = []
@@ -143,12 +179,13 @@ class ModelArtifactCoordinator:
             row = row_by_node.get(node.id)
             if row is None:
                 # Probed and absent -> record MISSING
-                await self._dao.mark(
-                    model.id,
-                    node.id,
-                    ModelAvailabilityStatus.MISSING,
-                    status_message="Artifact missing from node",
-                )
+                if persist:
+                    await self._dao.mark(
+                        model.id,
+                        node.id,
+                        ModelAvailabilityStatus.MISSING,
+                        status_message="Artifact missing from node",
+                    )
                 pending_node_ids.append(node_str)
             elif is_ready_for(row, manifest_sha256):
                 ready_node_ids.append(node_str)
@@ -160,15 +197,16 @@ class ModelArtifactCoordinator:
                 and row.manifest_sha256 != manifest_sha256
             ):
                 # Manifest digest differs from current desired digest -> STALE
-                await self._dao.mark(
-                    model.id,
-                    node.id,
-                    ModelAvailabilityStatus.STALE,
-                    status_message=(
-                        f"Artifact digest {row.manifest_sha256[:12] if row.manifest_sha256 else 'none'} "
-                        f"differs from desired {manifest_sha256[:12]}"
-                    ),
-                )
+                if persist:
+                    await self._dao.mark(
+                        model.id,
+                        node.id,
+                        ModelAvailabilityStatus.STALE,
+                        status_message=(
+                            f"Artifact digest {row.manifest_sha256[:12] if row.manifest_sha256 else 'none'} "
+                            f"differs from desired {manifest_sha256[:12]}"
+                        ),
+                    )
                 pending_node_ids.append(node_str)
             elif row.status == ModelAvailabilityStatus.FAILED.value:
                 failed_node_ids.append(node_str)
@@ -192,6 +230,36 @@ class ModelArtifactCoordinator:
             root_paths=root_paths,
             all_ready=all_ready,
         )
+
+    @staticmethod
+    def _sync_in_flight(
+        row: ModelAvailability | None,
+        desired_digest: str | None,
+        now: datetime,
+    ) -> bool:
+        """Is a sync for *desired_digest* already under way on this node?
+
+        PENDING/SYNCING rows for the same digest are left untouched so their
+        progress survives the reconcile pass.  A FAILED row is retried, but not
+        on every pass: the reconciler runs continuously, and re-issuing
+        immediately would hammer a node that is genuinely broken.  Both cases
+        previously fell into the same "pending" bucket, so an in-flight sync was
+        reset to PENDING on every pass and a failed one was never retried at all.
+        """
+        if row is None:
+            return False
+        if desired_digest and row.manifest_sha256 != desired_digest:
+            return False  # different digest: this one needs re-issuing
+        if row.status in _IN_FLIGHT_STATUSES:
+            return True
+        if row.status == ModelAvailabilityStatus.FAILED.value:
+            updated = row.updated_at
+            if updated is None:
+                return False
+            if updated.tzinfo is None:
+                updated = updated.replace(tzinfo=UTC)
+            return (now - updated).total_seconds() < _FAILED_RETRY_BACKOFF_SEC
+        return False
 
     async def ensure(
         self,
@@ -225,10 +293,28 @@ class ModelArtifactCoordinator:
         target_nodes = set(readiness.pending_node_ids) | set(readiness.failed_node_ids)
         digest_tag = readiness.manifest_sha256 or "latest"
 
+        # Rows are re-read here so an in-flight sync can be recognised.  The
+        # readiness report only carries node ids, and re-marking a node that is
+        # already SYNCING would overwrite the progress the agent is streaming
+        # back - the row would flap PENDING/SYNCING for the whole transfer.
+        node_uuids: list[uuid.UUID] = []
         for node_id_str in target_nodes:
             try:
-                node_uuid = uuid.UUID(node_id_str)
+                node_uuids.append(uuid.UUID(node_id_str))
             except ValueError:
+                continue
+        rows_now = {r.node_id: r for r in await self._dao.list_for_nodes(model.id, node_uuids)}
+        now = datetime.now(tz=UTC)
+
+        for node_uuid in node_uuids:
+            node_id_str = str(node_uuid)
+            row = rows_now.get(node_uuid)
+
+            if self._sync_in_flight(row, readiness.manifest_sha256, now):
+                log.debug(
+                    "Artifact sync already in flight for model %s on node %s; leaving it alone",
+                    model.id, node_id_str,
+                )
                 continue
 
             idem_key = f"artifact:{model.id}:{digest_tag}:{node_id_str}"

@@ -239,29 +239,53 @@ class RayClusterClient:
         return None
 
     async def probe_cluster(
-        self, *, head_node_id: str | uuid.UUID, issued_by: uuid.UUID | None = None,
+        self,
+        *,
+        head_node_id: str | uuid.UUID,
+        issued_by: uuid.UUID | None = None,
+        runtime_bundle: dict[str, Any] | None = None,
+        include_metrics: bool = False,
     ) -> RayClusterStatus:
-        """Dispatch GET_RAY_STATUS to *head_node_id* and await its result."""
+        """Dispatch GET_RAY_STATUS to *head_node_id* and await its result.
+
+        ``runtime_bundle`` tells the agent to answer from the pinned runtime
+        container rather than a host Ray SDK.  It is the backend's decision to
+        make: a node running the certified image has no host Ray to fall back
+        on, so the mode must travel with the command instead of being inferred
+        from whatever happens to be running on the node.
+        """
+        payload: dict[str, Any] = {}  # no secrets in the payload
+        if runtime_bundle is not None:
+            payload["runtime_bundle"] = runtime_bundle
+        if include_metrics:
+            payload["include_metrics"] = True
         result = await self._dispatch_and_poll(
             node_id=head_node_id,
             command_type=NodeCommandType.GET_RAY_STATUS.value,
-            payload={},  # no secrets in the payload
+            payload=payload,
             issued_by=issued_by,
         )
         return _parse_cluster_status(result)
 
     async def probe_serve(
-        self, *, head_node_id: str | uuid.UUID, issued_by: uuid.UUID | None = None,
+        self,
+        *,
+        head_node_id: str | uuid.UUID,
+        issued_by: uuid.UUID | None = None,
+        runtime_bundle: dict[str, Any] | None = None,
     ) -> RayServeStatus:
         """Dispatch GET_RAY_SERVE_STATUS to *head_node_id* and await its result.
 
         Additive Serve tier: a failed/absent command means "Serve not
         observed" (``alive=False``), never a raised error.
         """
+        serve_payload: dict[str, Any] = {}
+        if runtime_bundle is not None:
+            serve_payload["runtime_bundle"] = runtime_bundle
         result = await self._dispatch_and_poll(
             node_id=head_node_id,
             command_type=NodeCommandType.GET_RAY_SERVE_STATUS.value,
-            payload={},
+            payload=serve_payload,
             idem_prefix="inference-env:serve-probe",
             issued_by=issued_by,
         )
@@ -280,6 +304,7 @@ class RayClusterClient:
         serve_options: dict[str, Any] | None = None,
         issued_by: uuid.UUID | None = None,
         idem_prefix: str | None = None,
+        runtime_bundle: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Deploy or update a named LLM Serve app on the head node.
 
@@ -300,6 +325,8 @@ class RayClusterClient:
         payload: dict[str, Any] = {"app_name": app_name, "llm_serving_args": llm_serving_args}
         if serve_options:
             payload.update(serve_options)
+        if runtime_bundle is not None:
+            payload["runtime_bundle"] = runtime_bundle
         row = await self._dispatch_until_terminal(
             node_id=head_node_id,
             command_type=NodeCommandType.RUN_SERVE_APP.value,
@@ -317,12 +344,16 @@ class RayClusterClient:
         app_name: str,
         issued_by: uuid.UUID | None = None,
         idem_prefix: str | None = None,
+        runtime_bundle: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Delete a named Serve app on the head node (strict)."""
+        payload: dict[str, Any] = {"app_name": app_name}
+        if runtime_bundle is not None:
+            payload["runtime_bundle"] = runtime_bundle
         row = await self._dispatch_until_terminal(
             node_id=head_node_id,
             command_type=NodeCommandType.DELETE_SERVE_APP.value,
-            payload={"app_name": app_name},
+            payload=payload,
             idem_prefix=idem_prefix or f"inference-deployment:delete:{app_name}",
             issued_by=issued_by,
             timeout_sec=int(_LIFECYCLE_BUDGET_SEC),

@@ -28,6 +28,7 @@ from the backend's own ``docker save`` endpoint and loaded locally.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 from dataclasses import dataclass, field
 from typing import Any
@@ -171,12 +172,18 @@ class RayContainerRuntime:
         *,
         runtime: ContainerRuntime | None = None,
         token_path: str = "/var/run/llm-port/ray/cluster.token",
+        handler_hint: str = "docker",
     ) -> None:
         self._runtime = runtime
         self._token_path = token_path
+        # Which handler to use for calls that address an already-running
+        # container (status/Serve), where no bundle is in hand to read it from.
+        self._handler_hint = handler_hint
         self.last_error: str | None = None
 
     def _handler(self, spec: RuntimeBundleSpec) -> ContainerRuntime:
+        if spec.runtime_handler and spec.runtime_handler != "-":
+            self._handler_hint = spec.runtime_handler
         if self._runtime is not None:
             return self._runtime
         self._runtime = detect_runtime(preferred=spec.runtime_handler)
@@ -604,6 +611,249 @@ class RayContainerRuntime:
         if not stopped:
             result.update({"best_effort": True, "detail": detail})
         return result
+
+    def _spec_for(self, container_name: str) -> RuntimeBundleSpec:
+        """A minimal spec used only to resolve the runtime handler.
+
+        Status and Serve calls address a container that is already running, so
+        the image identity is irrelevant here - only which handler (docker /
+        podman) to talk to.  ``handler_hint`` carries that across.
+        """
+        return RuntimeBundleSpec(
+            image="-",
+            digest="-",
+            name=container_name,
+            runtime_handler=self._handler_hint,
+        )
+
+    async def is_running(self, container_name: str = DEFAULT_CONTAINER_NAME) -> bool:
+        """Is the runtime container up right now?
+
+        Used as a *sanity check*, never to decide which execution mode applies:
+        that decision belongs to the backend and travels on the command as
+        ``runtime_bundle``.  Inferring the mode from local state would let a
+        leftover container from a previous environment hijack a host-based one,
+        and would silently fall back to the host SDK - which on a certified
+        node has no Ray at all - whenever the container happened to be
+        restarting.
+        """
+        handler = self._handler(self._spec_for(container_name))
+        try:
+            if not await handler.exists(container_name):
+                return False
+            info = await handler.inspect(container_name)
+            state = (info.get("State") or {}) if isinstance(info, dict) else {}
+            return bool(state.get("Running"))
+        except Exception:  # noqa: BLE001 - a probe failure is "not running"
+            return False
+
+    async def _helper(
+        self,
+        container_name: str,
+        args: list[str],
+        *,
+        stdin: str | None = None,
+        timeout_sec: float = 60,
+    ) -> tuple[int, Any]:
+        """Run one ``llm-port-ray-runtime`` verb and parse its JSON document.
+
+        The helper is the whole control contract: it ships inside the certified
+        image, so every Ray SDK call runs against the exact version the cluster
+        is running, and the host never imports Ray.
+        """
+        handler = self._handler(self._spec_for(container_name))
+        command = ["llm-port-ray-runtime", *args]
+        code, out, err = await handler.exec_(
+            container_name,
+            command,
+            stdin=stdin,
+            timeout_sec=timeout_sec,
+            raise_on_error=False,
+        )
+        parsed = _extract_json(out)
+        if parsed is None:
+            detail = (err or out or "").strip()
+            log.warning("Helper %s produced no JSON (exit %s): %s", " ".join(args), code, detail[:400])
+        return code, parsed
+
+    async def get_cluster_status(
+        self,
+        container_name: str = DEFAULT_CONTAINER_NAME,
+        *,
+        include_serve: bool = False,
+        include_metrics: bool = False,
+        include_state: bool = False,
+        expected_version: str | None = None,
+        timeout_sec: float = 30,
+    ) -> dict[str, Any]:
+        """Cluster status from the in-container helper.
+
+        The result has to match the shape the host-SDK path returns for the
+        same command: the backend parses one contract and must not be able to
+        tell where the probe ran.  In particular ``version`` is the key the
+        backend reads - emitting only ``ray_version`` made every containerized
+        cluster report an unknown Ray version.
+        """
+        _code, res = await self._helper(
+            container_name, ["cluster-status"], timeout_sec=timeout_sec
+        )
+        if not isinstance(res, dict):
+            return {"alive": False, "version": None, "num_nodes": 0, "nodes": []}
+
+        version = res.get("version") or res.get("ray_version")
+        status_dict: dict[str, Any] = {
+            "alive": bool(res.get("alive", False)),
+            "version": version,
+            "ray_version": version,
+            "num_nodes": int(res.get("num_nodes", 0) or 0),
+            "nodes": list(res.get("nodes") or []),
+            "total_gpus": float(res.get("total_gpus", 0.0) or 0.0),
+            "available_gpus": float(res.get("available_gpus", res.get("total_gpus", 0.0)) or 0.0),
+            "total_cpus": float(res.get("total_cpus", 0.0) or 0.0),
+            "available_cpus": float(res.get("available_cpus", res.get("total_cpus", 0.0)) or 0.0),
+            "cluster_address": res.get("cluster_address"),
+            "head_address": res.get("head_address"),
+            "capabilities": dict(res.get("capabilities") or {}),
+        }
+
+        if expected_version and version and version != expected_version:
+            status_dict["version_mismatch"] = {
+                "expected": expected_version,
+                "observed": version,
+            }
+
+        if include_serve:
+            serve_res = await self.get_serve_status(
+                container_name=container_name, timeout_sec=timeout_sec
+            )
+            status_dict["serve"] = serve_res
+            status_dict["capabilities"]["serve"] = bool(serve_res.get("available", False))
+
+        if include_metrics:
+            status_dict["metrics"] = await self.get_metrics_targets(
+                container_name=container_name, timeout_sec=timeout_sec
+            )
+            status_dict["capabilities"]["metrics"] = bool(
+                status_dict["metrics"].get("enabled", False)
+            )
+
+        if include_state:
+            # Tier B (ray.util.state) is Dashboard-dependent and the certified
+            # image runs with the Dashboard disabled, so it is reported absent
+            # rather than pretended.
+            status_dict["state"] = {
+                "available": False,
+                "detail": "state API not available in the Dashboard-independent runtime",
+            }
+            status_dict["capabilities"]["state"] = False
+
+        return status_dict
+
+    async def get_metrics_targets(
+        self,
+        container_name: str = DEFAULT_CONTAINER_NAME,
+        timeout_sec: float = 30,
+    ) -> dict[str, Any]:
+        """Prometheus scrape targets, derived from the cluster's own node list.
+
+        Built from ``cluster-status`` rather than a separate verb: the node
+        records already carry ``metrics_export_port``, so this needs no extra
+        round trip into the container.
+        """
+        _code, res = await self._helper(
+            container_name, ["cluster-status"], timeout_sec=timeout_sec
+        )
+        if not isinstance(res, dict) or not res.get("alive"):
+            return {"enabled": False, "targets": []}
+
+        targets: list[dict[str, Any]] = []
+        for node in res.get("nodes") or []:
+            if not isinstance(node, dict) or not node.get("alive", True):
+                continue
+            port = node.get("metrics_export_port")
+            address = node.get("node_manager_address") or node.get("node_ip")
+            if address and port:
+                targets.append({
+                    "node_id": node.get("node_id"),
+                    "address": address,
+                    "port": int(port),
+                    "url": f"http://{address}:{int(port)}/metrics",
+                })
+        return {"enabled": bool(targets), "targets": targets}
+
+    async def get_serve_status(
+        self,
+        container_name: str = DEFAULT_CONTAINER_NAME,
+        timeout_sec: float = 30,
+        app_name: str | None = None,
+    ) -> dict[str, Any]:
+        """Ray Serve status from the in-container helper."""
+        args = ["serve-status"]
+        if app_name:
+            args += ["--app-name", app_name]
+        _code, res = await self._helper(container_name, args, timeout_sec=timeout_sec)
+        if not isinstance(res, dict):
+            return {"available": False, "applications": {}}
+        res.setdefault("applications", {})
+        return res
+
+    async def run_serve_app(
+        self,
+        container_name: str,
+        app_name: str,
+        llm_serving_args: dict[str, Any],
+        http_options: dict[str, Any] | None = None,
+        route_prefix: str = "/",
+        timeout_sec: float = 300,
+    ) -> dict[str, Any]:
+        """Deploy a named Serve application through the in-container helper.
+
+        The document goes in on **stdin**: a compiled ``LLMServingArgs`` is far
+        larger than an argv-safe string, and passing it as an argument would
+        also put the model configuration into the container's process list.
+        """
+        document = json.dumps({
+            "llm_serving_args": llm_serving_args,
+            "http_options": http_options or {},
+        })
+        code, res = await self._helper(
+            container_name,
+            ["run-serve-app", "--app-name", app_name, "--route-prefix", route_prefix, "--config", "-"],
+            stdin=document,
+            timeout_sec=timeout_sec,
+        )
+        if isinstance(res, dict) and res.get("deployed"):
+            return res
+        detail = (res or {}).get("error") if isinstance(res, dict) else None
+        raise ContainerRuntimeError(
+            f"run_serve_app failed in container (exit {code}): {detail or 'no result from helper'}"
+        )
+
+    async def delete_serve_app(
+        self,
+        container_name: str,
+        app_name: str,
+        timeout_sec: float = 60,
+    ) -> dict[str, Any]:
+        """Delete a named Serve application through the in-container helper."""
+        _code, res = await self._helper(
+            container_name,
+            ["delete-serve-app", "--app-name", app_name],
+            timeout_sec=timeout_sec,
+        )
+        if isinstance(res, dict):
+            return res
+        return {"deleted": False, "app_name": app_name, "error": "no result from helper"}
+
+
+def _extract_json(text: str) -> Any:
+    for i in range(len(text)):
+        if text[i] in ("{", "["):
+            try:
+                return json.loads(text[i:])
+            except Exception:
+                pass
+    return None
 
 
 def _means_nothing_running(detail: str) -> bool:

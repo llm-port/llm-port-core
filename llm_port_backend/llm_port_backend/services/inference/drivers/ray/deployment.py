@@ -57,7 +57,6 @@ from sqlalchemy import select
 
 from llm_port_backend.db.dao.inference_dao import (
     EndpointDAO,
-    ModelAvailabilityDAO,
 )
 from llm_port_backend.db.models.inference import (
     DeploymentDesiredState,
@@ -67,7 +66,6 @@ from llm_port_backend.db.models.inference import (
     InferenceDeployment,
     InferenceEnvironment,
     InferenceEnvironmentNode,
-    ModelAvailabilityStatus,
 )
 from llm_port_backend.db.models.llm import LLMModel
 from llm_port_backend.db.models.node_control import InfraNode
@@ -100,6 +98,9 @@ def _gateway(node_control: "NodeControlService | NodeCommandGateway") -> NodeCom
     return NodeCommandGateway(node_control)
 
 log = logging.getLogger(__name__)
+
+# Must match the name the environment manager starts the container under.
+_RUNTIME_CONTAINER_NAME = "llm-port-ray-runtime"
 
 # Readiness poll: how often to re-probe Serve, and the per-pass budget before
 # we give up *this pass* and leave the row pending for the next pass.  The
@@ -297,6 +298,7 @@ class RayDeploymentManager:
                 result = await self._client_for(node_control).delete_serve_app(
                     head_node_id=facts.head_node_id,
                     app_name=app_name,
+                    runtime_bundle=self._runtime_bundle_payload(facts.environment),
                 )
                 ok = bool(result.get("deleted"))
             except RayCommandError as exc:
@@ -397,6 +399,16 @@ class RayDeploymentManager:
 
             cannot_reach = bool(readiness.failed_node_ids or readiness.blockers)
 
+            # Always give the coordinator a chance to act.  It self-throttles:
+            # in-flight syncs are left alone and a failed node is only retried
+            # after a backoff.  Short-circuiting on the first failure meant a
+            # transient error permanently disabled local artifacts for this
+            # deployment, because this branch then never called ``ensure``
+            # again.
+            gateway = _gateway(node_control)
+            coordinator = ModelArtifactCoordinator(session, gateway=gateway)
+            await coordinator.ensure(model=facts.model, environment=facts.environment)
+
             if not offline_only and cannot_reach:
                 log.info(
                     "Local artifact sync cannot be reached (%s); falling back to remote source for deployment %s",
@@ -404,9 +416,6 @@ class RayDeploymentManager:
                     deployment.id,
                 )
             else:
-                gateway = _gateway(node_control)
-                coordinator = ModelArtifactCoordinator(session, gateway=gateway)
-                await coordinator.ensure(model=facts.model, environment=facts.environment)
 
                 obs_data: dict[str, Any] = {
                     "reconciled": False,
@@ -436,12 +445,21 @@ class RayDeploymentManager:
             json.dumps(llm_serving_args, sort_keys=True).encode()
         ).hexdigest()
         applied_hash = (deployment.observed_status_json or {}).get("applied_config_hash")
+        # PREPARING is deliberately NOT a trigger here.  When artifact
+        # preparation changes what gets deployed it changes the resolved model
+        # path, which changes ``config_hash`` and triggers an apply on its own.
+        # Treating the phase itself as a trigger meant any excursion through
+        # PREPARING on a *running* deployment (a node joining the environment,
+        # a STALE digest) re-ran ``serve.run`` with an identical config and
+        # restarted every replica for nothing.
         need_apply = (
             (applied_hash != config_hash)
-            or (deployment.phase in (DeploymentPhase.FAILED.value, DeploymentPhase.PREPARING.value))
+            or (deployment.phase == DeploymentPhase.FAILED.value)
         )
         if not need_apply:
-            serve_status = await self._probe_serve(client, facts.head_node_id, app_name)
+            serve_status = await self._probe_serve(
+                client, facts.head_node_id, app_name, facts.environment
+            )
             if serve_status is not None and serve_status.alive:
                 current = _serve_app_entry(serve_status, app_name)
                 if current is None or (current.get("status") or "").upper() == "DEPLOY_FAILED":
@@ -458,6 +476,7 @@ class RayDeploymentManager:
                     llm_serving_args=llm_serving_args,
                     serve_options=self._serve_options(facts),
                     idem_prefix=f"inference-dep:run:{deployment.id}:{deployment.generation}",
+                    runtime_bundle=self._runtime_bundle_payload(facts.environment),
                 )
             except RayCommandError as exc:
                 if exc.error_code == "command_timeout":
@@ -487,7 +506,10 @@ class RayDeploymentManager:
 
         # 5. Observe readiness (best-effort; unobserved stays pending).
         observed, ready, total = await self._poll_readiness(
-            client, head_node_id=facts.head_node_id, app_name=app_name,
+            client,
+            head_node_id=facts.head_node_id,
+            app_name=app_name,
+            environment=facts.environment,
         )
 
         app_status = ((observed or {}).get("status") or "").upper()
@@ -606,9 +628,23 @@ class RayDeploymentManager:
         readiness = await coordinator.evaluate(model=model, environment=environment)
         facts.artifact_readiness = readiness
 
-        host_root_path = readiness.root_paths.get(str(head)) or (
-            next(iter(readiness.root_paths.values())) if readiness.root_paths else None
-        )
+        # One compiled ``model_source`` is used by every replica on every node,
+        # so the nodes have to agree on where the artifact lives.  They can
+        # legitimately disagree - ``model_store_root`` is per-agent
+        # configurable - and silently compiling the head's path would leave
+        # every other node loading from somewhere that does not exist.
+        distinct_roots = {v for v in readiness.root_paths.values() if v}
+        if len(distinct_roots) > 1:
+            readiness.blockers.append(
+                "Nodes report different artifact roots "
+                f"({', '.join(sorted(distinct_roots))}); a single model path cannot be compiled"
+            )
+            readiness.all_ready = False
+            host_root_path = None
+        else:
+            host_root_path = readiness.root_paths.get(str(head)) or next(
+                iter(distinct_roots), None
+            )
         facts.artifact_root_path = host_root_path
 
         # Apply D-3 container mount path translation if all_ready
@@ -687,6 +723,28 @@ class RayDeploymentManager:
     # Plan (compile)
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _runtime_bundle_payload(environment) -> dict[str, Any] | None:
+        """The runtime bundle pinned on *environment*, rendered for the agent.
+
+        Serve operations must run inside the same pinned container the cluster
+        was started from; sending no bundle makes the agent fall back to a host
+        Ray SDK that a certified node does not have.
+        """
+        if environment is None:
+            return None
+        bundle_id = (getattr(environment, "config_json", None) or {}).get("runtime_bundle_id")
+        if not bundle_id:
+            return None
+        from llm_port_backend.services.inference.bundles import default_bundle_registry
+
+        bundle = default_bundle_registry.get_bundle(str(bundle_id))
+        if bundle is None:
+            return None
+        return default_bundle_registry.container_launch_spec(
+            bundle, name=_RUNTIME_CONTAINER_NAME,
+        )
+
     def _plan_total_replicas(self, spec_data: dict[str, Any]) -> int:
         scale = (spec_data or {}).get("scale") or {}
         autoscale = scale.get("autoscale")
@@ -715,7 +773,12 @@ class RayDeploymentManager:
     # ------------------------------------------------------------------
 
     async def _poll_readiness(
-        self, client: RayClusterClient, *, head_node_id: uuid.UUID, app_name: str
+        self,
+        client: RayClusterClient,
+        *,
+        head_node_id: uuid.UUID,
+        app_name: str,
+        environment: Any = None,
     ) -> "tuple[dict[str, Any] | None, int, int]":
         """Poll the Serve status tier for *app_name*; return (entry, ready, total).
 
@@ -727,7 +790,7 @@ class RayDeploymentManager:
         last: dict[str, Any] | None = None
         ready = total = 0
         while True:
-            status = await self._probe_serve(client, head_node_id, app_name)
+            status = await self._probe_serve(client, head_node_id, app_name, environment)
             entry = _serve_app_entry(status, app_name)
             if entry is not None:
                 last = entry
@@ -743,11 +806,18 @@ class RayDeploymentManager:
             await asyncio.sleep(_READINESS_POLL_SEC)
 
     async def _probe_serve(
-        self, client: RayClusterClient, head_node_id: uuid.UUID, app_name: str
+        self,
+        client: RayClusterClient,
+        head_node_id: uuid.UUID,
+        app_name: str,
+        environment: Any = None,
     ) -> Any:
         """Best-effort Serve status probe; ``None`` when the probe itself errors."""
         try:
-            return await client.probe_serve(head_node_id=head_node_id)
+            return await client.probe_serve(
+                head_node_id=head_node_id,
+                runtime_bundle=self._runtime_bundle_payload(environment),
+            )
         except Exception as exc:  # noqa: BLE001 - probe never wedges the loop
             log.warning("probe_serve for %s failed: %s", app_name, exc)
             return None

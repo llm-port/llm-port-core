@@ -207,18 +207,66 @@ class PodmanRuntime:
         *,
         env: dict[str, str] | None = None,
         workdir: str | None = None,
+        stdin: str | None = None,
         timeout_sec: float = 120,
         raise_on_error: bool = True,
     ) -> tuple[int, str, str]:
         """Run *command* inside a running container."""
         args: list[str] = ["exec"]
+        if stdin is not None:
+            args.append("-i")
         for k, v in (env or {}).items():
             args.extend(["-e", f"{k}={v}"])
         if workdir:
             args.extend(["-w", workdir])
         args.append(name)
         args.extend(command)
-        return await self._exec(*args, timeout_sec=timeout_sec, raise_on_error=raise_on_error)
+        if stdin is None:
+            return await self._exec(*args, timeout_sec=timeout_sec, raise_on_error=raise_on_error)
+        return await self._exec_with_stdin(
+            *args, stdin=stdin, timeout_sec=timeout_sec, raise_on_error=raise_on_error,
+        )
+
+    async def _exec_with_stdin(
+        self,
+        *args: str,
+        stdin: str,
+        timeout_sec: float = 120,
+        raise_on_error: bool = True,
+    ) -> tuple[int, str, str]:
+        """Run ``podman <args>`` feeding *stdin*, returning ``(rc, stdout, stderr)``."""
+        cmd: list[str] = ["podman"]
+        if self._socket_path:
+            cmd.extend(["-H", f"unix://{self._socket_path}"])
+        cmd.extend(args)
+
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(stdin.encode("utf-8")), timeout=timeout_sec,
+            )
+        except TimeoutError:
+            proc.kill()
+            await proc.communicate()
+            if raise_on_error:
+                raise ContainerRuntimeError(
+                    f"podman {' '.join(args)} timed out after {timeout_sec}s"
+                )
+            return 124, "", "timeout"
+
+        code = proc.returncode
+        out = stdout.decode("utf-8", "replace")
+        err = stderr.decode("utf-8", "replace")
+        if raise_on_error and code != 0:
+            raise ContainerRuntimeError(
+                f"podman {' '.join(args)} failed: {err.strip() or out.strip()}"
+            )
+        return code, out, err
 
     async def image_identity(self, image: str, *, timeout_sec: float = 20) -> dict[str, Any]:
         """Identity of a locally present image (see the protocol docstring)."""

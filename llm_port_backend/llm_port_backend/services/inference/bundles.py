@@ -429,6 +429,7 @@ CERTIFIED_DGX_SPARK_BUNDLE = RuntimeBundleManifest.from_runtime_manifest(
     ),
     mounts=[
         ContainerMount(host_path="/srv/llm-port/models", container_path="/models", mode="ro"),
+        ContainerMount(host_path="/home/sachi/.cache/huggingface", container_path="/models/huggingface", mode="ro"),
     ],
     platform_tuning=PlatformTuning(
         ray=RayPlatformTuning(

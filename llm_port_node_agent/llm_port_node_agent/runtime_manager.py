@@ -348,6 +348,18 @@ class RuntimeManager:
         else:
             root_path = str(Path(cache_root) / model_dir_name / "snapshots" / commit)
 
+        # The path above is *derived* from the manifest's refs, so it is a
+        # claim until it is checked.  Reporting an unverified path lets the
+        # backend mark the artifact READY pointing at a directory that does not
+        # exist, and the failure then surfaces deep inside the engine at model
+        # load time instead of here, where it is actionable.
+        snapshot_dir = Path(root_path)
+        if not snapshot_dir.is_dir():
+            raise RuntimeManagerError(
+                f"Model sync completed but no snapshot directory at {root_path} "
+                f"(resolved revision {commit!r}); refusing to report a path that does not exist."
+            )
+
         total_size = int(
             model_sync.get("total_size")
             or sum(int(b.get("size", 0)) for b in model_sync.get("blobs", []) if isinstance(b, dict))

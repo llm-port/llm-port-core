@@ -217,7 +217,7 @@ class RayEnvironmentManager:
             return
 
         # 6. Verify cluster membership by probing the head.
-        status = await self._verify_cluster(head, gateway)
+        status = await self._verify_cluster(head, gateway, environment)
         # 7. Refresh the environment capability snapshot.
         await self._refresh_capabilities(environment, config)
         # 8. Persist the observed state for the cluster we just reconciled.
@@ -589,11 +589,24 @@ class RayEnvironmentManager:
         for worker, cmd in issued:
             await self._await_result(gateway, cmd, what=f"join_ray_cluster on node {worker.node_id}")
 
-    async def _verify_cluster(self, head, node_control) -> RayClusterStatus:
-        """Step 6: probe the head for authoritative cluster membership."""
+    async def _verify_cluster(self, head, node_control, environment=None) -> RayClusterStatus:
+        """Step 6: probe the head for authoritative cluster membership.
+
+        The pinned bundle travels with the probe so a containerized
+        environment is observed through the in-container helper.  Without it
+        the agent would answer from a host Ray SDK that a certified node does
+        not have, and the cluster would read as dead.
+        """
         client = RayClusterClient(node_control)
+        bundle_payload = (
+            self._bundle_payload(self._bundle_of(environment)) if environment is not None else None
+        )
         try:
-            return await client.probe_cluster(head_node_id=head.node_id)
+            return await client.probe_cluster(
+                head_node_id=head.node_id,
+                runtime_bundle=bundle_payload,
+                include_metrics=True,
+            )
         except Exception as e:  # noqa: BLE001
             log.warning("Ray cluster verify on %s failed: %s", head.node_id, e)
             return RayClusterStatus(alive=False)

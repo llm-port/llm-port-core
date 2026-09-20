@@ -81,12 +81,17 @@ class RayManager:
         # with a mock keep working; it is now a :class:`RayRuntime`.
         self._process = RayRuntime(ray_base_path=ray_base_path)
         self._runtime = self._process
-        # Phase 4B: when a command carries a runtime bundle, bootstrap happens
-        # *inside* the pinned container instead of against a host Ray
-        # distribution — on certified hardware there is no host Ray at all.
-        self._container = RayContainerRuntime(token_path=str(Path(token_dir) / "cluster.token"))
+        token_env = os.getenv("LLM_PORT_NODE_AGENT_RAY_TOKEN_DIR")
+        if token_env:
+            token_dir = token_env
+        else:
+            try:
+                Path(token_dir).mkdir(parents=True, exist_ok=True)
+            except OSError:
+                token_dir = "/tmp/llm-port/ray"
         self._token_dir = Path(token_dir)
         self._token_file = self._token_dir / "cluster.token"
+        self._container = RayContainerRuntime(token_path=str(self._token_file))
         # The agent's own SDK attach must present the cluster token.  Ray
         # resolves its auth mode in native code when the SDK is first loaded,
         # so setting these just before ``ray.init`` is ignored (verified live:
@@ -206,6 +211,26 @@ class RayManager:
                 if k.startswith(self._ALLOWED_ENV_PREFIXES) and k not in self._RESERVED_ENV_KEYS:
                     env[k] = str(v)
         return env
+
+    async def _use_container(self, payload: dict[str, Any]) -> bool:
+        """Should this command be served from the runtime container?
+
+        The backend decides, by putting ``runtime_bundle`` on the command; the
+        running-container check is only a sanity assertion on top of that.
+        Inferring the mode from local state instead would let a leftover
+        container from a previous environment hijack a host-based one, and
+        would silently fall back to the host SDK - which on a certified node
+        has no Ray at all - whenever the container happened to be restarting.
+        """
+        bundle = self._bundle_spec(payload)
+        if bundle is None:
+            return False
+        if await self._container.is_running(bundle.name):
+            return True
+        raise RuntimeError(
+            f"Runtime container {bundle.name!r} is not running; "
+            "cannot serve this command from the pinned runtime."
+        )
 
     @staticmethod
     def _bundle_spec(payload: dict[str, Any]) -> RuntimeBundleSpec | None:
@@ -504,6 +529,18 @@ class RayManager:
             except Exception as e:
                 log.warning("Could not ensure token for get_status: %s", e)
 
+        # Containerized runtime: every Ray-aware call goes through the
+        # in-container helper, with the same tiers the host path reports.
+        if await self._use_container(payload):
+            bundle = self._bundle_spec(payload)
+            return await self._container.get_cluster_status(
+                bundle.name,
+                include_serve=spec.include_serve,
+                include_metrics=spec.include_metrics,
+                include_state=spec.include_state,
+                expected_version=spec.expected_version,
+            )
+
         # Attach + probe are short synchronous GCS round-trips; run them off
         # the event loop so a stuck GCS connection cannot wedge the agent.
         status = await asyncio.to_thread(
@@ -537,6 +574,15 @@ class RayManager:
         non-blocking: convergence is observed through the serve status tier.
         """
         spec = RunServeAppPayload.model_validate(payload)
+        if await self._use_container(payload):
+            bundle = self._bundle_spec(payload)
+            return await self._container.run_serve_app(
+                bundle.name,
+                spec.app_name,
+                spec.llm_serving_args,
+                http_options=spec.http_options,
+            )
+
         # build_openai_app + serve.run are driver-side Python API calls that
         # do GCS round-trips; run off the event loop.
         return await asyncio.to_thread(
@@ -550,6 +596,12 @@ class RayManager:
     async def delete_serve_app(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Delete a named Serve application (Phase 3)."""
         spec = DeleteServeAppPayload.model_validate(payload)
+        if await self._use_container(payload):
+            bundle = self._bundle_spec(payload)
+            return await self._container.delete_serve_app(
+                bundle.name,
+                spec.app_name,
+            )
         return await asyncio.to_thread(self._serve.delete_app, spec.app_name)
 
     async def get_serve_status(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -565,6 +617,23 @@ class RayManager:
                 await self._ensure_token({"credential_ref": spec.credential_ref})
             except Exception as e:
                 log.warning("Could not ensure token for get_serve_status: %s", e)
+
+        if await self._use_container(payload):
+            bundle = self._bundle_spec(payload)
+            serve_data = await self._container.get_serve_status(
+                bundle.name, app_name=spec.app_name,
+            )
+            # The helper reports Serve's own ``applications`` key; the wire
+            # contract for this command is ``apps``.
+            apps = serve_data.get("apps") or serve_data.get("applications") or {}
+            if spec.app_name is not None:
+                apps = {spec.app_name: apps[spec.app_name]} if spec.app_name in apps else {}
+            return {
+                "available": bool(serve_data.get("available", False)),
+                "apps": apps,
+                "detail": serve_data.get("error") or serve_data.get("detail"),
+            }
+
         serve = await asyncio.to_thread(self._serve.status)
         apps: dict[str, Any] = {}
         if serve is not None and serve.available:

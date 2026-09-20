@@ -58,10 +58,16 @@ class ContainerRuntime(Protocol):
         *,
         env: dict[str, str] | None = None,
         workdir: str | None = None,
+        stdin: str | None = None,
         timeout_sec: float = 120,
         raise_on_error: bool = True,
     ) -> tuple[int, str, str]:
-        """Run *command* inside a running container.  Returns ``(rc, stdout, stderr)``."""
+        """Run *command* inside a running container.  Returns ``(rc, stdout, stderr)``.
+
+        ``stdin`` feeds a document to the process instead of passing it on the
+        command line, which both avoids argv length limits and keeps payloads
+        out of the container's process list.
+        """
         ...
 
     async def image_identity(self, image: str, *, timeout_sec: float = 20) -> dict[str, Any]:

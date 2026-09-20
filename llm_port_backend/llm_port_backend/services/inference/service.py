@@ -395,7 +395,11 @@ class EnvironmentService:
         environment_id: uuid.UUID,
         model_id: uuid.UUID,
     ) -> Any:
-        """Evaluate artifact readiness for model across environment nodes."""
+        """Report artifact readiness for a model across environment nodes.
+
+        Read-only: ``persist=False`` so a caller holding only ``read`` cannot
+        reconcile availability rows just by polling this route.
+        """
         environment = await self.get(environment_id)
         model = await self.model_dao.get(model_id)
         if model is None:
@@ -408,7 +412,9 @@ class EnvironmentService:
         if not nodes:
             raise ConflictError("Environment has no eligible nodes for artifact synchronization")
 
-        return await coordinator.evaluate(model=model, environment=environment)
+        return await coordinator.evaluate(
+            model=model, environment=environment, persist=False
+        )
 
     async def sync_artifact(
         self,
@@ -431,6 +437,7 @@ class EnvironmentService:
             raise ConflictError("Environment has no eligible nodes for artifact synchronization")
 
         return await coordinator.ensure(model=model, environment=environment, gateway=gateway)
+
 
 
 # ---------------------------------------------------------------------------

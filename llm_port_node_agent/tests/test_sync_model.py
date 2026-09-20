@@ -148,7 +148,16 @@ async def test_sync_model_rejects_missing_payload(tmp_path: Path) -> None:
 async def test_dispatcher_routes_sync_model_with_progress(tmp_path: Path) -> None:
     state = StateStore(tmp_path / "state.json")
     events = EventBuffer()
-    fake_puller = AsyncMock()
+
+    # A real pull reconstructs models--<repo>/snapshots/<commit>/; the fake has
+    # to do the same, because sync_model now refuses to report a snapshot path
+    # that is not on disk.
+    pulled: list[dict[str, Any]] = []
+
+    async def fake_puller(**kwargs: Any) -> Path:
+        pulled.append(kwargs)
+        (tmp_path / "models--my--model" / "snapshots" / "c1").mkdir(parents=True, exist_ok=True)
+        return tmp_path
 
     manager = RuntimeManager(
         runtime=DummyRuntime(),  # type: ignore[arg-type]
@@ -194,4 +203,39 @@ async def test_dispatcher_routes_sync_model_with_progress(tmp_path: Path) -> Non
     assert result["model_id"] == "m1"
     assert result["revision"] == "c1"
     assert result["manifest_sha256"] == "digest123"
-    fake_puller.assert_awaited_once()
+    assert len(pulled) == 1
+
+
+@pytest.mark.anyio()
+async def test_sync_model_refuses_to_report_a_path_that_does_not_exist(tmp_path) -> None:
+    """root_path is derived from the manifest, so it has to be checked.
+
+    An unverified path lets the backend mark the artifact READY pointing at a
+    directory that does not exist; the failure then surfaces inside the engine
+    at model load instead of here, where it names the cause.
+    """
+    from llm_port_node_agent.runtime_manager import RuntimeManager, RuntimeManagerError
+
+    manager = RuntimeManager.__new__(RuntimeManager)
+    manager._model_store_root = str(tmp_path)
+
+    async def _puller(**_kwargs):
+        return tmp_path  # "succeeds" without creating the snapshot tree
+
+    manager._model_puller = _puller
+
+    payload = {
+        "model_sync": {
+            "model_id": "m-1",
+            "hf_repo_id": "org/ghost",
+            "model_dir_name": "models--org--ghost",
+            "blobs": [{"hash": "abc", "size": 1}],
+            "refs": [{"name": "main", "commit": "c0ffee"}],
+            "snapshots": [{"commit": "c0ffee", "links": []}],
+            "total_size": 1,
+        }
+    }
+
+    with pytest.raises(RuntimeManagerError) as exc:
+        await manager.sync_model(payload)
+    assert "c0ffee" in str(exc.value)

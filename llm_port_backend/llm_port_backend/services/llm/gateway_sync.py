@@ -441,8 +441,7 @@ class GatewaySyncService:
                             INSERT INTO llm_model_alias (alias, description, enabled, created_at, updated_at)
                             VALUES (:alias, :desc, TRUE, NOW(), NOW())
                             ON CONFLICT (alias) DO UPDATE
-                                SET enabled    = TRUE,
-                                    updated_at = NOW()
+                                SET updated_at = NOW()
                         """),
                         {"alias": alias, "desc": f"Auto-synced from deployment {deployment_id}"},
                     )

@@ -251,7 +251,11 @@ async def get_environment_artifact_readiness(
     _user: User = Depends(require_permission(_ENV, "read")),
     service: EnvironmentService = Depends(),
 ) -> ArtifactReadiness:
-    """Evaluate artifact readiness for model across environment nodes."""
+    """Report artifact readiness for a model across environment nodes.
+
+    Read-only: unlike the sync route this never reconciles rows, so a caller
+    holding only ``read`` cannot mutate availability state by polling.
+    """
     try:
         return await service.evaluate_artifact(environment_id, model_id)
     except InferenceError as exc:

@@ -167,6 +167,9 @@ async def test_coordinator_ensure_issues_commands() -> None:
         )
     )
     coordinator._dao.mark = AsyncMock()
+    # ensure() re-reads the rows so an in-flight sync can be left alone; with
+    # no rows, every target node is dispatched exactly as before.
+    coordinator._dao.list_for_nodes = AsyncMock(return_value=[])
 
     fake_payload = {"model_id": str(model.id), "blobs": [{"hash": "b1"}]}
     with patch("llm_port_backend.services.inference.artifacts.build_model_sync_payload", return_value=fake_payload):
