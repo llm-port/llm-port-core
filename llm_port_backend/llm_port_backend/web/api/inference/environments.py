@@ -27,6 +27,16 @@ from llm_port_backend.web.api.inference.schema import (
     EnvironmentNodeAdd,
     EnvironmentUpdate,
 )
+from llm_port_backend.services.inference.observability import (
+    EnvironmentMetrics,
+    ObservabilityUnsupported,
+)
+from llm_port_backend.services.nodes.service import NodeControlService
+from llm_port_backend.web.api.inference.observability import (
+    get_node_control_service,
+    resolve_driver_for_environment,
+    unsupported,
+)
 from llm_port_backend.web.api.rbac import require_permission
 
 router = APIRouter()
@@ -264,3 +274,29 @@ async def get_environment_artifact_readiness(
 
 def _dto_from_env(env) -> EnvironmentDTO:
     return EnvironmentDTO.model_validate(env)
+
+
+@router.get("/{environment_id}/metrics", response_model=EnvironmentMetrics)
+async def get_environment_metrics(
+    environment_id: uuid.UUID,
+    _user: User = Depends(require_permission(_ENV, "read")),
+    service: EnvironmentService = Depends(),
+    node_control: NodeControlService = Depends(get_node_control_service),
+) -> EnvironmentMetrics:
+    """Aggregated cluster metrics for an environment.
+
+    Read-only, and honest about gaps: nodes that export no metrics port are
+    reported in ``partials`` rather than counted as zero.
+    """
+    try:
+        environment = await service.get(environment_id)
+    except InferenceError as exc:
+        raise _map_inference_error(exc)
+
+    driver = await resolve_driver_for_environment(service.session, environment)
+    try:
+        return await driver.environment_metrics(
+            service.session, environment, node_control=node_control
+        )
+    except ObservabilityUnsupported as exc:
+        raise unsupported(exc)

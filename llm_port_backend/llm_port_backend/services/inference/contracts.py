@@ -26,6 +26,13 @@ from llm_port_backend.db.models.inference import (
     InferenceEnvironment,
 )
 from llm_port_backend.services.inference.capabilities import CapabilityDocument
+from llm_port_backend.services.inference.observability import (
+    DeploymentMetrics,
+    EnvironmentMetrics,
+    LogPage,
+    LogSource,
+    ObservabilityUnsupported,
+)
 from llm_port_backend.services.inference.schemas import InferenceDeploymentSpecV1Alpha1
 
 
@@ -56,6 +63,57 @@ class InferenceDriver(Protocol):
         :return: a structured capability document.
         """
         ...  # pragma: no cover
+
+    async def logs(
+        self,
+        session: AsyncSession,
+        deployment: InferenceDeployment,
+        *,
+        source: LogSource,
+        node_id: str | None = None,
+        replica_id: str | None = None,
+        tail: int = 200,
+        since: str | None = None,
+        cursor: str | None = None,
+        node_control: object | None = None,
+    ) -> LogPage:
+        """
+        Read a page of normalized logs for *deployment*.
+
+        Drivers translate their backend's output into :class:`LogPage`; no
+        backend-native shape may cross this boundary (Phase 6, "Logs").
+
+        :raises ObservabilityUnsupported: the driver has no log surface.
+        """
+        raise ObservabilityUnsupported(getattr(self, "key", "unknown"), "logs")
+
+    async def deployment_metrics(
+        self,
+        session: AsyncSession,
+        deployment: InferenceDeployment,
+        *,
+        node_control: object | None = None,
+    ) -> DeploymentMetrics:
+        """
+        Aggregate the Serve application and replica tiers for *deployment*.
+
+        :raises ObservabilityUnsupported: the driver has no metrics surface.
+        """
+        raise ObservabilityUnsupported(getattr(self, "key", "unknown"), "deployment_metrics")
+
+    async def environment_metrics(
+        self,
+        session: AsyncSession,
+        environment: InferenceEnvironment,
+        *,
+        node_control: object | None = None,
+    ) -> EnvironmentMetrics:
+        """
+        Aggregate the cluster tier for *environment*.
+
+        :raises ObservabilityUnsupported: the driver has no metrics surface.
+        """
+        raise ObservabilityUnsupported(getattr(self, "key", "unknown"), "environment_metrics")
 
 
 class DeploymentOrchestrator(Protocol):
