@@ -112,11 +112,10 @@ def _stop_dev_processes() -> int:
 
 
 def _find_workspace() -> Path:
-    """Resolve the dev workspace from config or cwd (same as dev up)."""
-    cfg = load_config()
-    if cfg.dev and cfg.dev.workspace_dir:
-        return Path(cfg.dev.workspace_dir)
-    return Path.cwd()
+    """Resolve the dev workspace (shared with dev up / dev status)."""
+    from llmport.core.workspace import resolve_workspace
+
+    return resolve_workspace()
 
 
 def _generated_env_files(workspace: Path) -> list[Path]:

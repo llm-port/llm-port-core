@@ -48,7 +48,7 @@ def has_nvidia_gpu() -> bool:
     try:
         proc = subprocess.run(
             [docker, "info", "--format", "{{.Runtimes}}"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10,
         )
         if "nvidia" not in (proc.stdout or "").lower():
             _gpu_cache = False
@@ -65,7 +65,7 @@ def has_nvidia_gpu() -> bool:
     try:
         proc = subprocess.run(
             [smi, "-L"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10,
         )
         _gpu_cache = proc.returncode == 0 and "GPU" in (proc.stdout or "")
     except Exception:  # noqa: BLE001
@@ -179,6 +179,14 @@ def _run(
         cmd,
         capture_output=capture,
         text=True,
+        # Decode explicitly as UTF-8 and never raise.  `text=True` alone
+        # decodes with the locale codec, which on a Windows console is
+        # cp1252: docker output containing any byte outside it (0x8d in a
+        # container name or a progress glyph) killed the reader thread, left
+        # `stdout` as None, and surfaced as `'NoneType' has no attribute
+        # 'strip'` in the caller rather than as a decoding problem.
+        encoding="utf-8",
+        errors="replace",
         check=False,
     )
 

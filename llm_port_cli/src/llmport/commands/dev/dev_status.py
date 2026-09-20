@@ -51,8 +51,10 @@ def dev_status() -> None:
       • Shared infrastructure containers
       • Running dev processes (backend, worker, frontend)
     """
+    from llmport.core.workspace import resolve_workspace
+
     cfg = load_config()
-    workspace = Path(cfg.dev.workspace_dir) if cfg.dev and cfg.dev.workspace_dir else Path.cwd()
+    workspace = resolve_workspace()
 
     console.print("[bold magenta]llm.port Developer Status[/bold magenta]\n")
 

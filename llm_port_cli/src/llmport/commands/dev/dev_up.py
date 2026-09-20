@@ -22,17 +22,42 @@ import click
 from llmport.core.console import console, success, warning, error, info
 from llmport.core.registry import DEV_ENDPOINTS
 from llmport.core.settings import load_config
-from llmport.core.workspace import find_service_dir, resolve_shared_compose
+from llmport.core.workspace import (
+    find_service_dir,
+    resolve_shared_compose,
+    resolve_workspace,
+)
 
 from .dev_group import dev_group
 
 
 def _find_workspace() -> Path:
-    """Resolve the dev workspace from config or cwd."""
-    cfg = load_config()
-    if cfg.dev and cfg.dev.workspace_dir:
-        return Path(cfg.dev.workspace_dir)
-    return Path.cwd()
+    """The workspace to start, remembering one we had to detect.
+
+    ``dev init`` used to be a precondition purely because it was the only
+    thing that wrote ``dev.workspace_dir``.  Detection removes that: a
+    developer who cloned the repos themselves can run ``dev up`` directly,
+    from the workspace root or from inside any service.
+    """
+    return resolve_workspace(remember=True)
+
+
+def _ensure_databases(backend_dir: Path) -> None:
+    """Create the per-service databases if they are absent.
+
+    Only ``dev init`` did this before, which is what made it a hard
+    precondition: without the databases the Alembic step below fails on a
+    checkout that was never initialised, and equally after
+    ``dev down --volumes`` wipes them.  Both are recoverable, so recover.
+    """
+    from llmport.commands.dev.dev_init import _ensure_backend_role, _ensure_database
+    from llmport.core.registry import DATABASES
+
+    created = [name for name in DATABASES if _ensure_database(name, quiet=True)]
+    if created:
+        success(f"Created missing databases: {', '.join(created)}")
+    if backend_dir.exists():
+        _ensure_backend_role(backend_dir)
 
 
 def _launch_terminal(title: str, working_dir: Path, command: str, headless: bool) -> bool:
@@ -470,6 +495,7 @@ def dev_up(
                 warning("Shared infra compose up reported failures (see output above).")
             if _wait_for_postgres(timeout=30):
                 success("Shared infrastructure running.")
+                _ensure_databases(backend_dir)
             else:
                 warning("Postgres did not become ready. Continuing anyway…")
         else:

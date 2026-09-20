@@ -17,6 +17,7 @@ import time
 from pathlib import Path
 
 import click
+from click.core import ParameterSource
 
 from llmport.core.compose import ComposeContext, up as compose_up
 from llmport.core.console import console, success, warning, error, info
@@ -42,7 +43,7 @@ from llmport.core.settings import (
     load_config,
     save_config,
 )
-from llmport.core.workspace import find_service_dir, resolve_shared_compose
+from llmport.core.workspace import detect_workspace, find_service_dir, resolve_shared_compose
 
 from .dev_group import dev_group
 
@@ -215,8 +216,13 @@ def _ensure_backend_role(backend_dir: Path, pg_user: str = "postgres") -> None:
     )
 
 
-def _ensure_database(db_name: str, pg_user: str = "postgres") -> None:
-    """Ensure a database exists inside the shared Postgres container."""
+def _ensure_database(db_name: str, pg_user: str = "postgres", *, quiet: bool = False) -> bool:
+    """Ensure a database exists inside the shared Postgres container.
+
+    Returns True when this call created it.  ``quiet`` suppresses the
+    per-database chatter for callers that run this on every invocation
+    (``dev up``) rather than once during setup.
+    """
     check_sql = f"SELECT 1 FROM pg_database WHERE datname='{db_name}'"
     result = subprocess.run(
         ["docker", "exec", POSTGRES_CONTAINER, "psql", "-U", pg_user, "-tAc", check_sql],
@@ -224,15 +230,18 @@ def _ensure_database(db_name: str, pg_user: str = "postgres") -> None:
         text=True,
     )
     if "1" in (result.stdout or ""):
-        info(f"Database '{db_name}' already exists.")
-        return
+        if not quiet:
+            info(f"Database '{db_name}' already exists.")
+        return False
 
     subprocess.run(
         ["docker", "exec", POSTGRES_CONTAINER, "psql", "-U", pg_user, "-c", f"CREATE DATABASE {db_name};"],
         capture_output=True,
         text=True,
     )
-    success(f"Created database '{db_name}'.")
+    if not quiet:
+        success(f"Created database '{db_name}'.")
+    return True
 
 
 def _install_backend_deps(backend_dir: Path) -> None:
@@ -413,6 +422,28 @@ def _resync_rmq_credentials(shared_dir: Path, *, skip_infra: bool) -> None:
     warning("RMQ broker restarted; could not confirm llmport-backend login within 120s.")
 
 
+def _resolve_init_workspace(workspace: str, *, explicit: bool) -> Path:
+    """Decide where ``dev init`` sets up.
+
+    Adopts a checkout the developer already has rather than cloning a second
+    copy beside it — which is what happened whenever ``init`` was run from
+    somewhere other than the exact directory holding the code.
+
+    An *explicit* path is honoured as given: it is an instruction about where
+    the workspace should live, and silently relocating it to some ancestor
+    that happens to contain a checkout would be the wrong kind of clever.
+    Detection therefore applies only to the default argument.
+    """
+    target = Path(workspace).resolve()
+    if explicit:
+        return target
+    detected = detect_workspace()
+    if detected and detected != target:
+        info(f"Existing checkout detected at {detected} — using it as the workspace.")
+        return detected
+    return target
+
+
 @dev_group.command("init")
 @click.argument("workspace", type=click.Path(), default=".")
 @click.option("--ssh", is_flag=True, help="Clone using SSH instead of HTTPS.")
@@ -460,7 +491,11 @@ def dev_init(
 
         llmport dev init --workspace ~/projects/llm-port --branch feature/my-work
     """
-    workspace_path = Path(workspace).resolve()
+    explicit = (
+        click.get_current_context().get_parameter_source("workspace")
+        is not ParameterSource.DEFAULT
+    )
+    workspace_path = _resolve_init_workspace(workspace, explicit=explicit)
     workspace_path.mkdir(parents=True, exist_ok=True)
 
     # Parse --modules into profile list
@@ -500,7 +535,9 @@ def dev_init(
     success("Prerequisites OK.")
 
     # ── 1. Clone repos ────────────────────────────────────────────
-    console.print("\n[bold cyan]Step 1: Cloning repositories…[/bold cyan]")
+    # Repos already present are skipped, so re-running against an existing
+    # workspace pulls only what is missing rather than touching the tree.
+    console.print("\n[bold cyan]Step 1: Cloning missing repositories…[/bold cyan]")
     clone_method = "ssh" if ssh else "https"
 
     # Resolve GitHub token for cloning private repos (if configured)
