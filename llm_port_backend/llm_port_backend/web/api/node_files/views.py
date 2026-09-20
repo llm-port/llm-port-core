@@ -70,96 +70,14 @@ async def _authenticate_node(request: Request) -> InfraNode:
 
 
 # ------------------------------------------------------------------
-# Helpers
+# Helpers (delegated to services.llm.artifacts)
 # ------------------------------------------------------------------
 
-def _model_cache_dir(hf_repo_id: str) -> Path | None:
-    """Return the ``models--org--name`` cache directory, or *None*."""
-    cache_root = Path(settings.model_store_root)
-    dir_name = f"models--{hf_repo_id.replace('/', '--')}"
-    model_dir = cache_root / dir_name
-    return model_dir if model_dir.is_dir() else None
-
-
-def _resolve_blob_hash(fpath: Path, blobs_dir_resolved: Path) -> str | None:
-    """Determine which blob a snapshot file refers to.
-
-    Handles both symlinks (standard Linux HF cache) and regular files
-    that resolve into the ``blobs/`` directory (Windows / copied caches).
-    """
-    if fpath.is_symlink():
-        return Path(os.readlink(fpath)).name
-    try:
-        resolved = fpath.resolve()
-        resolved.relative_to(blobs_dir_resolved)
-        return resolved.name
-    except (ValueError, OSError):
-        return None
-
-
-def _build_cache_manifest(model_dir: Path) -> dict[str, Any]:
-    """Enumerate blobs, refs, and snapshot symlinks for an HF cache dir.
-
-    Return structure::
-
-        {
-            "model_dir_name": "models--org--name",
-            "blobs":     [{"hash": "<hex>", "size": N}, ...],
-            "refs":      [{"name": "main", "commit": "<hex>"}, ...],
-            "snapshots": [{"commit": "<hex>", "links": [{"path": "...", "blob_hash": "..."}]}, ...],
-            "total_size": N,
-        }
-    """
-    blobs_dir = model_dir / "blobs"
-    refs_dir = model_dir / "refs"
-    snapshots_dir = model_dir / "snapshots"
-
-    # ── Blobs ────────────────────────────────────────────────
-    blobs: list[dict[str, Any]] = []
-    if blobs_dir.is_dir():
-        for entry in sorted(blobs_dir.iterdir()):
-            if entry.is_file():
-                blobs.append({"hash": entry.name, "size": entry.stat().st_size})
-
-    # ── Refs ─────────────────────────────────────────────────
-    refs: list[dict[str, str]] = []
-    if refs_dir.is_dir():
-        for entry in sorted(refs_dir.iterdir()):
-            if entry.is_file():
-                refs.append({
-                    "name": entry.name,
-                    "commit": entry.read_text(encoding="utf-8").strip(),
-                })
-
-    # ── Snapshots (symlink tree) ─────────────────────────────
-    snapshots: list[dict[str, Any]] = []
-    if snapshots_dir.is_dir():
-        blobs_resolved = blobs_dir.resolve()
-        for commit_dir in sorted(snapshots_dir.iterdir()):
-            if not commit_dir.is_dir():
-                continue
-            links: list[dict[str, str]] = []
-            for dirpath, _dirs, fnames in os.walk(commit_dir):
-                for fname in sorted(fnames):
-                    fpath = Path(dirpath) / fname
-                    rel = str(fpath.relative_to(commit_dir)).replace("\\", "/")
-                    blob_hash = _resolve_blob_hash(fpath, blobs_resolved)
-                    if blob_hash:
-                        links.append({"path": rel, "blob_hash": blob_hash})
-                    else:
-                        log.warning(
-                            "Snapshot file %s cannot be mapped to a blob — skipping",
-                            fpath,
-                        )
-            snapshots.append({"commit": commit_dir.name, "links": links})
-
-    return {
-        "model_dir_name": model_dir.name,
-        "blobs": blobs,
-        "refs": refs,
-        "snapshots": snapshots,
-        "total_size": sum(b["size"] for b in blobs),
-    }
+from llm_port_backend.services.llm.artifacts import (
+    build_cache_manifest as _build_cache_manifest,
+    model_cache_dir as _model_cache_dir,
+    resolve_blob_hash as _resolve_blob_hash,
+)
 
 
 # ------------------------------------------------------------------

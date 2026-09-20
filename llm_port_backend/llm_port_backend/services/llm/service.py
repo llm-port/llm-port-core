@@ -1217,43 +1217,7 @@ class LLMService:
         *,
         source: str = "sync_from_server",
     ) -> dict[str, Any] | None:
-        """Build the ``model_sync`` dict for remote node deployment.
+        """Build the ``model_sync`` dict for remote node deployment."""
+        from llm_port_backend.services.llm.artifacts import build_model_sync_payload
 
-        *source* controls how the model reaches the node:
-
-        - ``"sync_from_server"`` — include the full blob manifest so
-          the agent pulls from this backend's file server.
-        - ``"download_from_hf"`` — include only the ``hf_repo_id`` so
-          the agent's container can download directly from HuggingFace.
-        """
-        if not model.hf_repo_id:
-            return None
-
-        base: dict[str, Any] = {
-            "model_id": str(model.id),
-            "hf_repo_id": model.hf_repo_id,
-            "source": source,
-        }
-
-        if source == "download_from_hf":
-            # The node has internet — just tell the agent which repo to fetch.
-            return base
-
-        # sync_from_server — include full cache manifest
-        from llm_port_backend.web.api.node_files.views import (
-            _build_cache_manifest,
-            _model_cache_dir,
-        )
-
-        model_dir = _model_cache_dir(model.hf_repo_id)
-        if model_dir is None:
-            # No local cache copy — still emit the base payload so the node
-            # can mount a model directory that already exists on the node
-            # (mount-only / already-synced path) and build the serve command.
-            return base
-
-        manifest = _build_cache_manifest(model_dir)
-        if not manifest["blobs"]:
-            return base
-
-        return base | manifest
+        return build_model_sync_payload(model, source=source)

@@ -86,6 +86,27 @@ class ContainerMount(BaseModel):
     mode: str = "ro"
 
 
+def translate_host_path_to_container(
+    host_path: str,
+    mounts: list[ContainerMount],
+) -> str | None:
+    """Translate a host path to its corresponding container path based on bundle mounts.
+
+    Returns the mapped container path, or ``None`` if the host path does not fall
+    under any configured mount.
+    """
+    clean_host = host_path.replace("\\", "/").rstrip("/")
+    for mount in mounts:
+        m_host = mount.host_path.replace("\\", "/").rstrip("/")
+        if clean_host == m_host:
+            return mount.container_path.replace("\\", "/").rstrip("/")
+        if clean_host.startswith(m_host + "/"):
+            sub = clean_host[len(m_host) :]
+            m_cont = mount.container_path.replace("\\", "/").rstrip("/")
+            return f"{m_cont}{sub}"
+    return None
+
+
 class ContainerRequirements(BaseModel):
     """Semantic container requirements.
 

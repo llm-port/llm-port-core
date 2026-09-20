@@ -7,6 +7,7 @@ import json
 import logging
 import shlex
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -298,17 +299,77 @@ class RuntimeManager:
             "endpoint_url": endpoint,
         }
 
-    async def sync_model(self, payload: dict[str, Any]) -> dict[str, Any]:
+    async def sync_model(
+        self, payload: dict[str, Any], *, emit_progress: ProgressEmitter | None = None,
+    ) -> dict[str, Any]:
         """Pull model files from the backend without starting a container."""
         model_sync = payload.get("model_sync")
         if not isinstance(model_sync, dict) or not model_sync.get("blobs"):
             raise RuntimeManagerError("model_sync payload with files is required.")
         if self._model_puller is None:
             raise RuntimeManagerError("Model puller not configured.")
-        await self._model_puller(model_sync=model_sync)
+
+        async def _progress(p: dict[str, Any]) -> None:
+            if emit_progress is not None:
+                await emit_progress(p)
+
+        await self._model_puller(model_sync=model_sync, emit_progress=_progress)
+
+        model_id = str(payload.get("model_id") or model_sync.get("model_id") or "")
+        hf_repo_id = str(model_sync.get("hf_repo_id") or "")
+        model_dir_name = str(
+            model_sync.get("model_dir_name") or f"models--{hf_repo_id.replace('/', '--')}"
+        )
+
+        refs = model_sync.get("refs", [])
+        snapshots = model_sync.get("snapshots", [])
+        desired_rev = str(model_sync.get("revision") or payload.get("revision") or "").strip()
+        ref_map = {str(r.get("name")): str(r.get("commit")) for r in refs if isinstance(r, dict)}
+
+        if desired_rev and desired_rev in ref_map:
+            commit = ref_map[desired_rev]
+        elif desired_rev and any(isinstance(s, dict) and s.get("commit") == desired_rev for s in snapshots):
+            commit = desired_rev
+        elif "main" in ref_map:
+            commit = ref_map["main"]
+        elif "master" in ref_map:
+            commit = ref_map["master"]
+        elif ref_map:
+            commit = next(iter(ref_map.values()))
+        elif snapshots and isinstance(snapshots[0], dict) and snapshots[0].get("commit"):
+            commit = str(snapshots[0]["commit"])
+        else:
+            commit = desired_rev or "main"
+
+        cache_root = str(self._model_store_root)
+        clean_cache_root = cache_root.rstrip("/\\")
+        if cache_root.startswith("/"):
+            root_path = f"{clean_cache_root}/{model_dir_name}/snapshots/{commit}"
+        else:
+            root_path = str(Path(cache_root) / model_dir_name / "snapshots" / commit)
+
+        total_size = int(
+            model_sync.get("total_size")
+            or sum(int(b.get("size", 0)) for b in model_sync.get("blobs", []) if isinstance(b, dict))
+        )
+        files_synced = len(
+            model_sync.get("files")
+            or [link for s in snapshots if isinstance(s, dict) for link in s.get("links", [])]
+            or model_sync.get("blobs", [])
+        )
+        manifest_sha256 = model_sync.get("manifest_sha256") or payload.get("manifest_sha256")
+
         return {
-            "hf_repo_id": model_sync.get("hf_repo_id", ""),
-            "files_synced": len(model_sync.get("files", [])),
+            "synced": True,
+            "model_id": model_id,
+            "hf_repo_id": hf_repo_id,
+            "model_dir_name": model_dir_name,
+            "root_path": root_path,
+            "cache_root": cache_root,
+            "revision": commit,
+            "manifest_sha256": manifest_sha256,
+            "total_size": total_size,
+            "files_synced": files_synced,
         }
 
     async def start_workload(

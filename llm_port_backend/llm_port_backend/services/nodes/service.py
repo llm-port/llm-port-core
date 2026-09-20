@@ -11,7 +11,9 @@ from sqlalchemy import select
 
 log = logging.getLogger(__name__)
 
+from llm_port_backend.db.dao.inference_dao import ModelAvailabilityDAO
 from llm_port_backend.db.dao.node_control_dao import NodeControlDAO
+from llm_port_backend.db.models.inference import ModelAvailabilityStatus
 from llm_port_backend.db.models.llm import LLMModel, LLMProvider, LLMRuntime, ModelStatus, RuntimeStatus
 from llm_port_backend.db.models.node_control import (
     InfraNode,
@@ -513,6 +515,8 @@ class NodeControlService:
             message=str(payload.get("message") or "Progress event received."),
             payload_json=payload,
         )
+        if command.command_type == NodeCommandType.SYNC_MODEL.value:
+            await self._apply_model_sync_progress(command=command, payload=payload)
 
     async def record_command_result(
         self,
@@ -541,6 +545,7 @@ class NodeControlService:
             payload_json=payload,
         )
         await self._apply_runtime_side_effect(command=command, success=success, payload=payload)
+        await self._apply_model_sync_side_effect(command=command, success=success, payload=payload)
 
     async def record_node_events(self, *, node_id: uuid.UUID, events: list[dict[str, Any]]) -> None:
         await self._dao.add_node_events(node_id=node_id, events=events)
@@ -981,6 +986,130 @@ class NodeControlService:
             desired_state=runtime.desired_state,
             actual_state=runtime.status.value,
         )
+
+    async def _resolve_model_id_for_command(
+        self,
+        command: InfraNodeCommand,
+        payload: dict[str, Any] | None = None,
+    ) -> uuid.UUID | None:
+        cmd_payload = command.payload_json or {}
+        model_sync = cmd_payload.get("model_sync") if isinstance(cmd_payload.get("model_sync"), dict) else {}
+        result_json = payload.get("result") if payload and isinstance(payload.get("result"), dict) else {}
+
+        raw_id = (
+            cmd_payload.get("model_id")
+            or model_sync.get("model_id")
+            or result_json.get("model_id")
+        )
+        if raw_id:
+            try:
+                return uuid.UUID(str(raw_id))
+            except (ValueError, AttributeError):
+                pass
+
+        hf_repo_id = (
+            cmd_payload.get("hf_repo_id")
+            or model_sync.get("hf_repo_id")
+            or result_json.get("hf_repo_id")
+        )
+        if hf_repo_id:
+            res = await self._dao.session.execute(
+                select(LLMModel.id).where(LLMModel.hf_repo_id == str(hf_repo_id))
+            )
+            found_id = res.scalar_one_or_none()
+            if found_id:
+                return found_id
+
+        return None
+
+    async def _apply_model_sync_progress(
+        self,
+        *,
+        command: InfraNodeCommand,
+        payload: dict[str, Any],
+    ) -> None:
+        if command.command_type != NodeCommandType.SYNC_MODEL.value:
+            return
+        model_id = await self._resolve_model_id_for_command(command, payload)
+        if model_id is None:
+            return
+
+        progress_raw = (
+            payload.get("progress_pct")
+            if payload.get("progress_pct") is not None
+            else payload.get("progress")
+        )
+        try:
+            progress_val = float(progress_raw) if progress_raw is not None else 0.0
+        except (TypeError, ValueError):
+            progress_val = 0.0
+
+        message = payload.get("message")
+        fields: dict[str, Any] = {"progress": progress_val}
+        if message:
+            fields["status_message"] = str(message)[:2000]
+
+        dao = ModelAvailabilityDAO(self._dao.session)
+        await dao.mark(
+            model_id=model_id,
+            node_id=command.node_id,
+            status=ModelAvailabilityStatus.SYNCING,
+            **fields,
+        )
+
+    async def _apply_model_sync_side_effect(
+        self,
+        *,
+        command: InfraNodeCommand,
+        success: bool,
+        payload: dict[str, Any],
+    ) -> None:
+        if command.command_type != NodeCommandType.SYNC_MODEL.value:
+            return
+        model_id = await self._resolve_model_id_for_command(command, payload)
+        if model_id is None:
+            log.warning("Could not resolve model_id for SYNC_MODEL command %s", command.id)
+            return
+
+        dao = ModelAvailabilityDAO(self._dao.session)
+        if success:
+            result_json = payload.get("result") if isinstance(payload.get("result"), dict) else {}
+            cmd_payload = command.payload_json or {}
+            model_sync = cmd_payload.get("model_sync") if isinstance(cmd_payload.get("model_sync"), dict) else {}
+
+            root_path = result_json.get("root_path")
+            revision = result_json.get("revision")
+            manifest_sha256 = (
+                result_json.get("manifest_sha256")
+                or cmd_payload.get("manifest_sha256")
+                or model_sync.get("manifest_sha256")
+            )
+            size_bytes = int(result_json.get("total_size") or 0)
+
+            await dao.mark(
+                model_id=model_id,
+                node_id=command.node_id,
+                status=ModelAvailabilityStatus.READY,
+                root_path=str(root_path) if root_path else None,
+                revision=str(revision) if revision else None,
+                manifest_sha256=str(manifest_sha256) if manifest_sha256 else None,
+                size_bytes=size_bytes,
+                progress=100.0,
+                status_message=None,
+                ready_at=datetime.now(tz=UTC),
+            )
+        else:
+            error_msg = (
+                payload.get("error_message")
+                or payload.get("error_code")
+                or "Model sync failed on node"
+            )
+            await dao.mark(
+                model_id=model_id,
+                node_id=command.node_id,
+                status=ModelAvailabilityStatus.FAILED,
+                status_message=str(error_msg)[:2000],
+            )
 
     async def _promote_model_status(self, runtime: LLMRuntime) -> None:
         """Promote the linked model to AVAILABLE if still in a transient state.

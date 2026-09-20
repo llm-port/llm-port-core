@@ -9,6 +9,7 @@ Conventions follow the rest of the codebase:
   that nullable fields can be explicitly cleared with ``None``.
 """
 
+from datetime import UTC, datetime
 import uuid
 from typing import Any
 
@@ -31,6 +32,7 @@ from llm_port_backend.db.models.inference import (
     InferenceEnvironmentBinding,
     InferenceEnvironmentNode,
     ModelAvailability,
+    ModelAvailabilityStatus,
 )
 
 # -----------------------------------------------------------------------
@@ -762,3 +764,32 @@ class ModelAvailabilityDAO:
             select(ModelAvailability).where(ModelAvailability.node_id == node_id)
         )
         return list(result.scalars().all())
+
+    async def list_for_nodes(
+        self, model_id: uuid.UUID, node_ids: list[uuid.UUID]
+    ) -> list[ModelAvailability]:
+        """Return availability rows for a model across the specified nodes."""
+        if not node_ids:
+            return []
+        result = await self.session.execute(
+            select(ModelAvailability).where(
+                ModelAvailability.model_id == model_id,
+                ModelAvailability.node_id.in_(node_ids),
+            )
+        )
+        return list(result.scalars().all())
+
+    async def mark(
+        self,
+        model_id: uuid.UUID,
+        node_id: uuid.UUID,
+        status: ModelAvailabilityStatus | str,
+        **fields: Any,
+    ) -> ModelAvailability:
+        """Update availability status and metadata for (model, node)."""
+        status_val = status.value if hasattr(status, "value") else str(status)
+        fields["status"] = status_val
+        fields["updated_at"] = datetime.now(tz=UTC)
+        if status_val == ModelAvailabilityStatus.READY.value and "ready_at" not in fields:
+            fields["ready_at"] = datetime.now(tz=UTC)
+        return await self.upsert(model_id, node_id, **fields)

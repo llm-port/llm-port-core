@@ -71,10 +71,19 @@ from llm_port_backend.db.models.inference import (
 )
 from llm_port_backend.db.models.llm import LLMModel
 from llm_port_backend.db.models.node_control import InfraNode
+from llm_port_backend.services.inference.artifacts import (
+    ArtifactReadiness,
+    ModelArtifactCoordinator,
+)
+from llm_port_backend.services.inference.bundles import (
+    default_bundle_registry,
+    translate_host_path_to_container,
+)
 from llm_port_backend.services.inference.drivers.ray.client import (
     RayClusterClient,
     RayCommandError,
 )
+from llm_port_backend.services.inference.drivers.ray.commands import NodeCommandGateway
 from llm_port_backend.services.inference.drivers.ray.compiler import (
     ArtifactResolutionError,
     compile_deployment,
@@ -83,6 +92,12 @@ from llm_port_backend.services.inference.drivers.ray.schemas import RayEnvironme
 
 if TYPE_CHECKING:  # pragma: no cover - import-time only
     from llm_port_backend.services.nodes.service import NodeControlService
+
+
+def _gateway(node_control: "NodeControlService | NodeCommandGateway") -> NodeCommandGateway:
+    if isinstance(node_control, NodeCommandGateway):
+        return node_control
+    return NodeCommandGateway(node_control)
 
 log = logging.getLogger(__name__)
 
@@ -190,6 +205,8 @@ class _DeploymentFacts:
     hf_repo_id: str | None = None
     hf_revision: str | None = None
     availability_root_path: str | None = None
+    artifact_readiness: ArtifactReadiness | None = None
+    artifact_root_path: str | None = None
     spec_data: dict[str, Any] | None = None
     total_replicas: int = 0
 
@@ -347,6 +364,69 @@ class RayDeploymentManager:
             )
             return
 
+        # 3c. Preparation gate (WI-5): Gate on artifact readiness across environment nodes
+        readiness = facts.artifact_readiness
+        offline_only = bool(((facts.environment.config_json or {}).get("artifacts") or {}).get("offline_only", False))
+
+        if readiness is not None and not readiness.all_ready:
+            cannot_reach_offline = offline_only and (
+                bool(readiness.failed_node_ids or readiness.blockers)
+                or readiness.manifest_sha256 is None
+            )
+            if cannot_reach_offline:
+                blockers = list(readiness.blockers)
+                if readiness.manifest_sha256 is None and not blockers:
+                    blockers.append(
+                        f"No local manifest or cache directory found on server for model {facts.hf_repo_id or (facts.model.id if facts.model else 'unknown')}"
+                    )
+                blocker_msg = "; ".join(blockers) if blockers else f"Model sync failed on nodes: {', '.join(readiness.failed_node_ids)}"
+                self._observe(
+                    deployment,
+                    DeploymentPhase.FAILED,
+                    f"Artifact readiness blocked in offline-only mode: {blocker_msg}",
+                    False,
+                    observed={
+                        "reconciled": False,
+                        "reason": "artifact_blocked",
+                        "blockers": blockers,
+                        "failed_node_ids": readiness.failed_node_ids,
+                    },
+                    mark_observed=True,
+                )
+                return
+
+            cannot_reach = bool(readiness.failed_node_ids or readiness.blockers)
+
+            if not offline_only and cannot_reach:
+                log.info(
+                    "Local artifact sync cannot be reached (%s); falling back to remote source for deployment %s",
+                    readiness.blockers or readiness.failed_node_ids,
+                    deployment.id,
+                )
+            else:
+                gateway = _gateway(node_control)
+                coordinator = ModelArtifactCoordinator(session, gateway=gateway)
+                await coordinator.ensure(model=facts.model, environment=facts.environment)
+
+                obs_data: dict[str, Any] = {
+                    "reconciled": False,
+                    "reason": "preparing_artifacts",
+                    "ready_node_ids": readiness.ready_node_ids,
+                    "pending_node_ids": readiness.pending_node_ids,
+                }
+                if not offline_only:
+                    obs_data["remote_fallback_available"] = True
+
+                self._observe(
+                    deployment,
+                    DeploymentPhase.PREPARING,
+                    "Artifacts syncing across environment members; waiting for readiness",
+                    False,
+                    observed=obs_data,
+                    mark_observed=False,
+                )
+                return
+
         client = self._client_for(node_control)
 
         # 4. Apply only when needed (act vs. observe): the config changed, the
@@ -356,7 +436,10 @@ class RayDeploymentManager:
             json.dumps(llm_serving_args, sort_keys=True).encode()
         ).hexdigest()
         applied_hash = (deployment.observed_status_json or {}).get("applied_config_hash")
-        need_apply = (applied_hash != config_hash) or (deployment.phase == DeploymentPhase.FAILED.value)
+        need_apply = (
+            (applied_hash != config_hash)
+            or (deployment.phase in (DeploymentPhase.FAILED.value, DeploymentPhase.PREPARING.value))
+        )
         if not need_apply:
             serve_status = await self._probe_serve(client, facts.head_node_id, app_name)
             if serve_status is not None and serve_status.alive:
@@ -518,10 +601,38 @@ class RayDeploymentManager:
         facts.hf_repo_id = model.hf_repo_id
         facts.hf_revision = model.hf_revision
 
-        availability_root = await self._availability_root(
-            session, model.id, facts.head_node_id, environment=environment
+        # Evaluate model artifact readiness across environment member nodes (WI-3, WI-5)
+        coordinator = ModelArtifactCoordinator(session)
+        readiness = await coordinator.evaluate(model=model, environment=environment)
+        facts.artifact_readiness = readiness
+
+        host_root_path = readiness.root_paths.get(str(head)) or (
+            next(iter(readiness.root_paths.values())) if readiness.root_paths else None
         )
-        facts.availability_root_path = availability_root
+        facts.artifact_root_path = host_root_path
+
+        # Apply D-3 container mount path translation if all_ready
+        if readiness.all_ready and host_root_path:
+            bundle_id = (environment.config_json or {}).get("runtime_bundle_id")
+            if bundle_id:
+                bundle = default_bundle_registry.get_bundle(bundle_id)
+                if bundle and bundle.container.mounts:
+                    translated = translate_host_path_to_container(host_root_path, bundle.container.mounts)
+                    if translated:
+                        facts.availability_root_path = translated
+                    else:
+                        facts.availability_root_path = None
+                        readiness.blockers.append(
+                            f"Host artifact root {host_root_path} is not mapped under any container mount in bundle {bundle_id}"
+                        )
+                        readiness.all_ready = False
+                else:
+                    facts.availability_root_path = host_root_path
+            else:
+                facts.availability_root_path = host_root_path
+        else:
+            facts.availability_root_path = None
+
         return facts
 
     async def _environment_of(self, session, environment_id: uuid.UUID) -> InferenceEnvironment | None:
@@ -571,47 +682,6 @@ class RayDeploymentManager:
             return await session.get(LLMModel, model_id)
         except Exception:  # pragma: no cover
             return None
-
-    async def _availability_root(
-        self,
-        session,
-        model_id: uuid.UUID,
-        head_node_id: uuid.UUID,
-        *,
-        environment: InferenceEnvironment | None = None,
-    ) -> str | None:
-        """Return the per-node synced artifact root if the artifact is READY
-        on the head node and all environment members; else ``None`` (falls back to remote HF) (F29).
-        """
-        try:
-            row = await ModelAvailabilityDAO(session).get(model_id, head_node_id)
-        except Exception:
-            row = None
-        if row is None or row.status != ModelAvailabilityStatus.READY.value or not row.root_path:
-            return None
-
-        if environment is not None:
-            try:
-                res = await session.execute(
-                    select(InferenceEnvironmentNode).where(
-                        InferenceEnvironmentNode.environment_id == environment.id
-                    )
-                )
-                for member in res.scalars().all():
-                    if member.node_id == head_node_id:
-                        continue
-                    m_row = await ModelAvailabilityDAO(session).get(model_id, member.node_id)
-                    if m_row is None or m_row.status != ModelAvailabilityStatus.READY.value:
-                        log.info(
-                            "Model %s not ready on member %s; falling back to remote source (F29)",
-                            model_id,
-                            member.node_id,
-                        )
-                        return None
-            except Exception as e:
-                log.warning("Failed checking model availability across members: %s", e)
-
-        return row.root_path
 
     # ------------------------------------------------------------------
     # Plan (compile)

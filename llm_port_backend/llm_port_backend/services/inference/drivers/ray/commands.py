@@ -38,7 +38,10 @@ class NodeCommandGateway:
     """Gateway for issuing and observing node commands across short transaction boundaries."""
 
     def __init__(self, session_or_factory: Any) -> None:
-        if hasattr(session_or_factory, "issue_command"):
+        if isinstance(session_or_factory, NodeCommandGateway):
+            self._factory = session_or_factory._factory
+            self._direct_service = session_or_factory._direct_service
+        elif hasattr(session_or_factory, "issue_command"):
             # Direct service (NodeControlService or duck-typed test double)
             self._factory = None
             self._direct_service = session_or_factory

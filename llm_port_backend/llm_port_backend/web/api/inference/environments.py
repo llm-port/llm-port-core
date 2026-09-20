@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from starlette import status
 
 from llm_port_backend.db.models.users import User
+from llm_port_backend.services.inference.artifacts import ArtifactReadiness
 from llm_port_backend.services.inference.planner import InferenceEnvironmentPlan
 from llm_port_backend.services.inference.service import (
     EnvironmentService,
@@ -212,6 +213,49 @@ async def apply_environment_plan(
     except InferenceError as exc:
         raise _map_inference_error(exc)
     return _dto_from_env(env)
+
+
+@router.post(
+    "/{environment_id}/artifacts/{model_id}/sync",
+    response_model=ArtifactReadiness,
+)
+async def sync_environment_artifact(
+    environment_id: uuid.UUID,
+    model_id: uuid.UUID,
+    request: Request,
+    _user: User = Depends(require_permission(_ENV, "operate")),
+    service: EnvironmentService = Depends(),
+) -> ArtifactReadiness:
+    """Evaluate readiness and trigger artifact synchronization for model on environment nodes."""
+    gateway = None
+    factory = getattr(request.app.state, "db_session_factory", None)
+    if factory is not None:
+        from llm_port_backend.services.inference.drivers.ray.commands import (
+            NodeCommandGateway,
+        )
+
+        gateway = NodeCommandGateway(factory)
+    try:
+        return await service.sync_artifact(environment_id, model_id, gateway=gateway)
+    except InferenceError as exc:
+        raise _map_inference_error(exc)
+
+
+@router.get(
+    "/{environment_id}/artifacts/{model_id}",
+    response_model=ArtifactReadiness,
+)
+async def get_environment_artifact_readiness(
+    environment_id: uuid.UUID,
+    model_id: uuid.UUID,
+    _user: User = Depends(require_permission(_ENV, "read")),
+    service: EnvironmentService = Depends(),
+) -> ArtifactReadiness:
+    """Evaluate artifact readiness for model across environment nodes."""
+    try:
+        return await service.evaluate_artifact(environment_id, model_id)
+    except InferenceError as exc:
+        raise _map_inference_error(exc)
 
 
 def _dto_from_env(env) -> EnvironmentDTO:

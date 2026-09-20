@@ -137,8 +137,10 @@ class ModelAvailabilityStatus(enum.StrEnum):
     """Artifact readiness of a model on a node."""
 
     UNKNOWN = "unknown"
+    PENDING = "pending"
     SYNCING = "syncing"
     READY = "ready"
+    STALE = "stale"
     MISSING = "missing"
     FAILED = "failed"
 

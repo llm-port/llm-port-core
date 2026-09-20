@@ -226,6 +226,7 @@ class EnvironmentService:
         self.control_plane_dao = ControlPlaneDAO(session)
         self.deployment_dao = DeploymentDAO(session)
         self.node_dao = EnvironmentNodeDAO(session)
+        self.model_dao = ModelDAO(session)
 
     async def create(
         self,
@@ -388,6 +389,48 @@ class EnvironmentService:
             plan,
             selected_candidate_id=selected_candidate_id,
         )
+
+    async def evaluate_artifact(
+        self,
+        environment_id: uuid.UUID,
+        model_id: uuid.UUID,
+    ) -> Any:
+        """Evaluate artifact readiness for model across environment nodes."""
+        environment = await self.get(environment_id)
+        model = await self.model_dao.get(model_id)
+        if model is None:
+            raise NotFoundError("model", model_id)
+
+        from llm_port_backend.services.inference.artifacts import ModelArtifactCoordinator
+
+        coordinator = ModelArtifactCoordinator(self.session)
+        nodes = await coordinator.eligible_nodes(environment)
+        if not nodes:
+            raise ConflictError("Environment has no eligible nodes for artifact synchronization")
+
+        return await coordinator.evaluate(model=model, environment=environment)
+
+    async def sync_artifact(
+        self,
+        environment_id: uuid.UUID,
+        model_id: uuid.UUID,
+        *,
+        gateway: Any = None,
+    ) -> Any:
+        """Evaluate and trigger artifact synchronization for model on environment nodes."""
+        environment = await self.get(environment_id)
+        model = await self.model_dao.get(model_id)
+        if model is None:
+            raise NotFoundError("model", model_id)
+
+        from llm_port_backend.services.inference.artifacts import ModelArtifactCoordinator
+
+        coordinator = ModelArtifactCoordinator(self.session, gateway=gateway)
+        nodes = await coordinator.eligible_nodes(environment)
+        if not nodes:
+            raise ConflictError("Environment has no eligible nodes for artifact synchronization")
+
+        return await coordinator.ensure(model=model, environment=environment, gateway=gateway)
 
 
 # ---------------------------------------------------------------------------
