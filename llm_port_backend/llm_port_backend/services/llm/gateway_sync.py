@@ -213,7 +213,7 @@ class GatewaySyncService:
 
                 await session.commit()
                 log.info(
-                    "Gateway sync: published runtime %s as alias '%s' → %s [%s]",
+                    "Gateway sync: published runtime %s as alias '%s' -> %s [%s]",
                     runtime_id,
                     alias,
                     base_url,
@@ -309,7 +309,7 @@ class GatewaySyncService:
                 )
                 await session.commit()
                 log.debug(
-                    "Gateway sync: instance %s health → %s",
+                    "Gateway sync: instance %s health -> %s",
                     runtime_id,
                     health_status,
                 )
@@ -464,7 +464,7 @@ class GatewaySyncService:
 
                 await session.commit()
                 log.info(
-                    "Gateway sync: published inference endpoint for deployment %s → %s [%s] (routable=%s, health=%s)",
+                    "Gateway sync: published inference endpoint for deployment %s -> %s [%s] (routable=%s, health=%s)",
                     deployment_id,
                     norm_base_url,
                     gateway_type,
@@ -518,7 +518,7 @@ class GatewaySyncService:
                     )
                 await session.commit()
                 log.debug(
-                    "Gateway sync: source (%s, %s) health → %s (enabled=%s)",
+                    "Gateway sync: source (%s, %s) health -> %s (enabled=%s)",
                     source_kind,
                     source_id,
                     health_status,

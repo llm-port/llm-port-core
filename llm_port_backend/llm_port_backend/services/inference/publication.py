@@ -101,9 +101,10 @@ class InferencePublicationCoordinator:
         base_url = (primary_endpoint.published_json or {}).get("base_url") or f"{address}{path}"
         served_model_name = (primary_endpoint.published_json or {}).get("model")
 
-        # Determine alias: spec_json service.alias, or deployment.name
+        # Determine alias: operator-specified in spec_json.service.alias, or None.
+        # Do not invent alias = deployment.name when none was specified (P5-01).
         spec_service = (deployment.spec_json or {}).get("service") or {}
-        alias = spec_service.get("alias") or deployment.name
+        alias = spec_service.get("alias")
 
         # A deployment is routable if its endpoint is PUBLISHED and has at least 1 ready replica
         # Even if deployment phase is DEGRADED, as long as ready_replicas > 0, it stays routable

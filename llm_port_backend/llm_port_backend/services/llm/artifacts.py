@@ -176,12 +176,22 @@ def build_model_sync_payload(
     if source == "download_from_hf":
         return base
 
-    model_dir = model_cache_dir(model.hf_repo_id)
-    if model_dir is None:
+    from llm_port_backend.web.api.node_files import views as node_files_views
+
+    # Support legacy tests monkeypatching node_files_views while honoring module patches
+    views_cache_mod = getattr(getattr(node_files_views, "_model_cache_dir", None), "__module__", None)
+    cache_dir_fn = node_files_views._model_cache_dir if views_cache_mod not in (None, __name__) else model_cache_dir
+
+    views_manifest_mod = getattr(getattr(node_files_views, "_build_cache_manifest", None), "__module__", None)
+    manifest_fn = node_files_views._build_cache_manifest if views_manifest_mod not in (None, __name__) else build_cache_manifest
+
+    resolved_dir = cache_dir_fn(model.hf_repo_id)
+    if resolved_dir is None:
         return base
 
-    manifest = build_cache_manifest(model_dir)
-    if not manifest.get("blobs"):
+    model_dir = Path(resolved_dir)
+    manifest = manifest_fn(model_dir)
+    if not manifest or not manifest.get("blobs"):
         return base
 
     return base | manifest

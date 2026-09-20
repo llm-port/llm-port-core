@@ -104,12 +104,12 @@ async def test_reconcile_publication_degraded_deployment_with_ready_replica(mock
 
     await coordinator.reconcile_deployment_publication(deployment)
 
-    # Must be published as healthy and routable
+    # Must be published as healthy and routable without inventing an alias
     mock_gateway_sync.publish_inference_endpoint.assert_awaited_once_with(
         deployment_id=dep_id,
         endpoint_id=endpoint.id,
         base_url="http://10.88.10.49:8000/llmport-dep2/v1",
-        alias="qwen-coder",
+        alias=None,
         served_model_name="Qwen/Qwen2.5-Coder-1.5B-Instruct",
         backend_provider_type="vllm",
         health_status="healthy",
