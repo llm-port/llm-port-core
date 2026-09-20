@@ -47,6 +47,8 @@ class RoutedInstance:
     ssl_ca_bundle_pem: str | None = None
     ssl_client_cert_pem: str | None = None
     ssl_client_key_pem: str | None = None
+    source_kind: str | None = None
+    source_id: uuid.UUID | None = None
 
 
 class GatewayDAO:
@@ -159,6 +161,8 @@ class GatewayDAO:
                     ssl_ca_bundle_pem=instance.ssl_ca_bundle_pem,
                     ssl_client_cert_pem=instance.ssl_client_cert_pem,
                     ssl_client_key_pem=instance.ssl_client_key_pem,
+                    source_kind=instance.source_kind,
+                    source_id=instance.source_id,
                 ),
             )
         return candidates

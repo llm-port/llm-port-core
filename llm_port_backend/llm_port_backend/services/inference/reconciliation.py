@@ -27,8 +27,11 @@ request-scoped caller) commits after the function returns.
 from __future__ import annotations
 
 import inspect
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable
+
+log = logging.getLogger(__name__)
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -136,6 +139,7 @@ class ReconciliationContext:
     environments: EnvironmentService
     deployments: DeploymentService
     session_factory: Any | None = None
+    gateway_sync: Any | None = None
     _node_control: NodeControlService | None = None
     _command_gateway: Any | None = None
 
@@ -159,7 +163,12 @@ class ReconciliationContext:
         return self._command_gateway
 
     @classmethod
-    def for_session(cls, session: AsyncSession, session_factory: Any | None = None) -> ReconciliationContext:
+    def for_session(
+        cls,
+        session: AsyncSession,
+        session_factory: Any | None = None,
+        gateway_sync: Any | None = None,
+    ) -> ReconciliationContext:
         # Lazy import: ``service`` imports the observation builders from *this*
         # module, so importing the services at module top would be a cycle.
         from llm_port_backend.services.inference.service import (  # noqa: PLC0415
@@ -174,6 +183,7 @@ class ReconciliationContext:
             environments=EnvironmentService(session),
             deployments=DeploymentService(session),
             session_factory=session_factory,
+            gateway_sync=gateway_sync,
         )
 
 
@@ -392,6 +402,26 @@ async def reconcile_deployment(
     if _accepts_param(mgr.reconcile_deployment, "node_control"):
         mgr_kwargs["node_control"] = _node_control_or_none(context)
     await mgr.reconcile_deployment(context.session, deployment, **mgr_kwargs)
+
+    # Generic inference publication reconciliation (Phase 5)
+    if getattr(context, "gateway_sync", None) is not None:
+        try:
+            from llm_port_backend.services.inference.publication import (  # noqa: PLC0415
+                InferencePublicationCoordinator,
+            )
+
+            pub = InferencePublicationCoordinator(
+                context.session,
+                gateway_sync=context.gateway_sync,
+            )
+            await pub.reconcile_deployment_publication(deployment)
+        except Exception:
+            # Publication failure must not fail the deployment reconciliation pass
+            log.exception(
+                "Failed to reconcile gateway publication for deployment %s",
+                deployment.id,
+            )
+
     return {
         "id": str(deployment.id),
         "reconciled": True,

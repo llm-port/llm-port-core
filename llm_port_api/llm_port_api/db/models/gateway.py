@@ -14,6 +14,7 @@ from sqlalchemy import (
     String,
     Text,
     func,
+    text,
 )
 from sqlalchemy import (
     Enum as SAEnum,
@@ -240,6 +241,28 @@ class LLMProviderInstance(Base):
         nullable=False,
         server_default=func.now(),
         onupdate=func.now(),
+    )
+    source_kind: Mapped[str | None] = mapped_column(
+        String(32),
+        nullable=True,
+        doc="Generic inference source discriminator (e.g. 'runtime', 'inference_deployment').",
+    )
+    source_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        nullable=True,
+        doc="Logical parent identifier (e.g. InferenceDeployment.id or LLMRuntime.id).",
+    )
+
+    __table_args__ = (
+        Index("ix_llm_provider_instance_source", "source_kind", "source_id"),
+        Index(
+            "uq_llm_provider_instance_source",
+            "source_kind",
+            "source_id",
+            unique=True,
+            postgresql_where=text("source_kind IS NOT NULL AND source_id IS NOT NULL"),
+            sqlite_where=text("source_kind IS NOT NULL AND source_id IS NOT NULL"),
+        ),
     )
 
 

@@ -471,6 +471,9 @@ async def _run_inference_reconcile_pass(app: FastAPI) -> None:
         if not env_ids and not dep_ids:
             return
         context = ReconciliationContext.for_session(session, session_factory=factory)
+        gateway_sync = getattr(getattr(app.state, "llm_service", None), "gateway_sync", None)
+        if gateway_sync is not None:
+            context.gateway_sync = gateway_sync
         # Rows are re-fetched by id: a rollback after one failed resource
         # expires every loaded object, and touching an expired attribute
         # would trigger implicit (non-async) IO.
