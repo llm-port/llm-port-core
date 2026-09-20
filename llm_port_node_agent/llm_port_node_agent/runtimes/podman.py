@@ -200,6 +200,49 @@ class PodmanRuntime:
         )
         return [line for line in out.splitlines() if line.strip()]
 
+    async def exec_(
+        self,
+        name: str,
+        command: list[str],
+        *,
+        env: dict[str, str] | None = None,
+        workdir: str | None = None,
+        timeout_sec: float = 120,
+        raise_on_error: bool = True,
+    ) -> tuple[int, str, str]:
+        """Run *command* inside a running container."""
+        args: list[str] = ["exec"]
+        for k, v in (env or {}).items():
+            args.extend(["-e", f"{k}={v}"])
+        if workdir:
+            args.extend(["-w", workdir])
+        args.append(name)
+        args.extend(command)
+        return await self._exec(*args, timeout_sec=timeout_sec, raise_on_error=raise_on_error)
+
+    async def image_identity(self, image: str, *, timeout_sec: float = 20) -> dict[str, Any]:
+        """Identity of a locally present image (see the protocol docstring)."""
+        code, out, _ = await self._exec(
+            "image", "inspect", image,
+            timeout_sec=timeout_sec,
+            raise_on_error=False,
+        )
+        if code != 0:
+            return {"present": False, "id": None, "repo_digests": [], "tags": []}
+        try:
+            parsed = json.loads(out.strip())
+        except (json.JSONDecodeError, ValueError):
+            return {"present": False, "id": None, "repo_digests": [], "tags": []}
+        record = parsed[0] if isinstance(parsed, list) and parsed else parsed
+        if not isinstance(record, dict):
+            return {"present": False, "id": None, "repo_digests": [], "tags": []}
+        return {
+            "present": True,
+            "id": record.get("Id"),
+            "repo_digests": list(record.get("RepoDigests") or []),
+            "tags": list(record.get("RepoTags") or []),
+        }
+
     # ── image management ──────────────────────────────────────
 
     async def pull(self, image: str, *, timeout_sec: float = 1800) -> None:

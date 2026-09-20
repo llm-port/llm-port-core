@@ -9,16 +9,18 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query, Request
 from starlette import status
 
 from llm_port_backend.db.models.users import User
+from llm_port_backend.services.inference.planner import InferenceEnvironmentPlan
 from llm_port_backend.services.inference.service import (
     EnvironmentService,
     InferenceError,
 )
 from llm_port_backend.web.api.inference.control_planes import _map_inference_error
 from llm_port_backend.web.api.inference.schema import (
+    ApplyPlanRequest,
     EnvironmentCreate,
     EnvironmentDTO,
     EnvironmentNodeAdd,
@@ -142,6 +144,73 @@ async def add_environment_node(
     except InferenceError as exc:
         raise _map_inference_error(exc)
     env = await service.get(environment_id)
+    return _dto_from_env(env)
+
+
+@router.post(
+    "/{environment_id}/plan",
+    response_model=InferenceEnvironmentPlan,
+)
+async def plan_environment(
+    environment_id: uuid.UUID,
+    request: Request,
+    validate: bool | None = Query(
+        None,
+        description=(
+            "Run the cheap agent-to-agent TCP reachability challenge on the recommended "
+            "candidate. Defaults to running it when the nodes are reachable; pass false to "
+            "plan from passive facts only."
+        ),
+    ),
+    _user: User = Depends(require_permission(_ENV, "operate")),
+    service: EnvironmentService = Depends(),
+) -> InferenceEnvironmentPlan:
+    """Generate ephemeral interconnect fabric plan with recommendation scores.
+
+    The probe needs its own short transactions (the command has to be committed
+    before the websocket dispatcher can hand it to an agent), so the request's
+    session factory is passed through rather than this request's session.
+    """
+    gateway = None
+    if validate is not False:
+        factory = getattr(request.app.state, "db_session_factory", None)
+        if factory is not None:
+            from llm_port_backend.services.inference.drivers.ray.commands import (
+                NodeCommandGateway,
+            )
+
+            gateway = NodeCommandGateway(factory)
+    try:
+        return await service.plan_fabric(environment_id, gateway=gateway, validate=validate)
+    except InferenceError as exc:
+        raise _map_inference_error(exc)
+
+
+@router.post(
+    "/{environment_id}/apply-plan",
+    response_model=EnvironmentDTO,
+)
+async def apply_environment_plan(
+    environment_id: uuid.UUID,
+    body: ApplyPlanRequest,
+    _user: User = Depends(require_permission(_ENV, "operate")),
+    service: EnvironmentService = Depends(),
+) -> EnvironmentDTO:
+    """Apply an approved interconnect fabric plan to the environment.
+
+    The plan is re-derived server-side from the live inventory; the submitted
+    document is an approval receipt, checked against the re-derived inventory
+    digests to reject a plan the operator approved against a topology that has
+    since moved.
+    """
+    try:
+        env = await service.apply_fabric_plan(
+            environment_id,
+            body.plan,
+            selected_candidate_id=body.selected_candidate_id,
+        )
+    except InferenceError as exc:
+        raise _map_inference_error(exc)
     return _dto_from_env(env)
 
 

@@ -189,8 +189,62 @@ def test_fractional_gpu_uses_bundle_per_worker_without_accelerator_key() -> None
 
 
 def test_topology_nodes_maps_to_placement_strategy() -> None:
-    cfg = _llm_config(topology={"tensor_parallel_size": 2, "nodes": 2}, resources={"replica": {}})
-    assert cfg["placement_group_config"] == {"bundle_per_worker": {"GPU": 1.0}, "strategy": "SPREAD"}
+    """Rule lock (Phase3_upgrade.md section 15), proven on the DGX Spark pair.
+
+    nodes == 1 -> STRICT_PACK, nodes > 1 -> SPREAD, unset -> Ray's default
+    PACK.  Without the mapping ``topology.nodes`` is a no-op: under soft PACK
+    a ``nodes: 1`` TP group can still spill across two hosts (silent tensor
+    parallelism over the network) and ``nodes: 2`` can pack onto one host.
+    The certified TP=2 run used an explicit SPREAD.
+    """
+    cfg_spread = _llm_config(
+        topology={"tensor_parallel_size": 2, "nodes": 2}, resources={"replica": {}}
+    )
+    assert cfg_spread["placement_group_config"] == {
+        "bundle_per_worker": {"GPU": 1.0},
+        "strategy": "SPREAD",
+    }
+
+    cfg_strict = _llm_config(
+        topology={"tensor_parallel_size": 1, "nodes": 1}, resources={"replica": {}}
+    )
+    assert cfg_strict["placement_group_config"] == {
+        "bundle_per_worker": {"GPU": 1.0},
+        "strategy": "STRICT_PACK",
+    }
+
+    # nodes unset: no config emitted, Ray's default soft PACK applies.
+    cfg_default = _llm_config(
+        topology={"tensor_parallel_size": 2}, resources={"replica": {}}
+    )
+    assert "placement_group_config" not in cfg_default
+
+    # An explicit operator strategy still wins over the derived one.
+    cfg_ext = _llm_config(
+        topology={"tensor_parallel_size": 2, "nodes": 2},
+        resources={"replica": {}},
+        extensions={"ray": {"placementStrategy": "PACK"}},
+    )
+    assert cfg_ext["placement_group_config"] == {
+        "bundle_per_worker": {"GPU": 1.0},
+        "strategy": "PACK",
+    }
+
+    # Explicit placement strategy via resources.placement
+    cfg_pack = _llm_config(
+        topology={"tensor_parallel_size": 2, "nodes": 1},
+        resources={"placement": "PACK", "replica": {"gpus": 2}},
+    )
+    assert cfg_pack["placement_group_config"] == {"bundle_per_worker": {"GPU": 1.0}, "strategy": "PACK"}
+
+
+def test_strict_pack_is_still_refused_for_multi_node_topologies() -> None:
+    """The deadlock guard survives the restored mapping."""
+    with pytest.raises(DeploymentValidationError):
+        _llm_config(
+            topology={"tensor_parallel_size": 2, "nodes": 2},
+            resources={"placement": "STRICT_PACK", "replica": {}},
+        )
 
 
 @pytest.mark.parametrize(
@@ -212,4 +266,14 @@ def test_allowlisted_env_vars_reach_runtime_env() -> None:
         extensions={"ray": {"runtime_env": {"env_vars": {"VLLM_WSL2_ENABLE_PIN_MEMORY": "1"}}}}
     )
     assert cfg["runtime_env"] == {"env_vars": {"VLLM_WSL2_ENABLE_PIN_MEMORY": "1"}}
+
+
+def test_strict_pack_with_multi_node_topology_is_rejected() -> None:
+    """STRICT_PACK requires all bundles on 1 host; specifying nodes > 1 is a fatal deadlock risk."""
+    with pytest.raises(DeploymentValidationError, match="STRICT_PACK.*deadlock"):
+        _llm_config(
+            resources={"placement": "STRICT_PACK", "replica": {"gpus": 2}},
+            topology={"tensor_parallel_size": 2, "nodes": 2},
+        )
+
 

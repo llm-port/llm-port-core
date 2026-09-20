@@ -73,6 +73,13 @@ class NodeCommandType(enum.StrEnum):
     RUN_SERVE_APP = "run_serve_app"
     DELETE_SERVE_APP = "delete_serve_app"
 
+    # --- Fabric planning / active validation (Phase 4A) ---
+    VALIDATE_FABRIC_LISTEN = "validate_fabric_listen"
+    VALIDATE_FABRIC_CONNECT = "validate_fabric_connect"
+
+    # --- Runtime bundle readiness (Phase 4B) ---
+    ENSURE_RUNTIME_IMAGE = "ensure_runtime_image"
+
 
 class InfraNodeProfile(Base):
     """Reusable profile with platform-specific sub-configs for nodes."""

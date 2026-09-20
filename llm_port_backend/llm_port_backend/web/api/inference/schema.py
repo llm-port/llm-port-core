@@ -14,6 +14,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from llm_port_backend.services.inference.planner import InferenceEnvironmentPlan
+
 # ---------------------------------------------------------------------------
 # Control planes
 # ---------------------------------------------------------------------------
@@ -133,6 +135,30 @@ class EnvironmentNodeAdd(BaseModel):
     role: str = Field(
         "worker",
         description="Node role: 'head' | 'worker'.",
+    )
+
+class ApplyPlanRequest(BaseModel):
+    """Request body for applying an approved environment interconnect plan.
+
+    The plan document is an **approval receipt**, not an instruction: the
+    server re-derives the plan from the live node inventory and applies the
+    candidate it computed itself.  The receipt is used only to assert the
+    approval was for this environment and to detect inventory that moved since
+    the plan was shown to the operator.
+    """
+
+    plan: InferenceEnvironmentPlan | None = Field(
+        None,
+        description=(
+            "The plan document that was approved. Used for stale-plan detection and "
+            "environment binding only; node bindings are always re-derived server-side. "
+            "Omitting it applies the current server-side recommendation without staleness "
+            "protection."
+        ),
+    )
+    selected_candidate_id: str | None = Field(
+        None,
+        description="Optional explicit candidate ID to apply. If omitted, the recommended candidate is applied.",
     )
 
 

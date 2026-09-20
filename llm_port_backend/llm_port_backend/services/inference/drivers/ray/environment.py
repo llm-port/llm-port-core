@@ -76,6 +76,10 @@ _LIFECYCLE_WAIT_SEC = 150.0
 
 _SUCCEEDED = NodeCommandStatus.SUCCEEDED.value
 
+# One runtime container per node; the head/worker split is decided by which
+# ``ray start`` the agent execs inside it.
+_RUNTIME_CONTAINER_NAME = "llm-port-ray-runtime"
+
 
 class _LifecycleFailed(RuntimeError):
     """A lifecycle command reached a terminal failure on the agent."""
@@ -119,7 +123,7 @@ class RayEnvironmentManager:
             # honest observation so the stop-gap query keeps working.
             self._observe(
                 environment,
-                map_cluster_to_environment_status(RayClusterStatus(alive=False)),
+                map_cluster_to_environment_status(RayClusterStatus(alive=False), 0),
                 RayClusterStatus(alive=False),
                 expected_nodes=0,
                 reason="node control service unavailable; no live action taken",
@@ -169,10 +173,17 @@ class RayEnvironmentManager:
         config = RayEnvironmentConfig.model_validate(environment.config_json or {})
         credential_ref = await self._ensure_cluster_token(session, environment)
 
-        head_host = await self._host_of(session, head.node_id)
+        resolved_fabric = self._get_resolved_fabric(environment)
+        node_bindings = (resolved_fabric or {}).get("node_bindings", {})
+        head_binding = node_bindings.get(str(head.node_id))
+        head_host = (head_binding or {}).get("ip") or await self._host_of(session, head.node_id)
         head_address = f"{head_host}:{config.head_port}" if head_host else config.dashboard_host
 
         try:
+            # Refuse a re-bind before issuing anything: the agent tolerates an
+            # already-running head, so a second apply against a new address
+            # would be reported as started while the cluster stayed put.
+            self._assert_not_rebinding(environment, head_host)
             await self._ensure_runtimes(environment, gateway=gateway, nodes=nodes, config=config)
             await self._start_head(session, environment, head, credential_ref, config, gateway)
             await self._join_workers(
@@ -212,7 +223,7 @@ class RayEnvironmentManager:
         # 8. Persist the observed state for the cluster we just reconciled.
         self._observe(
             environment,
-            map_cluster_to_environment_status(status),
+            map_cluster_to_environment_status(status, len(nodes)),
             status,
             expected_nodes=len(nodes),
             address=status.cluster_address or head_address,
@@ -336,13 +347,44 @@ class RayEnvironmentManager:
         parallel; each result is then checked (a missing runtime fails the
         environment instead of being silently ignored).
         """
+        bundle = self._bundle_of(environment)
+        bundle_payload = self._bundle_payload(bundle)
+
+        if bundle_payload is not None:
+            # 2a. The exact OCI digest must be present on every member node
+            # before anything tries to run out of it.  The agent verifies the
+            # pinned identity locally and, when absent, side-loads it from the
+            # backend — never from a public registry.
+            image_cmds = []
+            for node in nodes:
+                image_cmds.append((node, await self._issue(
+                    gateway,
+                    node_id=node.node_id,
+                    command_type=NodeCommandType.ENSURE_RUNTIME_IMAGE.value,
+                    payload={"runtime_bundle": bundle_payload, "ensure_container": True},
+                    key=f"inference-env:{environment.id}:{environment.generation}:ensure-image:{node.node_id}",
+                )))
+            for node, cmd in image_cmds:
+                result = await self._await_result(
+                    gateway, cmd, what=f"ensure_runtime_image on node {node.node_id}"
+                )
+                if not result.get("verified"):
+                    raise _LifecycleFailed(
+                        f"Runtime image {bundle.container.image} "
+                        f"({bundle.container.digest}) not verified on node {node.node_id}: "
+                        f"{result.get('error') or 'digest mismatch'}"
+                    )
+
         issued = []
         for node in nodes:
+            payload: dict[str, Any] = {"version": config.ray_version}
+            if bundle_payload is not None:
+                payload["runtime_bundle"] = bundle_payload
             cmd = await self._issue(
                 gateway,
                 node_id=node.node_id,
                 command_type=NodeCommandType.ENSURE_RAY_RUNTIME.value,
-                payload={"version": config.ray_version},
+                payload=payload,
                 key=f"inference-env:{environment.id}:{environment.generation}:ensure-runtime:{node.node_id}",
             )
             issued.append((node, cmd))
@@ -351,15 +393,112 @@ class RayEnvironmentManager:
                 gateway, cmd, what=f"ensure_ray_runtime on node {node.node_id}"
             )
             if result.get("installed") is False:
+                where = "in the runtime container" if bundle_payload is not None else "on the host"
                 raise _LifecycleFailed(
-                    f"Ray runtime {config.ray_version} not installed on node {node.node_id}"
+                    f"Ray runtime {config.ray_version} not installed {where} "
+                    f"on node {node.node_id}: {result.get('error') or 'not found'}"
                 )
+
+    @staticmethod
+    def _bundle_of(environment) -> Any:
+        """The runtime bundle pinned on the environment, or ``None``."""
+        bundle_id = (environment.config_json or {}).get("runtime_bundle_id")
+        if not bundle_id:
+            return None
+        from llm_port_backend.services.inference.bundles import default_bundle_registry
+
+        bundle = default_bundle_registry.get_bundle(str(bundle_id))
+        if bundle is None:
+            log.warning(
+                "Environment %s pins unknown runtime bundle %r; falling back to the host runtime",
+                environment.id, bundle_id,
+            )
+        return bundle
+
+    @classmethod
+    def _bundle_env(cls, environment, bundle, env_vars: dict[str, str]) -> dict[str, str]:
+        """Merge the bundle's certified platform tuning into ``env_vars``."""
+        if bundle is None:
+            return env_vars
+        from llm_port_backend.services.inference.bundles import default_bundle_registry
+
+        # Diagnostics (verbose NCCL tracing and friends) stay opt-in per
+        # environment; they are not a runtime default.
+        diagnostics = bool(
+            (environment.config_json or {}).get("runtime_diagnostics", False)
+        )
+        return default_bundle_registry.inject_platform_tuning(
+            bundle, env_vars=env_vars, diagnostics=diagnostics,
+        )
+
+    @classmethod
+    def _bundle_payload(cls, bundle, env_vars: dict[str, str] | None = None) -> dict[str, Any] | None:
+        """Render the bundle into the agent's container launch contract."""
+        if bundle is None:
+            return None
+        from llm_port_backend.services.inference.bundles import default_bundle_registry
+
+        return default_bundle_registry.container_launch_spec(
+            bundle, name=_RUNTIME_CONTAINER_NAME, env=env_vars or {},
+        )
+
+    @staticmethod
+    def _host_part(address: str | None) -> str | None:
+        """Host of an ``ip[:port]`` address, or ``None``."""
+        if not address:
+            return None
+        text = str(address).strip()
+        if not text:
+            return None
+        # IPv6 literals arrive bracketed ("[::1]:6379"); anything else splits
+        # on the last colon only when that colon introduces a port.
+        if text.startswith("["):
+            return text.split("]")[0].lstrip("[") or None
+        head, sep, tail = text.rpartition(":")
+        if sep and tail.isdigit():
+            return head or None
+        return text
+
+    def _assert_not_rebinding(self, environment, requested_host: str | None) -> None:
+        """Refuse to re-bind a live head to a different address.
+
+        ``ray start --head`` is issued with ``tolerate_already_running``: on a
+        head that is already up the CLI's "already running" exit is swallowed
+        and the agent reports the *requested* address as started, so the
+        control plane would record the new fabric while the cluster kept
+        running on the old one.  A re-bind therefore has to go through a stop.
+        """
+        if not requested_host:
+            return
+        cluster = (environment.observed_status_json or {}).get("cluster") or {}
+        if not cluster.get("alive"):
+            return
+        observed_host = self._host_part(cluster.get("head_address")) or self._host_part(
+            cluster.get("cluster_address")
+        )
+        if observed_host and observed_host != requested_host:
+            raise _LifecycleFailed(
+                f"environment must be stopped to re-bind: head is live on {observed_host}, "
+                f"requested {requested_host}"
+            )
+
+    @staticmethod
+    def _get_resolved_fabric(environment) -> dict[str, Any] | None:
+        """Read resolved fabric from observed_status_json, with fallback to config_json."""
+        return (
+            (environment.observed_status_json or {}).get("resolved_fabric")
+            or (environment.config_json or {}).get("resolved_fabric")
+        )
 
     async def _start_head(
         self, session, environment, head, credential_ref, config, gateway: NodeCommandGateway
     ) -> None:
         """Step 4: start the designated head node (idempotent on the agent)."""
-        head_host = await self._host_of(session, head.node_id)
+        resolved_fabric = self._get_resolved_fabric(environment)
+        node_bindings = (resolved_fabric or {}).get("node_bindings", {})
+        head_binding = node_bindings.get(str(head.node_id))
+
+        head_host = (head_binding or {}).get("ip") or await self._host_of(session, head.node_id)
         payload: dict[str, Any] = {
             "credential_ref": credential_ref,
             "version": config.ray_version,
@@ -368,8 +507,25 @@ class RayEnvironmentManager:
             "dashboard_host": config.dashboard_host,
             "node_ip_address": head_host,
         }
-        if config.node_env_vars:
-            payload["env"] = config.node_env_vars
+        env_vars = dict(config.node_env_vars or {})
+        if head_binding:
+            if head_binding.get("interface"):
+                env_vars.setdefault("NCCL_SOCKET_IFNAME", str(head_binding["interface"]))
+            if head_binding.get("ip"):
+                env_vars.setdefault("VLLM_HOST_IP", str(head_binding["ip"]))
+            if head_binding.get("rdma_device"):
+                env_vars.setdefault("NCCL_IB_HCA", str(head_binding["rdma_device"]))
+                env_vars.setdefault("UCX_NET_DEVICES", f"{head_binding['rdma_device']}:1")
+
+        bundle = self._bundle_of(environment)
+        env_vars = self._bundle_env(environment, bundle, env_vars)
+        bundle_payload = self._bundle_payload(bundle)
+        if bundle_payload is not None:
+            payload["runtime_bundle"] = bundle_payload
+
+        if env_vars:
+            payload["env"] = env_vars
+
         cmd = await self._issue(
             gateway,
             node_id=head.node_id,
@@ -390,17 +546,38 @@ class RayEnvironmentManager:
         gateway: NodeCommandGateway,
     ) -> None:
         """Step 5: join every worker (issued together, then awaited)."""
+        resolved_fabric = self._get_resolved_fabric(environment)
+        node_bindings = (resolved_fabric or {}).get("node_bindings", {})
+        bundle = self._bundle_of(environment)
+        bundle_payload = self._bundle_payload(bundle)
+
         issued = []
         for worker in workers:
-            host = await self._host_of(session, worker.node_id)
+            worker_binding = node_bindings.get(str(worker.node_id))
+            host = (worker_binding or {}).get("ip") or await self._host_of(session, worker.node_id)
             payload: dict[str, Any] = {
                 "head_address": head_address,
                 "credential_ref": credential_ref,
                 "version": config.ray_version,
                 "node_ip_address": host,
             }
-            if config.node_env_vars:
-                payload["env"] = config.node_env_vars
+            env_vars = dict(config.node_env_vars or {})
+            if worker_binding:
+                if worker_binding.get("interface"):
+                    env_vars.setdefault("NCCL_SOCKET_IFNAME", str(worker_binding["interface"]))
+                if worker_binding.get("ip"):
+                    env_vars.setdefault("VLLM_HOST_IP", str(worker_binding["ip"]))
+                if worker_binding.get("rdma_device"):
+                    env_vars.setdefault("NCCL_IB_HCA", str(worker_binding["rdma_device"]))
+                    env_vars.setdefault("UCX_NET_DEVICES", f"{worker_binding['rdma_device']}:1")
+
+            env_vars = self._bundle_env(environment, bundle, env_vars)
+            if bundle_payload is not None:
+                payload["runtime_bundle"] = bundle_payload
+
+            if env_vars:
+                payload["env"] = env_vars
+
             cmd = await self._issue(
                 gateway,
                 node_id=worker.node_id,
@@ -443,13 +620,22 @@ class RayEnvironmentManager:
         a partial teardown is safe.
         """
         version = environment.ray_version or "2.58.0"
+        bundle_payload = self._bundle_payload(self._bundle_of(environment))
+        leave_payload: dict[str, Any] = {"version": version}
+        stop_payload: dict[str, Any] = {"force": True, "version": version}
+        if bundle_payload is not None:
+            # Without this the agent would stop a host Ray that was never
+            # started and leave the runtime container running.
+            leave_payload["runtime_bundle"] = bundle_payload
+            stop_payload["runtime_bundle"] = bundle_payload
+
         issued = []
         for worker in workers:
             cmd = await self._issue(
                 gateway,
                 node_id=worker.node_id,
                 command_type=NodeCommandType.LEAVE_RAY_CLUSTER.value,
-                payload={"version": version},
+                payload=leave_payload,
                 key=f"inference-env:{environment.id}:{environment.generation}:teardown-leave:{worker.node_id}",
             )
             issued.append((worker, cmd))
@@ -462,7 +648,7 @@ class RayEnvironmentManager:
                 gateway,
                 node_id=head.node_id,
                 command_type=NodeCommandType.STOP_RAY.value,
-                payload={"force": True, "version": version},
+                payload=stop_payload,
                 key=f"inference-env:{environment.id}:{environment.generation}:teardown-stop:{head.node_id}",
             )
             await self._await_result(gateway, cmd, what=f"stop_ray on node {head.node_id}")
@@ -482,7 +668,12 @@ class RayEnvironmentManager:
         environment.status = status
         if mark_observed:
             environment.observed_generation = environment.generation
-        environment.observed_status_json = {
+        # Merge, never replace: the observer owns ``observation`` / ``cluster``
+        # / ``conditions``, but ``resolved_fabric`` and ``network`` are written
+        # by the planner's apply-plan (Amendment 1) and must survive the
+        # reconcile pass that apply-plan itself schedules.
+        observed = dict(environment.observed_status_json or {})
+        observed.update({
             "observation": {
                 "status": status.value if hasattr(status, "value") else str(status),
                 "reconciled": status is not EnvironmentStatus.PENDING,
@@ -490,7 +681,8 @@ class RayEnvironmentManager:
             },
             "cluster": cluster.model_dump(),
             "conditions": build_environment_conditions(cluster, expected_nodes),
-        }
+        })
+        environment.observed_status_json = observed
         if address:
             environment.address = address
         if version:

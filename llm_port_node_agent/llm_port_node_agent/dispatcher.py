@@ -207,6 +207,22 @@ class CommandDispatcher:
             if not self._ray:
                 raise RuntimeManagerError("Ray manager not available")
             return await self._ray.delete_serve_app(payload)
+        if command_type == NodeCommandType.ENSURE_RUNTIME_IMAGE.value:
+            if not self._ray:
+                raise RuntimeManagerError("Ray manager not available")
+            return await self._ray.ensure_runtime_image(payload, emit_progress=emit_progress)
+
+        # --- Fabric planning probes (Phase 4A active validation) ---
+        # Handled here rather than in the Ray manager: they are host network
+        # facts, needed before any Ray runtime exists on the node.
+        if command_type == NodeCommandType.VALIDATE_FABRIC_LISTEN.value:
+            from llm_port_node_agent.network import handle_validate_fabric_listen
+
+            return await handle_validate_fabric_listen(payload)
+        if command_type == NodeCommandType.VALIDATE_FABRIC_CONNECT.value:
+            from llm_port_node_agent.network import handle_validate_fabric_connect
+
+            return await handle_validate_fabric_connect(payload)
 
         if command_type in {
             NodeCommandType.DEPLOY_WORKLOAD.value,

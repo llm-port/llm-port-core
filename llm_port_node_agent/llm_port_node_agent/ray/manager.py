@@ -32,6 +32,10 @@ import httpx
 
 from llm_port_node_agent.event_buffer import EventBuffer
 from llm_port_node_agent.ray import errors
+from llm_port_node_agent.ray.container import (
+    RayContainerRuntime,
+    RuntimeBundleSpec,
+)
 from llm_port_node_agent.ray.core import RayCoreClient
 from llm_port_node_agent.ray.metrics import RayMetricsDiscovery
 from llm_port_node_agent.ray.runtime import RayRuntime
@@ -46,6 +50,7 @@ from llm_port_node_agent.ray.schemas import (
     GetRayStatusPayload,
 )
 from llm_port_node_agent.ray.serve import RayServeManager
+from llm_port_node_agent.runtimes import ContainerRuntimeError
 from llm_port_node_agent.ray.state import RayStateDiagnostics
 from llm_port_node_agent.state_store import StateStore
 
@@ -76,6 +81,10 @@ class RayManager:
         # with a mock keep working; it is now a :class:`RayRuntime`.
         self._process = RayRuntime(ray_base_path=ray_base_path)
         self._runtime = self._process
+        # Phase 4B: when a command carries a runtime bundle, bootstrap happens
+        # *inside* the pinned container instead of against a host Ray
+        # distribution — on certified hardware there is no host Ray at all.
+        self._container = RayContainerRuntime(token_path=str(Path(token_dir) / "cluster.token"))
         self._token_dir = Path(token_dir)
         self._token_file = self._token_dir / "cluster.token"
         # The agent's own SDK attach must present the cluster token.  Ray
@@ -176,29 +185,97 @@ class RayManager:
         self._token_ref = credential_ref
         self._token_written_at = time.monotonic()
 
+    # Auth is the agent's to decide; a bundle or environment must not be able
+    # to point ``ray start`` at a different token or turn auth off.
+    _RESERVED_ENV_KEYS = frozenset({"RAY_AUTH_MODE", "RAY_AUTH_TOKEN_PATH", "CUDA_VISIBLE_DEVICES"})
+    _ALLOWED_ENV_PREFIXES = ("VLLM_", "HF_", "NCCL_", "CUDA_", "RAY_", "UCX_")
+
     def start_env(self, extra_env: dict[str, str] | None = None) -> dict[str, str]:
-        """Env for ``ray start``: token auth on, token supplied via file path."""
+        """Env for ``ray start``: token auth on, token supplied via file path.
+
+        ``RAY_*`` is allowed through (minus the two auth keys) because the
+        bundle's certified platform tuning lives there — the GB10 workaround is
+        ``RAY_memory_monitor_refresh_ms=0``, and filtering the whole prefix out
+        meant the one setting certification proved necessary never reached
+        ``ray start``.
+        """
         env = {"RAY_AUTH_MODE": "token"}
         env["RAY_AUTH_TOKEN_PATH"] = str(self._token_file)
         if extra_env:
             for k, v in extra_env.items():
-                if (
-                    k.startswith(("VLLM_", "HF_", "NCCL_", "CUDA_"))
-                    and not k.startswith("RAY_")
-                    and k != "CUDA_VISIBLE_DEVICES"
-                ):
+                if k.startswith(self._ALLOWED_ENV_PREFIXES) and k not in self._RESERVED_ENV_KEYS:
                     env[k] = str(v)
         return env
 
-    async def ensure_runtime(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """Check whether the Ray CLI for the requested version is present.
+    @staticmethod
+    def _bundle_spec(payload: dict[str, Any]) -> RuntimeBundleSpec | None:
+        """Parse the optional runtime bundle carried by a lifecycle command.
 
-        The agent packages the matching SDK, so the interesting facts are the
-        CLI location plus the packaged SDK version (the same wheel, so parity
-        by construction).  A missing CLI is reported as ``installed=False``:
-        bootstrap must use a verified binary, never whatever ``ray`` happens
-        to be on PATH first.
+        Its presence is what selects the containerized bootstrap path; without
+        it the manager keeps using the host Ray distribution (the Phase 2/3
+        behaviour, still valid on nodes that have one).
         """
+        raw = payload.get("runtime_bundle")
+        if not isinstance(raw, dict) or not raw:
+            return None
+        return RuntimeBundleSpec.from_payload(raw)
+
+    async def ensure_runtime_image(self, payload: dict[str, Any], emit_progress: Any = None) -> dict[str, Any]:
+        """``ENSURE_RUNTIME_IMAGE``: make the pinned OCI image present, verified.
+
+        Never reaches a public registry: the image is either already on the
+        node under its pinned identity, or it is streamed from the backend's
+        own image endpoint and loaded locally.
+        """
+        spec = self._bundle_spec(payload)
+        if spec is None:
+            raise RuntimeError("ensure_runtime_image requires a runtime_bundle payload")
+        result = await self._container.ensure_image(
+            spec, loader=self._image_loader(), emit_progress=emit_progress,
+        )
+        if payload.get("ensure_container"):
+            result.update(await self._container.ensure_container(spec))
+        return result
+
+    def _image_loader(self) -> Any:
+        """Loader that streams the pinned image from the backend (air-gap path)."""
+
+        async def _load(spec: RuntimeBundleSpec) -> None:
+            from llm_port_node_agent.image_loader import load_image_from_backend
+            from llm_port_node_agent.runtimes import detect_runtime
+
+            credential = self._state.state.credential
+            if not credential:
+                raise RuntimeError(
+                    "Node credential not recorded; cannot stream the runtime image"
+                )
+            await load_image_from_backend(
+                client=self._http_client(),
+                credential=credential,
+                image=spec.image,
+                runtime=detect_runtime(preferred=spec.runtime_handler),
+            )
+
+        return _load
+
+    async def ensure_runtime(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Check that a usable Ray runtime is available for the requested version.
+
+        With a runtime bundle the check runs against the **container**: the
+        image must be present under its pinned digest and its ``ray`` CLI must
+        answer.  That is the Phase 4B contract — a node with no host Ray
+        package still reports ``installed=True``.
+
+        Without a bundle this falls back to the host CLI: the agent packages
+        the matching SDK, so the interesting facts are the CLI location plus
+        the packaged SDK version (same wheel, parity by construction).  A
+        missing CLI is reported as ``installed=False``: bootstrap must use a
+        verified binary, never whatever ``ray`` happens to be on PATH first.
+        """
+        bundle = self._bundle_spec(payload)
+        if bundle is not None:
+            return await self._ensure_runtime_container(payload, bundle)
+
         spec = EnsureRayRuntimePayload.model_validate(payload)
         ray_bin = self._runtime.ray_binary_path(spec.version)
         installed = ray_bin.exists()
@@ -221,6 +298,41 @@ class RayManager:
             "torch_version": torch_version,
         }
 
+    async def _ensure_runtime_container(
+        self, payload: dict[str, Any], bundle: RuntimeBundleSpec
+    ) -> dict[str, Any]:
+        """Satisfy ``ENSURE_RAY_RUNTIME`` from the pinned container."""
+        spec = EnsureRayRuntimePayload.model_validate(
+            {k: v for k, v in payload.items() if k in {"version"}}
+        )
+        try:
+            image = await self._container.ensure_image(bundle, loader=self._image_loader())
+            await self._container.ensure_container(bundle)
+            version = await self._container.installed_version(bundle)
+        except (ContainerRuntimeError, ValueError) as exc:
+            return {
+                "installed": False,
+                "version": spec.version,
+                "runtime": "container",
+                "container": bundle.name,
+                "image": bundle.image,
+                "error": str(exc),
+            }
+        return {
+            "installed": version is not None,
+            "version": version or spec.version,
+            "requested_version": spec.version,
+            "version_match": version == spec.version if version else False,
+            "runtime": "container",
+            "container": bundle.name,
+            "image": bundle.image,
+            "image_id": image.get("image_id"),
+            "digest_verified": bool(image.get("verified")),
+            # The certified image ships the full Serve-LLM stack; that is the
+            # bundle's contract, not something to re-derive from host metadata.
+            "serve_llm_available": True,
+        }
+
     async def start_head(self, payload: dict[str, Any], emit_progress: Any) -> dict[str, Any]:
         """Start a Ray head node (CLI bootstrap).
 
@@ -235,6 +347,32 @@ class RayManager:
 
         # Ensure a live, 0600 cluster token file exists (fetch + write).
         await self._write_token_securely(payload)
+
+        bundle = self._bundle_spec(payload)
+        if bundle is not None:
+            await self._container.ensure_image(bundle, loader=self._image_loader())
+            await self._container.ensure_container(bundle)
+            try:
+                result = await self._container.start_head(
+                    bundle,
+                    port=spec.port,
+                    dashboard_port=spec.dashboard_port,
+                    dashboard_host=spec.dashboard_host,
+                    node_ip_address=spec.node_ip_address,
+                    num_cpus=spec.num_cpus,
+                    num_gpus=spec.num_gpus,
+                    include_dashboard=spec.include_dashboard,
+                    env=self.start_env(spec.env),
+                )
+            except ContainerRuntimeError as exc:
+                raise RuntimeError(f"Ray head start failed in container: {exc}") from None
+            return {
+                "cluster_address": result.get("cluster_address"),
+                "head_address": result.get("head_address"),
+                "dashboard_url": result.get("dashboard_url"),
+                "runtime": "container",
+                "container": bundle.name,
+            }
 
         try:
             result = await self._runtime.start_head(
@@ -272,6 +410,28 @@ class RayManager:
         # Workers must hold the same token so the head's GCS accepts them.
         await self._write_token_securely(payload)
 
+        bundle = self._bundle_spec(payload)
+        if bundle is not None:
+            await self._container.ensure_image(bundle, loader=self._image_loader())
+            await self._container.ensure_container(bundle)
+            try:
+                await self._container.join_cluster(
+                    bundle,
+                    head_address=spec.head_address,
+                    node_ip_address=spec.node_ip_address,
+                    num_cpus=spec.num_cpus,
+                    num_gpus=spec.num_gpus,
+                    env=self.start_env(spec.env),
+                )
+            except ContainerRuntimeError as exc:
+                raise RuntimeError(f"Ray join failed in container: {exc}") from None
+            return {
+                "joined": True,
+                "head_address": spec.head_address,
+                "runtime": "container",
+                "container": bundle.name,
+            }
+
         try:
             result = await self._runtime.join_cluster(
                 version=spec.version,
@@ -297,6 +457,10 @@ class RayManager:
             self._core.disconnect()  # a stale attach must not outlive the cluster
         except Exception:  # pragma: no cover - best effort
             pass
+        bundle = self._bundle_spec(payload)
+        if bundle is not None:
+            result = await self._container.stop(bundle, remove=True)
+            return {"left": True, "runtime": "container", **result}
         await self._runtime.stop(version=version)
         return {"left": True}
 
@@ -307,7 +471,11 @@ class RayManager:
             self._core.disconnect()
         except Exception:  # pragma: no cover - best effort
             pass
-        result = await self._runtime.stop(version=spec.version, force=spec.force)
+        bundle = self._bundle_spec(payload)
+        if bundle is not None:
+            result = await self._container.stop(bundle, force=spec.force, remove=True)
+        else:
+            result = await self._runtime.stop(version=spec.version, force=spec.force)
 
         if self._token_file.exists():
             self._token_file.unlink()

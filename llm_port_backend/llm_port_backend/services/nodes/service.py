@@ -246,6 +246,26 @@ class NodeControlService:
         await self._dao.sync_legacy_infra_agent(node=updated)
         return self.serialize_node(updated)
 
+    # Tier-2-only keys: the raw per-interface detail stays in the snapshot
+    # table and is deliberately not projected onto the node row.
+    _TIER2_NETWORK_KEYS = frozenset({"all_interfaces"})
+
+    @classmethod
+    def _tier1_network_summary(cls, inventory: dict[str, Any]) -> dict[str, Any] | None:
+        """Project the planner-relevant slice of an inventory's network block.
+
+        The agent ships the normalized network summary inside the *inventory*
+        message, which lands in ``InfraNodeInventorySnapshot`` (Tier 2).  The
+        planner reads ``InfraNode.capabilities_json['network']`` (Tier 1), which
+        is only ever written from the heartbeat's static capabilities — so
+        without this projection the planner sees no fabrics at all on a real
+        node.  This is the two-tier split from Phase3_upgrade.md section 8.
+        """
+        network = inventory.get("network")
+        if not isinstance(network, dict):
+            return None
+        return {k: v for k, v in network.items() if k not in cls._TIER2_NETWORK_KEYS}
+
     async def record_inventory(
         self,
         *,
@@ -258,6 +278,16 @@ class NodeControlService:
             inventory_json=inventory,
             utilization_json=utilization,
         )
+        tier1_network = self._tier1_network_summary(inventory)
+        if tier1_network is None:
+            return
+        caps = dict(node.capabilities_json or {})
+        if caps.get("network") == tier1_network:
+            # Unchanged facts: do not rewrite the row.  Inventory ticks every
+            # ~15s and a rewrite would churn ``updated_at`` for no reason.
+            return
+        caps["network"] = tier1_network
+        node.capabilities_json = caps
 
     async def issue_command(
         self,

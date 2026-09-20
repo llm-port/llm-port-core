@@ -83,7 +83,10 @@ def _cluster(
         alive=alive,
         version=version,
         num_nodes=num_nodes,
-        nodes=[{"node_ip": "10.0.0.1", "state": "ALIVE", "is_head": True}][:num_nodes],
+        nodes=[
+            {"node_ip": f"10.0.0.{i + 1}", "state": "ALIVE", "is_head": i == 0}
+            for i in range(num_nodes)
+        ],
         total_gpus=total_gpus,
         available_gpus=total_gpus,
         cluster_address=cluster_address,
@@ -204,6 +207,67 @@ def test_map_cluster_alive_no_nodes_is_preparing() -> None:
 
 def test_map_cluster_healthy_is_ready() -> None:
     assert map_cluster_to_environment_status(_cluster(num_nodes=2)) is EnvironmentStatus.READY
+
+
+def test_map_cluster_dead_worker_is_degraded() -> None:
+    """A dead record degrades only when it means an expected member is missing."""
+    status = RayClusterStatus(
+        alive=True,
+        num_nodes=2,
+        nodes=[
+            {"node_ip": "10.100.0.1", "state": "ALIVE", "is_head": True},
+            {"node_ip": "10.100.0.2", "state": "DEAD", "is_head": False},
+        ],
+    )
+    assert status.alive_nodes == 1
+    assert map_cluster_to_environment_status(status, 2) is EnvironmentStatus.DEGRADED
+
+
+def test_stale_dead_record_does_not_degrade_a_complete_cluster() -> None:
+    """Ray never drops dead node records, so they cannot gate health.
+
+    After a worker restart the GCS holds the old DEAD record *and* the new
+    ALIVE one (verified live on Ray 2.58: a restart-and-rejoin leaves three
+    records for two nodes).  Treating any dead record as a degradation pinned
+    the environment to DEGRADED until the head's GCS was restarted - and since
+    the deployment driver gates on READY, that blocked every deployment after
+    the first restart.
+    """
+    status = RayClusterStatus(
+        alive=True,
+        # Raw count includes the retained dead record.
+        num_nodes=3,
+        nodes=[
+            {"node_ip": "10.100.0.1", "state": "ALIVE", "alive": True, "is_head": True},
+            {"node_ip": "10.100.0.2", "state": "ALIVE", "alive": True, "is_head": False},
+            {"node_ip": "10.100.0.2", "state": "DEAD", "alive": False, "is_head": False},
+        ],
+    )
+    assert status.alive_nodes == 2
+    assert map_cluster_to_environment_status(status, 2) is EnvironmentStatus.READY
+
+    # ... and the membership condition counts live records, not history.
+    by_type = {
+        c["type"]: c for c in build_environment_conditions(status, expected_nodes=2)
+    }
+    assert by_type["WorkersJoined"]["status"] == "True"
+
+
+def test_workers_joined_is_false_while_a_dead_record_inflates_the_raw_count() -> None:
+    """The raw count must not report "all joined" while a member is missing."""
+    status = RayClusterStatus(
+        alive=True,
+        num_nodes=2,
+        nodes=[
+            {"node_ip": "10.100.0.1", "state": "ALIVE", "alive": True, "is_head": True},
+            {"node_ip": "10.100.0.2", "state": "DEAD", "alive": False, "is_head": False},
+        ],
+    )
+    by_type = {
+        c["type"]: c for c in build_environment_conditions(status, expected_nodes=2)
+    }
+    assert by_type["WorkersJoined"]["status"] == "False"
+    assert "Only 1 of 2" in by_type["WorkersJoined"]["message"]
 
 
 def test_conditions_head_and_workers() -> None:

@@ -51,6 +51,29 @@ class ContainerRuntime(Protocol):
 
     async def exists(self, name: str) -> bool: ...
 
+    async def exec_(
+        self,
+        name: str,
+        command: list[str],
+        *,
+        env: dict[str, str] | None = None,
+        workdir: str | None = None,
+        timeout_sec: float = 120,
+        raise_on_error: bool = True,
+    ) -> tuple[int, str, str]:
+        """Run *command* inside a running container.  Returns ``(rc, stdout, stderr)``."""
+        ...
+
+    async def image_identity(self, image: str, *, timeout_sec: float = 20) -> dict[str, Any]:
+        """Identity of a locally present image.
+
+        Returns ``{"present": bool, "id": str|None, "repo_digests": list[str],
+        "tags": list[str]}``.  ``id`` is the image config digest — the only
+        identity that survives a ``save``/``load`` transfer into an air-gapped
+        node, where there is no registry manifest digest at all.
+        """
+        ...
+
     async def port(self, name: str, container_port: str, *, timeout_sec: float = 10) -> str | None:
         """Return the host port mapped to *container_port*, or ``None``."""
         ...

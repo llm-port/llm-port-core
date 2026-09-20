@@ -52,10 +52,56 @@ class RayClusterStatus(BaseModel):
     metrics: dict[str, Any] | None = None
     state: dict[str, Any] | None = None
 
+    @staticmethod
+    def _record_is_alive(node: dict[str, Any]) -> bool:
+        """Is one ``ray.nodes()`` record a live cluster member?"""
+        if "alive" in node and not node["alive"]:
+            return False
+        if "state" in node and str(node["state"]).upper() not in {"ALIVE", "UP", "ACTIVE"}:
+            return False
+        return True
+
+    @property
+    def alive_node_records(self) -> list[dict[str, Any]]:
+        """The subset of ``nodes`` that are live members right now.
+
+        Ray never removes dead node records from the GCS: a worker restart
+        leaves its old record behind forever (and a rejoin adds a *third*
+        record with the same IP).  Membership therefore has to be counted over
+        live records only — the raw list is history, not state.
+        """
+        return [n for n in self.nodes if self._record_is_alive(n)]
+
+    @property
+    def alive_nodes(self) -> int:
+        """Number of live cluster members.
+
+        Falls back to ``num_nodes`` when the probe carried no per-node records
+        (older agents), where the raw count is the only signal available.
+        """
+        if not self.nodes:
+            return self.num_nodes
+        return len(self.alive_node_records)
+
+    def healthy_for(self, expected_nodes: int) -> bool:
+        """Is the cluster healthy for an environment expecting *expected_nodes* members?
+
+        Dead records are ignored entirely; a member is only missing when the
+        live count falls below what the environment expects.
+        """
+        if not self.alive:
+            return False
+        live = self.alive_nodes
+        if live <= 0:
+            return False
+        if expected_nodes > 0:
+            return live >= expected_nodes
+        return True
+
     @property
     def all_healthy(self) -> bool:
-        """Are all nodes reported alive?"""
-        return self.alive and self.num_nodes > 0
+        """Healthy without a membership expectation (at least one live node)."""
+        return self.healthy_for(0)
 
     @property
     def serve_available(self) -> bool:

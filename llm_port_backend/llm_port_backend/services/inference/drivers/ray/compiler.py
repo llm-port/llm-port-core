@@ -399,7 +399,8 @@ def _placement(spec: InferenceDeploymentSpecV1Alpha1) -> dict[str, Any] | None:
     strategy ``PACK`` (cross-node, best effort) — the right shape for
     integral GPUs, including TP/PP spread over several 1-GPU nodes.  A config
     is emitted only to change that: a fractional GPU per worker, an explicit
-    CPU request, or a placement strategy.  It always uses ``bundle_per_worker``
+    CPU request, a placement strategy, or a ``topology.nodes`` pin (which maps
+    to a strategy by the section-15 rule lock).  It always uses ``bundle_per_worker``
     (Ray expands it to TP×PP bundles; a config without bundles would produce
     *no* bundles), and never a hand-built ``accelerator_type:X`` key — Ray adds
     its own fractional accelerator hint from ``LLMConfig.accelerator_type``.
@@ -430,12 +431,36 @@ def _placement(spec: InferenceDeploymentSpecV1Alpha1) -> dict[str, Any] | None:
             raise DeploymentValidationError(
                 f"resources.placement {spec.resources.placement!r} is not one of {sorted(_PLACEMENT_STRATEGIES)}"
             )
-    elif topology.nodes is not None:
+    else:
+        # Check extensions.ray for placementStrategy override
+        ray_ext = _ray_extension(spec)
+        ext_placement = ray_ext.get("placementStrategy") or ray_ext.get("placement_strategy")
+        if ext_placement and isinstance(ext_placement, str):
+            strategy = ext_placement.strip().upper()
+            if strategy not in _PLACEMENT_STRATEGIES:
+                raise DeploymentValidationError(
+                    f"extensions.ray.placementStrategy {ext_placement!r} is not one of {sorted(_PLACEMENT_STRATEGIES)}"
+                )
+
+    if topology.nodes is not None:
         if topology.nodes > num_devices:
             raise DeploymentValidationError(
                 f"topology.nodes ({topology.nodes}) exceeds the replica's devices ({num_devices})"
             )
-        strategy = "STRICT_PACK" if topology.nodes == 1 else "SPREAD"
+        if strategy == "STRICT_PACK" and topology.nodes > 1:
+            raise DeploymentValidationError(
+                f"STRICT_PACK is impossible with topology.nodes ({topology.nodes}) > 1; "
+                "STRICT_PACK forces all bundles onto a single node and causes deadlock"
+            )
+        if strategy is None:
+            # Rule lock (Phase3_upgrade.md section 15, evidence-driven on the
+            # DGX Spark pair): nodes == 1 colocates strictly, nodes > 1 spreads.
+            # Without this, ``topology.nodes`` is a no-op and Ray's default soft
+            # PACK can spill a TP group across hosts for nodes: 1 (silent
+            # tensor parallelism over the network) or pack nodes: 2 onto one
+            # host.  An explicit operator strategy still wins — it is validated
+            # against the deadlock case just above.
+            strategy = "STRICT_PACK" if topology.nodes == 1 else "SPREAD"
 
     if per_worker_gpu == 1.0 and replica.cpu is None and strategy is None:
         return None

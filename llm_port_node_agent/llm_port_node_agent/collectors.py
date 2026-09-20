@@ -9,6 +9,7 @@ from typing import Any
 import psutil
 
 from llm_port_node_agent.gpu import GpuCollector, GpuSnapshot, NullCollector
+from llm_port_node_agent.network import collect_network_interfaces, summarize_network_inventory
 
 # Module-level default used when no collector is injected.
 _default_collector: GpuCollector = NullCollector()
@@ -40,12 +41,15 @@ async def collect_inventory(
     vm = psutil.virtual_memory()
     du = psutil.disk_usage(_disk_root())
     gpu = gpu_snapshot if gpu_snapshot is not None else await collect_gpu_snapshot(collector)
+    net_ifaces = collect_network_interfaces()
+    net_summary = summarize_network_inventory(net_ifaces)
     return {
         "cpu_count_logical": psutil.cpu_count(logical=True) or 0,
         "cpu_count_physical": psutil.cpu_count(logical=False) or 0,
         "memory_total_bytes": vm.total,
         "disk_total_bytes": du.total,
         "network_interfaces": list(psutil.net_if_addrs().keys()),
+        "network": net_summary,
         "gpu_count": int(gpu.get("count", 0)),
         "gpu": gpu,
         "static_capabilities": static_capabilities,

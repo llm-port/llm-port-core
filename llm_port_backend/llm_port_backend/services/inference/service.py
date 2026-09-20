@@ -19,7 +19,10 @@ request field to ``...`` so the two never clash.
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from llm_port_backend.services.inference.planner import InferenceEnvironmentPlan
 
 from fastapi import Depends
 from sqlalchemy.exc import IntegrityError
@@ -347,6 +350,44 @@ class EnvironmentService:
             raise ConflictError("environment has deployments; delete them first")
         if not await self.dao.delete(environment_id):
             raise NotFoundError("environment", environment_id)
+
+    async def plan_fabric(
+        self,
+        environment_id: uuid.UUID,
+        *,
+        gateway: Any = None,
+        validate: bool | None = None,
+    ) -> InferenceEnvironmentPlan:
+        """Generate an ephemeral interconnect plan across participating nodes.
+
+        ``gateway`` enables the cheap agent-to-agent reachability challenge; a
+        plan produced without one says so in its ``warnings``.
+        """
+        from llm_port_backend.services.inference.planner import MultiNodeFabricPlanner
+
+        planner = MultiNodeFabricPlanner(self.session, gateway=gateway)
+        return await planner.plan_environment(environment_id, validate=validate)
+
+    async def apply_fabric_plan(
+        self,
+        environment_id: uuid.UUID,
+        plan: "InferenceEnvironmentPlan | None" = None,
+        *,
+        selected_candidate_id: str | None = None,
+    ) -> InferenceEnvironment:
+        """Apply an approved fabric plan to the environment.
+
+        The plan is re-derived server-side; *plan* is the approval receipt used
+        for stale detection only.
+        """
+        from llm_port_backend.services.inference.planner import MultiNodeFabricPlanner
+
+        planner = MultiNodeFabricPlanner(self.session)
+        return await planner.apply_plan(
+            environment_id,
+            plan,
+            selected_candidate_id=selected_candidate_id,
+        )
 
 
 # ---------------------------------------------------------------------------

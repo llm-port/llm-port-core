@@ -13,6 +13,7 @@ Enum note: the inference models persist StrEnum *values* (lowercase, e.g.
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -513,3 +514,213 @@ async def test_deployment_delete_204(
 async def test_deployment_get_missing_404(client: AsyncClient, authed_fapp: FastAPI) -> None:
     r = await client.get(f"{API}/deployments/{uuid.uuid4()}")
     assert r.status_code == 404
+
+
+async def make_dgx_node(
+    dbsession: AsyncSession,
+    agent_id: str,
+    mgmt_ip: str,
+    roce_ip: str,
+) -> InfraNode:
+    node = InfraNode(
+        agent_id=agent_id,
+        host=mgmt_ip,
+        status="healthy",
+        capabilities_json={
+            "network": {
+                "management_ip": mgmt_ip,
+                "fabrics": [
+                    {
+                        "interface": "enp1s0f1np1",
+                        "ip": roce_ip,
+                        "cidr": "10.100.0.0/24",
+                        "speed_gbps": 200.0,
+                        "link_type": "roce",
+                        "rdma_device": "rocep1s0f1",
+                        "mtu": 9000,
+                        "is_up": True,
+                        "has_default_route": False,
+                    },
+                    {
+                        "interface": "enP7s7",
+                        "ip": mgmt_ip,
+                        "cidr": "10.88.10.0/24",
+                        "speed_gbps": 1.0,
+                        "link_type": "ethernet",
+                        "mtu": 1500,
+                        "is_up": True,
+                        "has_default_route": True,
+                    },
+                ],
+            }
+        },
+    )
+    dbsession.add(node)
+    await dbsession.flush()
+    return node
+
+
+async def test_environment_plan_endpoint(
+    client: AsyncClient, authed_fapp: FastAPI, dbsession: AsyncSession
+) -> None:
+    cp = await make_control_plane(client, name="cp-plan")
+    env = await make_environment(client, cp["id"], name="env-plan")
+    n1 = await make_dgx_node(dbsession, "spark-ts3202", "10.88.10.49", "10.100.0.1")
+    n2 = await make_dgx_node(dbsession, "spark-3201", "10.88.10.71", "10.100.0.2")
+
+    await client.post(f"{API}/environments/{env['id']}/nodes", json={"node_id": str(n1.id), "role": "head"})
+    await client.post(f"{API}/environments/{env['id']}/nodes", json={"node_id": str(n2.id), "role": "worker"})
+
+    r = await client.post(f"{API}/environments/{env['id']}/plan")
+    assert r.status_code == 200, r.text
+    plan = r.json()
+    assert plan["environment_id"] == env["id"]
+    assert len(plan["candidates"]) == 2
+    rec = next(c for c in plan["candidates"] if c["candidate_id"] == plan["recommended_candidate_id"])
+    assert rec["fabric_type"] == "roce"
+    assert rec["speed_gbps"] == 200.0
+    assert rec["cidr"] == "10.100.0.0/24"
+    assert rec["recommended"] is True
+    assert plan["recommended_head_node_id"] in {str(n1.id), str(n2.id)}
+
+
+async def test_environment_apply_plan_endpoint(
+    client: AsyncClient, authed_fapp: FastAPI, dbsession: AsyncSession
+) -> None:
+    cp = await make_control_plane(client, name="cp-apply")
+    env = await make_environment(client, cp["id"], name="env-apply")
+    n1 = await make_dgx_node(dbsession, "spark-ts3202", "10.88.10.49", "10.100.0.1")
+    n2 = await make_dgx_node(dbsession, "spark-3201", "10.88.10.71", "10.100.0.2")
+
+    await client.post(f"{API}/environments/{env['id']}/nodes", json={"node_id": str(n1.id), "role": "head"})
+    await client.post(f"{API}/environments/{env['id']}/nodes", json={"node_id": str(n2.id), "role": "worker"})
+
+    plan_r = await client.post(f"{API}/environments/{env['id']}/plan")
+    assert plan_r.status_code == 200
+    plan = plan_r.json()
+
+    apply_r = await client.post(
+        f"{API}/environments/{env['id']}/apply-plan",
+        json={"plan": plan},
+    )
+    assert apply_r.status_code == 200, apply_r.text
+    applied = apply_r.json()
+    resolved = applied["config"]["resolved_fabric"]
+    assert resolved["fabric_type"] == "roce"
+    assert resolved["speed_gbps"] == 200.0
+    assert resolved["node_bindings"][str(n1.id)]["ip"] == "10.100.0.1"
+    assert resolved["node_bindings"][str(n2.id)]["ip"] == "10.100.0.2"
+
+
+async def test_environment_apply_plan_stale_detection_409(
+    client: AsyncClient, authed_fapp: FastAPI, dbsession: AsyncSession
+) -> None:
+    cp = await make_control_plane(client, name="cp-stale")
+    env = await make_environment(client, cp["id"], name="env-stale")
+    n1 = await make_dgx_node(dbsession, "spark-ts3202", "10.88.10.49", "10.100.0.1")
+    n2 = await make_dgx_node(dbsession, "spark-3201", "10.88.10.71", "10.100.0.2")
+
+    await client.post(f"{API}/environments/{env['id']}/nodes", json={"node_id": str(n1.id), "role": "head"})
+    await client.post(f"{API}/environments/{env['id']}/nodes", json={"node_id": str(n2.id), "role": "worker"})
+
+    plan_r = await client.post(f"{API}/environments/{env['id']}/plan")
+    assert plan_r.status_code == 200
+    plan = plan_r.json()
+
+    # A heartbeat touching the row is not a stale plan: revisions are content
+    # digests, not timestamps, so approval survives normal agent traffic.
+    n1.updated_at = datetime.now(tz=UTC) + timedelta(seconds=10)
+    await dbsession.flush()
+    ok_r = await client.post(
+        f"{API}/environments/{env['id']}/apply-plan",
+        json={"plan": plan},
+    )
+    assert ok_r.status_code == 200
+
+    # Re-cabled RoCE link: the approved topology no longer exists.
+    caps = dict(n1.capabilities_json)
+    network = dict(caps["network"])
+    fabrics = [dict(f) for f in network["fabrics"]]
+    fabrics[0]["ip"] = "10.100.0.9"
+    network["fabrics"] = fabrics
+    caps["network"] = network
+    n1.capabilities_json = caps
+    await dbsession.flush()
+
+    apply_r = await client.post(
+        f"{API}/environments/{env['id']}/apply-plan",
+        json={"plan": plan},
+    )
+    assert apply_r.status_code == 409
+    assert "Stale plan" in apply_r.json()["detail"]
+
+
+async def test_environment_apply_plan_rejects_nodes_added_after_planning(
+    client: AsyncClient, authed_fapp: FastAPI, dbsession: AsyncSession
+) -> None:
+    """A node added after the plan was approved has no entry to validate.
+
+    The old per-node loop iterated the revisions in the *request body*, so a
+    node joining the environment after planning was invisible to it and the
+    cluster would be bound without that member's fabric ever being considered.
+    """
+    cp = await make_control_plane(client, name="cp-added")
+    env = await make_environment(client, cp["id"], name="env-added")
+    n1 = await make_dgx_node(dbsession, "spark-add-1", "10.88.10.49", "10.100.0.1")
+    n2 = await make_dgx_node(dbsession, "spark-add-2", "10.88.10.71", "10.100.0.2")
+    n3 = await make_dgx_node(dbsession, "spark-add-3", "10.88.10.72", "10.100.0.3")
+
+    await client.post(
+        f"{API}/environments/{env['id']}/nodes", json={"node_id": str(n1.id), "role": "head"}
+    )
+    await client.post(
+        f"{API}/environments/{env['id']}/nodes", json={"node_id": str(n2.id), "role": "worker"}
+    )
+
+    plan = (await client.post(f"{API}/environments/{env['id']}/plan")).json()
+
+    await client.post(
+        f"{API}/environments/{env['id']}/nodes", json={"node_id": str(n3.id), "role": "worker"}
+    )
+
+    apply_r = await client.post(
+        f"{API}/environments/{env['id']}/apply-plan", json={"plan": plan}
+    )
+    assert apply_r.status_code == 409
+    assert "joined the environment after plan generation" in apply_r.json()["detail"]
+
+
+async def test_environment_apply_plan_ignores_tampered_bindings(
+    client: AsyncClient, authed_fapp: FastAPI, dbsession: AsyncSession
+) -> None:
+    """Bindings are always re-derived; the body cannot steer the cluster.
+
+    ``apply-plan`` is reachable by anyone holding
+    ``inference.environments:operate``, and the bindings it writes are what the
+    driver uses to bind the Ray head and join workers.
+    """
+    cp = await make_control_plane(client, name="cp-tamper")
+    env = await make_environment(client, cp["id"], name="env-tamper")
+    n1 = await make_dgx_node(dbsession, "spark-tamper-1", "10.88.10.49", "10.100.0.1")
+    n2 = await make_dgx_node(dbsession, "spark-tamper-2", "10.88.10.71", "10.100.0.2")
+
+    await client.post(
+        f"{API}/environments/{env['id']}/nodes", json={"node_id": str(n1.id), "role": "head"}
+    )
+    await client.post(
+        f"{API}/environments/{env['id']}/nodes", json={"node_id": str(n2.id), "role": "worker"}
+    )
+
+    plan = (await client.post(f"{API}/environments/{env['id']}/plan")).json()
+    for candidate in plan["candidates"]:
+        for binding in candidate["node_bindings"].values():
+            binding["ip"] = "203.0.113.7"
+            binding["interface"] = "attacker0"
+
+    apply_r = await client.post(
+        f"{API}/environments/{env['id']}/apply-plan", json={"plan": plan}
+    )
+    assert apply_r.status_code == 200
+    bound = apply_r.json()["observed_status"]["resolved_fabric"]["node_bindings"]
+    assert {b["ip"] for b in bound.values()} == {"10.100.0.1", "10.100.0.2"}
+    assert all(b["interface"] == "enp1s0f1np1" for b in bound.values())

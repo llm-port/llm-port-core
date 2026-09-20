@@ -13,8 +13,56 @@ from pydantic import BaseModel
 from llm_port_node_agent.ray.models import RayEnvironmentStatus
 
 
+class RuntimeBundlePayload(BaseModel):
+    """Container contract for the Phase 4B runtime-bundle bootstrap path.
+
+    Its presence on a lifecycle command selects the containerized path: the
+    pinned image is verified/loaded and ``ray start`` is exec'd inside it, so
+    the host needs no Ray Python distribution at all.  ``requirements`` are
+    *semantic* (``network_mode``, ``ipc_mode``, devices, ...); mapping them to
+    handler flags is the agent's job.
+    """
+
+    name: str = "llm-port-ray-runtime"
+    image: str
+    digest: str
+    repo_digest: str | None = None
+    runtime_handler: str = "docker"
+    requirements: dict[str, Any] = {}
+    mounts: list[dict[str, Any]] = []
+    env: dict[str, str] = {}
+
+
 class EnsureRayRuntimePayload(BaseModel):
     version: str = "2.58.0"
+    runtime_bundle: RuntimeBundlePayload | None = None
+
+
+class EnsureRuntimeImagePayload(BaseModel):
+    """``ENSURE_RUNTIME_IMAGE``: make a pinned OCI image present and verified."""
+
+    runtime_bundle: RuntimeBundlePayload
+    # Also create/start the runtime container once the image is verified.
+    ensure_container: bool = False
+
+
+class ValidateFabricListenPayload(BaseModel):
+    """``VALIDATE_FABRIC_LISTEN``: one-shot ephemeral probe listener."""
+
+    ip: str
+    port: int
+    probe_token: str = ""
+    timeout_sec: float = 5.0
+
+
+class ValidateFabricConnectPayload(BaseModel):
+    """``VALIDATE_FABRIC_CONNECT``: one-shot probe against a listener."""
+
+    target_ip: str
+    target_port: int
+    source_ip: str | None = None
+    probe_token: str = ""
+    timeout_sec: float = 5.0
 
 
 class StartRayHeadPayload(BaseModel):
@@ -32,6 +80,7 @@ class StartRayHeadPayload(BaseModel):
     # does not need the dashboard.
     include_dashboard: bool = True
     env: dict[str, str] = {}
+    runtime_bundle: RuntimeBundlePayload | None = None
 
 
 class JoinRayClusterPayload(BaseModel):
@@ -43,11 +92,13 @@ class JoinRayClusterPayload(BaseModel):
     num_gpus: int | None = None
     resources: dict[str, float] = {}
     env: dict[str, str] = {}
+    runtime_bundle: RuntimeBundlePayload | None = None
 
 
 class StopRayPayload(BaseModel):
     force: bool = False
     version: str = "2.58.0"
+    runtime_bundle: RuntimeBundlePayload | None = None
 
 
 class GetRayStatusPayload(BaseModel):

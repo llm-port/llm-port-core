@@ -4,13 +4,22 @@ from llm_port_backend.db.models.inference import EnvironmentStatus
 from llm_port_backend.services.inference.drivers.ray.schemas import RayClusterStatus
 
 
-def map_cluster_to_environment_status(status: RayClusterStatus) -> EnvironmentStatus:
-    """Map Ray cluster health to inference environment status."""
+def map_cluster_to_environment_status(
+    status: RayClusterStatus, expected_nodes: int = 0
+) -> EnvironmentStatus:
+    """Map Ray cluster health to inference environment status.
+
+    Health is counted over *live* node records against expected membership.
+    Ray keeps dead records in the GCS forever, so treating any dead record as
+    a degradation would pin an environment to DEGRADED after the first worker
+    or container restart — and, because the deployment driver gates on READY,
+    block every subsequent deployment until the head's GCS was restarted.
+    """
     if not status.alive:
         return EnvironmentStatus.FAILED
-    if status.num_nodes == 0:
+    if status.alive_nodes == 0:
         return EnvironmentStatus.PREPARING
-    if status.all_healthy:
+    if status.healthy_for(expected_nodes):
         return EnvironmentStatus.READY
     return EnvironmentStatus.DEGRADED
 
@@ -44,9 +53,12 @@ def build_environment_conditions(
             "message": "Ray head node is unreachable.",
         })
 
-    # Workers Joined Condition
+    # Workers Joined Condition.  Counted over *live* records: the raw
+    # ``num_nodes`` includes Ray's permanently retained dead records, which would report
+    # "all joined" while a member is actually missing.
     if expected_nodes > 0:
-        if status.num_nodes >= expected_nodes:
+        live = status.alive_nodes
+        if live >= expected_nodes:
             conditions.append({
                 "type": "WorkersJoined",
                 "status": "True",
@@ -58,7 +70,7 @@ def build_environment_conditions(
                 "type": "WorkersJoined",
                 "status": "False",
                 "reason": "PartialWorkersJoined",
-                "message": f"Only {status.num_nodes} of {expected_nodes} nodes joined.",
+                "message": f"Only {live} of {expected_nodes} nodes joined.",
             })
 
     # Serve Ready condition (additive tier, non-gating).  Only reported when
