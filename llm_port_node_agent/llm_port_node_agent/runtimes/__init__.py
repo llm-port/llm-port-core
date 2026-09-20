@@ -68,9 +68,13 @@ class ContainerRuntime(Protocol):
         """Identity of a locally present image.
 
         Returns ``{"present": bool, "id": str|None, "repo_digests": list[str],
-        "tags": list[str]}``.  ``id`` is the image config digest — the only
-        identity that survives a ``save``/``load`` transfer into an air-gapped
-        node, where there is no registry manifest digest at all.
+        "tags": list[str], "rootfs_layers": list[str]}``.
+
+        ``id`` is the image config digest and ``rootfs_layers`` the ordered
+        layer diff IDs.  Both are reported because they are not equivalent: a
+        side-load can rewrite the config (changing ``id``) while preserving the
+        layers byte for byte, which is exactly what happened across the two DGX
+        nodes.  The layers are the content identity; the config id is not.
         """
         ...
 

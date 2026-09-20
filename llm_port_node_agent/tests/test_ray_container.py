@@ -18,10 +18,15 @@ from llm_port_node_agent.ray.container import (
     RuntimeBundleSpec,
     RuntimeDigestMismatch,
     RuntimeImageMissing,
+    compute_rootfs_digest,
 )
 
-DIGEST = "sha256:d5dd2c6ad48e571db57b59f80e8faf62814f6a8db0b8bb86067c8647a95ce7f3"
+DIGEST = "sha256:7dc13b9aff5a00dc447251d550a29bcddf9480cc7efad1509cfbd9a0c661a9d8"
 OTHER_DIGEST = "sha256:" + "11" * 32
+# Two layers standing in for the certified image's 50.
+LAYERS = ["sha256:" + "aa" * 32, "sha256:" + "bb" * 32]
+ROOTFS_DIGEST = compute_rootfs_digest(LAYERS)
+OTHER_LAYERS = ["sha256:" + "cc" * 32]
 
 
 def _payload(**overrides: Any) -> dict[str, Any]:
@@ -29,6 +34,7 @@ def _payload(**overrides: Any) -> dict[str, Any]:
         "name": "llm-port-ray-runtime",
         "image": "llmport/ray-vllm-gb10:ray2.58-nv26.08",
         "digest": DIGEST,
+        "rootfs_digest": ROOTFS_DIGEST,
         "runtime_handler": "docker",
         "requirements": {
             "network_mode": "host",
@@ -55,10 +61,12 @@ class _FakeRuntime:
         image_id: str | None = DIGEST,
         present: bool = True,
         ray_version: str = "2.58.0",
+        layers: list[str] | None = None,
     ) -> None:
         self._image_id = image_id
         self._present = present
         self._ray_version = ray_version
+        self._layers = LAYERS if layers is None else layers
         self.containers: dict[str, dict[str, Any]] = {}
         self.runs: list[dict[str, Any]] = []
         self.execs: list[dict[str, Any]] = []
@@ -70,8 +78,16 @@ class _FakeRuntime:
 
     async def image_identity(self, image: str, *, timeout_sec: float = 20) -> dict[str, Any]:
         if not self._present:
-            return {"present": False, "id": None, "repo_digests": [], "tags": []}
-        return {"present": True, "id": self._image_id, "repo_digests": [], "tags": [image]}
+            return {
+                "present": False, "id": None, "repo_digests": [], "tags": [], "rootfs_layers": [],
+            }
+        return {
+            "present": True,
+            "id": self._image_id,
+            "repo_digests": [],
+            "tags": [image],
+            "rootfs_layers": list(self._layers),
+        }
 
     async def exists(self, name: str) -> bool:
         return name in self.containers
@@ -86,6 +102,11 @@ class _FakeRuntime:
             "State": {"Running": True},
         }
         return "container-id"
+
+    async def ps(self, *, all_: bool = True, timeout_sec: float = 20) -> list[str]:
+        import json as _json
+
+        return [_json.dumps({"Names": n}) for n in self.containers]
 
     async def start(self, name: str, *, timeout_sec: float = 30) -> None:
         self.containers[name]["State"]["Running"] = True
@@ -162,8 +183,12 @@ async def test_semantic_requirements_become_handler_flags() -> None:
 
 @pytest.mark.anyio()
 async def test_ensure_runtime_image_refuses_a_different_image() -> None:
-    """A tag match is not identity: pinning is the integrity mechanism."""
-    runtime = _FakeRuntime(image_id=OTHER_DIGEST)
+    """A tag match is not identity: pinning is the integrity mechanism.
+
+    Different config id *and* different content - the case where the tag has
+    been moved to some other image entirely.
+    """
+    runtime = _FakeRuntime(image_id=OTHER_DIGEST, layers=OTHER_LAYERS)
     container = RayContainerRuntime(runtime=runtime)
     spec = RuntimeBundleSpec.from_payload(_payload())
 
@@ -263,3 +288,92 @@ async def test_stop_ray_tears_down_the_container() -> None:
     assert result["stopped"] is True
     assert spec.name not in runtime.containers
     assert ["ray", "stop", "--force"] in [e["command"] for e in runtime.execs]
+
+
+@pytest.mark.anyio()
+async def test_identical_content_under_a_different_config_id_is_accepted() -> None:
+    """The two DGX nodes hold the same bits under different config IDs.
+
+    ``docker image inspect`` on spark-ts3202 reports
+    ``sha256:7dc13b9a...`` and on spark-3201 ``sha256:d36c047d...`` for the
+    same tag, while both list the identical 50 RootFS layer diff IDs - the
+    side-load rewrote the config.  Verifying ``.Id`` alone would reject a node
+    that is running exactly the certified bits and block every deployment on
+    it.
+    """
+    runtime = _FakeRuntime(image_id=OTHER_DIGEST, layers=LAYERS)
+    container = RayContainerRuntime(runtime=runtime)
+    spec = RuntimeBundleSpec.from_payload(_payload())
+
+    result = await container.ensure_image(spec)
+    assert result["verified"] is True
+    assert result["matched_by"] == "rootfs_digest"
+    assert result["rootfs_digest"] == ROOTFS_DIGEST
+
+
+@pytest.mark.anyio()
+async def test_different_content_is_still_refused() -> None:
+    """Content identity must not become a way to wave anything through."""
+    runtime = _FakeRuntime(image_id=OTHER_DIGEST, layers=OTHER_LAYERS)
+    container = RayContainerRuntime(runtime=runtime)
+    spec = RuntimeBundleSpec.from_payload(_payload())
+
+    with pytest.raises(RuntimeDigestMismatch) as excinfo:
+        await container.ensure_image(spec)
+    # The error has to name both identities or an operator cannot act on it.
+    assert ROOTFS_DIGEST in str(excinfo.value)
+    assert OTHER_DIGEST in str(excinfo.value)
+
+
+@pytest.mark.anyio()
+async def test_config_id_alone_still_verifies_when_no_rootfs_is_pinned() -> None:
+    """Bundles generated before the content identity existed keep working."""
+    runtime = _FakeRuntime(image_id=DIGEST, layers=OTHER_LAYERS)
+    container = RayContainerRuntime(runtime=runtime)
+    payload = _payload()
+    payload.pop("rootfs_digest")
+    spec = RuntimeBundleSpec.from_payload(payload)
+
+    result = await container.ensure_image(spec)
+    assert result["matched_by"] == "image_id"
+
+
+@pytest.mark.anyio()
+async def test_preflight_reports_a_gpu_that_is_already_busy(monkeypatch) -> None:
+    """A rogue process holding GPU memory must be named, not guessed at.
+
+    On spark-3201 an unmanaged ``tmux`` loop kept relaunching old containers
+    that held GPU memory; the only symptom was Ray failing with CUDA OOM and
+    port conflicts at nondeterministic points in distributed startup.
+    """
+    async def _busy_gpu() -> list[dict[str, Any]]:
+        return [{"index": 0, "used_mib": 86000, "total_mib": 121690}]
+
+    monkeypatch.setattr(RayContainerRuntime, "_gpu_memory_in_use", staticmethod(_busy_gpu))
+
+    runtime = _FakeRuntime()
+    runtime.containers["some-other-workload"] = {"Image": OTHER_DIGEST, "State": {"Running": True}}
+    container = RayContainerRuntime(runtime=runtime)
+    spec = RuntimeBundleSpec.from_payload(_payload())
+
+    result = await container.ensure_container(spec)
+
+    preflight = result["preflight"]
+    assert "86000 MiB" in preflight["conflicts"][0]
+    assert "some-other-workload" in preflight["foreign_containers"]
+    # A busy GPU is a diagnostic, not a veto: the node may legitimately be
+    # running other work, so the container still starts.
+    assert result["running"] is True
+
+
+@pytest.mark.anyio()
+async def test_preflight_is_quiet_on_an_idle_node(monkeypatch) -> None:
+    """Driver overhead must not be reported as a conflict."""
+    async def _idle_gpu() -> list[dict[str, Any]]:
+        return [{"index": 0, "used_mib": 4, "total_mib": 121690}]
+
+    monkeypatch.setattr(RayContainerRuntime, "_gpu_memory_in_use", staticmethod(_idle_gpu))
+
+    container = RayContainerRuntime(runtime=_FakeRuntime())
+    result = await container.ensure_container(RuntimeBundleSpec.from_payload(_payload()))
+    assert result["preflight"]["conflicts"] == []

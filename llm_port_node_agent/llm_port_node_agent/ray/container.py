@@ -27,6 +27,7 @@ from the backend's own ``docker save`` endpoint and loaded locally.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from dataclasses import dataclass, field
 from typing import Any
@@ -42,6 +43,34 @@ DEFAULT_CONTAINER_NAME = "llm-port-ray-runtime"
 # ``sleep infinity`` keeps the container alive so ``ray start`` (which
 # daemonizes and returns) has a stable process namespace to live in.
 _IDLE_COMMAND = ["sleep", "infinity"]
+
+# Above this, a GPU is carrying a real allocation rather than driver overhead.
+_GPU_BUSY_THRESHOLD_MIB = 1024
+
+
+def _container_name(ps_line: str) -> str | None:
+    """Container name out of one ``ps --format '{{json .}}'`` line."""
+    import json
+
+    try:
+        record = json.loads(ps_line)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(record, dict):
+        return None
+    name = record.get("Names") or record.get("Name")
+    if isinstance(name, list):
+        name = name[0] if name else None
+    return str(name) if name else None
+
+
+def compute_rootfs_digest(layer_diff_ids: list[str]) -> str:
+    """Content identity of an image from its ordered RootFS layer diff IDs.
+
+    Must stay byte-for-byte identical to the backend's
+    ``llm_port_backend.services.inference.bundles.compute_rootfs_digest``.
+    """
+    return "sha256:" + hashlib.sha256("\n".join(layer_diff_ids).encode()).hexdigest()
 
 
 class RuntimeImageMissing(ContainerRuntimeError):
@@ -75,6 +104,7 @@ class RuntimeBundleSpec:
     image: str
     digest: str
     name: str = DEFAULT_CONTAINER_NAME
+    rootfs_digest: str | None = None
     repo_digest: str | None = None
     runtime_handler: str = "docker"
     network_mode: str = "host"
@@ -117,6 +147,7 @@ class RuntimeBundleSpec:
             image=image,
             digest=digest,
             name=str(payload.get("name") or DEFAULT_CONTAINER_NAME),
+            rootfs_digest=payload.get("rootfs_digest"),
             repo_digest=payload.get("repo_digest"),
             runtime_handler=str(payload.get("runtime_handler") or "docker"),
             network_mode=str(req.get("network_mode") or "host"),
@@ -192,25 +223,127 @@ class RayContainerRuntime:
 
         local_id = str(identity.get("id") or "")
         repo_digests = [str(d) for d in identity.get("repo_digests") or []]
-        matches_id = local_id == spec.digest
-        matches_repo = spec.repo_digest is not None and any(
-            d.endswith(spec.repo_digest) for d in repo_digests
-        )
-        if not (matches_id or matches_repo):
+        layers = [str(x) for x in identity.get("rootfs_layers") or []]
+        local_rootfs = compute_rootfs_digest(layers) if layers else None
+
+        # Content identity first: two nodes can hold byte-identical copies of
+        # the same image under different config IDs when one was side-loaded,
+        # and rejecting the certified bits over a rewritten config would be a
+        # false alarm that blocks every deployment on that node.
+        matched_by = None
+        if spec.rootfs_digest and local_rootfs == spec.rootfs_digest:
+            matched_by = "rootfs_digest"
+        elif local_id and local_id == spec.digest:
+            matched_by = "image_id"
+        elif spec.repo_digest and any(d.endswith(spec.repo_digest) for d in repo_digests):
+            matched_by = "repo_digest"
+
+        if matched_by is None:
             self.last_error = (
-                f"runtime image {spec.image} is {local_id or 'unknown'}, "
-                f"but the bundle pins {spec.digest}"
+                f"runtime image {spec.image} is id={local_id or 'unknown'} "
+                f"rootfs={local_rootfs or 'unknown'}, but the bundle pins "
+                f"id={spec.digest} rootfs={spec.rootfs_digest or 'unset'}"
             )
             raise RuntimeDigestMismatch(self.last_error)
 
         return {
             "present": True,
             "verified": True,
+            "matched_by": matched_by,
             "image": spec.image,
             "image_id": local_id,
+            "rootfs_digest": local_rootfs,
             "repo_digests": repo_digests,
             "runtime_handler": handler.name,
         }
+
+    # ------------------------------------------------------------------
+    # Preflight
+    # ------------------------------------------------------------------
+
+    async def preflight(self, spec: RuntimeBundleSpec) -> dict[str, Any]:
+        """Report what else on this host could break the runtime container.
+
+        This is a *diagnostic*, not a gate: a node may legitimately run other
+        workloads, and LLM.Port's own legacy single-node runtimes coexist with
+        Ray by design, so refusing to start whenever a GPU is busy would be
+        wrong.  What was wrong was starting blind - on the DGX worker an
+        unmanaged ``tmux`` loop kept relaunching old containers that held GPU
+        memory, and the only symptom was Ray failing with CUDA OOM and port
+        conflicts at nondeterministic points during distributed startup.
+
+        Returns ``{"gpu": [...], "foreign_containers": [...], "conflicts": [...]}``
+        so the backend can put the real reason in the command result instead of
+        leaving an operator to guess.
+        """
+        handler = self._handler(spec)
+        report: dict[str, Any] = {"gpu": [], "foreign_containers": [], "conflicts": []}
+
+        for entry in await self._gpu_memory_in_use():
+            report["gpu"].append(entry)
+            if entry.get("used_mib", 0) > _GPU_BUSY_THRESHOLD_MIB:
+                report["conflicts"].append(
+                    f"GPU {entry['index']} already has {entry['used_mib']} MiB allocated "
+                    "before the runtime container starts"
+                )
+
+        try:
+            for line in await handler.ps(all_=False):
+                name = _container_name(line)
+                if not name or name == spec.name:
+                    continue
+                report["foreign_containers"].append(name)
+        except Exception as exc:  # noqa: BLE001 - diagnostics must never fail a start
+            log.debug("Preflight container listing failed: %s", exc)
+
+        if report["conflicts"]:
+            log.warning(
+                "Runtime preflight on this node found: %s (other containers running: %s)",
+                "; ".join(report["conflicts"]),
+                ", ".join(report["foreign_containers"]) or "none",
+            )
+        return report
+
+    @staticmethod
+    async def _gpu_memory_in_use() -> list[dict[str, Any]]:
+        """Per-GPU memory already allocated, via ``nvidia-smi``.
+
+        Best effort: a host without ``nvidia-smi`` simply reports nothing.
+        """
+        import asyncio
+        import shutil
+
+        if shutil.which("nvidia-smi") is None:
+            return []
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "nvidia-smi",
+                "--query-gpu=index,memory.used,memory.total",
+                "--format=csv,noheader,nounits",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15)
+        except Exception as exc:  # noqa: BLE001 - diagnostics must never fail a start
+            log.debug("nvidia-smi preflight failed: %s", exc)
+            return []
+        if proc.returncode != 0:
+            return []
+
+        entries: list[dict[str, Any]] = []
+        for line in stdout.decode("utf-8", "replace").splitlines():
+            parts = [p.strip() for p in line.split(",")]
+            if len(parts) != 3:
+                continue
+            try:
+                entries.append({
+                    "index": int(parts[0]),
+                    "used_mib": int(parts[1]),
+                    "total_mib": int(parts[2]),
+                })
+            except ValueError:
+                continue
+        return entries
 
     # ------------------------------------------------------------------
     # Container lifecycle
@@ -259,7 +392,15 @@ class RayContainerRuntime:
             info = await handler.inspect(spec.name)
             state = (info.get("State") or {}) if isinstance(info, dict) else {}
             running_image = str((info.get("Image") or "")) if isinstance(info, dict) else ""
-            if running_image and running_image != spec.digest:
+            # A container records the *local* config id of its image, which
+            # need not equal the bundle's pinned digest even when the content
+            # is identical (the side-loaded copy on the DGX worker is exactly
+            # that case), so both are acceptable.
+            expected_ids = {spec.digest}
+            local_id = await self._local_image_id(spec)
+            if local_id:
+                expected_ids.add(local_id)
+            if running_image and running_image not in expected_ids:
                 log.warning(
                     "Container %s runs image %s, expected %s — recreating",
                     spec.name, running_image, spec.digest,
@@ -270,6 +411,8 @@ class RayContainerRuntime:
             else:
                 await handler.start(spec.name)
                 return {"container": spec.name, "created": False, "running": True}
+
+        preflight = await self.preflight(spec)
 
         volumes = [m.to_flag() for m in spec.mounts]
         token_dir = self._token_path.rsplit("/", 1)[0]
@@ -286,7 +429,26 @@ class RayContainerRuntime:
             extra_args=self._run_flags(spec),
             timeout_sec=180,
         )
-        return {"container": spec.name, "container_id": container_id, "created": True, "running": True}
+        return {
+            "container": spec.name,
+            "container_id": container_id,
+            "created": True,
+            "running": True,
+            "preflight": preflight,
+        }
+
+    async def _local_image_id(self, spec: RuntimeBundleSpec) -> str | None:
+        """The config ID of the locally present image, if any.
+
+        Used to decide whether a running container is on the right image: the
+        container records the *local* config ID, which need not equal the
+        bundle's pinned ``digest`` even when the content is identical.
+        """
+        try:
+            identity = await self._handler(spec).image_identity(spec.image)
+        except ContainerRuntimeError:  # pragma: no cover - defensive
+            return None
+        return str(identity.get("id") or "") or None
 
     async def remove_container(self, spec: RuntimeBundleSpec) -> None:
         """Remove the runtime container (best effort)."""

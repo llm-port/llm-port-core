@@ -223,20 +223,25 @@ class DockerRuntime:
             timeout_sec=timeout_sec,
             raise_on_error=False,
         )
+        absent = {
+            "present": False, "id": None, "repo_digests": [], "tags": [], "rootfs_layers": [],
+        }
         if code != 0:
-            return {"present": False, "id": None, "repo_digests": [], "tags": []}
+            return dict(absent)
         try:
             parsed = json.loads(out.strip())
         except (json.JSONDecodeError, ValueError):
-            return {"present": False, "id": None, "repo_digests": [], "tags": []}
+            return dict(absent)
         record = parsed[0] if isinstance(parsed, list) and parsed else parsed
         if not isinstance(record, dict):
-            return {"present": False, "id": None, "repo_digests": [], "tags": []}
+            return dict(absent)
+        rootfs = record.get("RootFS") or {}
         return {
             "present": True,
             "id": record.get("Id"),
             "repo_digests": list(record.get("RepoDigests") or []),
             "tags": list(record.get("RepoTags") or []),
+            "rootfs_layers": [str(x) for x in (rootfs.get("Layers") or [])],
         }
 
     # ── image management ──────────────────────────────────────

@@ -8,30 +8,39 @@ version = "0.1.8"
 description = "Node execution agent for llm-port cluster-managed runtimes."
 readme = "README.md"
 requires-python = ">=3.11"
+# The base agent runs on a *bare host*: inventory, container lifecycle and
+# command transport only.  Ray is deliberately NOT a base dependency - on the
+# certified DGX hardware `import ray` must fail on the host, and Ray lives
+# exclusively inside the runtime-bundle container (03_PHASED_MIGRATION_PLAN.md
+# section 4B).  Every `import ray` in this package is lazy, so the agent
+# installs and runs without it; the SDK paths report a missing runtime instead
+# of failing at import time.
 dependencies = [
   "httpx>=0.27,<1.0",
   "psutil>=5.9,<8.0",
   "websockets>=12,<16",
-  # Ray SDK is packaged with the agent: RayCoreClient attaches to the local
-  # cluster in-process (ray.init address="auto") and the RayRuntimeManager
-  # bootstrap layer drives the *same* packaged CLI for `ray start`/`ray stop`,
-  # which guarantees SDK/cluster version parity.  The `[serve]` extra provides
-  # the Ray Serve Python APIs (serve.run/status/delete/shutdown) used by
-  # RayServeManager.  2.58 is the LLM.Port-tested release; see
-  # llm-port-dev/llm_port_ray_migration/ray_sdk_refactor.md.
-  "ray[serve]==2.58.0",
-  # Ray 2.58 bug: ray/serve/_private/haproxy.py imports jinja2 at import time,
-  # but the `serve` extra does not declare it.  Declared explicitly so
-  # `from ray import serve` works in a clean agent environment.
-  "jinja2>=3.1,<4",
 ]
 
 [project.scripts]
 llmport-agent = "llm_port_node_agent.__main__:main"
 
 [project.optional-dependencies]
+# Host-installed Ray, for nodes that bootstrap Ray as a host process instead of
+# from a runtime-bundle container (the Phase 2/3 path, still supported).
+# RayCoreClient attaches in-process (ray.init address="auto") and RayRuntime
+# drives the *same* packaged CLI for `ray start`/`ray stop`, which guarantees
+# SDK/cluster version parity.  2.58 is the LLM.Port-tested release; see
+# llm-port-dev/llm_port_ray_migration/ray_sdk_refactor.md.
+ray-host = [
+  "ray[serve]==2.58.0",
+  # Ray 2.58 bug: ray/serve/_private/haproxy.py imports jinja2 at import time,
+  # but the `serve` extra does not declare it.  Declared explicitly so
+  # `from ray import serve` works in a clean agent environment.
+  "jinja2>=3.1,<4",
+]
 llm = [
   "ray[serve,llm]==2.58.0",
+  "jinja2>=3.1,<4",
 ]
 hf = [
   "huggingface-hub>=0.27,<2",

@@ -22,6 +22,7 @@ catalog authoritative-looking and wrong at the same time.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -36,6 +37,18 @@ from llm_port_backend.db.models.node_control import InfraNode
 log = logging.getLogger(__name__)
 
 _DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+
+
+def compute_rootfs_digest(layer_diff_ids: list[str]) -> str:
+    """Content identity of an image from its ordered RootFS layer diff IDs.
+
+    ``docker image inspect --format '{{json .RootFS.Layers}}'`` on any host
+    holding the image yields the same list for the same content, whether the
+    image was built there, pulled, or side-loaded from a tarball - unlike the
+    config ``.Id``, which the transfer can rewrite.  The agent computes this
+    with the identical canonicalization.
+    """
+    return "sha256:" + hashlib.sha256("\n".join(layer_diff_ids).encode()).hexdigest()
 
 
 class BundleValidationError(ValueError):
@@ -100,12 +113,19 @@ class ContainerSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     image: str
-    # The image's content-addressable *config* identity, i.e. what
-    # ``docker image inspect --format '{{.Id}}'`` reports.  Mandatory: this is
-    # the integrity mechanism the air-gap direction rests on, and it is the
-    # only identity that survives a ``docker save`` / ``docker load`` transfer
-    # (a registry manifest digest does not).
+    # The image's *config* identity, i.e. what
+    # ``docker image inspect --format '{{.Id}}'`` reports.  Mandatory, but NOT
+    # sufficient on its own: verified on the DGX pair, the two nodes hold
+    # byte-identical copies of this image (same 50 RootFS layer diff IDs) under
+    # two different config IDs, because the side-load rewrote the config.  A
+    # check against ``.Id`` alone would reject a node running exactly the
+    # certified bits.
     digest: str
+    # Content identity: sha256 over the image's ordered RootFS layer diff IDs
+    # (see ``compute_rootfs_digest``).  This is what actually survives a
+    # ``docker save``/``load``/``import`` round trip, so it is the primary
+    # check; ``digest`` and ``repo_digest`` are accepted as equivalents.
+    rootfs_digest: str | None = None
     # Registry manifest digest (``RepoDigests``), when the image was pulled
     # rather than side-loaded.  Optional for exactly that reason.
     repo_digest: str | None = None
@@ -113,7 +133,7 @@ class ContainerSpec(BaseModel):
     requirements: ContainerRequirements = Field(default_factory=ContainerRequirements)
     mounts: list[ContainerMount] = Field(default_factory=list)
 
-    @field_validator("digest", "repo_digest")
+    @field_validator("digest", "rootfs_digest", "repo_digest")
     @classmethod
     def _validate_digest(cls, value: str | None) -> str | None:
         if value is None:
@@ -228,6 +248,9 @@ class RuntimeBundleManifest(BaseModel):
         stack = manifest.get("stack_components") or manifest.get("components") or {}
         image = manifest.get("release_tag") or manifest.get("target_image")
         digest = manifest.get("image_id")
+        rootfs_digest = manifest.get("rootfs_digest")
+        if not rootfs_digest and manifest.get("rootfs_layers"):
+            rootfs_digest = compute_rootfs_digest(list(manifest["rootfs_layers"]))
         if not image:
             raise BundleValidationError("runtime manifest has no release_tag/target_image")
         if not digest:
@@ -253,6 +276,7 @@ class RuntimeBundleManifest(BaseModel):
             container=ContainerSpec(
                 image=str(image),
                 digest=str(digest),
+                rootfs_digest=str(rootfs_digest) if rootfs_digest else None,
                 requirements=requirements or ContainerRequirements(),
                 mounts=mounts or [],
             ),
@@ -291,22 +315,39 @@ def _opt(value: Any) -> str | None:
 # Built-in certified DGX Spark Blackwell GB10 bundle
 # ---------------------------------------------------------------------------
 #
-# Generated from ``llm_port_ray_migration/runtime_image/runtime-manifest.json``
-# (image build + single-node certification, 2026-09-19).  Regenerate with
-# ``RuntimeBundleManifest.from_runtime_manifest(json.load(open(...)), ...)``
-# after every image rebuild — every value below is a fact off that artifact.
+# Every value below was read off the images that are actually on the two DGX
+# Spark nodes on 2026-09-20 (``docker image inspect`` + ``importlib.metadata``
+# inside the container), NOT copied from
+# ``llm_port_ray_migration/runtime_image/runtime-manifest.json``.  That
+# artifact describes a build that exists nowhere any more:
+#
+#   runtime-manifest.json image_id : sha256:d5dd2c6a...  (on neither node)
+#   build_report.json     image_id : sha256:7dc13b9a...  (head only)
+#   spark-ts3202 (head)   .Id      : sha256:7dc13b9a...
+#   spark-3201   (worker) .Id      : sha256:d36c047d...
+#   both nodes            RootFS   : 50 identical layer diff IDs
+#
+# The two nodes hold byte-identical content under different config IDs, which
+# is why ``rootfs_digest`` - not ``digest`` - is the identity that verifies on
+# both.  Regenerate this entry with ``from_runtime_manifest`` after the next
+# image build, and include ``rootfs_layers`` in the manifest so the content
+# identity is generated rather than transcribed.
 _CERTIFIED_DGX_SPARK_RUNTIME_MANIFEST: dict[str, Any] = {
     "release_tag": "llmport/ray-vllm-gb10:ray2.58-nv26.08",
-    "image_id": "sha256:d5dd2c6ad48e571db57b59f80e8faf62814f6a8db0b8bb86067c8647a95ce7f3",
+    "image_id": "sha256:7dc13b9aff5a00dc447251d550a29bcddf9480cc7efad1509cfbd9a0c661a9d8",
+    "rootfs_digest": "sha256:e5e139aba1deaaccff763993a4f4ca5a477d8d157cef5c72f8081b2b863d58d8",
     "stack_components": {
         "python": "3.12.3",
         "cuda": "13.4",
         "nccl": "2.30.7",
-        "torch": "2.14.0a0+4fdf77b940.nv26.08",
-        "vllm": "0.27.1+93523f72.dev",
+        # As reported by the container, not as written in runtime-manifest.json
+        # (which records the ".dev" local versions of a different build).
+        "torch": "2.14.0a0+4fdf77b940.nv26.8.63802676",
+        "vllm": "0.27.1+93523f72.nv26.8.64249418",
         "triton": "3.6.0+git5d72932fc5.nv26.3",
         "transformers": "5.14.1",
         "ray": "2.58.0",
+        "pyarrow": "25.0.1",
     },
     "certification": {
         "hardware_target": "NVIDIA DGX Spark / GB10",
@@ -324,7 +365,16 @@ _CERTIFIED_DGX_SPARK_RUNTIME_MANIFEST: dict[str, Any] = {
             {"name": "OpenAI Endpoint Response", "status": "PASS"},
             {"name": "OpenAI Streaming Response", "status": "PASS"},
             {"name": "Ray Serve Clean Shutdown", "status": "PASS"},
-            {"name": "Prometheus Metrics Export", "status": "PASS"},
+            {
+                "name": "Prometheus Metrics Export",
+                "status": "PARTIAL",
+                "detail": (
+                    "Head exports metrics, worker nodes do not: the deployed image is "
+                    "missing 'opencensus', so ray.dashboard.modules.reporter.reporter_agent "
+                    "fails to import and never binds the metrics port on a worker. "
+                    "Verified on both nodes 2026-09-20. Fixed by rebuilding the image."
+                ),
+            },
         ],
     },
 }
@@ -545,6 +595,7 @@ class RuntimeBundleRegistry:
             "name": name,
             "image": bundle.container.image,
             "digest": bundle.container.digest,
+            "rootfs_digest": bundle.container.rootfs_digest,
             "repo_digest": bundle.container.repo_digest,
             "runtime_handler": bundle.container.runtime_handler,
             "requirements": req.model_dump(),

@@ -14,6 +14,7 @@ from llm_port_backend.services.inference.bundles import (
     ContainerSpec,
     RuntimeBundleManifest,
     RuntimeBundleRegistry,
+    compute_rootfs_digest,
 )
 
 
@@ -33,31 +34,62 @@ def test_certified_dgx_spark_bundle_valid() -> None:
     assert bundle.platform_tuning.diagnostics["NCCL_DEBUG"] == "INFO"
 
 
-def test_certified_bundle_identity_matches_the_built_artifact() -> None:
-    """The catalog entry must agree with the image that was actually certified.
+def test_certified_bundle_identity_matches_the_deployed_image() -> None:
+    """The catalog entry must agree with the image that is actually deployed.
 
-    These are the values in ``runtime_image/runtime-manifest.json`` (and in
-    ``docker image inspect`` on both DGX nodes).  A digest-pinned deployment is
-    the integrity mechanism the air-gap direction rests on, so a drifted
-    constant here is worse than no constant at all.
+    These values were read off both DGX Spark nodes on 2026-09-20 with
+    ``docker image inspect`` and ``importlib.metadata`` inside the container -
+    deliberately NOT copied from ``runtime_image/runtime-manifest.json``, which
+    records a build (``sha256:d5dd2c6a...``, vLLM ``0.27.1+93523f72.dev``) that
+    is present on neither node.  A digest-pinned deployment is the integrity
+    mechanism the air-gap direction rests on, so a constant that has drifted
+    from the hardware is worse than no constant at all.
     """
     bundle = CERTIFIED_DGX_SPARK_BUNDLE
     assert bundle.container.image == "llmport/ray-vllm-gb10:ray2.58-nv26.08"
+    # spark-ts3202's config id; spark-3201 holds the same content under
+    # sha256:d36c047d..., which is why rootfs_digest is the primary check.
     assert bundle.container.digest == (
-        "sha256:d5dd2c6ad48e571db57b59f80e8faf62814f6a8db0b8bb86067c8647a95ce7f3"
+        "sha256:7dc13b9aff5a00dc447251d550a29bcddf9480cc7efad1509cfbd9a0c661a9d8"
     )
+    assert bundle.container.rootfs_digest == (
+        "sha256:e5e139aba1deaaccff763993a4f4ca5a477d8d157cef5c72f8081b2b863d58d8"
+    )
+
     matrix = bundle.compatibility_matrix
     assert matrix.ray_version == "2.58.0"
-    assert matrix.vllm_version == "0.27.1+93523f72.dev"
+    assert matrix.vllm_version == "0.27.1+93523f72.nv26.8.64249418"
     assert matrix.cuda_version == "13.4"
     assert matrix.python_version == "3.12.3"
-    assert matrix.torch_version == "2.14.0a0+4fdf77b940.nv26.08"
+    assert matrix.torch_version == "2.14.0a0+4fdf77b940.nv26.8.63802676"
     assert matrix.nccl_version == "2.30.7"
     assert matrix.triton_version == "3.6.0+git5d72932fc5.nv26.3"
 
-    assert bundle.certification.status == "passed"
-    assert bundle.certification.checks_passed == bundle.certification.checks_total == 11
-    assert bundle.certification.hardware_target == "NVIDIA DGX Spark / GB10"
+
+def test_certification_status_records_the_worker_metrics_gap() -> None:
+    """The bundle must not claim a clean pass it does not have.
+
+    The deployed image is missing ``opencensus``, so Ray's ``ReporterAgent``
+    cannot load and worker nodes never bind their metrics port - confirmed on
+    both nodes.  ``MetricsDiscovery`` depends on that port, so a catalog entry
+    reading "11/11 passed" would mislead whoever schedules onto it.
+    """
+    cert = CERTIFIED_DGX_SPARK_BUNDLE.certification
+    assert cert.status == "partial"
+    assert cert.checks_total == 11
+    assert cert.checks_passed == 10
+    assert cert.notes and "opencensus" in cert.notes[0]
+
+
+def test_rootfs_digest_is_canonical_and_order_sensitive() -> None:
+    """The agent recomputes this independently; the rule has to be exact."""
+    layers = ["sha256:" + "aa" * 32, "sha256:" + "bb" * 32]
+    digest = compute_rootfs_digest(layers)
+    assert digest.startswith("sha256:")
+    assert compute_rootfs_digest(layers) == digest
+    # Layer order is part of the identity: two images with the same layers in a
+    # different order are not the same image.
+    assert compute_rootfs_digest(list(reversed(layers))) != digest
 
 
 def test_container_requirements_are_semantic_not_cli_flags() -> None:
@@ -202,6 +234,7 @@ def test_container_launch_spec_carries_semantic_requirements() -> None:
     )
     assert spec["image"] == CERTIFIED_DGX_SPARK_BUNDLE.container.image
     assert spec["digest"] == CERTIFIED_DGX_SPARK_BUNDLE.container.digest
+    assert spec["rootfs_digest"] == CERTIFIED_DGX_SPARK_BUNDLE.container.rootfs_digest
     assert spec["requirements"]["network_mode"] == "host"
     assert spec["requirements"]["ipc_mode"] == "host"
     assert spec["env"]["VLLM_HOST_IP"] == "10.100.0.1"
