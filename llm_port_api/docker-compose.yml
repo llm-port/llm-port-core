@@ -26,7 +26,7 @@ services:
       - llm_port_api.tkq:broker
 
   redis:
-    image: bitnami/redis:6.2.5
+    image: soldevelo/redis:6.2.16
     hostname: "llm_port_api-redis"
     restart: always
     environment:
