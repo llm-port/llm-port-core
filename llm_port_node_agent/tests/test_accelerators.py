@@ -90,3 +90,48 @@ class TestCdi:
 
     def test_unmapped_vendor_asks_for_nothing(self) -> None:
         assert accelerator_cdi_flags("apple", "all") == []
+
+
+# ── finding a vendor CLI the service manager's PATH does not have ────────
+
+
+def test_find_tool_searches_beyond_path(tmp_path, monkeypatch) -> None:
+    """WSL2 projects the driver somewhere systemd's PATH does not reach.
+
+    `/usr/lib/wsl/lib` is on an interactive shell's PATH and not on a unit's,
+    so the agent saw the GPU when run by hand and reported `gpu_vendor: none`
+    when run as a service -- and a node with no accelerator resolves to no
+    runtime bundle, so its cluster refused it.
+    """
+    from llm_port_node_agent.gpu import find_tool
+
+    wsl_lib = tmp_path / "wsl" / "lib"
+    wsl_lib.mkdir(parents=True)
+    smi = wsl_lib / "nvidia-smi"
+    smi.write_text("#!/bin/sh\n")
+    smi.chmod(0o755)
+
+    monkeypatch.setattr("shutil.which", lambda _name: None)
+    monkeypatch.setattr(
+        "llm_port_node_agent.gpu._TOOL_SEARCH_PATH", (str(wsl_lib),)
+    )
+    assert find_tool("nvidia-smi") == str(smi)
+
+
+def test_find_tool_prefers_path(monkeypatch) -> None:
+    """A tool on PATH is the answer; the extra locations are a fallback."""
+    from llm_port_node_agent.gpu import find_tool
+
+    monkeypatch.setattr("shutil.which", lambda _name: "/usr/bin/nvidia-smi")
+    assert find_tool("nvidia-smi") == "/usr/bin/nvidia-smi"
+
+
+def test_find_tool_reports_nothing_when_absent(monkeypatch, tmp_path) -> None:
+    """Absent is absent -- never a bare name the caller would shell out to."""
+    from llm_port_node_agent.gpu import find_tool
+
+    monkeypatch.setattr("shutil.which", lambda _name: None)
+    monkeypatch.setattr(
+        "llm_port_node_agent.gpu._TOOL_SEARCH_PATH", (str(tmp_path),)
+    )
+    assert find_tool("nvidia-smi") is None

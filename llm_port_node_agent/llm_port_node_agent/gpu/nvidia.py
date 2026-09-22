@@ -9,6 +9,7 @@ import shutil
 import psutil
 
 from llm_port_node_agent.gpu import GpuDevice, GpuSnapshot
+from llm_port_node_agent.gpu import find_tool
 
 log = logging.getLogger(__name__)
 
@@ -32,11 +33,12 @@ class NvidiaCollector:
     """Collect GPU metrics via ``nvidia-smi``."""
 
     async def snapshot(self) -> GpuSnapshot:
-        if shutil.which("nvidia-smi") is None:
+        if find_tool("nvidia-smi") is None:
             return GpuSnapshot()
 
         query = "--query-gpu=name,memory.total,memory.used,utilization.gpu,temperature.gpu"
-        code, out, _ = await _run("nvidia-smi", query, "--format=csv,noheader,nounits")
+        smi = find_tool("nvidia-smi") or "nvidia-smi"
+        code, out, _ = await _run(smi, query, "--format=csv,noheader,nounits")
         if code != 0:
             return GpuSnapshot()
 
@@ -115,9 +117,9 @@ class NvidiaCollector:
         )
 
     async def device_count(self) -> int:
-        if shutil.which("nvidia-smi") is None:
+        if find_tool("nvidia-smi") is None:
             return 0
-        code, out, _ = await _run("nvidia-smi", "-L")
+        code, out, _ = await _run(find_tool("nvidia-smi") or "nvidia-smi", "-L")
         if code != 0:
             return 0
         return len([line for line in out.splitlines() if line.strip()])

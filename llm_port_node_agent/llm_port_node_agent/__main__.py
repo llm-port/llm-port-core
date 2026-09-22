@@ -1043,6 +1043,13 @@ def cmd_join(backend_url: str | None) -> None:
 
     # Build the config the same way the service will, so a join that works
     # is a guarantee the service will reach the same backend the same way.
+    #
+    # The *whole* configuration, not the three keys this used to promote. A
+    # join reports the machine -- and since that now includes the host paths
+    # the runtime container is mounted through, a join that read only the
+    # backend, the name and the address described a node with default paths
+    # and the cluster mounted the wrong directories.
+    _load_env_into_process()
     os.environ[f"{_ENV_PREFIX}BACKEND_URL"] = backend
     os.environ[f"{_ENV_PREFIX}AGENT_ID"] = agent_id
     os.environ[f"{_ENV_PREFIX}HOST"] = host
@@ -1071,15 +1078,37 @@ def cmd_start() -> None:
         _err("BACKEND_URL is not set. Run 'llmport-agent configure' first.")
         sys.exit(1)
 
-    agent_bin = shutil.which("llmport-agent")
+    agent_bin = _agent_binary()
     if not agent_bin:
-        print("ERROR: llmport-agent not found on PATH.", file=sys.stderr)
+        print(
+            "ERROR: cannot work out where llmport-agent is installed.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     if _IS_WINDOWS:
         _cmd_start_windows(agent_bin, env_lines)
     else:
         _cmd_start_linux(agent_bin, env_lines)
+
+
+def _agent_binary() -> str | None:
+    """Where this agent is installed, for the service unit to point at.
+
+    ``shutil.which`` alone finds it only when its directory is on PATH, which
+    a virtualenv install is not unless the venv is activated -- and a service
+    unit does not activate anything. But the process running this code *is*
+    the agent, so its own path is the answer whenever ``which`` has none.
+    """
+    found = shutil.which("llmport-agent")
+    if found:
+        return found
+    launched = Path(sys.argv[0]).resolve()
+    if launched.is_file() and os.access(launched, os.X_OK):
+        return str(launched)
+    # Installed as a module rather than through its console script.
+    sibling = Path(sys.executable).resolve().parent / "llmport-agent"
+    return str(sibling) if sibling.is_file() else None
 
 
 def _cmd_start_linux(agent_bin: str, env_lines: list[str]) -> None:

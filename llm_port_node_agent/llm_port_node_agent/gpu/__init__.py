@@ -8,9 +8,14 @@ appropriate collector.
 
 from __future__ import annotations
 
+import os
+import shutil
 import sys
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
+
+
 
 
 @dataclass(slots=True, frozen=True)
@@ -123,7 +128,7 @@ def detect_gpu(*, preferred: str | None = None) -> GpuCollector:
             unique.append(c)
 
     for vendor in unique:
-        if vendor == "nvidia" and shutil.which("nvidia-smi") is not None:
+        if vendor == "nvidia" and find_tool("nvidia-smi") is not None:
             from llm_port_node_agent.gpu.nvidia import NvidiaCollector
             return NvidiaCollector()
         if vendor == "apple" and sys.platform == "darwin":
@@ -134,3 +139,28 @@ def detect_gpu(*, preferred: str | None = None) -> GpuCollector:
             return RocmCollector()
 
     return NullCollector()
+
+
+#: Places a vendor CLI lives that a service manager's PATH may not include.
+#:
+#: `/usr/lib/wsl/lib` is where WSL2 projects the Windows driver, and it is the
+#: one that matters in practice: it is on an interactive shell's PATH and not
+#: on systemd's, so the agent saw the GPU when run by hand and not when run as
+#: a service.
+_TOOL_SEARCH_PATH: tuple[str, ...] = (
+    "/usr/lib/wsl/lib",
+    "/usr/local/nvidia/bin",
+    "/opt/rocm/bin",
+)
+
+
+def find_tool(name: str) -> str | None:
+    """Absolute path to *name*, searching PATH and then known locations."""
+    found = shutil.which(name)
+    if found:
+        return found
+    for directory in _TOOL_SEARCH_PATH:
+        candidate = Path(directory) / name
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return None
