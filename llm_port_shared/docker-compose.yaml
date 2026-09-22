@@ -758,7 +758,10 @@ services:
     container_name: llm-port-prometheus
     restart: unless-stopped
     ports:
-      - "${PROM_BIND:-127.0.0.1}:9090:9090"
+      # Host port is configurable because 9090 is contested: MinIO's API is
+      # published there in this stack. Inside the compose network Prometheus
+      # is always :9090, which is what Grafana and the backend use.
+      - "${PROM_BIND:-127.0.0.1}:${PROM_PORT:-9090}:9090"
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus

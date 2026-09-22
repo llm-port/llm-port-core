@@ -29,16 +29,20 @@ from __future__ import annotations
 import inspect
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Callable
 
 log = logging.getLogger(__name__)
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from llm_port_backend.db.models.inference import (
     InferenceControlPlane,
     InferenceEnvironment,
+    InferenceEnvironmentNode,
 )
+from llm_port_backend.db.models.node_control import InfraNode
 from llm_port_backend.services.inference.registry import registry
 
 if TYPE_CHECKING:  # pragma: no cover - import-time only, avoids a runtime cycle
@@ -342,11 +346,162 @@ async def reconcile_environment(
     if _accepts_param(mgr.reconcile_environment, "node_control"):
         mgr_kwargs["node_control"] = _node_control_or_none(context)
     await mgr.reconcile_environment(context.session, environment, **mgr_kwargs)
+
+    # Copy what the cluster says about each machine onto the machine's own
+    # row.  Without this the membership table and the topology picture have
+    # nothing to colour by, and every node reads "not reporting" on a cluster
+    # that is serving.
+    await _sync_member_status(context, environment)
+
+    # Hand this cluster's metrics endpoints to Prometheus.  The reconcile just
+    # refreshed them, and they are per node -- a cluster that gained a machine
+    # gains a scrape target here rather than whenever someone notices.
+    await _sync_prometheus_targets(context, environment)
+
     return {
         "id": str(environment.id),
         "reconciled": True,
         "reason": "dispatched to driver",
     }
+
+
+async def _sync_member_status(
+    context: ReconciliationContext, environment: InferenceEnvironment
+) -> None:
+    """Write each member's liveness from the cluster observation onto its row.
+
+    ``member_status`` had no writer at all.  It was renamed from ``ray_status``
+    when the column was generalised across backends, and the rename moved the
+    column without moving anything into it, so every membership row stayed
+    ``NULL`` however healthy the cluster was.  The visible symptom was the
+    topology diagram: its ring colour is chosen from this field, and a null
+    means "not reporting", so a cluster with two live nodes serving traffic
+    drew two grey circles and dashed edges.
+
+    Matching Ray's nodes to ours is the same problem the scrape targets have.
+    Ray identifies a node by its own 56-hex id and addresses it by whatever
+    address it was started on -- the fabric link here, which is not the
+    address we know the machine by.  The fabric plan is the bridge; the
+    management address is tried too, because which one Ray reports depends on
+    how the cluster was brought up.
+    """
+    try:
+        stored = (environment.observed_status_json or {}).get("cluster") or {}
+        ray_nodes = stored.get("nodes") or []
+        if not ray_nodes:
+            # Nothing observed yet.  Leaving the rows alone is right: a probe
+            # that has not happened is not evidence that a node is down.
+            return
+
+        session = context.session
+        bindings = (
+            ((environment.config_json or {}).get("resolved_fabric") or {}).get(
+                "node_bindings"
+            )
+            or {}
+        )
+
+        # Every address a Ray node might be reported under -> alive?
+        alive_by_address: dict[str, bool] = {}
+        for entry in ray_nodes:
+            if not isinstance(entry, dict):
+                continue
+            alive = bool(entry.get("alive"))
+            for key in ("node_ip", "node_manager_address", "node_name"):
+                value = entry.get(key)
+                if value:
+                    alive_by_address[str(value).strip()] = alive
+
+        members = (
+            await session.execute(
+                select(InferenceEnvironmentNode).where(
+                    InferenceEnvironmentNode.environment_id == environment.id
+                )
+            )
+        ).scalars().all()
+
+        now = datetime.now(timezone.utc)
+        for member in members:
+            addresses: list[str] = []
+            binding = bindings.get(str(member.node_id)) or {}
+            if isinstance(binding, dict) and binding.get("ip"):
+                addresses.append(str(binding["ip"]).strip())
+            node = await session.get(InfraNode, member.node_id)
+            if node is not None and node.host:
+                addresses.append(str(node.host).strip())
+
+            alive = next(
+                (alive_by_address[a] for a in addresses if a in alive_by_address),
+                None,
+            )
+            if alive is None:
+                # The cluster was observed and does not know this machine.
+                # That is a real answer -- it has not joined -- and distinct
+                # from never having looked.
+                member.member_status = "unknown"
+                continue
+
+            member.member_status = "alive" if alive else "dead"
+            if alive and member.joined_at is None:
+                # First time we have seen it in the cluster.  Approximate, but
+                # a date is more use than a blank, and it only ever set once.
+                member.joined_at = now
+    except Exception:  # noqa: BLE001 - a display field never fails a reconcile
+        log.exception(
+            "Could not record member status for environment %s", environment.id
+        )
+
+
+async def _sync_prometheus_targets(
+    context: ReconciliationContext, environment: InferenceEnvironment
+) -> None:
+    """Register the environment's Ray metrics endpoints for file_sd discovery.
+
+    Best-effort: a monitoring problem must never fail a reconcile, because the
+    cluster is fine either way and a failed reconcile would stop real work.
+    """
+    try:
+        from llm_port_backend.services.llm.monitoring import (  # noqa: PLC0415
+            get_monitoring_provisioner,
+        )
+
+        # The shared accessor, not a fresh instance: it returns None when
+        # monitoring is disabled, and it owns the debounced reload state.
+        provisioner = get_monitoring_provisioner()
+        if provisioner is None:
+            return
+
+        stored = (environment.observed_status_json or {}).get("cluster") or {}
+        raw_targets = ((stored.get("metrics") or {}).get("targets")) or []
+        if not raw_targets:
+            return
+
+        driver_cls = registry.get("ray")
+        driver = driver_cls() if driver_cls is not None else None
+        if driver is None or not hasattr(driver, "_scrape_targets"):
+            return
+
+        # Reuse the driver's translation: Ray advertises fabric addresses, and
+        # a scrape target has to be one Prometheus can actually dial.
+        resolved = await driver._scrape_targets(
+            context.session, stored.get("metrics"), environment
+        )
+        await provisioner.sync_ray_targets(
+            environment_id=environment.id,
+            environment_name=environment.name,
+            targets=[{"address": t.address, "port": t.port} for t in resolved],
+        )
+        # A cluster with scrape targets and no dashboard is a cluster whose
+        # metrics exist and cannot be looked at.  Rendered here, from the
+        # same name the targets are labelled with, so the two cannot drift.
+        await provisioner.provision_environment(
+            environment_id=environment.id,
+            environment_name=environment.name,
+        )
+    except Exception:  # noqa: BLE001 - monitoring never fails a reconcile
+        log.exception(
+            "Could not register Prometheus targets for environment %s", environment.id
+        )
 
 
 async def reconcile_deployment(
@@ -403,24 +558,28 @@ async def reconcile_deployment(
         mgr_kwargs["node_control"] = _node_control_or_none(context)
     await mgr.reconcile_deployment(context.session, deployment, **mgr_kwargs)
 
-    # Generic inference publication reconciliation (Phase 5)
-    if getattr(context, "gateway_sync", None) is not None:
-        try:
-            from llm_port_backend.services.inference.publication import (  # noqa: PLC0415
-                InferencePublicationCoordinator,
-            )
+    # Generic inference publication reconciliation (Phase 5).
+    #
+    # Run whether or not a gateway is configured: the coordinator also owns
+    # the provider row on the providers screen, which is the backend's own
+    # record and has to exist either way. It skips the routing half itself
+    # when there is no gateway.
+    try:
+        from llm_port_backend.services.inference.publication import (  # noqa: PLC0415
+            InferencePublicationCoordinator,
+        )
 
-            pub = InferencePublicationCoordinator(
-                context.session,
-                gateway_sync=context.gateway_sync,
-            )
-            await pub.reconcile_deployment_publication(deployment)
-        except Exception:
-            # Publication failure must not fail the deployment reconciliation pass
-            log.exception(
-                "Failed to reconcile gateway publication for deployment %s",
-                deployment.id,
-            )
+        pub = InferencePublicationCoordinator(
+            context.session,
+            gateway_sync=getattr(context, "gateway_sync", None),
+        )
+        await pub.reconcile_deployment_publication(deployment)
+    except Exception:
+        # Publication failure must not fail the deployment reconciliation pass
+        log.exception(
+            "Failed to reconcile publication for deployment %s",
+            deployment.id,
+        )
 
     return {
         "id": str(deployment.id),

@@ -187,12 +187,35 @@ def build_model_sync_payload(
 
     resolved_dir = cache_dir_fn(model.hf_repo_id)
     if resolved_dir is None:
+        # No local copy at all.  The payload is returned rather than None so
+        # callers can still tell "this model has a repo id" from "it does
+        # not", but it carries no files -- see ``model_sync_carries_files``.
         return base
 
     model_dir = Path(resolved_dir)
     manifest = manifest_fn(model_dir)
     if not manifest or not manifest.get("blobs"):
+        # The directory exists but is empty or unreadable.  This is the
+        # hollow-cache case: a previous import created the folder and no
+        # files, which looks present to anything that only checks for a path.
         return base
 
     return base | manifest
+
+
+def model_sync_carries_files(payload: dict[str, Any] | None) -> bool:
+    """Whether a ``sync_from_server`` payload actually has something to send.
+
+    ``build_model_sync_payload`` returns a fileless payload when this server
+    holds no copy of the model, and an agent correctly refuses it with
+    "model_sync payload with files is required".  Dispatching one anyway
+    records a *node* failure for a *server* problem, which sends the operator
+    to inspect two perfectly healthy machines.
+    """
+    if not payload:
+        return False
+    if payload.get("source") == "download_from_hf":
+        # The node fetches it itself; there is nothing for us to carry.
+        return True
+    return bool(payload.get("blobs"))
 

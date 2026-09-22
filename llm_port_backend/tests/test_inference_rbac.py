@@ -6,7 +6,9 @@ exercise the real permission matrix by seeding the built-in roles
 expected roles, then asserting allow/deny per action:
 
 * ``viewer``  -> read only (create/update/delete/operate all 403)
-* ``operator``-> read + operate (create/update/delete 403)
+* ``operator``-> read + operate everywhere, plus create/update on environments
+  and deployments (the lifecycle it already has on ``llm.runtimes``);
+  ``delete`` anywhere and any write to a control plane stay admin-only.
 """
 
 from __future__ import annotations
@@ -146,4 +148,45 @@ async def test_operator_can_operate_but_not_create(
     r = await client.patch(f"{API}/control-planes/{cp.id}", json={"description": "x"})
     assert r.status_code == 403
     r = await client.delete(f"{API}/control-planes/{cp.id}")
+    assert r.status_code == 403
+
+
+async def test_operator_runs_the_environment_lifecycle(
+    client: AsyncClient, fastapi_app: FastAPI, dbsession: AsyncSession
+) -> None:
+    """G-5: the lifecycle verbs an operator needs to run the Phase 6 pass.
+
+    Creating an environment, adding a member and patching it are the operator's
+    equivalent of ``start``/``stop``/``restart`` on ``llm.runtimes``.  Deleting
+    one is not: teardown stays with admin.
+    """
+    _viewer, operator = await _seed_viewer_operator(dbsession)
+    from llm_port_backend.db.dao.inference_dao import ControlPlaneDAO  # noqa: PLC0415
+    from llm_port_backend.db.models.node_control import InfraNode  # noqa: PLC0415
+
+    cp = await ControlPlaneDAO(dbsession).create(name="op-lifecycle-cp", driver="ray")
+    node = InfraNode(agent_id=f"agent-{uuid.uuid4().hex}", host="node-host")
+    dbsession.add(node)
+    await dbsession.flush()
+    _set_user(fastapi_app, operator)
+
+    # create -> allowed
+    r = await client.post(
+        f"{API}/environments",
+        json={"control_plane_id": str(cp.id), "name": "op-lifecycle-env"},
+    )
+    assert r.status_code == 201, r.text
+    env_id = r.json()["id"]
+
+    # update: add a member, then patch the environment -> allowed
+    r = await client.post(
+        f"{API}/environments/{env_id}/nodes",
+        json={"node_id": str(node.id), "role": "worker"},
+    )
+    assert r.status_code == 201, r.text
+    r = await client.patch(f"{API}/environments/{env_id}", json={"description": "scaled"})
+    assert r.status_code == 200, r.text
+
+    # delete -> still admin-only
+    r = await client.delete(f"{API}/environments/{env_id}")
     assert r.status_code == 403

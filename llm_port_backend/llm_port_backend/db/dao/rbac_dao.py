@@ -74,8 +74,12 @@ _DEFAULT_ROLES: dict[str, dict[str, list[str]]] = {
         "llm.settings": ["read"],
         "llm.graph": ["read"],
         "inference.control_planes": ["read", "operate"],
-        "inference.environments": ["read", "operate"],
-        "inference.deployments": ["read", "operate"],
+        # Operators run the inference lifecycle the same way they run
+        # ``llm.runtimes`` (start/stop/restart): they create environments and
+        # deployments, add members, scale and stop them.  ``delete`` stays
+        # admin-only on all three resources, as does creating a control plane.
+        "inference.environments": ["read", "operate", "create", "update"],
+        "inference.deployments": ["read", "operate", "create", "update"],
         "containers": ["read", "start", "stop", "restart", "logs"],
         "images": ["read"],
         "networks": ["read"],

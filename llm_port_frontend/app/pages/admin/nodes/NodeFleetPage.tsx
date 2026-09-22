@@ -326,6 +326,10 @@ export default function NodeFleetPage() {
       <NodeOnboardingDrawer
         open={onboardingOpen}
         onClose={() => setOnboardingOpen(false)}
+        // An approved machine is a new row here, and the operator is watching
+        // for it — they should not have to reload to see the thing they just
+        // let in.
+        onJoined={() => void refresh()}
       />
       <ConfirmDialog
         open={!!deleteTarget}

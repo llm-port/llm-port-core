@@ -5,8 +5,8 @@
  * - Local Docker providers own exactly one runtime → start/stop/restart inline.
  * - Remote Endpoint providers have an external URL and no container to manage.
  */
-import { useState, useMemo } from "react";
-import { Link as RouterLink } from "react-router";
+import { useState, useMemo, useCallback } from "react";
+import { Link as RouterLink, useNavigate } from "react-router";
 import { useTranslation } from "react-i18next";
 import {
   providers,
@@ -19,7 +19,7 @@ import {
 } from "~/api/llm";
 import { DataTable, type ColumnDef } from "~/components/DataTable";
 import { EngineChip, RuntimeStatusChip } from "~/components/Chips";
-import RuntimeMonitoringCardRow from "~/pages/admin/llm/RuntimeMonitoringCardRow";
+import MonitoringCardRow from "~/pages/admin/llm/MonitoringCardRow";
 import { FormDialog } from "~/components/FormDialog";
 import { ProviderWizardDialog } from "~/components/ProviderWizardDialog";
 import { useAsyncData } from "~/lib/useAsyncData";
@@ -50,31 +50,50 @@ interface ProviderRow {
 
 export default function ProvidersPage() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
 
   // ── Data ─────────────────────────────────────────────────────────
+  //
+  // Three independent loads rather than one `Promise.all`.  Gathered
+  // together, the table waited for the slowest of the three and showed
+  // nothing until then -- and the slow one is `runtimes.list()`, which
+  // reconciles every local runtime against Docker one container at a time
+  // before it answers.  A single unresponsive container held up the whole
+  // provider list, which is exactly backwards: that is when the operator
+  // most needs to see it.
+  //
+  // The providers list is the page's spine; runtimes and models only enrich
+  // its columns.  So the table renders as soon as the spine arrives, and the
+  // enrichment fills in beside it.
   const {
-    data: { providersList, runtimesList, modelsList },
+    data: providersList,
     loading,
     error,
-    refresh: load,
-  } = useAsyncData(
-    async () => {
-      const [p, r, m] = await Promise.all([
-        providers.list(),
-        runtimes.list(),
-        modelApi.list(),
-      ]);
-      return { providersList: p, runtimesList: r, modelsList: m };
-    },
-    [],
-    {
-      initialValue: {
-        providersList: [] as Provider[],
-        runtimesList: [] as Runtime[],
-        modelsList: [] as Model[],
-      },
-    },
-  );
+    refresh: reloadProviders,
+  } = useAsyncData(() => providers.list(), [], {
+    initialValue: [] as Provider[],
+  });
+
+  const runtimesState = useAsyncData(() => runtimes.list(), [], {
+    initialValue: [] as Runtime[],
+  });
+  const modelsState = useAsyncData(() => modelApi.list(), [], {
+    initialValue: [] as Model[],
+  });
+  const runtimesList = runtimesState.data;
+  const modelsList = modelsState.data;
+  // True while a column's source is still on its way, so the cell can say
+  // "not yet" instead of rendering an absence as a value.
+  const enrichmentPending = runtimesState.loading || modelsState.loading;
+
+  const load = useCallback(async () => {
+    await Promise.all([
+      reloadProviders(),
+      runtimesState.refresh(),
+      modelsState.refresh(),
+    ]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   // ── Wizard state ─────────────────────────────────────────────────
@@ -195,6 +214,16 @@ export default function ProvidersPage() {
         <Stack direction="row" spacing={1} alignItems="center">
           {r.provider.target === "local_docker" ? (
             <EngineChip value={r.provider.type} />
+          ) : r.provider.target === "inference_cluster" ? (
+            // Ours, on our own hardware — the opposite of a remote endpoint,
+            // which is what it was being labelled.
+            <Chip
+              label="Cluster"
+              size="small"
+              color="secondary"
+              variant="outlined"
+              sx={{ fontSize: "0.75rem" }}
+            />
           ) : (
             <Chip
               label={t("llm_providers.target_remote_endpoint")}
@@ -211,10 +240,18 @@ export default function ProvidersPage() {
       key: "model",
       label: t("llm_common.model"),
       sortable: true,
-      sortValue: (r) => r.model?.display_name ?? "",
-      searchValue: (r) => r.model?.display_name ?? "",
+      sortValue: (r) =>
+        r.model?.display_name ?? r.provider.managed_by?.model_name ?? "",
+      searchValue: (r) =>
+        r.model?.display_name ?? r.provider.managed_by?.model_name ?? "",
       render: (r) =>
-        r.model ? (
+        // A derived provider has no runtime row to join a model through, so
+        // this column read "no runtime" for a deployment serving one.
+        r.provider.managed_by?.model_name ? (
+          <Typography variant="body2" fontSize="0.8rem">
+            {r.provider.managed_by.model_name}
+          </Typography>
+        ) : r.model ? (
           <Typography variant="body2" fontSize="0.8rem">
             {r.model.display_name}
           </Typography>
@@ -240,10 +277,25 @@ export default function ProvidersPage() {
       sortable: true,
       sortValue: (r) =>
         r.runtime?.status ??
+        r.provider.managed_by?.state ??
         (r.provider.target === "remote_endpoint" ? "remote" : ""),
       render: (r) =>
         r.runtime ? (
           <RuntimeStatusChip value={r.runtime.status} />
+        ) : r.provider.managed_by ? (
+          // Served by one of our deployments: it has no container of its own,
+          // so the deployment's state is the only honest thing here. The cell
+          // was blank before, which reads as "unknown" for something that is
+          // running.
+          <Chip
+            label={r.provider.managed_by.state ?? "unknown"}
+            size="small"
+            color={
+              r.provider.managed_by.state === "running" ? "success" : "default"
+            }
+            variant="outlined"
+            sx={{ fontSize: "0.75rem" }}
+          />
         ) : r.provider.target === "remote_endpoint" ? (
           <Chip
             label={t("llm_providers.target_remote_endpoint")}
@@ -255,6 +307,7 @@ export default function ProvidersPage() {
         ) : null,
     },
     {
+      key: "endpoint",
       label: t("llm_runtimes.endpoint"),
       render: (r) => {
         const url = r.runtime?.endpoint_url ?? r.provider.endpoint_url;
@@ -342,6 +395,26 @@ export default function ProvidersPage() {
                 </Tooltip>
               </>
             )}
+            {/* A provider owned by a deployment is managed from the
+                deployment. Editing or deleting it here does not stick — the
+                next reconcile recreates or overwrites it — so the controls
+                are absent rather than present and futile. The backend
+                refuses them too; this is so the operator never reaches for
+                one. */}
+            {r.provider.managed_by ? (
+              <Tooltip title={`Managed by deployment ${r.provider.managed_by.name ?? ""}`}>
+                <IconButton
+                  size="small"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate(`/admin/deployments/${r.provider.managed_by!.id}`);
+                  }}
+                >
+                  <OpenInNewIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            ) : (
+              <>
             <Tooltip title={t("common.edit")}>
               <IconButton
                 size="small"
@@ -375,6 +448,8 @@ export default function ProvidersPage() {
                 <DeleteIcon fontSize="small" />
               </IconButton>
             </Tooltip>
+              </>
+            )}
           </Stack>
         );
       },
@@ -395,8 +470,21 @@ export default function ProvidersPage() {
         onRefresh={load}
         searchPlaceholder={t("llm_providers.search_placeholder")}
         expansion={(r) =>
-          r.runtime?.monitoring ? (
-            <RuntimeMonitoringCardRow runtime={r.runtime} />
+          // The same cards for both kinds of provider. A cluster-backed one
+          // used to get a link to its deployment instead, which is a dead end
+          // for anybody whose role reaches this page and not that one — and
+          // makes "is the hardware working" a two-screen question.
+          r.provider.managed_by || r.runtime?.monitoring ? (
+            <MonitoringCardRow
+              provider={r.provider}
+              known={Boolean(r.provider.managed_by) || Boolean(r.runtime?.monitoring)}
+              onOpenOwner={
+                r.provider.managed_by
+                  ? () =>
+                      navigate(`/admin/deployments/${r.provider.managed_by!.id}`)
+                  : undefined
+              }
+            />
           ) : (
             <Typography variant="caption" color="text.disabled">
               {t(

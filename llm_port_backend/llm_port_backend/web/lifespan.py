@@ -340,7 +340,11 @@ async def _start_notification_runtime(app: FastAPI) -> None:
 
 
 async def _node_command_reaper_loop(app: FastAPI) -> None:
-    """Periodically mark overdue commands on OFFLINE nodes as TIMED_OUT.
+    """Periodically retire work that can no longer finish.
+
+    Two things rot without this: in-flight commands whose agent will never
+    answer, and stream sessions whose agent is gone. Neither reports an error
+    anywhere -- they simply stay, and whatever waits on them waits forever.
 
     A command that is in flight (DISPATCHED/ACKED/RUNNING) with no live node
     connection cannot complete — the result frame is lost forever.  Without a
@@ -375,7 +379,12 @@ async def _node_command_reaper_loop(app: FastAPI) -> None:
                     gateway_sync=gateway_sync,
                 )
                 reaped = await service.reap_stale_commands()
-                if reaped:
+                # Sessions that stopped heartbeating are closed in the same
+                # pass: a row that still says "connected" makes a node look
+                # like it has more agents attached than it does, which is
+                # precisely what hides a duplicate agent.
+                closed = await service.close_stale_sessions()
+                if reaped or closed:
                     await session.commit()
         except asyncio.CancelledError:
             raise
@@ -386,6 +395,24 @@ async def _node_command_reaper_loop(app: FastAPI) -> None:
                 except Exception:
                     pass
             log.exception("Node command reaper pass failed.")
+
+
+def _start_command_notify_listener(app: FastAPI) -> None:
+    """Hold a Postgres LISTEN open so queued commands dispatch immediately."""
+    from llm_port_backend.services.nodes.wakeup import (  # noqa: PLC0415
+        dsn_for_asyncpg,
+        get_command_notifier,
+    )
+
+    if broker.is_worker_process:
+        return
+    notifier = get_command_notifier()
+    try:
+        notifier.start_listener(dsn_for_asyncpg(settings.db_url))
+    except Exception:  # noqa: BLE001 - dispatch still works, just pull-paced
+        log.warning("Could not start the node-command listener", exc_info=True)
+        return
+    app.state.command_notifier = notifier
 
 
 def _start_node_command_reaper(app: FastAPI) -> None:
@@ -707,6 +734,12 @@ async def lifespan_setup(
     # ── Reconcile runtime monitoring (targets + dashboards) ──
     await _reconcile_monitoring_on_startup(app)
 
+    # ── Listen for queued node commands ───────────────────────
+    # Every worker listens: the one holding a node's socket has to hear about
+    # a command issued by any of the others, and which worker that is changes
+    # with every reconnect.
+    _start_command_notify_listener(app)
+
     # ── Start node-command reaper background task ─────────────
     _start_node_command_reaper(app)
 
@@ -756,6 +789,15 @@ async def lifespan_setup(
         except Exception:
             log.exception("Error during Backend Enterprise plugin teardown.")
     # ──────────────────────────────────────────────────────────
+
+    # Stop the command listener before closing the DB engine; it holds a
+    # connection of its own that the engine knows nothing about.
+    notifier = getattr(app.state, "command_notifier", None)
+    if notifier is not None:
+        try:
+            await notifier.stop_listener()
+        except Exception:  # noqa: BLE001 - shutdown is best effort
+            pass
 
     # Stop the node-command reaper before closing the DB engine.
     reaper_task = getattr(app.state, "node_command_reaper", None)

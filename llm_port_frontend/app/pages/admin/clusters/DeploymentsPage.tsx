@@ -1,0 +1,390 @@
+/**
+ * Deployments — every model this installation is serving.
+ *
+ * Same data as the Phase 6 list, said in the operator's words: "Copying the
+ * model" rather than `preparing`, "Copies" rather than `replicas`, and the
+ * cluster named rather than an environment id.
+ */
+import { useCallback, useState } from "react";
+import { useNavigate } from "react-router";
+
+import { inferenceApi } from "~/api/inference";
+import type {
+  InferenceDeployment,
+  InferenceEndpoint,
+  InferenceEnvironment,
+} from "~/api/inference";
+import { models as modelsApi, type Model } from "~/api/llm";
+import { ConfirmDialog } from "~/components/ConfirmDialog";
+import { DataTable, type ColumnDef } from "~/components/DataTable";
+import { useAsyncData } from "~/lib/useAsyncData";
+
+import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Chip from "@mui/material/Chip";
+import Skeleton from "@mui/material/Skeleton";
+import Stack from "@mui/material/Stack";
+import Tooltip from "@mui/material/Tooltip";
+import Typography from "@mui/material/Typography";
+
+import AddIcon from "@mui/icons-material/Add";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import PlayArrowIcon from "@mui/icons-material/PlayArrow";
+import StopIcon from "@mui/icons-material/Stop";
+
+import { deploymentPhaseColor } from "../inference/common";
+import { DeployModelWizard } from "./DeployModelWizard";
+import { phaseLabel, shortId } from "./presentation";
+
+interface DeploymentsData {
+  deployments: InferenceDeployment[];
+  clusters: InferenceEnvironment[];
+  models: Model[];
+  endpoints: Record<string, InferenceEndpoint[]>;
+}
+
+const EMPTY: DeploymentsData = {
+  deployments: [],
+  clusters: [],
+  models: [],
+  endpoints: {},
+};
+
+/**
+ * The addresses, once we know which deployments there are.
+ *
+ * This is a fan-out — one call per deployment — which is why it must not sit
+ * in front of the table. It used to: the page did three calls, then N more,
+ * and showed nothing until all of them had returned. On a cluster where the
+ * endpoints are exactly what is broken, that is the longest possible wait for
+ * the most useful screen.
+ */
+async function loadEndpoints(
+  deployments: InferenceDeployment[],
+): Promise<Record<string, InferenceEndpoint[]>> {
+  const lists = await Promise.all(
+    deployments.map((d) =>
+      inferenceApi.listEndpoints(d.id).catch(() => [] as InferenceEndpoint[]),
+    ),
+  );
+  const endpoints: Record<string, InferenceEndpoint[]> = {};
+  deployments.forEach((d, i) => {
+    endpoints[d.id] = lists[i];
+  });
+  return endpoints;
+}
+
+export default function DeploymentsPage() {
+  const navigate = useNavigate();
+  // The table's own rows. Everything else on this page decorates them.
+  // Phases move on their own -- preparing, applying, running -- so this is
+  // the table most likely to be wrong the moment after it is drawn.
+  const deployments = useAsyncData(() => inferenceApi.listDeployments(), [], {
+    initialValue: [] as InferenceDeployment[],
+    refreshMs: 10_000,
+  });
+  // Names. Their absence degrades to a short id, so they never gate the table.
+  const clusters = useAsyncData(() => inferenceApi.listEnvironments(), [], {
+    initialValue: [] as InferenceEnvironment[],
+  });
+  const models = useAsyncData(() => modelsApi.list(), [], {
+    initialValue: [] as Model[],
+  });
+  // Runs once the rows are known, and fills the Address column in behind them.
+  const endpoints = useAsyncData(
+    () =>
+      deployments.data.length === 0
+        ? Promise.resolve({} as Record<string, InferenceEndpoint[]>)
+        : loadEndpoints(deployments.data),
+    [deployments.data],
+    { initialValue: {} as Record<string, InferenceEndpoint[]> },
+  );
+
+  const data: DeploymentsData = {
+    deployments: deployments.data,
+    clusters: clusters.data,
+    models: models.data,
+    endpoints: endpoints.data,
+  };
+  const loading = deployments.loading;
+  const error = deployments.error;
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const setError = setActionError;
+  const refresh = useCallback(async () => {
+    await Promise.all([deployments.refresh(), clusters.refresh(), models.refresh()]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<InferenceDeployment | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const clusterName = (id: string) =>
+    data.clusters.find((c) => c.id === id)?.name ?? shortId(id);
+  const modelName = (id: string) =>
+    data.models.find((m) => m.id === id)?.display_name ?? shortId(id);
+
+  async function run(key: string, action: () => Promise<unknown>) {
+    setBusyKey(key);
+    try {
+      await action();
+      await refresh();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "That did not work.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  const columns: ColumnDef<InferenceDeployment>[] = [
+    {
+      key: "name",
+      label: "Name",
+      sortable: true,
+      sortValue: (row) => row.name,
+      searchValue: (row) => `${row.name} ${row.description ?? ""}`,
+      render: (row) => (
+        <Typography variant="body2" fontWeight={600}>
+          {row.name}
+        </Typography>
+      ),
+    },
+    {
+      key: "model",
+      label: "Model",
+      sortable: true,
+      sortValue: (row) => modelName(row.model_id),
+      searchValue: (row) => modelName(row.model_id),
+      render: (row) => <Typography variant="body2">{modelName(row.model_id)}</Typography>,
+    },
+    {
+      key: "cluster",
+      label: "Cluster",
+      sortable: true,
+      sortValue: (row) => clusterName(row.environment_id),
+      searchValue: (row) => clusterName(row.environment_id),
+      render: (row) => (
+        <Button
+          size="small"
+          sx={{ textTransform: "none", p: 0, minWidth: 0 }}
+          onClick={(event) => {
+            event.stopPropagation();
+            navigate(`/admin/clusters/${row.environment_id}`);
+          }}
+        >
+          {clusterName(row.environment_id)}
+        </Button>
+      ),
+    },
+    {
+      key: "state",
+      label: "State",
+      sortable: true,
+      sortValue: (row) => row.phase,
+      render: (row) => (
+        <Stack direction="row" spacing={0.5} alignItems="center">
+          <Chip
+            size="small"
+            label={phaseLabel(row.phase)}
+            color={deploymentPhaseColor(row.phase)}
+          />
+          {row.desired_state === "stopped" && (
+            <Chip size="small" variant="outlined" label="stopping" />
+          )}
+        </Stack>
+      ),
+    },
+    {
+      key: "copies",
+      label: "Copies",
+      align: "right",
+      sortable: true,
+      sortValue: (row) => row.ready_replicas,
+      render: (row) => (
+        <Typography
+          variant="body2"
+          color={row.ready_replicas < row.total_replicas ? "warning.main" : "text.primary"}
+        >
+          {row.ready_replicas} / {row.total_replicas}
+        </Typography>
+      ),
+    },
+    {
+      key: "endpoint",
+      label: "Address",
+      render: (row) => {
+        const known = data.endpoints[row.id];
+        if (known === undefined) {
+          // Still fetching. "not published yet" here would be a gap reported
+          // as a fact, which is the one thing this product does not do.
+          return <Skeleton variant="text" width={140} animation="wave" />;
+        }
+        if (known.length === 0) {
+          return (
+            <Typography variant="body2" color="text.secondary">
+              not published yet
+            </Typography>
+          );
+        }
+        const primary = known[0];
+        return (
+          <Tooltip title={primary.status}>
+            <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
+              {primary.address}
+              {primary.path}
+            </Typography>
+          </Tooltip>
+        );
+      },
+    },
+    {
+      key: "actions",
+      label: "Actions",
+      align: "right",
+      hideable: false,
+      render: (row) => (
+        <Stack
+          direction="row"
+          spacing={0.5}
+          justifyContent="flex-end"
+          onClick={(event) => event.stopPropagation()}
+        >
+          {row.desired_state === "active" ? (
+            <Tooltip title="Stop">
+              <span>
+                <Button
+                  size="small"
+                  color="warning"
+                  aria-label="Stop"
+                  disabled={busyKey === `stop:${row.id}`}
+                  onClick={() =>
+                    run(`stop:${row.id}`, () =>
+                      inferenceApi.updateDeployment(row.id, { desired_state: "stopped" }),
+                    )
+                  }
+                >
+                  <StopIcon fontSize="small" />
+                </Button>
+              </span>
+            </Tooltip>
+          ) : (
+            <Tooltip title="Start">
+              <span>
+                <Button
+                  size="small"
+                  color="success"
+                  aria-label="Start"
+                  disabled={busyKey === `start:${row.id}`}
+                  onClick={() =>
+                    run(`start:${row.id}`, () =>
+                      inferenceApi.updateDeployment(row.id, { desired_state: "active" }),
+                    )
+                  }
+                >
+                  <PlayArrowIcon fontSize="small" />
+                </Button>
+              </span>
+            </Tooltip>
+          )}
+          <Tooltip title="Delete">
+            <span>
+              <Button
+                size="small"
+                color="error"
+                aria-label="Delete"
+                onClick={() => setDeleteTarget(row)}
+              >
+                <DeleteOutlineIcon fontSize="small" />
+              </Button>
+            </span>
+          </Tooltip>
+        </Stack>
+      ),
+    },
+  ];
+
+  // Only assert this once the cluster list has actually come back;
+  // otherwise the page tells a new operator to go and create the cluster
+  // they are already looking at.
+  const noCluster = !clusters.loading && !clusters.error && data.clusters.length === 0;
+
+  return (
+    <Box sx={{ display: "flex", flexDirection: "column", gap: 2, height: "100%" }}>
+      {noCluster && (
+        <Alert
+          severity="info"
+          action={
+            <Button size="small" color="inherit" onClick={() => navigate("/admin/clusters")}>
+              Go to Clusters
+            </Button>
+          }
+        >
+          There is no cluster to deploy onto yet. Create one first.
+        </Alert>
+      )}
+      <DataTable
+        columns={columns}
+        rows={data.deployments}
+        rowKey={(row) => row.id}
+        loading={loading}
+        error={error ?? actionError}
+        title="Deployments"
+        emptyMessage="Nothing deployed yet."
+        searchPlaceholder="Search deployments..."
+        onRefresh={() => void refresh()}
+        onRowClick={(row) => navigate(`/admin/deployments/${row.id}`)}
+        columnVisibilityKey="dt-deployments"
+        toolbarActions={
+          <Button
+            variant="contained"
+            size="small"
+            startIcon={<AddIcon />}
+            disabled={noCluster}
+            onClick={() => setWizardOpen(true)}
+          >
+            Deploy a model
+          </Button>
+        }
+      />
+
+      <DeployModelWizard
+        open={wizardOpen}
+        models={data.models}
+        clusters={data.clusters}
+        onClose={() => setWizardOpen(false)}
+        onDeployed={(deploymentId) => {
+          setWizardOpen(false);
+          navigate(`/admin/deployments/${deploymentId}`);
+        }}
+      />
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="Delete this deployment?"
+        message={
+          deleteTarget
+            ? `"${deleteTarget.name}" stops serving and is removed from its cluster.`
+            : ""
+        }
+        confirmLabel="Delete"
+        loading={deleting}
+        onConfirm={() => {
+          const target = deleteTarget;
+          setDeleteTarget(null);
+          if (!target) return;
+          setDeleting(true);
+          void inferenceApi
+            .deleteDeployment(target.id)
+            .then(() => refresh())
+            .catch((err: unknown) =>
+              setError(err instanceof Error ? err.message : "Delete failed."),
+            )
+            .finally(() => setDeleting(false));
+        }}
+        onClose={() => setDeleteTarget(null)}
+      />
+    </Box>
+  );
+}

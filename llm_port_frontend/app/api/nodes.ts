@@ -9,6 +9,26 @@ export interface NodeEnrollmentToken {
   note?: string | null;
 }
 
+/**
+ * A machine waiting to be let in.
+ *
+ * Everything here is what the machine *claims* except `source_ip`, which is
+ * where the request actually came from. Both are shown, because approving is
+ * only meaningful if you can see what you are approving.
+ */
+export interface NodeJoinRequest {
+  id: string;
+  /** Short and human-comparable. Not a secret. */
+  code: string;
+  agent_id: string;
+  host: string;
+  source_ip?: string | null;
+  version?: string | null;
+  capabilities: Record<string, unknown>;
+  created_at: string;
+  expires_at: string;
+}
+
 export interface ManagedNode {
   id: string;
   agent_id: string;
@@ -135,6 +155,25 @@ export const nodesApi = {
 
   list() {
     return request<ManagedNode[]>("/nodes");
+  },
+
+  /** Machines that have asked to join and are waiting for a decision. */
+  listJoinRequests() {
+    return request<NodeJoinRequest[]>("/nodes/join-requests");
+  },
+
+  approveJoinRequest(requestId: string) {
+    return request<NodeJoinRequest>(
+      `/nodes/join-requests/${encodeURIComponent(requestId)}/approve`,
+      { method: "POST", body: JSON.stringify({ message: null }) },
+    );
+  },
+
+  rejectJoinRequest(requestId: string, message?: string) {
+    return request<NodeJoinRequest>(
+      `/nodes/join-requests/${encodeURIComponent(requestId)}/reject`,
+      { method: "POST", body: JSON.stringify({ message: message ?? null }) },
+    );
   },
 
   get(nodeId: string) {

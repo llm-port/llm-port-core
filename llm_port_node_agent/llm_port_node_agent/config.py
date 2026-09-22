@@ -87,6 +87,13 @@ class AgentConfig:
     loki_url: str | None
     log_batch_size: int
     log_flush_interval_sec: int
+    #: Host path Ray's session directory is bind-mounted to.
+    #:
+    #: The certified bundle mounts ``/tmp/ray`` here so the agent can read
+    #: replica log files directly instead of shelling into the container. A
+    #: node whose bundle predates the mount simply has no directory, and the
+    #: forwarder finds nothing rather than failing.
+    ray_session_dir: str
     container_runtime: str
 
     @classmethod
@@ -141,6 +148,9 @@ class AgentConfig:
             loki_url=os.getenv("LLM_PORT_NODE_AGENT_LOKI_URL") or None,
             log_batch_size=int(os.getenv("LLM_PORT_NODE_AGENT_LOG_BATCH_SIZE", "100")),
             log_flush_interval_sec=int(os.getenv("LLM_PORT_NODE_AGENT_LOG_FLUSH_INTERVAL_SEC", "5")),
+            ray_session_dir=os.getenv(
+                "LLM_PORT_NODE_AGENT_RAY_SESSION_DIR", "/var/lib/llm-port/ray"
+            ),
             container_runtime=os.getenv("LLM_PORT_NODE_AGENT_CONTAINER_RUNTIME", "auto").strip().lower() or "auto",
         )
         if not instance.verify_tls:

@@ -59,7 +59,10 @@
     "chat_group": "聊天",
     "chat_projects": "项目",
     "chat_sessions": "会话",
-    "chat_attachments": "附件"
+    "chat_attachments": "附件",
+    "inference_group": "AI 基础设施",
+    "clusters": "集群",
+    "deployments": "部署"
   },
   "auth": {
     "logout": "退出登录",

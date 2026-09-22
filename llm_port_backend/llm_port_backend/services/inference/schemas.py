@@ -146,6 +146,18 @@ class ServiceSpec(BaseModel):
     port: int | None = Field(None, ge=1, le=65535)
     path: str = Field(default="/v1", description="OpenAI-compatible path prefix.")
     openai: bool = Field(default=True, description="Expose an OpenAI-compatible API.")
+    #: The name this model is offered under in chat and at the gateway.
+    #:
+    #: Publication reads ``service.alias`` to decide what to register, and
+    #: deliberately does not invent one from the deployment name.  The field
+    #: was missing here while the schema forbids extras, so it could never be
+    #: set: every deployment published a provider instance with no alias, and
+    #: a successfully served model never appeared in the chat model list.
+    alias: str | None = Field(
+        default=None,
+        max_length=128,
+        description="Name to offer this model under in chat; omit to publish no alias.",
+    )
 
 
 class InferenceDeploymentSpecV1Alpha1(BaseModel):

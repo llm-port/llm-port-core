@@ -39,7 +39,7 @@
           "showLineNumbers": false,
           "showMiniMap": false
         },
-        "content": "Auto-provisioned by llm-port for a single runtime. Do not delete this dashboard while the runtime exists — removing the runtime removes it.",
+        "content": "Auto-provisioned by llm-port for **__RUNTIME_NAME__**. This is generated from a template, so edits made here are lost the next time it is provisioned — change `llm_port_shared/grafana/dashboards/templates/vllm-runtime.json` instead. It is removed when its runtime or cluster is.",
         "mode": "markdown"
       }
     },
@@ -62,7 +62,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(vllm:num_requests_running{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"})",
+          "expr": "(sum(last_over_time({__name__=~\"vllm:num_requests_running|ray_vllm_num_requests_running\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])) or (0 * sum(rate({__name__=~\"vllm:generation_tokens_total|ray_vllm_generation_tokens_total\",runtime_name=\"__RUNTIME_NAME__\"}[5m]))))",
           "refId": "A",
           "legendFormat": "",
           "instant": false,
@@ -124,7 +124,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(vllm:num_requests_waiting{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"})",
+          "expr": "(sum(last_over_time({__name__=~\"vllm:num_requests_waiting|ray_vllm_num_requests_waiting\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])) or (0 * sum(rate({__name__=~\"vllm:generation_tokens_total|ray_vllm_generation_tokens_total\",runtime_name=\"__RUNTIME_NAME__\"}[5m]))))",
           "refId": "A",
           "legendFormat": "",
           "instant": false,
@@ -186,7 +186,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "100 * avg(vllm:kv_cache_usage_perc{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"})",
+          "expr": "(100 * avg(last_over_time({__name__=~\"vllm:kv_cache_usage_perc|ray_vllm_kv_cache_usage_perc\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])) or (0 * sum(rate({__name__=~\"vllm:generation_tokens_total|ray_vllm_generation_tokens_total\",runtime_name=\"__RUNTIME_NAME__\"}[5m]))))",
           "refId": "A",
           "legendFormat": "",
           "instant": false,
@@ -256,7 +256,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "100 * sum(rate(vllm:prefix_cache_hits_total{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])) / clamp_min(sum(rate(vllm:prefix_cache_queries_total{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])), 0.000001)",
+          "expr": "100 * sum(rate({__name__=~\"vllm:prefix_cache_hits_total|ray_vllm_prefix_cache_hits_total\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])) / clamp_min(sum(rate({__name__=~\"vllm:prefix_cache_queries_total|ray_vllm_prefix_cache_queries_total\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])), 0.000001)",
           "refId": "A",
           "legendFormat": "",
           "instant": false,
@@ -318,7 +318,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "100 * sum(rate(vllm:spec_decode_num_accepted_tokens_total{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])) / clamp_min(sum(rate(vllm:spec_decode_num_draft_tokens_total{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])), 0.000001)",
+          "expr": "100 * sum(rate({__name__=~\"vllm:spec_decode_num_accepted_tokens_total|ray_vllm_spec_decode_num_accepted_tokens_total\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])) / clamp_min(sum(rate({__name__=~\"vllm:spec_decode_num_draft_tokens_total|ray_vllm_spec_decode_num_draft_tokens_total\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])), 0.000001)",
           "refId": "A",
           "legendFormat": "",
           "instant": false,
@@ -381,7 +381,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(vllm:generation_tokens_total{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[1m]))",
+          "expr": "sum(rate({__name__=~\"vllm:generation_tokens_total|ray_vllm_generation_tokens_total\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[1m]))",
           "refId": "A",
           "legendFormat": "",
           "instant": false,
@@ -444,7 +444,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(vllm:generation_tokens_total{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[1m]))",
+          "expr": "sum(rate({__name__=~\"vllm:generation_tokens_total|ray_vllm_generation_tokens_total\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[1m]))",
           "refId": "A",
           "legendFormat": "generation tok/s"
         },
@@ -453,7 +453,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(vllm:prompt_tokens_by_source_total{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\",source=\"local_compute\"}[1m]))",
+          "expr": "(sum(rate({__name__=~\"vllm:prompt_tokens_by_source_total|ray_vllm_prompt_tokens_by_source_total\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\",source=\"local_compute\"}[1m])) or (0 * sum(rate({__name__=~\"vllm:generation_tokens_total|ray_vllm_generation_tokens_total\",runtime_name=\"__RUNTIME_NAME__\"}[5m]))))",
           "refId": "B",
           "legendFormat": "prefill compute tok/s"
         },
@@ -462,7 +462,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(vllm:prompt_tokens_by_source_total{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\",source=\"local_cache_hit\"}[1m]))",
+          "expr": "(sum(rate({__name__=~\"vllm:prompt_tokens_by_source_total|ray_vllm_prompt_tokens_by_source_total\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\",source=\"local_cache_hit\"}[1m])) or (0 * sum(rate({__name__=~\"vllm:generation_tokens_total|ray_vllm_generation_tokens_total\",runtime_name=\"__RUNTIME_NAME__\"}[5m]))))",
           "refId": "C",
           "legendFormat": "cached prompt tok/s"
         }
@@ -552,7 +552,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(http_requests_total{handler=\"/v1/chat/completions\",status=\"2xx\",instance=\"__INSTANCE__\"}[1m]))",
+          "expr": "(sum(rate(ray_serve_num_http_requests_total{route=~\".*/v1/chat/completions\",status_code=~\"2..\",runtime_name=\"__RUNTIME_NAME__\"}[1m])) or (0 * sum(rate({__name__=~\"vllm:generation_tokens_total|ray_vllm_generation_tokens_total\",runtime_name=\"__RUNTIME_NAME__\"}[5m]))))",
           "refId": "A",
           "legendFormat": "2xx req/s"
         },
@@ -561,7 +561,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(http_requests_total{handler=\"/v1/chat/completions\",status=\"4xx\",instance=\"__INSTANCE__\"}[1m]))",
+          "expr": "(sum(rate(ray_serve_num_http_requests_total{route=~\".*/v1/chat/completions\",status_code=~\"4..\",runtime_name=\"__RUNTIME_NAME__\"}[1m])) or (0 * sum(rate({__name__=~\"vllm:generation_tokens_total|ray_vllm_generation_tokens_total\",runtime_name=\"__RUNTIME_NAME__\"}[5m]))))",
           "refId": "B",
           "legendFormat": "4xx req/s"
         },
@@ -570,7 +570,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(http_requests_total{handler=\"/v1/chat/completions\",status=\"5xx\",instance=\"__INSTANCE__\"}[1m]))",
+          "expr": "(sum(rate(ray_serve_num_http_requests_total{route=~\".*/v1/chat/completions\",status_code=~\"5..\",runtime_name=\"__RUNTIME_NAME__\"}[1m])) or (0 * sum(rate({__name__=~\"vllm:generation_tokens_total|ray_vllm_generation_tokens_total\",runtime_name=\"__RUNTIME_NAME__\"}[5m]))))",
           "refId": "C",
           "legendFormat": "5xx req/s"
         }
@@ -660,7 +660,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.5, sum by (le) (rate(vllm:time_to_first_token_seconds_bucket{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])))",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate({__name__=~\"vllm:time_to_first_token_seconds_bucket|ray_vllm_time_to_first_token_seconds_bucket\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])))",
           "refId": "A",
           "legendFormat": "p50"
         },
@@ -669,7 +669,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(vllm:time_to_first_token_seconds_bucket{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate({__name__=~\"vllm:time_to_first_token_seconds_bucket|ray_vllm_time_to_first_token_seconds_bucket\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])))",
           "refId": "B",
           "legendFormat": "p95"
         },
@@ -678,7 +678,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(vllm:time_to_first_token_seconds_bucket{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate({__name__=~\"vllm:time_to_first_token_seconds_bucket|ray_vllm_time_to_first_token_seconds_bucket\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])))",
           "refId": "C",
           "legendFormat": "p99"
         }
@@ -768,7 +768,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.5, sum by (le) (rate(vllm:e2e_request_latency_seconds_bucket{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])))",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate({__name__=~\"vllm:e2e_request_latency_seconds_bucket|ray_vllm_e2e_request_latency_seconds_bucket\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])))",
           "refId": "A",
           "legendFormat": "p50"
         },
@@ -777,7 +777,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(vllm:e2e_request_latency_seconds_bucket{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate({__name__=~\"vllm:e2e_request_latency_seconds_bucket|ray_vllm_e2e_request_latency_seconds_bucket\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])))",
           "refId": "B",
           "legendFormat": "p95"
         },
@@ -786,7 +786,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(vllm:e2e_request_latency_seconds_bucket{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate({__name__=~\"vllm:e2e_request_latency_seconds_bucket|ray_vllm_e2e_request_latency_seconds_bucket\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])))",
           "refId": "C",
           "legendFormat": "p99"
         }
@@ -875,7 +875,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.5, sum by (le) (rate(vllm:inter_token_latency_seconds_bucket{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])))",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate({__name__=~\"vllm:inter_token_latency_seconds_bucket|ray_vllm_inter_token_latency_seconds_bucket\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])))",
           "refId": "A",
           "legendFormat": "p50"
         },
@@ -884,7 +884,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(vllm:inter_token_latency_seconds_bucket{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate({__name__=~\"vllm:inter_token_latency_seconds_bucket|ray_vllm_inter_token_latency_seconds_bucket\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])))",
           "refId": "B",
           "legendFormat": "p95"
         },
@@ -893,7 +893,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(vllm:inter_token_latency_seconds_bucket{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate({__name__=~\"vllm:inter_token_latency_seconds_bucket|ray_vllm_inter_token_latency_seconds_bucket\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])))",
           "refId": "C",
           "legendFormat": "p99"
         }
@@ -983,7 +983,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(vllm:request_queue_time_seconds_bucket{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate({__name__=~\"vllm:request_queue_time_seconds_bucket|ray_vllm_request_queue_time_seconds_bucket\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])))",
           "refId": "A",
           "legendFormat": "queue p95"
         },
@@ -992,7 +992,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(vllm:request_prefill_time_seconds_bucket{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate({__name__=~\"vllm:request_prefill_time_seconds_bucket|ray_vllm_request_prefill_time_seconds_bucket\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])))",
           "refId": "B",
           "legendFormat": "prefill p95"
         }
@@ -1081,7 +1081,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "100 * sum(rate(vllm:spec_decode_num_accepted_tokens_total{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])) / clamp_min(sum(rate(vllm:spec_decode_num_draft_tokens_total{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])), 0.000001)",
+          "expr": "100 * sum(rate({__name__=~\"vllm:spec_decode_num_accepted_tokens_total|ray_vllm_spec_decode_num_accepted_tokens_total\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])) / clamp_min(sum(rate({__name__=~\"vllm:spec_decode_num_draft_tokens_total|ray_vllm_spec_decode_num_draft_tokens_total\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])), 0.000001)",
           "refId": "A",
           "legendFormat": "acceptance %"
         },
@@ -1090,7 +1090,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(vllm:spec_decode_num_accepted_tokens_total{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])) / clamp_min(sum(rate(vllm:spec_decode_num_drafts_total{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])), 0.000001)",
+          "expr": "sum(rate({__name__=~\"vllm:spec_decode_num_accepted_tokens_total|ray_vllm_spec_decode_num_accepted_tokens_total\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])) / clamp_min(sum(rate({__name__=~\"vllm:spec_decode_num_drafts_total|ray_vllm_spec_decode_num_drafts_total\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])), 0.000001)",
           "refId": "B",
           "legendFormat": "accepted tokens / draft"
         }
@@ -1180,7 +1180,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "100 * sum(rate(vllm:spec_decode_num_accepted_tokens_per_pos_total{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\",position=\"0\"}[5m])) / clamp_min(sum(rate(vllm:spec_decode_num_drafts_total{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])), 0.000001)",
+          "expr": "100 * sum(rate({__name__=~\"vllm:spec_decode_num_accepted_tokens_per_pos_total|ray_vllm_spec_decode_num_accepted_tokens_per_pos_total\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\",position=\"0\"}[5m])) / clamp_min(sum(rate({__name__=~\"vllm:spec_decode_num_drafts_total|ray_vllm_spec_decode_num_drafts_total\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])), 0.000001)",
           "refId": "A",
           "legendFormat": "position 0"
         },
@@ -1189,7 +1189,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "100 * sum(rate(vllm:spec_decode_num_accepted_tokens_per_pos_total{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\",position=\"1\"}[5m])) / clamp_min(sum(rate(vllm:spec_decode_num_drafts_total{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])), 0.000001)",
+          "expr": "100 * sum(rate({__name__=~\"vllm:spec_decode_num_accepted_tokens_per_pos_total|ray_vllm_spec_decode_num_accepted_tokens_per_pos_total\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\",position=\"1\"}[5m])) / clamp_min(sum(rate({__name__=~\"vllm:spec_decode_num_drafts_total|ray_vllm_spec_decode_num_drafts_total\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])), 0.000001)",
           "refId": "B",
           "legendFormat": "position 1"
         },
@@ -1198,7 +1198,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "100 * sum(rate(vllm:spec_decode_num_accepted_tokens_per_pos_total{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\",position=\"2\"}[5m])) / clamp_min(sum(rate(vllm:spec_decode_num_drafts_total{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])), 0.000001)",
+          "expr": "100 * sum(rate({__name__=~\"vllm:spec_decode_num_accepted_tokens_per_pos_total|ray_vllm_spec_decode_num_accepted_tokens_per_pos_total\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\",position=\"2\"}[5m])) / clamp_min(sum(rate({__name__=~\"vllm:spec_decode_num_drafts_total|ray_vllm_spec_decode_num_drafts_total\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])), 0.000001)",
           "refId": "C",
           "legendFormat": "position 2"
         }
@@ -1290,7 +1290,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "100 * sum(rate(vllm:prefix_cache_hits_total{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])) / clamp_min(sum(rate(vllm:prefix_cache_queries_total{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])), 0.000001)",
+          "expr": "100 * sum(rate({__name__=~\"vllm:prefix_cache_hits_total|ray_vllm_prefix_cache_hits_total\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])) / clamp_min(sum(rate({__name__=~\"vllm:prefix_cache_queries_total|ray_vllm_prefix_cache_queries_total\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])), 0.000001)",
           "refId": "A",
           "legendFormat": "prefix hit %"
         },
@@ -1299,7 +1299,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "100 * avg(vllm:kv_cache_usage_perc{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"})",
+          "expr": "(100 * avg(last_over_time({__name__=~\"vllm:kv_cache_usage_perc|ray_vllm_kv_cache_usage_perc\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])) or (0 * sum(rate({__name__=~\"vllm:generation_tokens_total|ray_vllm_generation_tokens_total\",runtime_name=\"__RUNTIME_NAME__\"}[5m]))))",
           "refId": "B",
           "legendFormat": "KV usage %"
         }
@@ -1390,7 +1390,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(vllm:request_success_total{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\",finished_reason=\"stop\"}[5m]))",
+          "expr": "(sum(rate({__name__=~\"vllm:request_success_total|ray_vllm_request_success_total\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\",finished_reason=\"stop\"}[5m])) or (0 * sum(rate({__name__=~\"vllm:generation_tokens_total|ray_vllm_generation_tokens_total\",runtime_name=\"__RUNTIME_NAME__\"}[5m]))))",
           "refId": "A",
           "legendFormat": "stop"
         },
@@ -1399,7 +1399,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(vllm:request_success_total{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\",finished_reason=\"length\"}[5m]))",
+          "expr": "(sum(rate({__name__=~\"vllm:request_success_total|ray_vllm_request_success_total\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\",finished_reason=\"length\"}[5m])) or (0 * sum(rate({__name__=~\"vllm:generation_tokens_total|ray_vllm_generation_tokens_total\",runtime_name=\"__RUNTIME_NAME__\"}[5m]))))",
           "refId": "B",
           "legendFormat": "length"
         },
@@ -1408,7 +1408,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(vllm:request_success_total{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\",finished_reason=\"abort\"}[5m]))",
+          "expr": "(sum(rate({__name__=~\"vllm:request_success_total|ray_vllm_request_success_total\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\",finished_reason=\"abort\"}[5m])) or (0 * sum(rate({__name__=~\"vllm:generation_tokens_total|ray_vllm_generation_tokens_total\",runtime_name=\"__RUNTIME_NAME__\"}[5m]))))",
           "refId": "C",
           "legendFormat": "abort"
         },
@@ -1417,7 +1417,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(vllm:request_success_total{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\",finished_reason=\"error\"}[5m]))",
+          "expr": "(sum(rate({__name__=~\"vllm:request_success_total|ray_vllm_request_success_total\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\",finished_reason=\"error\"}[5m])) or (0 * sum(rate({__name__=~\"vllm:generation_tokens_total|ray_vllm_generation_tokens_total\",runtime_name=\"__RUNTIME_NAME__\"}[5m]))))",
           "refId": "D",
           "legendFormat": "error"
         },
@@ -1426,7 +1426,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(vllm:request_success_total{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\",finished_reason=\"repetition\"}[5m]))",
+          "expr": "(sum(rate({__name__=~\"vllm:request_success_total|ray_vllm_request_success_total\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\",finished_reason=\"repetition\"}[5m])) or (0 * sum(rate({__name__=~\"vllm:generation_tokens_total|ray_vllm_generation_tokens_total\",runtime_name=\"__RUNTIME_NAME__\"}[5m]))))",
           "refId": "E",
           "legendFormat": "repetition"
         }
@@ -1516,7 +1516,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(vllm:num_requests_running{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"})",
+          "expr": "(sum(last_over_time({__name__=~\"vllm:num_requests_running|ray_vllm_num_requests_running\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])) or (0 * sum(rate({__name__=~\"vllm:generation_tokens_total|ray_vllm_generation_tokens_total\",runtime_name=\"__RUNTIME_NAME__\"}[5m]))))",
           "refId": "A",
           "legendFormat": "running"
         },
@@ -1525,7 +1525,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(vllm:num_requests_waiting{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"})",
+          "expr": "(sum(last_over_time({__name__=~\"vllm:num_requests_waiting|ray_vllm_num_requests_waiting\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])) or (0 * sum(rate({__name__=~\"vllm:generation_tokens_total|ray_vllm_generation_tokens_total\",runtime_name=\"__RUNTIME_NAME__\"}[5m]))))",
           "refId": "B",
           "legendFormat": "waiting"
         },
@@ -1534,7 +1534,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(vllm:num_preemptions_total{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m]))",
+          "expr": "(sum(rate({__name__=~\"vllm:num_preemptions_total|ray_vllm_num_preemptions_total\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[5m])) or (0 * sum(rate({__name__=~\"vllm:generation_tokens_total|ray_vllm_generation_tokens_total\",runtime_name=\"__RUNTIME_NAME__\"}[5m]))))",
           "refId": "C",
           "legendFormat": "preemptions/s"
         }
@@ -1624,7 +1624,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(vllm:prompt_tokens_by_source_total{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\",source=\"local_compute\"}[1m]))",
+          "expr": "(sum(rate({__name__=~\"vllm:prompt_tokens_by_source_total|ray_vllm_prompt_tokens_by_source_total\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\",source=\"local_compute\"}[1m])) or (0 * sum(rate({__name__=~\"vllm:generation_tokens_total|ray_vllm_generation_tokens_total\",runtime_name=\"__RUNTIME_NAME__\"}[5m]))))",
           "refId": "A",
           "legendFormat": "local compute"
         },
@@ -1633,7 +1633,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(vllm:prompt_tokens_by_source_total{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\",source=\"local_cache_hit\"}[1m]))",
+          "expr": "(sum(rate({__name__=~\"vllm:prompt_tokens_by_source_total|ray_vllm_prompt_tokens_by_source_total\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\",source=\"local_cache_hit\"}[1m])) or (0 * sum(rate({__name__=~\"vllm:generation_tokens_total|ray_vllm_generation_tokens_total\",runtime_name=\"__RUNTIME_NAME__\"}[5m]))))",
           "refId": "B",
           "legendFormat": "local cache hit"
         },
@@ -1642,7 +1642,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(vllm:prompt_tokens_by_source_total{model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\",source=\"external_kv_transfer\"}[1m]))",
+          "expr": "(sum(rate({__name__=~\"vllm:prompt_tokens_by_source_total|ray_vllm_prompt_tokens_by_source_total\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\",source=\"external_kv_transfer\"}[1m])) or (0 * sum(rate({__name__=~\"vllm:generation_tokens_total|ray_vllm_generation_tokens_total\",runtime_name=\"__RUNTIME_NAME__\"}[5m]))))",
           "refId": "C",
           "legendFormat": "external KV"
         }
@@ -1712,6 +1712,315 @@
       },
       "description": "Prompt tokens by source. Your current endpoint exposes local compute, local cache hit, and external KV transfer.",
       "id": 18
+    },
+    {
+      "type": "timeseries",
+      "title": "KV block lifetime",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 54
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate({__name__=~\"vllm:kv_block_lifetime_seconds_bucket|ray_vllm_kv_block_lifetime_seconds_bucket\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[$__rate_interval])))",
+          "legendFormat": "p50",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate({__name__=~\"vllm:kv_block_lifetime_seconds_bucket|ray_vllm_kv_block_lifetime_seconds_bucket\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[$__rate_interval])))",
+          "legendFormat": "p95",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "showPoints": "auto",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        }
+      },
+      "description": "How long a cache block survives from allocation to eviction. Short lifetimes next to a low prefix-cache hit rate mean the cache is being churned faster than it can be reused.",
+      "id": 19
+    },
+    {
+      "type": "timeseries",
+      "title": "KV block reuse gap",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 54
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate({__name__=~\"vllm:kv_block_reuse_gap_seconds_bucket|ray_vllm_kv_block_reuse_gap_seconds_bucket\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[$__rate_interval])))",
+          "legendFormat": "p50",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate({__name__=~\"vllm:kv_block_reuse_gap_seconds_bucket|ray_vllm_kv_block_reuse_gap_seconds_bucket\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[$__rate_interval])))",
+          "legendFormat": "p95",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "showPoints": "auto",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        }
+      },
+      "description": "The gap between a block being written and read again. Long gaps with frequent eviction are the signature of a cache that is one size too small for the traffic.",
+      "id": 20
+    },
+    {
+      "type": "timeseries",
+      "title": "KV block idle before evict",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 54
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate({__name__=~\"vllm:kv_block_idle_before_evict_seconds_bucket|ray_vllm_kv_block_idle_before_evict_seconds_bucket\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[$__rate_interval])))",
+          "legendFormat": "p50",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate({__name__=~\"vllm:kv_block_idle_before_evict_seconds_bucket|ray_vllm_kv_block_idle_before_evict_seconds_bucket\",model_name=~\"$model\",engine=~\"$engine\",runtime_name=\"__RUNTIME_NAME__\"}[$__rate_interval])))",
+          "legendFormat": "p95",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "showPoints": "auto",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        }
+      },
+      "description": "How long an evicted block sat unused first. Consistently short means blocks are being evicted while still warm.",
+      "id": 21
     }
   ],
   "refresh": "30s",
@@ -1735,12 +2044,21 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "query": "label_values(vllm:num_requests_running{runtime_name=\"__RUNTIME_NAME__\"}, model_name)",
+        "query": "label_values({__name__=~\"vllm:generation_tokens_total|ray_vllm_generation_tokens_total\",runtime_name=\"__RUNTIME_NAME__\"}, model_name)",
         "refresh": 1,
         "sort": 1,
-        "multi": false,
-        "includeAll": false,
-        "current": {}
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "allValue": ".*"
       },
       {
         "name": "engine",
@@ -1750,12 +2068,21 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "query": "label_values(vllm:num_requests_running{runtime_name=\"__RUNTIME_NAME__\",model_name=~\"$model\"}, engine)",
+        "query": "label_values({__name__=~\"vllm:generation_tokens_total|ray_vllm_generation_tokens_total\",runtime_name=\"__RUNTIME_NAME__\",model_name=~\"$model\"}, engine)",
         "refresh": 1,
         "sort": 1,
-        "multi": false,
-        "includeAll": false,
-        "current": {}
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "allValue": ".*"
       }
     ]
   },

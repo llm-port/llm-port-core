@@ -23,6 +23,18 @@ log = logging.getLogger(__name__)
 _POLL_INTERVAL_SEC = 1.0
 _PROBE_BUDGET_SEC = 90.0
 
+#: Budget for a probe that a *browser* is waiting on.
+#:
+#: The reconciler can afford 90s; a page cannot.  A browser opens about six
+#: connections per origin, so a screen that polls a 90s endpoint every ten
+#: seconds starves itself and every other tab with it -- the symptom is a UI
+#: that freezes until it is reloaded, which is simply the reload aborting the
+#: stalled requests.
+#:
+#: Metrics already know how to be partial, so a probe that does not answer in
+#: time is reported as "not observed" rather than waited out.
+_INTERACTIVE_PROBE_BUDGET_SEC = 8.0
+
 # Budget for *mutating* Serve lifecycle commands (RUN_SERVE_APP /
 # DELETE_SERVE_APP).  build_openai_app + serve.run do GCS round-trips and can
 # take longer than a probe, so they get a larger (but still bounded) budget.
@@ -67,8 +79,10 @@ def _parse_cluster_status(result: dict[str, Any] | None) -> RayClusterStatus:
     (alive=False) rather than raising, so a flaky or half-deployed node can
     never wedge the reconcile loop.
     """
+    observed = result is not None
     result = result or {}
     return RayClusterStatus(
+        observed=observed,
         alive=bool(result.get("alive", False)),
         version=result.get("version"),
         num_nodes=int(result.get("num_nodes", 0) or 0),
@@ -96,16 +110,40 @@ class RayServeStatus(BaseModel):
 
 
 def _parse_serve_status(result: dict[str, Any] | None) -> RayServeStatus:
-    """Best-effort parse of an agent GET_RAY_SERVE_STATUS result."""
+    """Best-effort parse of an agent GET_RAY_SERVE_STATUS result.
+
+    The agent emits **two shapes** for this one command.  Its container path
+    -- the Phase 4B runtime, and the only path certified hardware uses --
+    returns the fields flat::
+
+        {"available": true, "apps": {...}, "detail": null}
+
+    while its legacy host path wraps them::
+
+        {"alive": true, "serve": {"available": true, "apps": {...}, ...}}
+
+    Only the wrapped shape was read here, so on every containerised cluster
+    ``apps`` parsed as empty.  The effect was not an error anywhere: the
+    deployment simply never observed its own app, sat at "serve.run accepted;
+    waiting for readiness observation" forever, and the UI showed "Starting"
+    for a model that was already answering requests.
+
+    Both shapes are accepted rather than one being declared correct, because
+    agents in the field are of both kinds.
+    """
     result = result or {}
-    serve = result.get("serve") if isinstance(result.get("serve"), dict) else {}
-    apps = serve.get("apps")
+    wrapped = result.get("serve") if isinstance(result.get("serve"), dict) else None
+    source = wrapped if wrapped is not None else result
+    apps = source.get("apps")
+    available = bool(source.get("available", False))
     return RayServeStatus(
-        alive=bool(result.get("alive", False)),
-        available=bool(serve.get("available", False)),
-        active=bool(serve.get("active", False)),
+        # The flat shape carries no ``alive``; Serve answering at all is what
+        # that field means, so ``available`` stands in for it.
+        alive=bool(result.get("alive", available)),
+        available=available,
+        active=bool(source.get("active", False)),
         apps=dict(apps) if isinstance(apps, dict) else {},
-        detail=serve.get("detail"),
+        detail=source.get("detail"),
     )
 
 
@@ -196,6 +234,7 @@ class RayClusterClient:
         idem_prefix: str = "inference-env:probe",
         issued_by: uuid.UUID | None = None,
         timeout_sec: int | None = None,
+        wait_budget_sec: float | None = None,
     ) -> dict[str, Any] | None:
         """Dispatch a read-only probe to *node_id* and poll until terminal or budget exhausted.
 
@@ -220,7 +259,11 @@ class RayClusterClient:
             log.warning("%s dispatch: node %s not found", command_type, node_id)
             return None
 
-        budget_sec = float(timeout_sec or _PROBE_BUDGET_SEC)
+        # How long the *agent* may take and how long *this caller* is willing
+        # to wait are different questions.  Conflating them meant a caller
+        # that could only wait 8s also told the node it had 8s to answer --
+        # turning an impatient reader into a cancelled command.
+        budget_sec = float(wait_budget_sec or timeout_sec or _PROBE_BUDGET_SEC)
         current = await self._gateway.wait(
             command.id,
             budget_sec=budget_sec,
@@ -245,6 +288,7 @@ class RayClusterClient:
         issued_by: uuid.UUID | None = None,
         runtime_bundle: dict[str, Any] | None = None,
         include_metrics: bool = False,
+        budget_sec: float | None = None,
     ) -> RayClusterStatus:
         """Dispatch GET_RAY_STATUS to *head_node_id* and await its result.
 
@@ -264,6 +308,7 @@ class RayClusterClient:
             command_type=NodeCommandType.GET_RAY_STATUS.value,
             payload=payload,
             issued_by=issued_by,
+            wait_budget_sec=budget_sec,
         )
         return _parse_cluster_status(result)
 
@@ -273,6 +318,7 @@ class RayClusterClient:
         head_node_id: str | uuid.UUID,
         issued_by: uuid.UUID | None = None,
         runtime_bundle: dict[str, Any] | None = None,
+        budget_sec: float | None = None,
     ) -> RayServeStatus:
         """Dispatch GET_RAY_SERVE_STATUS to *head_node_id* and await its result.
 
@@ -288,6 +334,7 @@ class RayClusterClient:
             payload=serve_payload,
             idem_prefix="inference-env:serve-probe",
             issued_by=issued_by,
+            wait_budget_sec=budget_sec,
         )
         return _parse_serve_status(result)
 

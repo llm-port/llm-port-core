@@ -9,6 +9,7 @@ import shutil
 from typing import Any
 
 from llm_port_node_agent.runtimes import ContainerRuntimeError
+from llm_port_node_agent.runtimes.accelerators import accelerator_cdi_flags
 
 log = logging.getLogger(__name__)
 
@@ -78,6 +79,7 @@ class PodmanRuntime:
         ports: list[str] | None = None,
         env: dict[str, str] | None = None,
         gpus: str | None = None,
+        accelerator_vendor: str | None = None,
         volumes: list[str] | None = None,
         command: list[str] | None = None,
         entrypoint: str | None = None,
@@ -90,9 +92,10 @@ class PodmanRuntime:
             args.extend(["-p", p])
         for k, v in (env or {}).items():
             args.extend(["-e", f"{k}={v}"])
-        if gpus:
-            # Podman uses CDI for GPU passthrough
-            args.extend(["--device", "nvidia.com/gpu=all"])
+        # Podman uses CDI for GPU passthrough, and the vendor is part of the
+        # device name -- so "nvidia.com/gpu=all" was a hardcoded assumption,
+        # not a podman detail.
+        args.extend(accelerator_cdi_flags(accelerator_vendor, gpus))
         if entrypoint is not None:
             args.extend(["--entrypoint", entrypoint])
         for vol in volumes or []:

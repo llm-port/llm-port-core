@@ -59,3 +59,7 @@ docker-compose.override.yaml
 *.sqlite3
 *.sqlite3-journal
 uv.lock
+
+# Per-environment Grafana dashboards, rendered by the backend at runtime.
+# The seeded, hand-written boards are committed; these are not.
+llm_port_shared/grafana/provisioning/dashboards/json/vllm-rt-*.json

@@ -20,6 +20,7 @@ from llm_port_node_agent.event_buffer import EventBuffer
 from llm_port_node_agent.gpu import detect_gpu
 from llm_port_node_agent.log_collector import LogCollector
 from llm_port_node_agent.loki_client import LokiClient
+from llm_port_node_agent.ray_log_forwarder import RayServeLogForwarder
 from llm_port_node_agent.image_loader import load_image_from_backend
 from llm_port_node_agent.model_puller import pull_model
 from llm_port_node_agent.policy_guard import PolicyGuard
@@ -51,7 +52,14 @@ class NodeAgentService:
         gpu_collector = detect_gpu()
         log.info("Detected GPU collector: %s", gpu_collector.vendor)
 
-        static_capabilities = await build_static_capabilities(runtime, gpu_collector)
+        static_capabilities = await build_static_capabilities(
+            runtime,
+            gpu_collector,
+            paths={
+                "model_store": self._config.model_store_root,
+                "ray_session": self._config.ray_session_dir,
+            },
+        )
         log.info("Static capabilities: %s", static_capabilities)
         if not bool(static_capabilities.get("docker_available")):
             log.warning("Container runtime is not available; runtime commands will fail until daemon is reachable.")
@@ -140,11 +148,20 @@ class NodeAgentService:
         # Start log collection → Loki push loop if configured
         log_task: asyncio.Task[None] | None = None
         if self._config.loki_url:
+            # The ``host`` label has to be the identity the *backend* knows
+            # this node by, because that is what the UI queries with.  It
+            # records ``advertise_host`` (enrolment replaces a bare hostname
+            # with the address the request came from), so labelling
+            # with ``config.host`` -- the local hostname -- produced logs that
+            # were shipped, stored, and impossible to find.
             loki_client = LokiClient(
                 loki_url=self._config.loki_url,
                 labels={
                     "job": "node-agent",
-                    "host": self._config.host,
+                    "host": self._config.advertise_host,
+                    # The operator's name for the machine, for hand-written
+                    # queries; the UI matches on ``host``.
+                    "agent_id": self._config.agent_id,
                     "container": f"node-{self._config.agent_id}",
                 },
                 verify_tls=self._config.verify_tls,
@@ -162,10 +179,23 @@ class NodeAgentService:
                     runtime=runtime,
                     state_store=self._state_store,
                     loki=loki_client,
-                    host=self._config.host,
+                    host=self._config.advertise_host,
                     interval_sec=self._config.log_flush_interval_sec,
                 ).run_forever(),
                 name="container_log_forwarder",
+            )
+            # Ray Serve replica logs.  A separate forwarder because they are
+            # files rather than a container's console -- the runtime container
+            # idles on ``sleep infinity`` and every replica writes its own
+            # file inside it, so ``docker logs`` on it is permanently empty.
+            ray_log_task = asyncio.create_task(
+                RayServeLogForwarder(
+                    loki=loki_client,
+                    host=self._config.advertise_host,
+                    session_dir=self._config.ray_session_dir,
+                    interval_sec=self._config.log_flush_interval_sec,
+                ).run_forever(),
+                name="ray_serve_log_forwarder",
             )
             log.info("System log collection enabled → %s", self._config.loki_url)
         else:

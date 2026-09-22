@@ -120,6 +120,33 @@ class NodeCommandGateway:
             return await self._direct_service.get_command(command_id=cmd_uuid)
         return None
 
+    async def list_recent(
+        self,
+        *,
+        node_id: uuid.UUID,
+        command_type: str,
+        limit: int = 20,
+    ) -> list[InfraNodeCommand]:
+        """Recent commands of one type on a node, newest first.
+
+        Lets a caller answer from a fetch that already completed instead of
+        waiting out another round trip -- which matters because the round
+        trip is dominated by how long a queued command waits to be delivered,
+        not by the work itself.
+        """
+        node_uuid = node_id if isinstance(node_id, uuid.UUID) else uuid.UUID(str(node_id))
+
+        async def _read(service: NodeControlService) -> list[InfraNodeCommand]:
+            rows = await service._dao.list_node_commands(node_id=node_uuid, limit=limit * 4)
+            return [r for r in rows if r.command_type == command_type][:limit]
+
+        if self._factory is not None:
+            async with self._factory() as session:
+                return await _read(self._get_service(session))
+        if self._direct_service is not None:
+            return await _read(self._direct_service)
+        return []
+
     async def wait(
         self,
         command_id: uuid.UUID | str,

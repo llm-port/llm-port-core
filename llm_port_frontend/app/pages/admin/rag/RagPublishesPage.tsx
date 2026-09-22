@@ -34,17 +34,18 @@ export default function RagPublishesPage() {
     setLoading(true);
     setError(null);
     try {
-      const [publishPayload, jobsPayload] = await Promise.all([
-        ragPublishes.list(100),
-        ragJobs.list(100),
-      ]);
-      setPublishes(publishPayload.publishes);
-      setJobs(jobsPayload.jobs);
+      setPublishes((await ragPublishes.list(100)).publishes);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to load publishes.");
     } finally {
       setLoading(false);
     }
+    void ragJobs
+      .list(100)
+      .then((payload) => setJobs(payload.jobs))
+      .catch(() => {
+        /* the feed keeps its last contents */
+      });
   }
 
   useEffect(() => {

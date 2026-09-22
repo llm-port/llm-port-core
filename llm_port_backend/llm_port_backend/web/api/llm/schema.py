@@ -90,6 +90,28 @@ class ProviderUpdateRequest(BaseModel):
     extra_params: dict | None = None
 
 
+class ManagedByDTO(BaseModel):
+    """The record that owns a derived provider.
+
+    Carried on the provider so the screen has one thing to read rather than
+    joining deployments itself: a second lookup is a second answer that can
+    disagree with the first, and this page is where the two would be seen
+    side by side.
+    """
+
+    kind: str
+    id: str
+    #: What to call it on screen, so the operator is not sent to a uuid.
+    name: str | None = None
+    #: The owner's own state -- a cluster-backed provider has no container of
+    #: its own, so this is the only honest thing to show in a status column.
+    state: str | None = None
+    #: What it serves. The provider has no runtime row to join a model
+    #: through, and the model column read "no runtime" for a deployment that
+    #: was serving one.
+    model_name: str | None = None
+
+
 class ProviderDTO(BaseModel):
     """Response DTO for a provider."""
 
@@ -103,6 +125,15 @@ class ProviderDTO(BaseModel):
     litellm_provider: str | None = None
     litellm_model: str | None = None
     extra_params: dict | None = None
+    #: What owns this provider, when something does. ``inference_deployment``
+    #: means a deployment created it and will remove it; the screen shows it
+    #: differently and refuses edits, because they would not survive the next
+    #: reconcile.
+    source_kind: str | None = None
+    #: The owning record's id -- the deployment to send the operator to.
+    source_id: str | None = None
+    #: Resolved owner, when there is one: name and state for the screen.
+    managed_by: ManagedByDTO | None = None
     created_at: datetime
     updated_at: datetime
 

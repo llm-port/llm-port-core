@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -19,8 +20,10 @@ from llm_port_backend.db.models.node_control import (
     InfraNode,
     InfraNodeCommand,
     InfraNodeCredential,
+    InfraNodeJoinRequest,
     InfraNodeProfile,
     InfraNodeSession,
+    JoinRequestStatus,
     NodeCommandStatus,
     NodeCommandType,
     NodeHealthStatus,
@@ -30,6 +33,7 @@ from llm_port_backend.services.llm.monitoring import (
     deprovision_for_runtime,
     provision_for_runtime,
 )
+from llm_port_backend.services.nodes.wakeup import get_command_notifier
 from llm_port_backend.services.nodes.auth import constant_time_equal, hash_with_pepper, random_secret
 
 
@@ -56,6 +60,17 @@ class NodeControlService:
     # within the grace window re-dispatches the command first (hello_ack
     # path) so a node that was briefly unreachable loses no work.
     _REAPER_OFFLINE_GRACE_SEC = 600
+
+    # How long a command on a *reachable* node may make no progress at all
+    # before it is declared dead.  Generous on purpose: it has to sit above
+    # the slowest legitimate gap between progress events (image transfer),
+    # because the cost of being wrong is cancelling real work.
+    _REAPER_SILENCE_SEC = 1800
+
+    # A session that has not heartbeated in this long is not connected,
+    # whatever its row says.  Well above the agent's heartbeat interval so a
+    # brief stall never closes a live session.
+    _SESSION_STALE_SEC = 300
 
     @staticmethod
     def _parse_bearer_token(header_value: str | None) -> str:
@@ -107,6 +122,28 @@ class NodeControlService:
         if token_row is None:
             raise PermissionError("Enrollment token is invalid or expired.")
 
+        node, payload = await self._provision_node(
+            agent_id=agent_id, host=host, capabilities=capabilities, version=version
+        )
+        await self._dao.mark_enrollment_token_used(token_row, node_id=node.id)
+        return payload
+
+    async def _provision_node(
+        self,
+        *,
+        agent_id: str,
+        host: str,
+        capabilities: dict[str, Any],
+        version: str | None,
+    ) -> tuple[InfraNode, dict[str, Any]]:
+        """Upsert the node and mint it a credential.
+
+        Shared by both ways in: a token the operator carried to the machine,
+        and an approval the operator clicked in the browser.  The two differ
+        only in how the human authorised it, never in what the machine ends up
+        holding, so this is deliberately the single place a node credential is
+        created.
+        """
         node = await self._dao.get_node_by_agent_id(agent_id)
         if node is None:
             node = await self._dao.create_node(
@@ -129,16 +166,191 @@ class NodeControlService:
             credential_id=credential_id,
             secret_hash=self._hash(secret),
         )
-        await self._dao.mark_enrollment_token_used(token_row, node_id=node.id)
         await self._dao.sync_legacy_infra_agent(node=node)
 
-        return {
+        return node, {
             "node_id": str(node.id),
             "agent_id": node.agent_id,
             "credential": f"{credential_id}.{secret}",
             "status": node.status,
             "host": node.host,
         }
+
+    # -- join requests: the machine asks, a human approves ----------
+    #
+    # The token direction assumes the operator can paste.  When they cannot --
+    # standing at the box, or connected from a different workstation -- a
+    # 32-character token has to be retyped, and that is the worst moment in
+    # onboarding.  Here the machine asks instead, and nothing long is typed.
+
+    #: Unambiguous when read off a screen: no O/0, I/1, S/5 or U/V pairs.
+    _CODE_ALPHABET = "ACDEFGHJKLMNPQRTWXY34679"
+    _CODE_LENGTH = 6
+    #: Long enough to walk to another room, short enough that an abandoned
+    #: request does not sit in the operator's queue all day.
+    _JOIN_REQUEST_TTL_MINUTES = 15
+    #: A queue nobody can read is a queue nobody can approve from, so the cap
+    #: is about keeping the list legible as much as it is about abuse.
+    _MAX_PENDING_JOIN_REQUESTS = 50
+    _MAX_PENDING_PER_SOURCE = 3
+
+    @classmethod
+    def _format_code(cls, raw: str) -> str:
+        """``K7M-3QP`` -- grouped, because that is how a person reads it across."""
+        half = len(raw) // 2
+        return f"{raw[:half]}-{raw[half:]}"
+
+    async def _mint_join_code(self) -> str:
+        live = await self._dao.live_join_codes()
+        for _ in range(20):
+            raw = "".join(secrets.choice(self._CODE_ALPHABET) for _ in range(self._CODE_LENGTH))
+            code = self._format_code(raw)
+            if code not in live:
+                return code
+        raise RuntimeError("Could not allocate a join code; too many are live.")
+
+    async def request_join(
+        self,
+        *,
+        agent_id: str,
+        host: str,
+        capabilities: dict[str, Any],
+        version: str | None,
+        source_ip: str | None,
+    ) -> dict[str, Any]:
+        """Queue a machine for approval.  Unauthenticated by necessity.
+
+        Returns the code to show on the machine and the secret only that
+        machine holds.  Asking again from a machine that is already waiting
+        returns *nothing new*: a second row would give the operator two codes
+        for one box and no way to tell which to approve.
+
+        Raises:
+            PermissionError: the queue is full, or this source already has
+                more live requests than it should.
+        """
+        existing = await self._dao.find_pending_join_request_by_agent(agent_id)
+        if existing is not None:
+            # The caller cannot prove it is the original requester, so it does
+            # not get that request's poll secret back.  It gets the code, which
+            # is all the human needs.
+            return {
+                "id": str(existing.id),
+                "code": existing.code,
+                "poll_secret": None,
+                "expires_at": existing.expires_at.isoformat(),
+                "already_pending": True,
+            }
+
+        if await self._dao.count_pending_join_requests() >= self._MAX_PENDING_JOIN_REQUESTS:
+            raise PermissionError("Too many machines are already waiting for approval.")
+        if source_ip is not None:
+            per_source = await self._dao.count_pending_join_requests(source_ip=source_ip)
+            if per_source >= self._MAX_PENDING_PER_SOURCE:
+                raise PermissionError("Too many pending requests from this address.")
+
+        poll_secret = random_secret(32)
+        row = await self._dao.create_join_request(
+            code=await self._mint_join_code(),
+            poll_secret_hash=self._hash(poll_secret),
+            agent_id=agent_id,
+            host=host,
+            source_ip=source_ip,
+            version=version,
+            capabilities=capabilities,
+            expires_at=datetime.now(tz=UTC) + timedelta(minutes=self._JOIN_REQUEST_TTL_MINUTES),
+        )
+        return {
+            "id": str(row.id),
+            "code": row.code,
+            "poll_secret": poll_secret,
+            "expires_at": row.expires_at.isoformat(),
+            "already_pending": False,
+        }
+
+    async def list_pending_join_requests(self) -> list[InfraNodeJoinRequest]:
+        return await self._dao.list_pending_join_requests()
+
+    @staticmethod
+    def _join_request_is_live(row: InfraNodeJoinRequest) -> bool:
+        return row.status == JoinRequestStatus.PENDING and row.expires_at > datetime.now(tz=UTC)
+
+    async def decide_join_request(
+        self,
+        *,
+        request_id: uuid.UUID,
+        approve: bool,
+        decided_by: uuid.UUID | None,
+        message: str | None = None,
+    ) -> InfraNodeJoinRequest:
+        """Approve or reject, as an authenticated administrator.
+
+        Approval does not hand the credential out here.  It marks the request
+        approved and lets the waiting agent collect it once, which keeps the
+        secret on the only path that can prove it is the requester.
+
+        Raises:
+            LookupError: no such request.
+            PermissionError: the request is no longer waiting.
+        """
+        row = await self._dao.get_join_request(request_id)
+        if row is None:
+            raise LookupError("Join request not found.")
+        if not self._join_request_is_live(row):
+            raise PermissionError("This request is no longer waiting for a decision.")
+
+        row.status = JoinRequestStatus.APPROVED if approve else JoinRequestStatus.REJECTED
+        row.decided_at = datetime.now(tz=UTC)
+        row.decided_by = decided_by
+        row.message = message
+        await self._dao.session.flush()
+        return row
+
+    async def collect_join_result(
+        self, *, request_id: uuid.UUID, poll_secret: str
+    ) -> dict[str, Any]:
+        """What the waiting agent asks, repeatedly, until it gets an answer.
+
+        The credential is minted on the first successful collect and the
+        request is spent, so a replay returns nothing.
+
+        Raises:
+            LookupError: no such request.
+            PermissionError: the poll secret does not match -- which is what
+                stops someone who guessed a code from collecting a credential.
+        """
+        row = await self._dao.get_join_request(request_id)
+        if row is None:
+            raise LookupError("Join request not found.")
+        if not constant_time_equal(row.poll_secret_hash, self._hash(poll_secret)):
+            raise PermissionError("Join request secret mismatch.")
+
+        if row.status == JoinRequestStatus.REJECTED:
+            return {"status": "rejected", "message": row.message}
+        if row.status == JoinRequestStatus.CLAIMED:
+            # Already spent.  Saying so beats returning "pending" forever.
+            return {"status": "claimed", "message": "This request was already used."}
+        if row.status == JoinRequestStatus.PENDING:
+            if row.expires_at <= datetime.now(tz=UTC):
+                return {"status": "expired", "message": "The request timed out."}
+            return {
+                "status": "pending",
+                "code": row.code,
+                "expires_at": row.expires_at.isoformat(),
+            }
+
+        node, payload = await self._provision_node(
+            agent_id=row.agent_id,
+            host=row.host,
+            capabilities=row.capabilities_json or {},
+            version=row.version,
+        )
+        row.status = JoinRequestStatus.CLAIMED
+        row.node_id = node.id
+        await self._dao.session.flush()
+        # ``payload`` carries the node's health under "status"; the agent is
+        # asking about the *request*, so the join outcome wins that key.
+        return {**payload, "status": "approved"}
 
     async def authenticate_agent(self, *, authorization: str | None) -> tuple[InfraNode, InfraNodeCredential]:
         token = self._parse_bearer_token(authorization)
@@ -239,6 +451,8 @@ class NodeControlService:
     ) -> dict[str, Any]:
         if host and host != node.host:
             node.host = host
+        if capabilities is not None:
+            capabilities = self._merge_projected_capabilities(node, capabilities)
         updated = await self._dao.update_node_heartbeat(
             node,
             status=status,
@@ -251,6 +465,33 @@ class NodeControlService:
     # Tier-2-only keys: the raw per-interface detail stays in the snapshot
     # table and is deliberately not projected onto the node row.
     _TIER2_NETWORK_KEYS = frozenset({"all_interfaces"})
+
+    #: Capability keys written by the *inventory* projection, not by the
+    #: heartbeat.  The heartbeat replaces ``capabilities_json`` wholesale, so
+    #: anything projected here has to be carried across or it is destroyed on
+    #: the next tick.
+    _PROJECTED_CAPABILITY_KEYS = ("network",)
+
+    @classmethod
+    def _merge_projected_capabilities(
+        cls, node: InfraNode, capabilities: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Keep inventory-projected capabilities across a heartbeat.
+
+        A heartbeat reports *static* capabilities (hostname, arch, GPU count).
+        The network summary the fabric planner needs comes from the inventory
+        message instead, projected onto the same dict by
+        :meth:`record_inventory`.  Replacing the dict therefore erased it
+        every tick, and ``plan_fabric`` reported "no network facts reported"
+        for a node that had just planned successfully -- the window between an
+        inventory and the next heartbeat was the only time planning worked.
+        """
+        merged = dict(capabilities)
+        existing = node.capabilities_json or {}
+        for key in cls._PROJECTED_CAPABILITY_KEYS:
+            if key not in merged and key in existing:
+                merged[key] = existing[key]
+        return merged
 
     @classmethod
     def _tier1_network_summary(cls, inventory: dict[str, Any]) -> dict[str, Any] | None:
@@ -330,6 +571,10 @@ class NodeControlService:
             correlation_id=correlation_id,
             timeout_sec=timeout_sec or self._default_command_timeout_sec,
         )
+        # Wake the node's stream on commit.  Without this the command waits
+        # for the agent to say something of its own accord -- measured at
+        # 30-44s on the DGX pair for work that took under a tenth of a second.
+        await get_command_notifier().notify(self._dao.session, node_id)
         return command
 
     async def list_commands_for_dispatch(self, *, node_id: uuid.UUID, limit: int = 50) -> list[dict[str, Any]]:
@@ -437,14 +682,24 @@ class NodeControlService:
         reaped = 0
         for command in commands:
             node = await self._dao.get_node_by_id(command.node_id)
-            if node is None or node.status != NodeHealthStatus.OFFLINE:
+            if node is None:
                 continue
             if not self._command_is_overdue(command):
                 continue
+
+            offline = node.status == NodeHealthStatus.OFFLINE
             anchor = (
                 command.started_at or command.acked_at or command.dispatched_at or command.issued_at
             )
-            if anchor is not None and (now - anchor) < timedelta(seconds=self._REAPER_OFFLINE_GRACE_SEC):
+
+            if offline:
+                if anchor is not None and (now - anchor) < timedelta(
+                    seconds=self._REAPER_OFFLINE_GRACE_SEC
+                ):
+                    continue
+            elif not await self._command_has_gone_silent(command, anchor=anchor, now=now):
+                # Healthy node, and the command is still making noise: leave
+                # it alone.  A large image transfer is legitimately long.
                 continue
             timeout = command.timeout_sec or self._default_command_timeout_sec
             try:
@@ -455,6 +710,12 @@ class NodeControlService:
                     error_message=(
                         f"Command timed out with no node connection (node offline, "
                         f"in flight {timeout}s + grace past its limit)."
+                        if offline
+                        else (
+                            f"Command produced no progress for "
+                            f"{self._REAPER_SILENCE_SEC}s past its {timeout}s limit; "
+                            f"the node is reachable but nothing is answering for this command."
+                        )
                     ),
                 )
                 await self._dao.append_command_event(
@@ -479,6 +740,59 @@ class NodeControlService:
             except Exception:  # pragma: no cover - defensive
                 log.exception("Failed to reap command %s", command.id)
         return reaped
+
+    async def _command_has_gone_silent(
+        self,
+        command: InfraNodeCommand,
+        *,
+        anchor: datetime | None,
+        now: datetime,
+    ) -> bool:
+        """Whether a command on a *reachable* node has stopped making progress.
+
+        Node health is not evidence that a given command is alive.  Two agents
+        on one machine, a dropped session, an agent that restarted mid-command
+        -- in all of these the node heartbeats normally while a dispatched
+        command is never going to be answered.  Reaping only OFFLINE nodes
+        left those in flight forever, and the deployment waiting on them
+        simply never moved.
+
+        Progress is the discrimination that keeps a legitimately slow command
+        safe: an 11GB image transfer streams events, and each one pushes the
+        deadline out.  Silence for the whole window is what says nobody is
+        coming back.
+        """
+        last_seen = anchor
+        try:
+            last_event = await self._dao.latest_command_event_at(command_id=command.id)
+        except Exception:  # pragma: no cover - defensive
+            log.exception("Could not read events for command %s", command.id)
+            return False
+        if last_event is not None and (last_seen is None or last_event > last_seen):
+            last_seen = last_event
+        if last_seen is None:
+            return False
+        return (now - last_seen) >= timedelta(seconds=self._REAPER_SILENCE_SEC)
+
+    async def close_stale_sessions(self) -> int:
+        """End stream sessions that stopped heartbeating.
+
+        Sessions are closed cleanly only when the websocket handler runs its
+        teardown; a killed agent never gets there.  The rows then count as
+        live forever, so a node appears to have more agents attached than it
+        does -- which is exactly the state that makes a duplicate agent hard
+        to notice.
+        """
+        try:
+            closed = await self._dao.close_stale_sessions(
+                silent_for=timedelta(seconds=self._SESSION_STALE_SEC)
+            )
+        except Exception:  # pragma: no cover - defensive
+            log.exception("Stale session reaper failed")
+            return 0
+        if closed:
+            log.info("Closed %d stale node stream session(s)", closed)
+        return closed
 
     async def record_command_ack(
         self,
@@ -741,8 +1055,25 @@ class NodeControlService:
         return await self._dao.delete_node(node_id=node_id)
 
     async def list_nodes(self) -> list[dict[str, Any]]:
+        """The fleet, each machine carrying its latest utilization.
+
+        The list used to omit it while ``get_node`` included it, so anything
+        reading the fleet saw ``latest_utilization: null`` for every machine
+        however recently it had reported.  The cluster topology reads exactly
+        that field to size each node's allocation arc, so the arc never drew --
+        it looked like a rendering bug and was a missing join.
+        """
         rows = await self._dao.list_nodes()
-        return [self.serialize_node(item) for item in rows]
+        snapshots = await self._dao.latest_inventory_snapshots(
+            node_ids=[row.id for row in rows]
+        )
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            payload = self.serialize_node(row)
+            snap = snapshots.get(row.id)
+            payload["latest_utilization"] = snap.utilization_json if snap else None
+            out.append(payload)
+        return out
 
     async def get_node(self, *, node_id: uuid.UUID) -> dict[str, Any] | None:
         row = await self._dao.get_node_by_id(node_id)

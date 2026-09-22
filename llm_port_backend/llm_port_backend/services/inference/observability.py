@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -99,6 +99,48 @@ class MetricsPartial(BaseModel):
 
     tier: str
     reason: str
+    #: How much the reader should care.
+    #:
+    #: Not every gap is a problem. "These counts are from the last cluster
+    #: check rather than this instant" is the *normal* steady state and was
+    #: being rendered as an orange warning on a deployment that was serving
+    #: happily -- so the one screen that says whether a deployment is healthy
+    #: contradicted itself. ``info`` is for an absence that is expected and
+    #: explained; ``warning`` is for one the operator may need to act on.
+    severity: Literal["info", "warning"] = "warning"
+
+
+class GatewayTraffic(BaseModel):
+    """What the gateway measured for one deployment, over a recent window.
+
+    A tier of its own because it is measured somewhere else entirely. The
+    cluster tier asks Ray what it is running; this counts what actually went
+    through the front door, so it is the one that still answers when the
+    cluster is unreachable or Prometheus is down.
+
+    Every field that can honestly be unknown is nullable. A percentile over
+    no requests is not zero, and neither is an error rate.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: How far back this covers, in seconds.
+    window_sec: int
+    requests: int = 0
+    errors: int = 0
+    #: ``None`` when nothing was served -- a rate over no requests is unknown.
+    error_rate: float | None = None
+    #: Only streaming responses have a time to first token.
+    p50_ttft_ms: float | None = None
+    p95_ttft_ms: float | None = None
+    p50_latency_ms: float | None = None
+    p95_latency_ms: float | None = None
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    #: Completion tokens per second *while generating* -- the hardware's
+    #: speed, not its duty cycle. ``None`` when nothing was generated.
+    output_tokens_per_sec: float | None = None
+    last_request_at: datetime | None = None
 
 
 class DeploymentMetrics(BaseModel):
@@ -113,6 +155,9 @@ class DeploymentMetrics(BaseModel):
     replicas_total: int = 0
     deployments: list[ReplicaMetrics] = Field(default_factory=list)
     scrape_targets: list[ScrapeTarget] = Field(default_factory=list)
+    #: ``None`` when the gateway has no instance for this deployment at all,
+    #: which is "not wired up" rather than "served nothing".
+    traffic: GatewayTraffic | None = None
     partials: list[MetricsPartial] = Field(default_factory=list)
     observed_at: datetime | None = None
 
@@ -132,6 +177,10 @@ class EnvironmentMetrics(BaseModel):
     cpus_total: float = 0.0
     cpus_available: float = 0.0
     scrape_targets: list[ScrapeTarget] = Field(default_factory=list)
+    #: Where to see these numbers drawn, when a dashboard has been rendered
+    #: for this cluster.  ``None`` when monitoring is off -- the UI then shows
+    #: no link rather than one that leads nowhere.
+    dashboard_url: str | None = None
     partials: list[MetricsPartial] = Field(default_factory=list)
     raw: dict[str, Any] = Field(default_factory=dict)
     observed_at: datetime | None = None

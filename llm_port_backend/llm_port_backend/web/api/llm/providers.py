@@ -4,20 +4,37 @@ from __future__ import annotations
 
 import logging
 import uuid
+from typing import Any
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from starlette import status
 
 from llm_port_backend.db.dao.audit_dao import AuditDAO
 from llm_port_backend.db.dao.llm_dao import ArtifactDAO, ModelDAO, ProviderDAO, RuntimeDAO
 from llm_port_backend.db.models.containers import AuditResult
-from llm_port_backend.db.models.llm import LLMProvider, ModelSource, ModelStatus, ProviderTarget
+from llm_port_backend.db.models.inference import (
+    InferenceDeployment,
+    InferenceEnvironment,
+)
+from llm_port_backend.db.models.llm import (
+    LLMModel,
+    LLMRuntime,
+    LLMProvider,
+    ModelSource,
+    ModelStatus,
+    ProviderTarget,
+    ProviderType,
+)
 from llm_port_backend.db.models.users import User
+from llm_port_backend.services.llm.monitoring import get_monitoring_provisioner
 from llm_port_backend.services.llm.service import LLMService
 from llm_port_backend.web.api.admin.dependencies import audit_action
 from llm_port_backend.web.api.llm.dependencies import get_llm_service
 from llm_port_backend.web.api.llm.schema import (
+    ManagedByDTO,
     ProviderCreateRequest,
     ProviderDTO,
     ProviderUpdateRequest,
@@ -149,10 +166,60 @@ def _extract_remote_model(capabilities: dict | None) -> str | None:
     return None
 
 
-def _provider_to_dto(provider: LLMProvider) -> ProviderDTO:
+def _provider_to_dto(
+    provider: LLMProvider,
+    owners: "dict[str, ManagedByDTO] | None" = None,
+) -> ProviderDTO:
     """Serialize a provider including derived remote_model metadata."""
     dto = ProviderDTO.model_validate(provider)
-    return dto.model_copy(update={"remote_model": _extract_remote_model(provider.capabilities)})
+    update: dict[str, Any] = {
+        "remote_model": _extract_remote_model(provider.capabilities)
+    }
+    if provider.source_kind and owners:
+        owner = owners.get(str(provider.source_id))
+        if owner is not None:
+            update["managed_by"] = owner
+    return dto.model_copy(update=update)
+
+
+async def _resolve_owners(
+    session: "AsyncSession", providers: "list[LLMProvider]"
+) -> dict[str, ManagedByDTO]:
+    """Look up the deployments that own derived providers, in one query.
+
+    A cluster-backed provider has no container and no runtime row, so without
+    its owner there is nothing honest to put in a status column -- the page
+    rendered a blank cell. Resolved here rather than by the screen because two
+    lookups are two answers that can disagree, and this is exactly where they
+    would be seen together.
+    """
+    wanted = [
+        str(p.source_id)
+        for p in providers
+        if p.source_kind == "inference_deployment" and p.source_id
+    ]
+    if not wanted:
+        return {}
+    try:
+        ids = [uuid.UUID(value) for value in wanted]
+    except (ValueError, TypeError):
+        return {}
+
+    rows = await session.execute(
+        select(InferenceDeployment, LLMModel)
+        .outerjoin(LLMModel, LLMModel.id == InferenceDeployment.model_id)
+        .where(InferenceDeployment.id.in_(ids))
+    )
+    return {
+        str(dep.id): ManagedByDTO(
+            kind="inference_deployment",
+            id=str(dep.id),
+            name=dep.name,
+            state=str(dep.phase or "") or None,
+            model_name=(model.display_name if model is not None else None),
+        )
+        for dep, model in rows.all()
+    }
 
 
 async def _probe_first_model(
@@ -297,7 +364,8 @@ async def list_providers(
 ) -> list[ProviderDTO]:
     """List all registered LLM providers."""
     providers = await provider_dao.list_all()
-    return [_provider_to_dto(p) for p in providers]
+    owners = await _resolve_owners(provider_dao.session, providers)
+    return [_provider_to_dto(p, owners) for p in providers]
 
 
 @router.post("/", response_model=ProviderDTO, status_code=status.HTTP_201_CREATED)
@@ -413,6 +481,95 @@ async def get_provider(
     return _provider_to_dto(provider)
 
 
+def _refuse_if_derived(provider: object, action: str) -> None:
+    """A provider owned by a deployment is managed from that deployment.
+
+    Editing or deleting it here would not stick: the next reconcile recreates
+    or overwrites it, and in between the screen shows something that is not
+    true. Refusing with the owner named is more useful than a control that
+    appears to work.
+    """
+    source_kind = getattr(provider, "source_kind", None)
+    if not source_kind:
+        return
+    source_id = getattr(provider, "source_id", None)
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=(
+            f"This provider is served by deployment {source_id} and cannot be "
+            f"{action} here. Change it on the deployment instead."
+        ),
+    )
+
+
+@router.get("/{provider_id}/monitoring-stats")
+async def provider_monitoring_stats(
+    provider_id: uuid.UUID,
+    user: User = Depends(require_permission("llm.providers", "read")),
+    provider_dao: ProviderDAO = Depends(),
+    runtime_dao: RuntimeDAO = Depends(),
+) -> dict:
+    """Live stat-card values and a dashboard link, for either kind of provider.
+
+    One endpoint rather than two, because the screen showing these cards does
+    not care how the model is being served and should not have to branch. It
+    also means a person whose role reaches the providers page but not the
+    deployments page can still see whether the hardware is working, instead of
+    being handed a link to somewhere they cannot go.
+
+    The two kinds resolve differently underneath:
+
+    * A **local runtime** is scraped at its own ``/metrics`` and labelled with
+      the runtime's name.
+    * A **cluster-backed** provider has no runtime and no container. Its
+      replicas are labelled with the *environment's* name -- that is the label
+      ``sync_ray_targets`` writes and the one the cluster dashboard selects on
+      -- so the figures are asked for under that name, and the dashboard is
+      the cluster's.
+
+    Always 200. ``{"enabled": false}`` says "there is nothing to show here",
+    which the card row renders as a muted state rather than an error.
+    """
+    off = {"enabled": False, "stale": True, "stats": {}, "dashboard_url": None}
+
+    provider = await provider_dao.get(provider_id)
+    if provider is None:
+        raise HTTPException(status_code=404, detail="Provider not found")
+    monitoring = get_monitoring_provisioner()
+    if monitoring is None:
+        return off
+
+    session = provider_dao.session
+
+    if provider.source_kind == "inference_deployment" and provider.source_id:
+        try:
+            deployment_id = uuid.UUID(str(provider.source_id))
+        except (ValueError, TypeError):
+            return off
+        row = await session.execute(
+            select(InferenceEnvironment)
+            .join(
+                InferenceDeployment,
+                InferenceDeployment.environment_id == InferenceEnvironment.id,
+            )
+            .where(InferenceDeployment.id == deployment_id)
+        )
+        environment = row.scalars().first()
+        if environment is None:
+            return off
+        return await monitoring.stats(environment.id, environment.name)
+
+    if provider.type != ProviderType.VLLM:
+        return off
+    row = await session.execute(
+        select(LLMRuntime).where(LLMRuntime.provider_id == provider.id).limit(1)
+    )
+    runtime = row.scalars().first()
+    if runtime is None:
+        return off
+    return await monitoring.stats(runtime.id, runtime.name)
+
+
 @router.patch("/{provider_id}", response_model=ProviderDTO)
 async def update_provider(
     provider_id: uuid.UUID,
@@ -427,6 +584,7 @@ async def update_provider(
     existing = await provider_dao.get(provider_id)
     if existing is None:
         raise HTTPException(status_code=404, detail="Provider not found")
+    _refuse_if_derived(existing, "edited")
 
     capabilities_changed = False
     next_capabilities: dict | None = None
@@ -509,6 +667,9 @@ async def delete_provider(
     audit_dao: AuditDAO = Depends(),
 ) -> None:
     """Delete a provider, cascade-deleting any associated runtimes."""
+    existing = await provider_dao.get(provider_id)
+    if existing is not None:
+        _refuse_if_derived(existing, "deleted")
     try:
         await llm_service.delete_provider(
             provider_dao, runtime_dao, provider_id, model_dao=model_dao,

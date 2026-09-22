@@ -254,6 +254,12 @@ def test_strict_pack_is_still_refused_for_multi_node_topologies() -> None:
         {"ray": {"runtime_env": {"working_dir": "https://example.com/code.zip"}}},
         {"env_vars": {"CUDA_VISIBLE_DEVICES": "0"}},
         {"env_vars": {"PATH": "/tmp"}},
+        # Every stack has its own way to say "show me other devices", and each
+        # one is the same escape from the scheduler's allocation.
+        {"env_vars": {"HIP_VISIBLE_DEVICES": "0"}},
+        {"env_vars": {"ROCR_VISIBLE_DEVICES": "0"}},
+        {"env_vars": {"ZE_AFFINITY_MASK": "0"}},
+        {"env_vars": {"ONEAPI_DEVICE_SELECTOR": "level_zero:0"}},
     ],
 )
 def test_spec_cannot_inject_code_or_override_gpu_assignment(extensions) -> None:
@@ -266,6 +272,22 @@ def test_allowlisted_env_vars_reach_runtime_env() -> None:
         extensions={"ray": {"runtime_env": {"env_vars": {"VLLM_WSL2_ENABLE_PIN_MEMORY": "1"}}}}
     )
     assert cfg["runtime_env"] == {"env_vars": {"VLLM_WSL2_ENABLE_PIN_MEMORY": "1"}}
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "NCCL_IB_DISABLE",       # NVIDIA collectives
+        "RCCL_MSCCL_ENABLE",     # AMD collectives
+        "HSA_OVERRIDE_GFX_VERSION",
+        "ZE_ENABLE_TRACING_LAYER",
+        "SYCL_CACHE_PERSISTENT",
+    ],
+)
+def test_each_stack_can_be_tuned_through_its_own_names(name: str) -> None:
+    """A non-NVIDIA node has no CUDA_/NCCL_ knobs, only its own."""
+    cfg = _llm_config(extensions={"env_vars": {name: "1"}})
+    assert cfg["runtime_env"]["env_vars"] == {name: "1"}
 
 
 def test_strict_pack_with_multi_node_topology_is_rejected() -> None:

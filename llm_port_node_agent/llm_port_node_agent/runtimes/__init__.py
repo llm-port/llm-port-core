@@ -29,6 +29,9 @@ class ContainerRuntime(Protocol):
         ports: list[str] | None = None,
         env: dict[str, str] | None = None,
         gpus: str | None = None,
+        #: Vendor of the accelerator, so the handler can map the semantic
+        #: *gpus* request onto its own flags instead of assuming NVIDIA.
+        accelerator_vendor: str | None = None,
         volumes: list[str] | None = None,
         command: list[str] | None = None,
         entrypoint: str | None = None,

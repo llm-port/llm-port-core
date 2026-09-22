@@ -35,21 +35,38 @@ export default function ModelDetailPage() {
   const navigate = useNavigate();
   const [model, setModel] = useState<Model | null>(null);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
+  const [artifactsLoading, setArtifactsLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  /**
+   * The model record gates the page; its artifacts do not.
+   *
+   * The artifact list walks the model store and can be slow for a model with
+   * many files -- and the page's header, the one thing wanted at a glance, is
+   * a single row. Sharing a `loading` flag made the cheap answer wait for the
+   * expensive one.
+   */
   async function load() {
     if (!id) return;
     setLoading(true);
     setError(null);
     try {
-      const [m, arts] = await Promise.all([models.get(id), models.artifacts(id)]);
-      setModel(m);
-      setArtifacts(arts);
+      setModel(await models.get(id));
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : t("llm_model_detail.failed_load"));
     } finally {
       setLoading(false);
+    }
+    setArtifactsLoading(true);
+    try {
+      setArtifacts(await models.artifacts(id));
+    } catch {
+      // The artifacts panel shows its own empty state; the model is still
+      // described above it.
+      setArtifacts([]);
+    } finally {
+      setArtifactsLoading(false);
     }
   }
 
@@ -193,6 +210,7 @@ export default function ModelDetailPage() {
         columns={artifactCols}
         rows={artifacts}
         rowKey={(a) => a.id}
+        loading={artifactsLoading}
         title={t("llm_model_detail.artifacts")}
         emptyMessage={t("llm_model_detail.no_artifacts")}
         onRefresh={load}

@@ -59,7 +59,10 @@
     "chat_group": "Chat",
     "chat_projects": "Projekte",
     "chat_sessions": "Sitzungen",
-    "chat_attachments": "Anhänge"
+    "chat_attachments": "Anhänge",
+    "inference_group": "KI-Infrastruktur",
+    "clusters": "Cluster",
+    "deployments": "Deployments"
   },
   "auth": {
     "logout": "Abmelden",

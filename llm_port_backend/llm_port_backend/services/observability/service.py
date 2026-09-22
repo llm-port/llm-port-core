@@ -25,6 +25,16 @@ MAX_EXPORT_ROWS = 5000
 MAX_RANGE_DAYS = 90
 
 
+def _as_float(value: object) -> float | None:
+    """Percentiles come back as ``Decimal`` or ``None``; neither serialises."""
+    if value is None:
+        return None
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+
+
 class ObservabilityService:
     """Aggregation queries against ``llm_gateway_request_log``."""
 
@@ -166,6 +176,118 @@ class ObservabilityService:
         errors = row["error_count"] or 0
         row["error_rate"] = round(errors / total, 4) if total > 0 else None
         return row
+
+    # ── One deployment's traffic ──────────────────────────────────
+
+    async def get_deployment_traffic(
+        self,
+        deployment_id: str,
+        *,
+        window_sec: int = 3600,
+    ) -> dict | None:
+        """What the gateway measured for one deployment, over a recent window.
+
+        This is the tier that answers "is the expensive hardware doing
+        anything", and it is the only one that survives Prometheus being down
+        -- which matters for a customer with one part-time administrator.
+        Every request passes the gateway, so tokens, latency and (on a
+        streaming response) time-to-first-token are all observable per request
+        without asking the cluster anything.
+
+        The join is already there: the gateway registers a provider instance
+        per deployment and stamps it ``source_kind='inference_deployment'``
+        with the deployment's id, so its requests can be found without a new
+        column anywhere.
+
+        Returns ``None`` when the deployment has no instance registered at
+        all, which is different from an instance that has served nothing --
+        the first is "not wired up", the second is a real zero. The caller
+        renders them differently.
+        """
+        instances = await self._session.execute(
+            text(
+                """
+                SELECT id FROM llm_provider_instance
+                WHERE source_kind = 'inference_deployment'
+                  AND source_id = :deployment_id
+                """
+            ),
+            {"deployment_id": str(deployment_id)},
+        )
+        instance_ids = [row[0] for row in instances.all()]
+        if not instance_ids:
+            return None
+
+        q = text(
+            """
+            SELECT
+                COUNT(*)                                          AS requests,
+                COALESCE(SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END), 0)
+                                                                  AS errors,
+                PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY ttft_ms)
+                    FILTER (WHERE ttft_ms IS NOT NULL)            AS p50_ttft_ms,
+                PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY ttft_ms)
+                    FILTER (WHERE ttft_ms IS NOT NULL)            AS p95_ttft_ms,
+                PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY latency_ms)
+                                                                  AS p50_latency_ms,
+                PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY latency_ms)
+                                                                  AS p95_latency_ms,
+                COALESCE(SUM(prompt_tokens), 0)                   AS prompt_tokens,
+                COALESCE(SUM(completion_tokens), 0)               AS completion_tokens,
+                -- Time actually spent generating, not wall clock: latency
+                -- minus the wait for the first token.  A non-streaming
+                -- request has no TTFT, so its whole latency counts.
+                COALESCE(SUM(
+                    GREATEST(latency_ms - COALESCE(ttft_ms, 0), 1)
+                ), 0)                                             AS generating_ms,
+                MAX(created_at)                                   AS last_request_at
+            FROM llm_gateway_request_log
+            WHERE provider_instance_id = ANY(:instance_ids)
+              AND created_at >= NOW() - (:window_sec * INTERVAL '1 second')
+            """
+        )
+        row = dict(
+            (
+                await self._session.execute(
+                    q, {"instance_ids": instance_ids, "window_sec": window_sec}
+                )
+            )
+            .mappings()
+            .one()
+        )
+
+        requests = int(row["requests"] or 0)
+        errors = int(row["errors"] or 0)
+        completion = int(row["completion_tokens"] or 0)
+        generating_ms = int(row["generating_ms"] or 0)
+
+        return {
+            "window_sec": window_sec,
+            "requests": requests,
+            "errors": errors,
+            # A rate over no requests is not 0%, it is unknown.
+            "error_rate": round(errors / requests, 4) if requests else None,
+            "p50_ttft_ms": _as_float(row["p50_ttft_ms"]),
+            "p95_ttft_ms": _as_float(row["p95_ttft_ms"]),
+            "p50_latency_ms": _as_float(row["p50_latency_ms"]),
+            "p95_latency_ms": _as_float(row["p95_latency_ms"]),
+            "prompt_tokens": int(row["prompt_tokens"] or 0),
+            "completion_tokens": completion,
+            # Over the time spent generating, not over the window.
+            #
+            # Dividing by the window is arithmetically honest and useless:
+            # 475 tokens across an hour in which the engine worked for three
+            # seconds reads as "0.13 tokens/sec" on hardware that does about
+            # 150, and an operator checking whether their machine is working
+            # would conclude it is not. The question this card answers is how
+            # fast the hardware generates, so that is what it measures.
+            "output_tokens_per_sec": (
+                round(completion / (generating_ms / 1000.0), 1)
+                if completion and generating_ms > 0
+                else None
+            ),
+            "last_request_at": row["last_request_at"],
+        }
 
     # ── Request list ──────────────────────────────────────────────
 

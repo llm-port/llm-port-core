@@ -41,6 +41,7 @@ from llm_port_backend.services.inference.drivers.ray.compiler import (
     compile_deployment,
 )
 from llm_port_backend.services.inference.drivers.ray.environment import RayEnvironmentManager
+from tests.platform_fixtures import DGX_SPARK_PLATFORM
 
 API = "/api/inference"
 
@@ -139,6 +140,7 @@ async def _create_dgx_spark_node(
         draining=False,
         maintenance_mode=False,
         capabilities_json={
+            **DGX_SPARK_PLATFORM,
             "accelerator": {
                 "vendor": "nvidia",
                 "family": "Blackwell",

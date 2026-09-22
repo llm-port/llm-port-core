@@ -25,10 +25,12 @@ from llm_port_backend.db.models.inference import (
     ModelAvailabilityStatus,
 )
 from llm_port_backend.db.models.node_control import InfraNode, NodeCommandType
+from llm_port_backend.settings import settings
 from llm_port_backend.services.inference.drivers.ray.commands import NodeCommandGateway
 from llm_port_backend.services.llm.artifacts import (
     build_cache_manifest,
     build_model_sync_payload,
+    model_sync_carries_files,
     model_cache_dir,
 )
 
@@ -62,6 +64,12 @@ _FAILED_RETRY_BACKOFF_SEC = 300.0
 
 # States that mean "a sync for this digest is already under way".  Re-marking
 # these would destroy the progress the agent is reporting.
+# How long a PENDING/SYNCING row may go untouched before it is assumed dead.
+# Comfortably longer than a large model transfer, because cancelling a real
+# sync costs a re-download; short enough that a wedged node recovers on its
+# own rather than needing someone to notice.
+_IN_FLIGHT_STALE_SEC = 3600.0
+
 _IN_FLIGHT_STATUSES = frozenset({
     ModelAvailabilityStatus.PENDING.value,
     ModelAvailabilityStatus.SYNCING.value,
@@ -251,7 +259,25 @@ class ModelArtifactCoordinator:
         if desired_digest and row.manifest_sha256 != desired_digest:
             return False  # different digest: this one needs re-issuing
         if row.status in _IN_FLIGHT_STATUSES:
-            return True
+            # "In flight" is a claim with an expiry date.  A sync whose agent
+            # died -- or whose command was reaped -- leaves the row SYNCING
+            # forever, and because this branch skips the node, it is then
+            # never retried: the artifact never becomes ready and whatever
+            # waits on it waits for good.  A row that has not been touched in
+            # a long time is not in flight, whatever it says.
+            updated = row.updated_at
+            if updated is None:
+                return True
+            if updated.tzinfo is None:
+                updated = updated.replace(tzinfo=UTC)
+            if (now - updated).total_seconds() < _IN_FLIGHT_STALE_SEC:
+                return True
+            log.warning(
+                "Model availability row for node %s has been %s since %s with no "
+                "progress; treating it as abandoned and re-issuing.",
+                row.node_id, row.status, updated,
+            )
+            return False
         if row.status == ModelAvailabilityStatus.FAILED.value:
             updated = row.updated_at
             if updated is None:
@@ -279,6 +305,24 @@ class ModelArtifactCoordinator:
         sync_payload = build_model_sync_payload(model, source="sync_from_server")
         if sync_payload is None:
             readiness.blockers.append(f"Model {model.id} has no repository or cache manifest to sync")
+            return readiness
+
+        if not model_sync_carries_files(sync_payload):
+            # Refusing here is the whole point.  Sending it would have every
+            # node reject it and be marked FAILED, which reads as "both
+            # machines are broken" when the machines are fine and this server
+            # simply has no copy to send.  Name the server, and say what would
+            # fix it.
+            store = settings.model_store_root
+            readiness.blockers.append(
+                f"This server has no local copy of {model.hf_repo_id} to send "
+                f"(looked in {store}). Import or download the model here first, "
+                f"then sync it to the cluster."
+            )
+            log.warning(
+                "Not issuing SYNC_MODEL for %s: no local files under %s",
+                model.hf_repo_id, store,
+            )
             return readiness
 
         gw = (

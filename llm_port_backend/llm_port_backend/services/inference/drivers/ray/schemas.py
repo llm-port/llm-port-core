@@ -37,6 +37,13 @@ class RayClusterStatus(BaseModel):
     fields default so a result from an older agent still parses.
     """
     alive: bool
+    #: Whether the node answered at all.
+    #:
+    #: ``alive=False`` is ambiguous on its own: it is both "the cluster told
+    #: us it is down" and "we never heard back".  Only the first is a fact,
+    #: and reporting the second as one produces a screen full of zeros that
+    #: look measured.
+    observed: bool = True
     version: str | None = None
     num_nodes: int = 0
     nodes: list[dict[str, Any]] = []

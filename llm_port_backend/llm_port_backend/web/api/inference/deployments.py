@@ -7,19 +7,24 @@ an honest stub; no replica is scheduled or contacted.
 
 from __future__ import annotations
 
+import logging
 import uuid
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from starlette import status
 
 from llm_port_backend.db.models.inference import InferenceEnvironment
 from llm_port_backend.db.models.users import User
 from llm_port_backend.services.inference.observability import (
     DeploymentMetrics,
+    GatewayTraffic,
     LogPage,
     LogSource,
+    MetricsPartial,
     ObservabilityUnsupported,
 )
+from llm_port_backend.services.llm.monitoring import get_monitoring_provisioner
+from llm_port_backend.services.observability.service import ObservabilityService
 from llm_port_backend.services.inference.service import (
     DeploymentService,
     InferenceError,
@@ -38,6 +43,8 @@ from llm_port_backend.web.api.inference.schema import (
     EndpointDTO,
 )
 from llm_port_backend.web.api.rbac import require_permission
+
+log = logging.getLogger(__name__)
 
 router = APIRouter()
 _DEP = "inference.deployments"
@@ -205,17 +212,58 @@ async def get_deployment_logs(
         raise unsupported(exc)
 
 
+@router.get("/{deployment_id}/monitoring-stats")
+async def deployment_monitoring_stats(
+    deployment_id: uuid.UUID,
+    _user: User = Depends(require_permission(_DEP, "read")),
+    service: DeploymentService = Depends(),
+) -> dict:
+    """The engine's live figures for this deployment, as the cards want them.
+
+    The same shape the providers page asks for, so one component renders both
+    and the two screens describe the same cluster identically. Resolved
+    through the environment, because that is the name Ray's metrics are
+    labelled with -- ``sync_ray_targets`` writes it onto every scrape target
+    and the cluster dashboard selects on it.
+
+    Always 200. ``{"enabled": false}`` means there is nothing to show, which
+    the card row renders as a muted state rather than an error.
+    """
+    off = {"enabled": False, "stale": True, "stats": {}, "dashboard_url": None}
+    try:
+        deployment = await service.get(deployment_id)
+    except InferenceError as exc:
+        raise _map_inference_error(exc)
+
+    monitoring = get_monitoring_provisioner()
+    if monitoring is None:
+        return off
+    environment = await service.session.get(
+        InferenceEnvironment, deployment.environment_id
+    )
+    if environment is None:
+        return off
+    return await monitoring.stats(environment.id, environment.name)
+
+
 @router.get("/{deployment_id}/metrics", response_model=DeploymentMetrics)
 async def get_deployment_metrics(
+    request: Request,
     deployment_id: uuid.UUID,
     _user: User = Depends(require_permission(_DEP, "read")),
     service: DeploymentService = Depends(),
     node_control: NodeControlService = Depends(get_node_control_service),
+    window_sec: int = Query(default=3600, ge=60, le=86_400),
 ) -> DeploymentMetrics:
-    """Aggregated Serve-application and replica metrics for a deployment.
+    """Aggregated Serve-application, replica and gateway metrics.
 
     A tier that cannot be reported comes back in ``partials`` with a reason,
     not as a zero.
+
+    The gateway tier is gathered here rather than inside the driver, because
+    it comes from a different database and is true regardless of which driver
+    is serving: it counts what went through the front door, not what the
+    cluster says about itself.
     """
     try:
         deployment = await service.get(deployment_id)
@@ -228,8 +276,50 @@ async def get_deployment_metrics(
     driver = await resolve_driver_for_environment(service.session, environment)
 
     try:
-        return await driver.deployment_metrics(
+        metrics = await driver.deployment_metrics(
             service.session, deployment, node_control=node_control
         )
     except ObservabilityUnsupported as exc:
         raise unsupported(exc)
+
+    metrics.traffic = await _gateway_traffic(request, deployment_id, window_sec)
+    if metrics.traffic is None:
+        metrics.partials.append(
+            MetricsPartial(
+                tier="traffic",
+                # Nothing is wrong; nothing is routed here yet.
+                severity="info",
+                reason=(
+                    "No gateway instance is registered for this deployment, "
+                    "so per-request figures are not available."
+                ),
+            )
+        )
+    return metrics
+
+
+async def _gateway_traffic(
+    request: Request, deployment_id: uuid.UUID, window_sec: int
+) -> GatewayTraffic | None:
+    """Per-request figures for one deployment, from the gateway's own log.
+
+    Best-effort: the gateway database is a separate service, and a metrics
+    screen that fails wholesale because the *optional* tier is unreachable is
+    worse than one that shows the cluster tier and says the rest is missing.
+    """
+    factory = getattr(request.app.state, "llm_graph_trace_session_factory", None)
+    if factory is None:
+        return None
+    try:
+        async with factory() as gw:
+            data = await ObservabilityService(gw).get_deployment_traffic(
+                str(deployment_id), window_sec=window_sec
+            )
+    except Exception:  # noqa: BLE001 - never fail the cluster tier over this
+        log.warning(
+            "Could not read gateway traffic for deployment %s",
+            deployment_id,
+            exc_info=True,
+        )
+        return None
+    return GatewayTraffic(**data) if data else None

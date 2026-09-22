@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import Depends
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from llm_port_backend.db.dependencies import get_db_session
@@ -19,13 +19,25 @@ from llm_port_backend.db.models.node_control import (
     InfraNodeEnrollmentToken,
     InfraNodeEvent,
     InfraNodeInventorySnapshot,
+    InfraNodeJoinRequest,
     InfraNodeMaintenanceWindow,
     InfraNodeProfile,
     InfraNodeSession,
     InfraNodeWorkloadAssignment,
+    JoinRequestStatus,
     NodeCommandStatus,
 )
 from llm_port_backend.db.models.system_settings import InfraAgent
+
+
+#: Event phases that mean *the agent* did something.
+#:
+#: Deliberately excludes the server's own bookkeeping.  "queued" is written
+#: when the command is created and "re-dispatched" every time the server
+#: re-sends it, so counting those as progress would make a command the server
+#: keeps retrying look permanently alive -- which is exactly the state that
+#: needs reaping.
+_AGENT_PROGRESS_PHASES = ("acked", "progress", "result")
 
 
 class NodeControlDAO:
@@ -71,6 +83,91 @@ class NodeControlDAO:
     ) -> None:
         token.used_at = datetime.now(tz=UTC)
         token.used_by_node_id = node_id
+
+    # ── join requests ─────────────────────────────────────────────
+    #
+    # "Pending" here always means pending *and* unexpired: an expired request
+    # is dead whether or not a sweeper has been round yet, so every read
+    # applies the clock rather than trusting the column.
+
+    async def create_join_request(
+        self,
+        *,
+        code: str,
+        poll_secret_hash: str,
+        agent_id: str,
+        host: str,
+        source_ip: str | None,
+        version: str | None,
+        capabilities: dict[str, Any],
+        expires_at: datetime,
+    ) -> InfraNodeJoinRequest:
+        row = InfraNodeJoinRequest(
+            id=uuid.uuid4(),
+            code=code,
+            poll_secret_hash=poll_secret_hash,
+            agent_id=agent_id,
+            host=host,
+            source_ip=source_ip,
+            version=version,
+            capabilities_json=capabilities,
+            status=JoinRequestStatus.PENDING,
+            expires_at=expires_at,
+        )
+        self.session.add(row)
+        await self.session.flush()
+        return row
+
+    async def get_join_request(self, request_id: uuid.UUID) -> InfraNodeJoinRequest | None:
+        return await self.session.get(InfraNodeJoinRequest, request_id)
+
+    async def list_pending_join_requests(self) -> list[InfraNodeJoinRequest]:
+        result = await self.session.execute(
+            select(InfraNodeJoinRequest)
+            .where(
+                InfraNodeJoinRequest.status == JoinRequestStatus.PENDING,
+                InfraNodeJoinRequest.expires_at > datetime.now(tz=UTC),
+            )
+            .order_by(InfraNodeJoinRequest.created_at)
+        )
+        return list(result.scalars().all())
+
+    async def count_pending_join_requests(self, *, source_ip: str | None = None) -> int:
+        """Live requests, optionally from one source — the rate limiter's input."""
+        stmt = select(func.count(InfraNodeJoinRequest.id)).where(
+            InfraNodeJoinRequest.status == JoinRequestStatus.PENDING,
+            InfraNodeJoinRequest.expires_at > datetime.now(tz=UTC),
+        )
+        if source_ip is not None:
+            stmt = stmt.where(InfraNodeJoinRequest.source_ip == source_ip)
+        return int((await self.session.execute(stmt)).scalar_one())
+
+    async def find_pending_join_request_by_agent(self, agent_id: str) -> InfraNodeJoinRequest | None:
+        """A live request from this machine, if it already asked.
+
+        Re-running ``join`` on a box that is already waiting should show the
+        same code, not queue a second row the operator has to disambiguate.
+        """
+        result = await self.session.execute(
+            select(InfraNodeJoinRequest)
+            .where(
+                InfraNodeJoinRequest.agent_id == agent_id,
+                InfraNodeJoinRequest.status == JoinRequestStatus.PENDING,
+                InfraNodeJoinRequest.expires_at > datetime.now(tz=UTC),
+            )
+            .order_by(InfraNodeJoinRequest.created_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    async def live_join_codes(self) -> set[str]:
+        result = await self.session.execute(
+            select(InfraNodeJoinRequest.code).where(
+                InfraNodeJoinRequest.status == JoinRequestStatus.PENDING,
+                InfraNodeJoinRequest.expires_at > datetime.now(tz=UTC),
+            )
+        )
+        return set(result.scalars().all())
 
     async def get_node_by_id(self, node_id: uuid.UUID) -> InfraNode | None:
         result = await self.session.execute(select(InfraNode).where(InfraNode.id == node_id))
@@ -218,6 +315,42 @@ class NodeControlDAO:
             .limit(1),
         )
         return result.scalar_one_or_none()
+
+    async def latest_inventory_snapshots(
+        self, *, node_ids: list[uuid.UUID] | None = None
+    ) -> dict[uuid.UUID, InfraNodeInventorySnapshot]:
+        """The newest snapshot per node, in one query.
+
+        The fleet list needs every node's utilization at once, and a query per
+        machine on a page built to show many of them is the wrong shape.
+
+        ``DISTINCT ON`` rather than fetching the rows and filtering in Python:
+        this table gains a row per node every inventory tick -- roughly every
+        15 seconds, forever -- so a week-old cluster holds tens of thousands of
+        rows per machine. Reading them all to keep the newest would make the
+        fleet list slower the longer the fleet had been up, which is precisely
+        backwards.
+
+        The tie-break on ``id`` matters because ``created_at`` defaults to
+        ``now()``, which in Postgres is the *transaction's* timestamp: two
+        snapshots written in one transaction carry the same value and would
+        otherwise be ordered arbitrarily.
+        """
+        if node_ids is not None and not node_ids:
+            return {}
+        stmt = (
+            select(InfraNodeInventorySnapshot)
+            .distinct(InfraNodeInventorySnapshot.node_id)
+            .order_by(
+                InfraNodeInventorySnapshot.node_id,
+                InfraNodeInventorySnapshot.created_at.desc(),
+                InfraNodeInventorySnapshot.id.desc(),
+            )
+        )
+        if node_ids is not None:
+            stmt = stmt.where(InfraNodeInventorySnapshot.node_id.in_(node_ids))
+        result = await self.session.execute(stmt)
+        return {snap.node_id: snap for snap in result.scalars()}
 
     async def create_command(
         self,
@@ -384,6 +517,54 @@ class NodeControlDAO:
         self.session.add(event)
         await self.session.flush()
         return event
+
+    async def latest_command_event_at(self, *, command_id: uuid.UUID) -> datetime | None:
+        """When this command last showed any sign of life.
+
+        A long transfer streams progress events; each one is evidence someone
+        is still working.  Silence is what distinguishes "slow" from "gone",
+        and node health cannot: a node can heartbeat perfectly while a command
+        dispatched to it is never going to be answered.
+        """
+        result = await self.session.execute(
+            select(func.max(InfraNodeCommandEvent.created_at)).where(
+                InfraNodeCommandEvent.command_id == command_id,
+                InfraNodeCommandEvent.phase.in_(_AGENT_PROGRESS_PHASES),
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def close_stale_sessions(self, *, silent_for: timedelta) -> int:
+        """Close stream sessions that stopped heartbeating.
+
+        A session is only ended cleanly when the websocket handler runs its
+        teardown.  A killed agent, a dropped link or a container stop never
+        gets there, so the row stays "connected" forever and the node looks
+        like it has more live agents than it does.
+        """
+        cutoff = datetime.now(tz=UTC) - silent_for
+        result = await self.session.execute(
+            select(InfraNodeSession).where(
+                InfraNodeSession.disconnected_at.is_(None),
+                or_(
+                    InfraNodeSession.last_heartbeat_at < cutoff,
+                    and_(
+                        InfraNodeSession.last_heartbeat_at.is_(None),
+                        InfraNodeSession.connected_at < cutoff,
+                    ),
+                ),
+            )
+        )
+        rows = list(result.scalars().all())
+        now = datetime.now(tz=UTC)
+        for row in rows:
+            row.disconnected_at = now
+        if rows:
+            # Flush so the close is visible to anything that reads back in the
+            # same transaction -- otherwise a caller re-reading sees the row
+            # still open and concludes the reaper did nothing.
+            await self.session.flush()
+        return len(rows)
 
     async def list_command_events(self, *, command_id: uuid.UUID) -> list[InfraNodeCommandEvent]:
         result = await self.session.execute(

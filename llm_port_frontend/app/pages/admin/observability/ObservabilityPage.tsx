@@ -83,7 +83,16 @@ export default function ObservabilityPage() {
   const theme = useTheme();
   const [tab, setTab] = useState(0);
   const [range, setRange] = useState<RangeKey>("7d");
-  const [loading, setLoading] = useState(true);
+  // One flag per panel, not one for the page.
+  //
+  // These three queries scan different amounts of history -- the performance
+  // percentiles are much the heaviest -- and gathering them in a `Promise.all`
+  // meant the summary cards, which return almost immediately, sat as
+  // skeletons until the slowest had finished. Every panel here already draws
+  // its own skeleton; they just all watched the same flag.
+  const [summaryLoading, setSummaryLoading] = useState(true);
+  const [seriesLoading, setSeriesLoading] = useState(true);
+  const [perfLoading, setPerfLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -94,26 +103,35 @@ export default function ObservabilityPage() {
   const end = useMemo(() => new Date().toISOString(), []);
 
   const loadOverview = useCallback(async () => {
-    setLoading(true);
     setError(null);
-    try {
-      const [s, ts, p] = await Promise.all([
-        observability.summary(start, end),
-        observability.timeseries(
-          start,
-          end,
-          RANGES[range] <= 7 ? "hour" : "day",
-        ),
-        observability.performance(start, end),
-      ]);
-      setSummary(s);
-      setTimeseries(ts);
-      setPerf(p);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to load data");
-    } finally {
-      setLoading(false);
-    }
+    // The error banner reports the first failure; a panel that failed on its
+    // own still shows its own empty state rather than pretending to a zero.
+    const fail = (err: unknown) =>
+      setError((prev) =>
+        prev ?? (err instanceof Error ? err.message : "Failed to load data"),
+      );
+
+    setSummaryLoading(true);
+    setSeriesLoading(true);
+    setPerfLoading(true);
+
+    void observability
+      .summary(start, end)
+      .then(setSummary)
+      .catch(fail)
+      .finally(() => setSummaryLoading(false));
+
+    void observability
+      .timeseries(start, end, RANGES[range] <= 7 ? "hour" : "day")
+      .then(setTimeseries)
+      .catch(fail)
+      .finally(() => setSeriesLoading(false));
+
+    void observability
+      .performance(start, end)
+      .then(setPerf)
+      .catch(fail)
+      .finally(() => setPerfLoading(false));
   }, [start, end, range]);
 
   useEffect(() => {
@@ -127,7 +145,7 @@ export default function ObservabilityPage() {
       {/* Summary cards */}
       <Grid container spacing={2} sx={{ mb: 3 }}>
         <Grid size={{ xs: 6, sm: 4, md: 2.4 }}>
-          {loading ? (
+          {summaryLoading ? (
             <Skeleton variant="rounded" height={100} />
           ) : (
             <StatCard
@@ -137,7 +155,7 @@ export default function ObservabilityPage() {
           )}
         </Grid>
         <Grid size={{ xs: 6, sm: 4, md: 2.4 }}>
-          {loading ? (
+          {summaryLoading ? (
             <Skeleton variant="rounded" height={100} />
           ) : (
             <StatCard
@@ -147,7 +165,7 @@ export default function ObservabilityPage() {
           )}
         </Grid>
         <Grid size={{ xs: 6, sm: 4, md: 2.4 }}>
-          {loading ? (
+          {summaryLoading ? (
             <Skeleton variant="rounded" height={100} />
           ) : (
             <StatCard
@@ -157,7 +175,7 @@ export default function ObservabilityPage() {
           )}
         </Grid>
         <Grid size={{ xs: 6, sm: 4, md: 2.4 }}>
-          {loading ? (
+          {summaryLoading ? (
             <Skeleton variant="rounded" height={100} />
           ) : (
             <StatCard
@@ -167,7 +185,7 @@ export default function ObservabilityPage() {
           )}
         </Grid>
         <Grid size={{ xs: 6, sm: 4, md: 2.4 }}>
-          {loading ? (
+          {summaryLoading ? (
             <Skeleton variant="rounded" height={100} />
           ) : (
             <StatCard
@@ -187,7 +205,7 @@ export default function ObservabilityPage() {
               <Typography variant="subtitle2" gutterBottom>
                 {t("observability.cost_over_time")}
               </Typography>
-              {loading ? (
+              {seriesLoading ? (
                 <Skeleton variant="rounded" height={250} />
               ) : timeseries.length === 0 ? (
                 <Typography
@@ -228,7 +246,7 @@ export default function ObservabilityPage() {
               <Typography variant="subtitle2" gutterBottom>
                 {t("observability.request_throughput")}
               </Typography>
-              {loading ? (
+              {seriesLoading ? (
                 <Skeleton variant="rounded" height={250} />
               ) : timeseries.length === 0 ? (
                 <Typography
@@ -266,7 +284,7 @@ export default function ObservabilityPage() {
               <Typography variant="subtitle2" gutterBottom>
                 {t("observability.latency_percentiles")}
               </Typography>
-              {loading || !perf ? (
+              {perfLoading || !perf ? (
                 <Skeleton variant="rounded" height={200} />
               ) : (
                 <BarChart
@@ -296,7 +314,7 @@ export default function ObservabilityPage() {
               <Typography variant="subtitle2" gutterBottom>
                 {t("observability.spend_by_model")}
               </Typography>
-              {loading || !summary ? (
+              {summaryLoading || !summary ? (
                 <Skeleton variant="rounded" height={200} />
               ) : summary.by_model.length === 0 ? (
                 <Typography

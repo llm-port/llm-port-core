@@ -379,21 +379,9 @@ export function TaskFlowTour({ run, flowId, onFinish }: TaskFlowTourProps) {
     }
   }, [run, stepIndex, steps]);
 
-  // Cleanup on stop
-  useEffect(() => {
-    if (!run) {
-      waitingRef.current = false;
-      setWaiting(false);
-      cleanupObservers();
-      sweepJoyrideDOM();
-    }
-    return () => {
-      waitingRef.current = false;
-      cleanupObservers();
-      sweepJoyrideDOM();
-    };
-  }, [run, cleanupObservers, sweepJoyrideDOM]);
-
+  // Declared before the effect that lists it as a dependency: a `const`
+  // in a dependency array is read during render, so having it below threw
+  // a temporal-dead-zone ReferenceError and took the tour down with it.
   /** Forcibly remove Joyride portal elements and highlight classes. */
   const sweepJoyrideDOM = useCallback(() => {
     document.querySelectorAll(".tour-active-target").forEach((el) => {
@@ -412,6 +400,21 @@ export function TaskFlowTour({ run, flowId, onFinish }: TaskFlowTourProps) {
     requestAnimationFrame(remove);
     setTimeout(remove, 100);
   }, []);
+
+  // Cleanup on stop
+  useEffect(() => {
+    if (!run) {
+      waitingRef.current = false;
+      setWaiting(false);
+      cleanupObservers();
+      sweepJoyrideDOM();
+    }
+    return () => {
+      waitingRef.current = false;
+      cleanupObservers();
+      sweepJoyrideDOM();
+    };
+  }, [run, cleanupObservers, sweepJoyrideDOM]);
 
   function handleEvent(data: EventData, controls: Controls) {
     const { action, index, status, type } = data;

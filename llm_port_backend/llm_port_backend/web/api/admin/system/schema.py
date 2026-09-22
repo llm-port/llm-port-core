@@ -148,6 +148,74 @@ class NodeEnrollmentTokenCreateResponse(BaseModel):
     note: str | None = None
 
 
+class NodeJoinRequestCreate(BaseModel):
+    """A machine asking to be let in.  Carries no secret, by design."""
+
+    agent_id: str
+    host: str
+    capabilities: dict[str, Any] = Field(default_factory=dict)
+    version: str | None = None
+
+
+class NodeJoinRequestCreated(BaseModel):
+    """What the machine prints for the operator to compare against the UI."""
+
+    id: str
+    #: Short and human-comparable.  Not a secret -- see the model docstring.
+    code: str
+    #: Returned once, to this machine only; it is what proves the poller is
+    #: the requester.  ``None`` when the machine was already waiting.
+    poll_secret: str | None = None
+    expires_at: str
+    already_pending: bool = False
+
+
+class NodeJoinCollectRequest(BaseModel):
+    """The waiting machine asking whether a human has decided yet."""
+
+    poll_secret: str
+
+
+class NodeJoinCollectResponse(BaseModel):
+    """pending | approved | rejected | expired | claimed."""
+
+    status: str
+    message: str | None = None
+    code: str | None = None
+    expires_at: str | None = None
+    #: Present only on ``approved``, and only once.
+    node_id: str | None = None
+    agent_id: str | None = None
+    credential: str | None = None
+    host: str | None = None
+
+
+class NodeJoinRequestDTO(BaseModel):
+    """A waiting machine, as the operator sees it before approving.
+
+    Everything here is what the machine *claims* except ``source_ip``, which
+    is where the request actually came from.  Both are shown: approving is
+    only meaningful if you can see what you are approving.
+    """
+
+    id: str
+    code: str
+    agent_id: str
+    host: str
+    source_ip: str | None = None
+    version: str | None = None
+    #: Accelerator count, vendor, architecture -- enough to recognise the box.
+    capabilities: dict[str, Any] = Field(default_factory=dict)
+    created_at: str
+    expires_at: str
+
+
+class NodeJoinDecisionRequest(BaseModel):
+    """Approve or reject, with an optional note for the audit trail."""
+
+    message: str | None = None
+
+
 class NodeEnrollRequest(BaseModel):
     """Agent enrollment request using one-time token."""
 

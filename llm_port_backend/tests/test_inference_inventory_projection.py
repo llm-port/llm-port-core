@@ -247,3 +247,58 @@ async def test_planner_sees_candidates_after_real_inventory_ingest(
     resolved = applied.observed_status_json["resolved_fabric"]
     assert resolved["fabric_type"] == "roce"
     assert resolved["cidr"] == "10.100.0.0/24"
+
+
+@pytest.mark.anyio
+async def test_heartbeat_keeps_the_projected_network_summary(
+    dbsession: AsyncSession,
+) -> None:
+    """A heartbeat must not erase what the inventory projected.
+
+    The heartbeat carries *static* capabilities and replaces
+    ``capabilities_json`` wholesale.  The fabric planner reads
+    ``capabilities_json['network']``, which only the inventory projection
+    writes -- so before this, planning worked only in the gap between an
+    inventory message and the next heartbeat, and a plan that had just
+    succeeded would report "no network facts reported" seconds later.
+    """
+    service = NodeControlService(
+        dao=NodeControlDAO(dbsession),
+        pepper="test-pepper",
+        enrollment_ttl_minutes=60,
+        default_command_timeout_sec=30,
+    )
+    node = InfraNode(
+        agent_id=f"node-{uuid.uuid4().hex[:8]}",
+        host="10.0.0.1",
+        status="healthy",
+        capabilities_json={"hostname": "n1", "machine": "aarch64"},
+    )
+    dbsession.add(node)
+    await dbsession.flush()
+
+    await service.record_inventory(
+        node=node,
+        inventory={
+            "network": {
+                "fabrics": [{"cidr": "10.100.0.0/24", "ip": "10.100.0.1"}],
+                "all_interfaces": [{"name": "eth0"}],
+            }
+        },
+        utilization={},
+    )
+    assert node.capabilities_json["network"]["fabrics"]
+
+    # A heartbeat reporting only static capabilities.
+    await service.heartbeat_node(
+        node=node,
+        status="healthy",
+        capabilities={"hostname": "n1", "machine": "aarch64", "gpu_count": 1},
+    )
+
+    assert node.capabilities_json["gpu_count"] == 1
+    assert node.capabilities_json["network"]["fabrics"], (
+        "the heartbeat erased the inventory-projected network summary"
+    )
+    # Tier-2 detail still stays out of the node row.
+    assert "all_interfaces" not in node.capabilities_json["network"]

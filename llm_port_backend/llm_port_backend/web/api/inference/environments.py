@@ -22,9 +22,11 @@ from llm_port_backend.services.inference.service import (
 from llm_port_backend.web.api.inference.control_planes import _map_inference_error
 from llm_port_backend.web.api.inference.schema import (
     ApplyPlanRequest,
+    ComputePoolDTO,
     EnvironmentCreate,
     EnvironmentDTO,
     EnvironmentNodeAdd,
+    EnvironmentNodeDTO,
     EnvironmentUpdate,
 )
 from llm_port_backend.services.inference.observability import (
@@ -67,7 +69,7 @@ async def create_environment(
             control_plane_id=body.control_plane_id,
             name=body.name,
             description=body.description,
-            ray_version=body.ray_version,
+            runtime_version=body.runtime_version,
             head_node_id=body.head_node_id,
             address=body.address,
             config=body.config,
@@ -156,6 +158,77 @@ async def add_environment_node(
         raise _map_inference_error(exc)
     env = await service.get(environment_id)
     return _dto_from_env(env)
+
+
+@router.delete(
+    "/{environment_id}/nodes/{node_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def remove_environment_node(
+    environment_id: uuid.UUID,
+    node_id: uuid.UUID,
+    _user: User = Depends(require_permission(_ENV, "update")),
+    service: EnvironmentService = Depends(),
+) -> None:
+    """Drop a node from an environment's desired membership.
+
+    The counterpart to ``POST .../nodes``.  Without it an operator who added
+    the wrong node could only undo it in the database.  Desired state only:
+    no node is contacted, and the reconciler converges on the next pass.
+    """
+    try:
+        await service.remove_node(environment_id, node_id)
+    except InferenceError as exc:
+        raise _map_inference_error(exc)
+
+
+@router.get("/{environment_id}/pools", response_model=list[ComputePoolDTO])
+async def list_environment_pools(
+    environment_id: uuid.UUID,
+    _user: User = Depends(require_permission(_ENV, "read")),
+    service: EnvironmentService = Depends(),
+) -> list[ComputePoolDTO]:
+    """List the compute pools derived for this cluster.
+
+    Read-only.  A single-vendor cluster has exactly one, which is why nothing
+    has to be configured; a mixed cluster has one per compatibility class, and
+    that is what placement and runtime-bundle matching both key off.
+    """
+    try:
+        await service.get(environment_id)
+    except InferenceError as exc:
+        raise _map_inference_error(exc)
+
+    from llm_port_backend.services.inference.pools import ComputePoolCoordinator
+
+    coordinator = ComputePoolCoordinator(service.session)
+    pools = await coordinator.list_for_environment(environment_id)
+    counts = await coordinator.member_counts(environment_id)
+    result = []
+    for pool in pools:
+        dto = ComputePoolDTO.model_validate(pool)
+        dto.member_count = counts.get(pool.id, 0)
+        result.append(dto)
+    return result
+
+
+@router.get("/{environment_id}/nodes", response_model=list[EnvironmentNodeDTO])
+async def list_environment_nodes(
+    environment_id: uuid.UUID,
+    _user: User = Depends(require_permission(_ENV, "read")),
+    service: EnvironmentService = Depends(),
+) -> list[EnvironmentNodeDTO]:
+    """List the nodes registered as members of an environment.
+
+    Read-only: it reports desired membership and whatever the last reconcile
+    observed per node, and contacts nothing.
+    """
+    try:
+        await service.get(environment_id)
+    except InferenceError as exc:
+        raise _map_inference_error(exc)
+    memberships = await service.node_dao.list_for_environment(environment_id)
+    return [EnvironmentNodeDTO.model_validate(m) for m in memberships]
 
 
 @router.post(

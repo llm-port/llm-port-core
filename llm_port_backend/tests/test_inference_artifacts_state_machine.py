@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
+
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -94,8 +96,24 @@ async def test_in_flight_sync_is_not_reset_to_pending(dbsession: AsyncSession) -
 
 
 @pytest.mark.anyio()
-async def test_failed_sync_is_retried_after_backoff(dbsession: AsyncSession) -> None:
-    """A transient failure must not disable local artifacts forever."""
+async def test_failed_sync_is_retried_after_backoff(
+    dbsession: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A transient failure must not disable local artifacts forever.
+
+    The server must actually hold the model for a retry to mean anything:
+    without files there is nothing to re-send, and dispatching a fileless
+    payload only records a second node failure for a server-side gap.
+    """
+    import llm_port_backend.services.llm.artifacts as artifacts_mod
+
+    monkeypatch.setattr(artifacts_mod, "model_cache_dir", lambda _repo: Path("/srv/models/x"))
+    monkeypatch.setattr(
+        artifacts_mod,
+        "build_cache_manifest",
+        lambda _d: {"blobs": [{"sha256": "abc", "size": 4}], "refs": [], "snapshots": []},
+    )
+
     env, model, nodes = await _environment(dbsession)
     node = nodes[0]
     dao = ModelAvailabilityDAO(dbsession)
@@ -157,3 +175,61 @@ def test_default_revision_prefers_main_over_alphabetical_first() -> None:
     assert _default_revision([{"name": "master", "commit": "abc"}]) == "abc"
     assert _default_revision([{"name": "only", "commit": "xyz"}]) == "xyz"
     assert _default_revision([]) is None
+
+
+@pytest.mark.anyio()
+async def test_an_abandoned_sync_is_eventually_retried(
+    dbsession: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A SYNCING row is a claim, and claims expire.
+
+    ``PENDING``/``SYNCING`` means "a sync is already under way", so the
+    coordinator skips that node. If the sync dies -- the agent is killed, the
+    command is reaped, the container stops -- the row stays, the node is
+    skipped on every future pass, and the artifact never becomes ready. The
+    deployment waiting on it waits for good, with nothing reported anywhere.
+    """
+    import llm_port_backend.services.llm.artifacts as artifacts_mod
+
+    monkeypatch.setattr(artifacts_mod, "model_cache_dir", lambda _repo: Path("/srv/models/x"))
+    monkeypatch.setattr(
+        artifacts_mod,
+        "build_cache_manifest",
+        lambda _d: {"blobs": [{"sha256": "abc", "size": 4}], "refs": [], "snapshots": []},
+    )
+
+    env, model, nodes = await _environment(dbsession)
+    node = nodes[0]
+    dao = ModelAvailabilityDAO(dbsession)
+    gateway = NodeCommandGateway(dbsession)
+
+    await dao.mark(model.id, node.id, ModelAvailabilityStatus.SYNCING, status_message="syncing")
+    await dbsession.flush()
+
+    # Fresh: genuinely in flight, so the node is left alone.
+    await ModelArtifactCoordinator(dbsession, gateway=gateway).ensure(
+        model=model, environment=env
+    )
+    await dbsession.flush()
+    assert len(await _commands_for(dbsession, node.id)) == 0
+
+    # Untouched for far longer than any transfer takes: abandoned.
+    row = await dao.get(model.id, node.id)
+    row.updated_at = datetime.now(tz=UTC) - timedelta(
+        seconds=artifacts_mod_stale_sec() + 600
+    )
+    await dbsession.flush()
+
+    await ModelArtifactCoordinator(dbsession, gateway=gateway).ensure(
+        model=model, environment=env
+    )
+    await dbsession.flush()
+    assert len(await _commands_for(dbsession, node.id)) == 1, (
+        "an abandoned sync must be re-issued, or the node is skipped forever"
+    )
+
+
+def artifacts_mod_stale_sec() -> float:
+    from llm_port_backend.services.inference.artifacts import _IN_FLIGHT_STALE_SEC
+
+    return _IN_FLIGHT_STALE_SEC

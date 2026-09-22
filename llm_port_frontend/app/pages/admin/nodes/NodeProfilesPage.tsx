@@ -1,6 +1,11 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { nodesApi, type NodeProfile } from "~/api/nodes";
+import {
+  nodesApi,
+  type NodeProfile,
+  type NodeProfileCreatePayload,
+  type NodeProfileUpdatePayload,
+} from "~/api/nodes";
 import { ConfirmDialog } from "~/components/ConfirmDialog";
 import { DataTable, type ColumnDef } from "~/components/DataTable";
 import { useAsyncData } from "~/lib/useAsyncData";
@@ -44,14 +49,14 @@ export default function NodeProfilesPage() {
     setFormOpen(true);
   }
 
-  async function handleSave(payload: Record<string, unknown>) {
+  async function handleSave(
+    payload: NodeProfileCreatePayload | NodeProfileUpdatePayload,
+  ) {
     try {
       if (editing) {
         await nodesApi.updateProfile(editing.id, payload);
       } else {
-        await nodesApi.createProfile(
-          payload as Parameters<typeof nodesApi.createProfile>[0],
-        );
+        await nodesApi.createProfile(payload as NodeProfileCreatePayload);
       }
       setFormOpen(false);
       await refresh();

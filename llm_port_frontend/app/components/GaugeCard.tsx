@@ -1,4 +1,4 @@
-import { useTheme } from "@mui/material/styles";
+import { useTheme, type Theme } from "@mui/material/styles";
 import { useTranslation } from "react-i18next";
 import Box from "@mui/material/Box";
 import Card from "@mui/material/Card";
@@ -7,7 +7,7 @@ import Typography from "@mui/material/Typography";
 import { Gauge, gaugeClasses } from "@mui/x-charts/Gauge";
 
 /** Color thresholds: <=60 success, <=85 warning, >85 error */
-function arcColor(value: number, theme: ReturnType<typeof useTheme>): string {
+function arcColor(value: number, theme: Theme): string {
   if (value <= 60) return theme.palette.success.main;
   if (value <= 85) return theme.palette.warning.main;
   return theme.palette.error.main;

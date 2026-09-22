@@ -57,6 +57,46 @@ class BackendClient:
             raise RuntimeError("Invalid enroll response payload.")
         return payload
 
+    async def request_join(
+        self,
+        *,
+        agent_id: str,
+        host: str,
+        capabilities: dict[str, Any],
+        version: str,
+    ) -> dict[str, Any]:
+        """Ask to join, and get back a code for a human to compare.
+
+        The other half of onboarding: no token travels to this machine, so
+        nothing long has to be typed on it.
+        """
+        res = await self._client.post(
+            "/api/admin/system/nodes/join-requests",
+            json={
+                "agent_id": agent_id,
+                "host": host,
+                "capabilities": capabilities,
+                "version": version,
+            },
+        )
+        res.raise_for_status()
+        payload = res.json()
+        if not isinstance(payload, dict):
+            raise RuntimeError("Invalid join-request response payload.")
+        return payload
+
+    async def collect_join(self, *, request_id: str, poll_secret: str) -> dict[str, Any]:
+        """Ask whether an administrator has decided yet."""
+        res = await self._client.post(
+            f"/api/admin/system/nodes/join-requests/{request_id}/collect",
+            json={"poll_secret": poll_secret},
+        )
+        res.raise_for_status()
+        payload = res.json()
+        if not isinstance(payload, dict):
+            raise RuntimeError("Invalid join-collect response payload.")
+        return payload
+
     async def rotate_credential(self, *, credential: str) -> dict[str, Any]:
         """Rotate active credential using bearer auth."""
         res = await self._client.post(

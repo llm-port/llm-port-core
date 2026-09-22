@@ -68,13 +68,35 @@ def _safe_leaf_name(value: str, *, field: str) -> str:
 
 
 def _safe_join(root: Path, relative: str, *, field: str) -> Path:
+    """Join *relative* under *root*, refusing anything that escapes it.
+
+    The escape this catches in practice is not a crafted ``../`` in the
+    payload -- it is an **existing symlink on the node** whose target sits
+    outside the model store.  ``resolve()`` follows it, and writing through it
+    would put model files somewhere the operator never pointed us at.
+
+    The message names the resolved target because the name alone is no help:
+    a stale symlink left by an earlier configuration looks completely ordinary
+    in the payload, and "Unsafe model_dir_name" sends whoever reads it looking
+    for a malicious path that does not exist.
+    """
     rel = Path(relative)
     if rel.is_absolute() or rel.drive or any(part == ".." for part in rel.parts):
-        raise ModelPullerError(f"Unsafe {field}: {relative!r}")
+        raise ModelPullerError(f"Unsafe {field} {relative!r}: not a relative path inside the store")
     candidate = (root / rel).resolve(strict=False)
     root_resolved = root.resolve(strict=False)
     if candidate != root_resolved and root_resolved not in candidate.parents:
-        raise ModelPullerError(f"Unsafe {field}: {relative!r}")
+        literal = root / rel
+        hint = ""
+        if literal.is_symlink():
+            hint = (
+                f" -- {literal} is a symlink to {candidate}, which is outside the store."
+                " Remove the symlink so the model can be written in place."
+            )
+        raise ModelPullerError(
+            f"Unsafe {field} {relative!r}: resolves to {candidate}, "
+            f"outside the model store {root_resolved}{hint}"
+        )
     return candidate
 
 

@@ -12,10 +12,11 @@ to diagnose a deployment, and live tailing is not part of Phase 6.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from llm_port_backend.db.models.inference import InferenceDeployment
@@ -34,6 +35,11 @@ log = logging.getLogger(__name__)
 # One log fetch is interactive: an operator is waiting on it.
 _LOG_COMMAND_TIMEOUT_SEC = 60
 _LOG_WAIT_BUDGET_SEC = 30.0
+
+#: How old a completed log fetch may be and still be worth showing at once.
+#: Above this the caller waits for a fresh one rather than presenting a stale
+#: page as current.
+_RECENT_LOG_MAX_AGE_SEC = 120.0
 
 _MAX_TAIL = 5000
 
@@ -128,6 +134,100 @@ class RayLogReader:
     def __init__(self, gateway: "NodeCommandGateway") -> None:
         self._gateway = gateway
 
+    async def _recent_log_result(
+        self, node_id: uuid.UUID, deployment_id: uuid.UUID
+    ) -> dict[str, Any] | None:
+        """The newest completed log fetch for this deployment, if one is fresh.
+
+        Bounded by age so a panel never shows a page from a previous session
+        as though it were current; past that the caller waits for a real one.
+        """
+        try:
+            commands = await self._gateway.list_recent(
+                node_id=node_id,
+                command_type=NodeCommandType.FETCH_CONTAINER_LOGS.value,
+                limit=12,
+            )
+        except Exception:  # noqa: BLE001 - a log read never fails a request
+            return None
+        cutoff = datetime.now(tz=UTC) - timedelta(seconds=_RECENT_LOG_MAX_AGE_SEC)
+        for command in commands:
+            if command.status != "succeeded" or not command.result_json:
+                continue
+            completed = command.completed_at
+            if completed is None:
+                continue
+            if completed.tzinfo is None:
+                completed = completed.replace(tzinfo=UTC)
+            if completed < cutoff:
+                break
+            if str((command.payload_json or {}).get("runtime_id")) == str(deployment_id):
+                return dict(command.result_json)
+        return None
+
+    async def _read_from_loki(
+        self,
+        deployment: InferenceDeployment,
+        *,
+        source: LogSource,
+        app_name: str,
+        replica_id: str | None,
+        tail: int,
+    ) -> LogPage | None:
+        """One page from Loki, or ``None`` to let the caller fall back.
+
+        ``None`` rather than an empty page on every failure path, deliberately:
+        an empty page is an answer ("this deployment logged nothing") and
+        would stop the node fallback being tried. Only a successful query with
+        lines counts as an answer here.
+        """
+        selector = f'{{job="ray-serve", app="{_escape_label(app_name)}"}}'
+        if replica_id:
+            selector = (
+                f'{{job="ray-serve", app="{_escape_label(app_name)}", '
+                f'replica="{_escape_label(replica_id)}"}}'
+            )
+
+        try:
+            from llm_port_backend.web.api.logs.views import (  # noqa: PLC0415
+                LokiUpstreamError,
+                _request_loki_json,
+            )
+        except Exception:  # noqa: BLE001 - no Loki proxy compiled in
+            return None
+
+        now = datetime.now(tz=UTC)
+        params = {
+            "query": selector,
+            # A page, not a history. The panel shows a tail; anything older
+            # is a Loki query the operator can widen themselves.
+            "start": str(int((now - timedelta(hours=6)).timestamp() * 1_000_000_000)),
+            "end": str(int(now.timestamp() * 1_000_000_000)),
+            "limit": str(tail),
+            "direction": "BACKWARD",
+        }
+        try:
+            payload = await _request_loki_json(
+                "/loki/api/v1/query_range", params=params, timeout=5.0
+            )
+        except Exception:  # noqa: BLE001 - Loki being down is not an error here
+            log.debug("Loki log read failed for %s", deployment.id, exc_info=True)
+            return None
+
+        lines = _lines_from_loki(payload)
+        if not lines:
+            return None
+
+        return LogPage(
+            source=source,
+            node_id=None,
+            replica_id=replica_id,
+            # Oldest first: Loki answers newest-first for a BACKWARD query,
+            # and a log panel reads downwards.
+            lines=list(reversed(lines))[-tail:],
+            detail=None,
+        )
+
     async def read(
         self,
         deployment: InferenceDeployment,
@@ -145,6 +245,21 @@ class RayLogReader:
         tail = max(1, min(int(tail or 200), _MAX_TAIL))
         target_node = uuid.UUID(node_id) if node_id else head_node_id
 
+        # Loki first: the agent ships these lines continuously, so they are
+        # already there and the answer costs one query instead of a round
+        # trip to a node that may be busy. Falls through on anything -- an
+        # empty result included -- so a node whose bundle predates the
+        # session-directory mount still works.
+        page = await self._read_from_loki(
+            deployment,
+            source=source,
+            app_name=app_name,
+            replica_id=replica_id,
+            tail=tail,
+        )
+        if page is not None:
+            return page
+
         payload: dict[str, Any] = {
             "tail": tail,
             # The agent keys container lookup off these; for the Ray path the
@@ -156,8 +271,33 @@ class RayLogReader:
             payload["since"] = since
         if runtime_bundle is not None:
             payload["runtime_bundle"] = runtime_bundle
+            # Name the container explicitly.  Under the Ray driver there is no
+            # per-deployment container: every replica runs inside the runtime
+            # bundle's one.  Without this the agent derives
+            # "llm-port-<app_name>", finds nothing, and every log read returns
+            # "Container ... does not exist on this node" -- a successful
+            # fetch of the wrong thing.
+            bundle_container = runtime_bundle.get("name")
+            if isinstance(bundle_container, str) and bundle_container.strip():
+                payload["container_name"] = bundle_container.strip()
         if source == LogSource.SERVE_REPLICA and replica_id:
             payload["replica_id"] = replica_id
+
+        # Serve the most recent fetch that finished, and start the next one.
+        #
+        # This was once load-bearing for a different reason: a queued command
+        # was only delivered when the agent next spoke, so a fetch doing ~0.1s
+        # of work took 30-45s end to end and the request gave up at 30s,
+        # reporting "no response from the node" for a fetch that had in fact
+        # succeeded.  The backend now wakes the node's stream as soon as a
+        # command is queued and the round trip is ~0.5s, measured on the DGX
+        # pair.
+        #
+        # It stays because it is the right shape regardless: a polling log
+        # view does not need *this* request to carry the newest page, it needs
+        # a page now and a newer one on the next poll.  That still holds when
+        # the node is genuinely busy or briefly unreachable.
+        recent = await self._recent_log_result(target_node, deployment.id)
 
         try:
             command = await self._gateway.issue(
@@ -168,7 +308,13 @@ class RayLogReader:
                 idempotency_key=f"inference-logs:{deployment.id}:{uuid.uuid4().hex[:12]}",
                 timeout_sec=_LOG_COMMAND_TIMEOUT_SEC,
             )
-            final = await self._gateway.wait(command.id, budget_sec=_LOG_WAIT_BUDGET_SEC)
+            # Only wait if there is nothing to show yet.  With a page in
+            # hand the fetch just started becomes the next poll's answer.
+            final = (
+                None
+                if recent is not None
+                else await self._gateway.wait(command.id, budget_sec=_LOG_WAIT_BUDGET_SEC)
+            )
         except Exception as exc:  # noqa: BLE001 - a log read never fails a request
             log.warning("Log fetch for deployment %s failed: %s", deployment.id, exc)
             return LogPage(
@@ -178,25 +324,90 @@ class RayLogReader:
                 detail=f"could not reach the node: {exc}",
             )
 
-        if final is None:
+        if final is None and recent is None:
             return LogPage(
                 source=source,
                 node_id=str(target_node),
                 replica_id=replica_id,
-                detail=f"no response from the node within {_LOG_WAIT_BUDGET_SEC:.0f}s",
+                detail=(
+                    f"the node has not answered within {_LOG_WAIT_BUDGET_SEC:.0f}s; "
+                    "the fetch is still running and the next refresh should show it"
+                ),
             )
 
-        result = dict(final.result_json or {})
+        result = dict((final.result_json if final is not None else recent) or {})
         text = _result_text(result)
         if not text:
             return LogPage(
                 source=source,
                 node_id=str(target_node),
                 replica_id=replica_id,
-                detail=result.get("error") or "the node returned no log output",
+                detail=(
+                    result.get("error")
+                    or (
+                        # The runtime container idles on `sleep infinity` and
+                        # Ray writes to files inside it, so `docker logs` on
+                        # it is legitimately empty.  Saying "no output" alone
+                        # reads as a fault; the replica's own log file is
+                        # where this deployment actually writes.
+                        "the runtime container produced no console output — Ray "
+                        "writes per-replica logs to files inside it, which this "
+                        "reader does not yet collect"
+                        if runtime_bundle is not None
+                        else "the node returned no log output"
+                    )
+                ),
             )
 
         page = normalize_log_text(
             text, source=source, node_id=str(target_node), replica_id=replica_id, tail=tail,
         )
         return page
+
+
+def _escape_label(value: str) -> str:
+    """Make a value safe inside a LogQL double-quoted matcher.
+
+    These come from our own records (an app name, a Ray replica id), but a
+    stray quote would turn a selector into a syntax error at best.
+    """
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _lines_from_loki(payload: dict[str, Any]) -> list[LogLine]:
+    """Normalise a Loki ``query_range`` body into log lines.
+
+    Each entry is ``[<nanoseconds as a string>, <line>]``. The line is JSON
+    when it came from a Serve replica -- the compiler asks for JSON encoding
+    -- so the level and message are read from fields rather than parsed out
+    of formatted text. Anything else ships as-is rather than being dropped.
+    """
+    result = ((payload or {}).get("data") or {}).get("result") or []
+    out: list[LogLine] = []
+    for stream in result:
+        if not isinstance(stream, dict):
+            continue
+        labels = stream.get("stream") or {}
+        for value in stream.get("values") or []:
+            if not isinstance(value, (list, tuple)) or len(value) < 2:
+                continue
+            raw_ts, raw_line = value[0], value[1]
+            try:
+                ts = datetime.fromtimestamp(int(raw_ts) / 1_000_000_000, tz=UTC)
+            except (ValueError, TypeError, OverflowError):
+                ts = datetime.now(tz=UTC)
+
+            level = str(labels.get("level") or "").upper() or None
+            message = str(raw_line)
+            stripped = message.lstrip()
+            if stripped.startswith("{"):
+                try:
+                    doc = json.loads(stripped)
+                except (json.JSONDecodeError, ValueError):
+                    doc = None
+                if isinstance(doc, dict):
+                    message = str(doc.get("message") or message)
+                    level = str(doc.get("levelname") or level or "").upper() or None
+            out.append(LogLine(ts=ts, level=level, message=message))
+    out.sort(key=lambda line: line.ts)
+    return out

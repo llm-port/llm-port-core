@@ -5,6 +5,7 @@ from llm_port_backend.web.api.admin import admin_router
 from llm_port_backend.web.api.bootstrap.views import router as bootstrap_router
 from llm_port_backend.web.api.chat.views import router as chat_router
 from llm_port_backend.web.api.inference import inference_router
+from llm_port_backend.web.api.install import router as install_router
 from llm_port_backend.web.api.llm import llm_router
 from llm_port_backend.web.api.node_files import router as node_files_router
 
@@ -20,3 +21,6 @@ api_router.include_router(logs.router, prefix="/logs", tags=["logs"])
 api_router.include_router(i18n.router, prefix="/i18n", tags=["i18n"])
 api_router.include_router(node_files_router)
 api_router.include_router(inference_router, prefix="/inference", tags=["inference"])
+# Unauthenticated by design: it carries no secret, and a machine that has
+# never enrolled has no credential to present.
+api_router.include_router(install_router)

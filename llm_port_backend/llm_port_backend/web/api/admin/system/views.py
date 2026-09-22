@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
+import time
 import uuid
 from typing import Annotated, Any
 
@@ -20,6 +22,7 @@ from llm_port_backend.db.models.system_settings import InfraAgentStatus
 from llm_port_backend.db.models.users import User
 from llm_port_backend.services.docker.client import DockerService
 from llm_port_backend.services.nodes import NodeControlService
+from llm_port_backend.services.nodes.wakeup import get_command_notifier
 from llm_port_backend.services.system_settings import SettingsCrypto, SystemSettingsService
 from llm_port_backend.services.system_settings.executors import AgentApplyExecutor, LocalApplyExecutor
 from llm_port_backend.settings import settings
@@ -51,6 +54,12 @@ from llm_port_backend.web.api.admin.system.schema import (
     NodeDTO,
     NodeDrainRequest,
     NodeEnrollRequest,
+    NodeJoinCollectRequest,
+    NodeJoinCollectResponse,
+    NodeJoinDecisionRequest,
+    NodeJoinRequestCreate,
+    NodeJoinRequestCreated,
+    NodeJoinRequestDTO,
     NodeEnrollResponse,
     NodeEnrollmentTokenCreateRequest,
     NodeEnrollmentTokenCreateResponse,
@@ -400,6 +409,31 @@ async def system_agent_job_status(
     return payload
 
 
+def _request_source_ip(request: Request) -> str | None:
+    """Where the request actually came from, honouring one proxy hop."""
+    forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+    if forwarded:
+        return forwarded
+    return request.client.host if request.client else None
+
+
+def _resolve_agent_host(claimed: str, request: Request) -> str:
+    """Trust the agent's host only when it is an address we can dial.
+
+    Bare hostnames are not resolvable from inside a container, so a node that
+    enrolled as ``spark-3201`` would be unreachable.  Falling back to the
+    request's own source address is what makes onboarding work on a plain LAN
+    with no DNS.
+    """
+    import ipaddress
+
+    try:
+        ipaddress.ip_address(claimed)
+    except ValueError:
+        return _request_source_ip(request) or claimed
+    return claimed
+
+
 @router.post(
     "/nodes/enrollment-tokens",
     response_model=NodeEnrollmentTokenCreateResponse,
@@ -422,20 +456,7 @@ async def system_node_enroll(
     service: NodeControlService = Depends(get_node_control_service),
 ) -> NodeEnrollResponse:
     """Exchange enrollment token for node credentials."""
-    # Use the agent-provided host only if it's a valid IP address.
-    # Bare hostnames are not resolvable inside Docker containers;
-    # fall back to the HTTP request's client IP.
-    import ipaddress
-
-    host = body.host
-    try:
-        ipaddress.ip_address(host)
-    except ValueError:
-        client_ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
-        if not client_ip and request.client:
-            client_ip = request.client.host
-        if client_ip:
-            host = client_ip
+    host = _resolve_agent_host(body.host, request)
 
     try:
         payload = await service.enroll_node(
@@ -448,6 +469,153 @@ async def system_node_enroll(
     except PermissionError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
     return NodeEnrollResponse(**payload)
+
+
+# -- join requests: the machine asks, a human approves ------------------
+#
+# Unauthenticated by necessity: a machine that has never been enrolled has no
+# credential to present.  What stands in for authentication is that nothing is
+# granted until an administrator approves it in the browser, and that the
+# credential goes only to a caller holding the poll secret.
+
+
+@router.post(
+    "/nodes/join-requests",
+    response_model=NodeJoinRequestCreated,
+    name="system_node_join_request",
+)
+async def system_node_join_request(
+    body: NodeJoinRequestCreate,
+    request: Request,
+    service: NodeControlService = Depends(get_node_control_service),
+) -> NodeJoinRequestCreated:
+    """Ask to join the fleet.  Returns a code for a human to compare.
+
+    This is the half of onboarding that works when the operator cannot paste
+    into the machine: nothing long is typed, because the secret never travels
+    towards the node.
+    """
+    try:
+        payload = await service.request_join(
+            agent_id=body.agent_id,
+            host=_resolve_agent_host(body.host, request),
+            capabilities=body.capabilities,
+            version=body.version,
+            source_ip=_request_source_ip(request),
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc)) from exc
+    return NodeJoinRequestCreated(**payload)
+
+
+@router.post(
+    "/nodes/join-requests/{request_id}/collect",
+    response_model=NodeJoinCollectResponse,
+    name="system_node_join_collect",
+)
+async def system_node_join_collect(
+    request_id: uuid.UUID,
+    body: NodeJoinCollectRequest,
+    service: NodeControlService = Depends(get_node_control_service),
+) -> NodeJoinCollectResponse:
+    """Has a human decided yet?  The credential is handed over exactly once."""
+    try:
+        payload = await service.collect_join_result(
+            request_id=request_id, poll_secret=body.poll_secret
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+    return NodeJoinCollectResponse(**payload)
+
+
+@router.get(
+    "/nodes/join-requests",
+    response_model=list[NodeJoinRequestDTO],
+    name="system_node_join_requests_list",
+)
+async def system_node_join_requests_list(
+    _user: Annotated[User, Depends(require_permission("system.nodes", "manage"))],
+    service: NodeControlService = Depends(get_node_control_service),
+) -> list[NodeJoinRequestDTO]:
+    """Machines waiting for approval, oldest first."""
+    rows = await service.list_pending_join_requests()
+    return [
+        NodeJoinRequestDTO(
+            id=str(row.id),
+            code=row.code,
+            agent_id=row.agent_id,
+            host=row.host,
+            source_ip=row.source_ip,
+            version=row.version,
+            capabilities=row.capabilities_json or {},
+            created_at=row.created_at.isoformat(),
+            expires_at=row.expires_at.isoformat(),
+        )
+        for row in rows
+    ]
+
+
+@router.post(
+    "/nodes/join-requests/{request_id}/approve",
+    response_model=NodeJoinRequestDTO,
+    name="system_node_join_approve",
+)
+async def system_node_join_approve(
+    request_id: uuid.UUID,
+    body: NodeJoinDecisionRequest,
+    user: Annotated[User, Depends(require_permission("system.nodes", "manage"))],
+    service: NodeControlService = Depends(get_node_control_service),
+) -> NodeJoinRequestDTO:
+    """Let this machine in.  The waiting agent collects its credential next."""
+    return _join_dto(await _decide(service, request_id, True, user, body.message))
+
+
+@router.post(
+    "/nodes/join-requests/{request_id}/reject",
+    response_model=NodeJoinRequestDTO,
+    name="system_node_join_reject",
+)
+async def system_node_join_reject(
+    request_id: uuid.UUID,
+    body: NodeJoinDecisionRequest,
+    user: Annotated[User, Depends(require_permission("system.nodes", "manage"))],
+    service: NodeControlService = Depends(get_node_control_service),
+) -> NodeJoinRequestDTO:
+    """Turn this machine away, and tell it so rather than letting it time out."""
+    return _join_dto(await _decide(service, request_id, False, user, body.message))
+
+
+async def _decide(
+    service: NodeControlService,
+    request_id: uuid.UUID,
+    approve: bool,
+    user: User,
+    message: str | None,
+):
+    try:
+        return await service.decide_join_request(
+            request_id=request_id, approve=approve, decided_by=user.id, message=message
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+def _join_dto(row) -> NodeJoinRequestDTO:
+    return NodeJoinRequestDTO(
+        id=str(row.id),
+        code=row.code,
+        agent_id=row.agent_id,
+        host=row.host,
+        source_ip=row.source_ip,
+        version=row.version,
+        capabilities=row.capabilities_json or {},
+        created_at=row.created_at.isoformat(),
+        expires_at=row.expires_at.isoformat(),
+    )
 
 
 @router.post(
@@ -803,6 +971,64 @@ async def system_node_command_timeline(
     return NodeCommandTimelineDTO(**payload)
 
 
+async def _await_frame_or_wakeup(
+    recv_task: "asyncio.Task[Any] | None",
+    start_receive: Any,
+    notifier: Any,
+    node_id: Any,
+    *,
+    timeout: float,
+) -> tuple[dict[str, Any] | None, "asyncio.Task[Any] | None"]:
+    """Wait for whichever comes first: an agent frame, or a queued command.
+
+    Returns ``(frame_or_None, receive_still_in_flight_or_None)``.
+
+    The receive is handed back rather than cancelled when the wake-up wins.
+    Cancelling a half-finished ``receive_json`` discards the frame it was
+    assembling, which on this socket means losing a command result or a
+    heartbeat -- so the same task is carried into the next pass and awaited
+    again.  The wake-up task has no such state and is always cancelled.
+    """
+    if recv_task is None:
+        recv_task = asyncio.create_task(start_receive())
+    wake_task = asyncio.create_task(notifier.wait_for(node_id))
+    try:
+        done, _pending = await asyncio.wait(
+            {recv_task, wake_task},
+            timeout=timeout,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+    finally:
+        wake_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await wake_task
+
+    if recv_task in done:
+        # ``.result()`` re-raises WebSocketDisconnect, which is how the caller
+        # learns the agent is gone.
+        return recv_task.result(), None
+    return None, recv_task
+
+
+async def _drain_commands(
+    websocket: WebSocket,
+    service: NodeControlService,
+    node: Any,
+    session: AsyncSession,
+) -> None:
+    """Send whatever is queued for *node*, and commit the dispatch.
+
+    Called from every path out of the stream loop's wait -- an agent frame, a
+    wake-up, or a replayed frame -- because a command that is ready and not
+    sent is indistinguishable, from the operator's side, from a command that
+    was never accepted.
+    """
+    dispatch_items = await service.list_commands_for_dispatch(node_id=node.id)
+    if dispatch_items:
+        await websocket.send_json({"type": "commands", "items": dispatch_items})
+    await session.commit()
+
+
 @router.websocket("/nodes/stream")
 async def system_node_stream(websocket: WebSocket) -> None:
     """Persistent outbound stream channel used by node agents."""
@@ -843,6 +1069,9 @@ async def system_node_stream(websocket: WebSocket) -> None:
     if forwarded:
         _client_ip = forwarded.split(",")[0].strip()
     await websocket.accept()
+    # Declared out here so the cleanup below can reach it however we leave the
+    # loop: an abandoned receive would keep the connection's reader alive.
+    recv_task: asyncio.Task[Any] | None = None
     try:
         # Don't overwrite node.host on connect; wait for the first
         # heartbeat which carries advertise_host from the agent.
@@ -866,15 +1095,44 @@ async def system_node_stream(websocket: WebSocket) -> None:
         await session.commit()
 
         idle_timeout_sec = max(settings.node_stream_idle_timeout_sec, 5)
+        notifier = get_command_notifier()
+
+        # The loop waits on two things at once: a frame from the agent, and a
+        # command queued for this node by any worker.  Waiting only on the
+        # first is what made dispatch take 30-44s -- the queue was drained
+        # after whatever the agent said next, so a command's latency was
+        # really the time until the agent's next heartbeat.
+        #
+        # ``recv_task`` outlives an iteration on purpose.  Cancelling a
+        # half-finished ``receive_json`` would drop the frame it was
+        # assembling, so when the wake-up wins the race the receive is left
+        # running and picked up again next time round.
+        last_frame_at = time.monotonic()
+
         while True:
-            try:
-                payload = await asyncio.wait_for(
-                    websocket.receive_json(),
-                    timeout=idle_timeout_sec,
-                )
-            except asyncio.TimeoutError:
+            payload, recv_task = await _await_frame_or_wakeup(
+                recv_task,
+                lambda: websocket.receive_json(),
+                notifier,
+                node.id,
+                timeout=idle_timeout_sec,
+            )
+            if payload is not None:
+                last_frame_at = time.monotonic()
+            elif time.monotonic() - last_frame_at >= idle_timeout_sec:
+                # Idle means the *agent* has gone quiet.  Measured from the
+                # last frame rather than from the last loop pass, so a busy
+                # node whose wake-ups keep the loop turning is not mistaken
+                # for a silent one -- and a genuinely silent node still times
+                # out on schedule however often we were woken.
                 await websocket.close(code=4408, reason="Idle timeout")
                 break
+
+            if payload is None:
+                # Woken by a queued command: skip the frame handling and go
+                # straight to the drain at the bottom of the loop.
+                await _drain_commands(websocket, service, node, session)
+                continue
 
             seq_raw = payload.get("seq")
             if isinstance(seq_raw, int):
@@ -883,6 +1141,10 @@ async def system_node_stream(websocket: WebSocket) -> None:
                     offset=seq_raw,
                 )
                 if not accepted:
+                    # A replayed frame carries no new information, but the
+                    # queue may still have work -- skipping the drain here
+                    # used to cost the node a whole dispatch cycle.
+                    await _drain_commands(websocket, service, node, session)
                     continue
 
             message_type = str(payload.get("type") or "").strip().lower()
@@ -944,10 +1206,7 @@ async def system_node_stream(websocket: WebSocket) -> None:
                     if normalized:
                         await service.record_node_events(node_id=node.id, events=normalized)
 
-            dispatch_items = await service.list_commands_for_dispatch(node_id=node.id)
-            if dispatch_items:
-                await websocket.send_json({"type": "commands", "items": dispatch_items})
-            await session.commit()
+            await _drain_commands(websocket, service, node, session)
     except WebSocketDisconnect:
         logging.getLogger(__name__).info("Node agent %s disconnected from stream.", _node_id)
         await session.rollback()
@@ -956,6 +1215,14 @@ async def system_node_stream(websocket: WebSocket) -> None:
         await session.rollback()
         raise
     finally:
+        if recv_task is not None and not recv_task.done():
+            recv_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await recv_task
+        # A command queued for a node that is not connected is not lost: it
+        # stays queued and goes out in ``hello_ack`` when the agent comes
+        # back.  Dropping the event just stops the map growing forever.
+        get_command_notifier().forget(_node_id)
         if stream_session is not None:
             try:
                 await service.close_stream_session(session=stream_session)

@@ -41,17 +41,20 @@ export default function RagCollectorsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [collectorPayload, jobsPayload] = await Promise.all([
-        ragCollectors.list(),
-        ragJobs.list(50),
-      ]);
-      setCollectors(collectorPayload.collectors);
-      setJobs(jobsPayload.jobs);
+      setCollectors((await ragCollectors.list()).collectors);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t("rag_collectors.failed_load"));
     } finally {
       setLoading(false);
     }
+    // The job feed is the busier of the two and polls while anything is
+    // running, so it must never be what the collector list waits for.
+    void ragJobs
+      .list(50)
+      .then((payload) => setJobs(payload.jobs))
+      .catch(() => {
+        /* the feed keeps its last contents */
+      });
   }
 
   useEffect(() => {

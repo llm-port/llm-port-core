@@ -159,6 +159,74 @@ class InfraNodeEnrollmentToken(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
+class JoinRequestStatus(enum.StrEnum):
+    """Lifecycle of a machine asking to be let into the fleet."""
+
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    #: The agent collected its credential; the request is spent.
+    CLAIMED = "claimed"
+
+
+class InfraNodeJoinRequest(Base):
+    """A machine asking to join, waiting for a human to say yes.
+
+    This exists because the enrollment-token direction only works when the
+    operator's browser and a shell on the new machine share a clipboard.  When
+    they do not -- someone standing at the box, or connected from a different
+    workstation -- a 32-character token has to be retyped by hand, and that is
+    the single worst moment in onboarding.
+
+    So the secret travels the other way.  The machine asks, the backend shows
+    the request, and an administrator approves it in the browser.  Nothing
+    long is ever typed.
+
+    ``code`` is deliberately short and is **not** a secret: it exists so the
+    operator approves the machine they are looking at rather than one that
+    happened to ask at the same moment.  Safety comes from the approval being
+    an authenticated action, from the reported identity being shown before the
+    click, and from ``poll_secret_hash`` -- which only the requesting agent can
+    satisfy, so guessing a code still collects nothing.
+    """
+
+    __tablename__ = "infra_node_join_request"
+
+    id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    #: Short, human-comparable, unambiguous alphabet.  Unique among pending.
+    code: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    #: Only the agent that made the request holds the matching secret.
+    poll_secret_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+
+    #: What the machine says it is.  Shown to the operator *before* approval,
+    #: because "approve this" is only meaningful if you can see what "this" is.
+    agent_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    host: Mapped[str] = mapped_column(String(255), nullable=False)
+    #: Where the request actually came from, which may differ from what the
+    #: machine claims.  A mismatch is worth showing rather than hiding.
+    source_ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    capabilities_json: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default=JoinRequestStatus.PENDING)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    decided_by: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("user.id", ondelete="SET NULL"), nullable=True
+    )
+    #: Set on approval; the agent's poll turns this into a credential once.
+    node_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("infra_node.id", ondelete="CASCADE"), nullable=True
+    )
+    #: Why it was rejected, or why it could not be approved.
+    message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
 class InfraNodeCredential(Base):
     """Per-node rotating API credential."""
 

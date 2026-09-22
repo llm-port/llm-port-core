@@ -71,25 +71,96 @@ _TPL_INSTANCE = "__INSTANCE__"
 #: Debounce window for Prometheus file_sd reloads (batch rapid writes).
 _RELOAD_DEBOUNCE_SEC = 2.5
 
+def _either(metric: str) -> str:
+    """A selector matching the same measurement under either family's name.
+
+    A standalone vLLM container publishes ``vllm:num_requests_running``.  Ray
+    Serve republishes the engine's metrics through ``ray.util.metrics``, which
+    sanitises the name to ``ray_vllm_num_requests_running``.  They are the same
+    number; which one exists depends on how the model is being run, and a card
+    on the providers page should not have to know.
+
+    Porting these queries to the Ray names fixed the Ray path and silently
+    broke the other one -- the cards for a local vLLM container went to "no
+    data", which is indistinguishable from an idle engine.
+
+    Matching on ``__name__`` is the only way to say "either of these two
+    metrics" in PromQL: a metric name cannot be alternated in the normal
+    position.  ``{rt}`` is left for the caller to fill with the label filter.
+    """
+    # Built by concatenation rather than an f-string: the result is itself a
+    # ``str.format`` template, so the selector's own braces have to survive as
+    # doubled ones until the caller fills in ``{rt}``.
+    return '{{__name__=~"vllm:' + metric + "|ray_vllm_" + metric + '",{rt}}}'
+
+
+def _zero_when_idle(expr: str, *, witness: str = "generation_tokens_total") -> str:
+    """Read an absent counter as zero -- but only when the engine is alive.
+
+    Ray cannot publish a counter that has never been incremented. Its
+    ``Counter.inc`` raises on a non-positive value, so vLLM's Ray wrapper
+    guards with ``if value == 0: return`` -- and because Ray creates a metric
+    lazily on first record, a counter whose delta is always zero is never
+    created at all. Verified in the image: ``ray.util.metrics.Counter.inc``
+    raises ``ValueError`` for ``value <= 0``.
+
+    So "no preemptions have ever happened" and "this metric does not exist"
+    are the same scrape. For a counter that vLLM declares unconditionally,
+    the honest reading of the first is **zero**, and showing "No data" for it
+    tells the operator we cannot see something we can.
+
+    The naive fix, ``... or vector(0)``, also reports zero for a cluster that
+    does not exist, a name typed wrongly, or an engine that is down -- which
+    turns a missing deployment into a healthy-looking one. So the fallback is
+    conditioned on a witness: another counter from the same engine that is
+    always non-zero once it has served anything. Zero is only claimed when
+    something else from that engine is being published.
+
+    Not for config-gated families (speculative decoding, LoRA, the KV block
+    histograms). Those are absent because the feature is off, and zero would
+    be a different lie.
+    """
+    guard = f"0 * sum(rate({_either(witness)}[5m]))"
+    return f"({expr} or ({guard}))"
+
+
 #: Stat-card metric expressions keyed by API field name.  ``{rt}`` is a
-#: ``str.format`` placeholder replaced with ``{runtime_name="<name>"}`` —
-#: the name is the same value baked into the dashboard template, so cards
-#: match panels.  (Single braces on purpose: ``{{rt}}`` would be escaped to
-#: the literal text ``{rt}``, which is invalid PromQL.)
+#: ``str.format`` placeholder replaced with ``runtime_name="<name>"`` -- a bare
+#: label expression, because these selectors bring their own braces.
+#:
+#: The gauges are wrapped in ``last_over_time``.  Ray's recorder drops a gauge
+#: that stops being updated and vLLM only writes these during engine
+#: iterations, so on an idle engine the series is absent from the scrape
+#: entirely and an instant query returns nothing for a healthy replica.
+#: Counters need no wrapper -- ``rate()`` already looks back over a window.
 STAT_QUERIES: dict[str, str] = {
-    "running_requests": "sum(vllm:num_requests_running{rt})",
-    "waiting_requests": "sum(vllm:num_requests_waiting{rt})",
-    "kv_cache_usage": "100 * avg(vllm:kv_cache_usage_perc{rt})",
+    # An engine that is alive and idle has none running or waiting;
+    # the gauge simply expires. Zero is the answer, not "no data".
+    "running_requests": _zero_when_idle(
+        f"sum(last_over_time({_either('num_requests_running')}[5m]))"
+    ),
+    # An engine that is alive and idle has none running or waiting;
+    # the gauge simply expires. Zero is the answer, not "no data".
+    "waiting_requests": _zero_when_idle(
+        f"sum(last_over_time({_either('num_requests_waiting')}[5m]))"
+    ),
+    "kv_cache_usage": _zero_when_idle(
+        f"100 * avg(last_over_time({_either('kv_cache_usage_perc')}[5m]))"
+    ),
     "prefix_cache_hit_rate": (
-        '100 * sum(rate(vllm:prefix_cache_hits_total{rt}[5m])) '
-        "/ clamp_min(sum(rate(vllm:prefix_cache_queries_total{rt}[5m])), 1)"
+        f"100 * sum(rate({_either('prefix_cache_hits_total')}[5m])) "
+        f"/ clamp_min(sum(rate({_either('prefix_cache_queries_total')}[5m])), 1)"
     ),
     "mtp_acceptance": (
-        '100 * sum(rate(vllm:spec_decode_num_accepted_tokens_total{rt}[5m])) '
-        "/ clamp_min(sum(rate(vllm:spec_decode_num_draft_tokens_total{rt}[5m])), 1)"
+        f"100 * sum(rate({_either('spec_decode_num_accepted_tokens_total')}[5m])) "
+        f"/ clamp_min(sum(rate({_either('spec_decode_num_draft_tokens_total')}[5m])), 1)"
     ),
-    "generation_tokens_per_sec": "sum(rate(vllm:generation_tokens_total{rt}[1m]))",
-    "preemption_rate": "sum(rate(vllm:num_preemptions_total{rt}[5m]))",
+    "generation_tokens_per_sec": f"sum(rate({_either('generation_tokens_total')}[1m]))",
+    # Declared by vLLM unconditionally, so an absent series means it has not
+    # happened rather than that we cannot see it.
+    "preemption_rate": _zero_when_idle(
+        f"sum(rate({_either('num_preemptions_total')}[5m]))"
+    ),
 }
 
 
@@ -324,6 +395,48 @@ class MonitoringProvisioner:
         log.info("monitoring: provisioned %s (%s → %s)", runtime.name, runtime_id, instance)
         return self.dashboard_url(runtime.id)
 
+    # ── a whole cluster, rather than one runtime ───────────────────────
+    async def provision_environment(
+        self,
+        *,
+        environment_id: uuid.UUID | str,
+        environment_name: str,
+    ) -> str | None:
+        """Render the runtime dashboard for a Ray cluster.
+
+        ``provision`` above is built around an ``LLMRuntime`` row: one
+        container, one endpoint, one dashboard. A Ray cluster has none of
+        those -- it is many replicas across many machines, and its metrics
+        arrive from each node's own exporter rather than from one endpoint.
+        So nothing here had a reason to produce a dashboard for it, and
+        Grafana ended up with one dashboard in total: the static overview.
+
+        The template needs no changes to serve this. Every panel selects on
+        ``runtime_name``, and :meth:`sync_ray_targets` already labels each of
+        the cluster's scrape targets with the environment's name under that
+        key -- so the cluster reads as "the runtime" and the panels populate.
+
+        ``__INSTANCE__`` has no single answer here on purpose: a cluster is
+        several instances and the template's instance variable is only used
+        for display, so it carries the cluster's name rather than a host that
+        would be true of one machine and wrong about the rest.
+        """
+        environment_id = uuid.UUID(str(environment_id))
+        title = f"Ray cluster · {environment_name}"
+        path, data = self._render_dashboard(
+            runtime_id=environment_id,
+            title=title,
+            runtime_name=environment_name,
+            instance=environment_name,
+        )
+        _atomic_write_json(path, data)
+        log.info(
+            "monitoring: provisioned cluster dashboard for %s (%s)",
+            environment_name,
+            environment_id,
+        )
+        return self.dashboard_url(environment_id)
+
     # ── deprovision ────────────────────────────────────────────────────
     async def deprovision(self, runtime_id: uuid.UUID | str) -> None:
         """Remove this runtime's target + dashboard (idempotent)."""
@@ -351,6 +464,15 @@ class MonitoringProvisioner:
         their last-known endpoint (``up=0`` until the next start).
         Also drops stale target entries and orphaned dashboards.
         Returns the number of provisioned runtimes.
+
+        **Ray clusters are not runtimes and must survive this.** This used to
+        rebuild the targets file from the ``LLMRuntime`` table alone and then
+        delete every dashboard the rebuild had not just written. A Ray
+        cluster has no ``LLMRuntime`` row, so on every backend start its
+        scrape targets were wiped from ``targets.json`` and its dashboard was
+        unlinked -- Prometheus stopped collecting and the dashboard 404'd,
+        with nothing in the product to say why. Both are now carried across,
+        because "the runtime table" is not the whole desired state any more.
         """
         res = await session.execute(
             select(LLMRuntime, LLMModel, LLMProvider)
@@ -392,6 +514,23 @@ class MonitoringProvisioner:
             )
             _atomic_write_json(path, data)
             provisioned_paths.add(path.name)
+        # Ray clusters: keep their targets and re-render their dashboards.
+        # Their entries are keyed by ``environment_id`` where a runtime's are
+        # keyed by ``runtime_id``, so the two never collide.
+        for existing in self._read_targets():
+            if existing.get("labels", {}).get("environment_id"):
+                entries.append(existing)
+
+        for env_id, env_name in await self._monitored_environments(session):
+            path, data = self._render_dashboard(
+                runtime_id=env_id,
+                title=f"Ray cluster · {env_name}",
+                runtime_name=env_name,
+                instance=env_name,
+            )
+            _atomic_write_json(path, data)
+            provisioned_paths.add(path.name)
+
         entries.sort(key=lambda t: str(t.get("labels", {}).get("runtime_name", "")))
         _atomic_write_json_inplace(self._targets_file, entries)
 
@@ -403,6 +542,27 @@ class MonitoringProvisioner:
         self._schedule_reload()
         log.info("monitoring: rebuild_all → %d runtime(s)", len(entries))
         return len(entries)
+
+    @staticmethod
+    async def _monitored_environments(
+        session: AsyncSession,
+    ) -> list[tuple[uuid.UUID, str]]:
+        """Inference environments that should carry a dashboard.
+
+        Best-effort and import-local: monitoring is a leaf service and must
+        not take a hard dependency on the inference package, nor fail a
+        startup rebuild because one query did.
+        """
+        try:
+            from llm_port_backend.db.models.inference import (  # noqa: PLC0415
+                InferenceEnvironment,
+            )
+
+            rows = await session.execute(select(InferenceEnvironment))
+            return [(env.id, env.name) for env in rows.scalars() if env.name]
+        except Exception:  # noqa: BLE001 - a rebuild never fails over this
+            log.warning("Could not list environments for the rebuild", exc_info=True)
+            return []
 
     # ── stat cards ─────────────────────────────────────────────────────
     async def stats(self, runtime_id: uuid.UUID | str, runtime_name: str) -> dict[str, Any]:
@@ -422,7 +582,7 @@ class MonitoringProvisioner:
         # guard below is a final belt-and-braces check.
         if not runtime_name or '"' in runtime_name or "\x00" in runtime_name:
             return out
-        rt = f'{{runtime_name="{runtime_name}"}}'
+        rt = f'runtime_name="{runtime_name}"'
         exprs = [template.format(rt=rt) for template in STAT_QUERIES.values()]
         try:
             values = await asyncio.gather(*(self._prom_query(expr) for expr in exprs))
@@ -476,6 +636,63 @@ class MonitoringProvisioner:
         targets.append(entry)
         targets.sort(key=lambda t: str(t.get("labels", {}).get("runtime_name", "")))
         _atomic_write_json_inplace(self._targets_file, targets)
+
+    async def sync_ray_targets(
+        self,
+        *,
+        environment_id: uuid.UUID | str,
+        environment_name: str,
+        targets: list[dict[str, Any]],
+    ) -> int:
+        """Replace this Ray cluster's scrape targets in ``targets.json``.
+
+        Ray exports metrics **per node**, with each node's agent reporting only
+        its own: the head knows nothing about a replica running on a worker.
+        So every node is registered, and a cluster that gains one gains a
+        target on the next reconcile.
+
+        Entries are keyed by ``environment_id`` so they replace cleanly and
+        never collide with the legacy per-runtime entries, which are keyed by
+        ``runtime_id``.
+        """
+        env_key = str(environment_id)
+        kept = [
+            t
+            for t in self._read_targets()
+            if t.get("labels", {}).get("environment_id") != env_key
+        ]
+
+        for target in targets:
+            address = target.get("address")
+            port = target.get("port")
+            if not address or not port:
+                continue
+            kept.append(
+                {
+                    "targets": [f"{address}:{int(port)}"],
+                    "labels": {
+                        # `job` overrides the scrape_config's name, which keeps
+                        # Ray metrics distinguishable from legacy runtimes in
+                        # every query without a second scrape job.
+                        "job": "ray",
+                        "environment_id": env_key,
+                        "environment_name": environment_name,
+                        # The dashboard template filters on ``runtime_name``
+                        # -- it was written for the legacy one-runtime-per-
+                        # container world.  A Ray cluster is the equivalent
+                        # unit here (one cluster, many models, selected by the
+                        # template's own ``$model`` variable), so it carries
+                        # the same label and the template works unchanged.
+                        "runtime_name": environment_name,
+                        "node_host": str(address),
+                    },
+                }
+            )
+
+        kept.sort(key=lambda t: str(t.get("targets", [""])[0]))
+        _atomic_write_json_inplace(self._targets_file, kept)
+        self._schedule_reload()
+        return len([t for t in kept if t.get("labels", {}).get("environment_id") == env_key])
 
     # ── debounced reload ───────────────────────────────────────────────
     def _schedule_reload(self) -> None:

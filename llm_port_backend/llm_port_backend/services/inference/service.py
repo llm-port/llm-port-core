@@ -234,7 +234,7 @@ class EnvironmentService:
         control_plane_id: uuid.UUID,
         name: str,
         description: str | None = None,
-        ray_version: str | None = None,
+        runtime_version: str | None = None,
         head_node_id: uuid.UUID | None = None,
         address: str | None = None,
         config: dict[str, Any] | None = None,
@@ -247,7 +247,7 @@ class EnvironmentService:
                 control_plane_id=control_plane_id,
                 name=name,
                 description=description,
-                ray_version=ray_version,
+                runtime_version=runtime_version,
                 head_node_id=head_node_id,
                 address=address,
                 config=config,
@@ -276,7 +276,7 @@ class EnvironmentService:
         *,
         description: str | None = ...,
         desired_state: str | None = ...,
-        ray_version: str | None = ...,
+        runtime_version: str | None = ...,
         head_node_id: uuid.UUID | None = ...,
         address: str | None = ...,
         config: dict[str, Any] | None = ...,
@@ -293,7 +293,7 @@ class EnvironmentService:
                 environment_id,
                 description=description,
                 desired_state=ds,
-                ray_version=ray_version,
+                runtime_version=runtime_version,
                 head_node_id=head_node_id,
                 address=address,
                 config=config,
@@ -307,19 +307,49 @@ class EnvironmentService:
     async def add_node(
         self, environment_id: uuid.UUID, node_id: uuid.UUID, role: str = "worker"
     ) -> None:
-        """Register an infra node as a desired environment member."""
+        """Register an infra node as a desired environment member.
+
+        The node is also placed in the compute pool matching its hardware.
+        Derived rather than asked for: the pool is the equivalence class the
+        node already belongs to, so joining a cluster is still one decision
+        even when the cluster is mixed-vendor.
+        """
         await self.get(environment_id)
         node_role = _enum(role, EnvironmentNodeRole, what="role")
         try:
-            await self.node_dao.add_node(environment_id, node_id, node_role)
+            member = await self.node_dao.add_node(environment_id, node_id, node_role)
         except IntegrityError as exc:
             raise ConflictError(
                 "node is already a member of this environment or unknown"
             ) from exc
 
+        from llm_port_backend.db.dao.node_control_dao import NodeControlDAO
+        from llm_port_backend.services.inference.pools import ComputePoolCoordinator
+
+        node = await NodeControlDAO(self.session).get_node_by_id(node_id)
+        if node is not None:
+            await ComputePoolCoordinator(self.session).assign(
+                environment_id=environment_id, node=node, member=member
+            )
+
     async def remove_node(self, environment_id: uuid.UUID, node_id: uuid.UUID) -> None:
-        """Remove an infra node from an environment (no-op if absent)."""
-        await self.get(environment_id)
+        """Remove an infra node from an environment (no-op if absent).
+
+        Refuses to unbind the head of an environment that is still meant to
+        run: ``head_node_id`` would keep pointing at a node that is no longer
+        a member, and the next reconcile pass would address a cluster whose
+        head it does not manage.  Stop the environment first, or bind another
+        head.
+        """
+        environment = await self.get(environment_id)
+        if (
+            environment.head_node_id == node_id
+            and environment.desired_state != EnvironmentDesiredState.STOPPED.value
+        ):
+            raise ConflictError(
+                "cannot remove the head node while the environment is running; "
+                "stop it or bind a different head first"
+            )
         await self.node_dao.remove_node(environment_id, node_id)
 
     async def request_reconcile(self, environment_id: uuid.UUID) -> InferenceEnvironment:
@@ -574,7 +604,23 @@ class DeploymentService:
         return await self.get(deployment_id)
 
     async def delete(self, deployment_id: uuid.UUID) -> None:
-        """Delete a deployment (endpoints are cascade-deleted by the DB)."""
+        """Delete a deployment (endpoints are cascade-deleted by the DB).
+
+        The provider row the deployment owned goes with it. Not a cascade:
+        ``llm_providers`` is in a different subsystem and deliberately has no
+        foreign key to a deployment, so the ownership is carried by
+        ``source_kind``/``source_id`` and has to be honoured in code.
+
+        Done before the row is gone, because after it there is nothing left
+        to identify the provider by.
+        """
+        from llm_port_backend.services.inference.publication import (  # noqa: PLC0415
+            InferencePublicationCoordinator,
+        )
+
+        coordinator = InferencePublicationCoordinator(self.session)
+        await coordinator.remove_derived_provider(deployment_id)
+
         if not await self.dao.delete(deployment_id):
             raise NotFoundError("deployment", deployment_id)
 

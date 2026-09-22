@@ -18,6 +18,8 @@ import pathlib
 import subprocess
 import sys
 
+import re
+
 import pytest
 
 _AGENT_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -43,7 +45,17 @@ def test_ray_is_not_a_base_dependency() -> None:
     """A bare-node install must not pull Ray onto the host."""
     pyproject = (_AGENT_ROOT / "pyproject.toml").read_text(encoding="utf-8")
     base = pyproject.split("dependencies = [", 1)[1].split("]", 1)[0]
-    assert "ray" not in base, f"Ray must not be a base dependency; found in:\n{base}"
+    # Compare declared requirements, not the raw block: a comment mentioning a
+    # module path such as ``llm_port_node_agent.ray.models`` is not a
+    # dependency, and a substring check fails on it.
+    names = []
+    for line in base.splitlines():
+        entry = line.strip()
+        if not entry or entry.startswith("#"):
+            continue
+        requirement = entry.strip(",").strip('"').strip("'")
+        names.append(re.split(r"[<>=!~\[ ]", requirement, maxsplit=1)[0].lower())
+    assert "ray" not in names, f"Ray must not be a base dependency; found in:\n{names}"
 
     # It stays available for nodes that do bootstrap Ray on the host.
     assert "ray-host = [" in pyproject

@@ -19,6 +19,10 @@ dependencies = [
   "httpx>=0.27,<1.0",
   "psutil>=5.9,<8.0",
   "websockets>=12,<16",
+  # Imported at module scope by llm_port_node_agent.ray.models, which
+  # __main__ pulls in on every invocation -- so a clean install without it
+  # cannot even print --help, let alone run.  Undeclared until 0.1.9.
+  "pydantic>=2.0,<3.0",
 ]
 
 [project.scripts]

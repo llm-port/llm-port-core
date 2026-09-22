@@ -47,6 +47,9 @@ export default function MessageBubble({
 
   return (
     <Box
+      // Identifies whose turn this is.  Without it, "the reply contains X"
+      // cannot be told apart from "the prompt contains X".
+      data-message-role={role}
       sx={{
         display: "flex",
         flexDirection: isUser ? "row-reverse" : "row",

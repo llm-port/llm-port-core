@@ -108,10 +108,15 @@ class RuntimeReadiness(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    #: The one bundle every member resolved to, when they agree. ``None``
+    #: on a mixed cluster -- which is legal, and is why ``node_bundles``
+    #: exists: architecture belongs to a machine, not to a cluster.
     bundle_id: str | None = None
     resolved: bool = False
     compatible: bool | None = None
     node_results: dict[str, str] = Field(default_factory=dict)
+    #: node id -> the bundle id certified for that node's platform.
+    node_bundles: dict[str, str] = Field(default_factory=dict)
     detail: str = ""
 
 
@@ -529,6 +534,19 @@ class MultiNodeFabricPlanner:
             else "No eligible nodes available"
         )
 
+        runtime = self._runtime_readiness(nodes)
+        if not runtime.compatible:
+            # A warning, not a blocker, deliberately.  Binding a fabric and
+            # starting a runtime are separate steps: the network can be
+            # applied to a set of machines one of which has no image, and
+            # saying otherwise would make the plan screen -- where an
+            # operator goes to find out *why* -- refuse to produce one.
+            #
+            # The refusal lives where the image is actually needed:
+            # ``RayEnvironmentManager._bundles_for`` fails the environment,
+            # naming the node, before any command is issued.
+            warnings.append(runtime.detail)
+
         plan = InferenceEnvironmentPlan(
             environment_id=str(environment_id),
             inventory_revisions=inventory_revisions,
@@ -537,7 +555,7 @@ class MultiNodeFabricPlanner:
             recommended_candidate_id=rec_candidate_id,
             recommended_head_node_id=rec_head_id,
             head_selection_reason=head_reason,
-            runtime=self._runtime_readiness(env, nodes),
+            runtime=runtime,
             warnings=warnings,
             blockers=blockers,
         )
@@ -550,43 +568,69 @@ class MultiNodeFabricPlanner:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _runtime_readiness(
-        env: InferenceEnvironment, nodes: list[InfraNode]
-    ) -> RuntimeReadiness:
-        """Resolve the environment's runtime bundle against the member nodes."""
-        bundle_id = (env.config_json or {}).get("runtime_bundle_id")
-        if not bundle_id:
-            return RuntimeReadiness(detail="No runtime_bundle_id pinned on the environment")
+    def _runtime_readiness(nodes: list[InfraNode]) -> RuntimeReadiness:
+        """Resolve a runtime bundle for each member node.
 
-        from llm_port_backend.services.inference.bundles import default_bundle_registry
+        Derived from the machines, never pinned on the cluster. A bundle is an
+        image built for a CPU architecture and an accelerator generation, so
+        asking "which bundle does this cluster use" has no answer once the
+        cluster has two kinds of machine in it -- and the answer that was
+        given, whichever one an operator picked in the wizard, was pushed to
+        every node including the ones it could not run on.
 
-        bundle = default_bundle_registry.get_bundle(str(bundle_id))
-        if bundle is None:
-            return RuntimeReadiness(
-                bundle_id=str(bundle_id),
-                resolved=False,
-                compatible=False,
-                detail=f"Runtime bundle {bundle_id!r} is not registered",
-            )
+        A node whose platform no bundle covers makes the set incompatible.
+        That is a refusal: there is nothing to start it with.
+        """
+        from llm_port_backend.services.inference.bundles import (  # noqa: PLC0415
+            default_bundle_registry,
+        )
+
+        if not nodes:
+            return RuntimeReadiness(detail="No member nodes to resolve a runtime for")
 
         results: dict[str, str] = {}
-        compatible = True
+        node_bundles: dict[str, str] = {}
+        unresolved: list[str] = []
         for node in nodes:
-            ok, detail = default_bundle_registry.validate_node_compatibility(bundle, node)
-            results[str(node.id)] = detail
-            compatible = compatible and ok
-        return RuntimeReadiness(
-            bundle_id=bundle.bundle_id,
-            resolved=True,
-            compatible=compatible,
-            node_results=results,
-            detail=(
-                f"Bundle {bundle.bundle_id} (image {bundle.container.image}) is "
-                + (
-                    "compatible with every member node"
-                    if compatible
-                    else "incompatible with at least one member node"
+            bundle = default_bundle_registry.resolve_for_node(node, driver="ray")
+            if bundle is None:
+                machine = str((node.capabilities_json or {}).get("machine") or "unknown")
+                results[str(node.id)] = (
+                    f"No certified Ray runtime bundle for this platform ({machine})"
                 )
+                unresolved.append(node.agent_id or str(node.id))
+                continue
+            node_bundles[str(node.id)] = bundle.bundle_id
+            results[str(node.id)] = (
+                f"{bundle.bundle_id} (image {bundle.container.image})"
+            )
+
+        if unresolved:
+            return RuntimeReadiness(
+                resolved=False,
+                compatible=False,
+                node_results=results,
+                node_bundles=node_bundles,
+                detail=(
+                    "No certified Ray runtime bundle covers "
+                    + ", ".join(unresolved)
+                    + ". A node needs an image built for its CPU architecture "
+                    "and accelerator before it can join a cluster."
+                ),
+            )
+
+        distinct = sorted(set(node_bundles.values()))
+        return RuntimeReadiness(
+            bundle_id=distinct[0] if len(distinct) == 1 else None,
+            resolved=True,
+            compatible=True,
+            node_results=results,
+            node_bundles=node_bundles,
+            detail=(
+                f"Every member node runs {distinct[0]}"
+                if len(distinct) == 1
+                else "Members span "
+                f"{len(distinct)} platforms: {', '.join(distinct)}"
             ),
         )
 

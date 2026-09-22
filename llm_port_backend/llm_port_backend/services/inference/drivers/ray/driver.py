@@ -16,7 +16,10 @@ from llm_port_backend.db.models.inference import (
 )
 from llm_port_backend.services.inference.capabilities import CapabilityDocument
 from llm_port_backend.services.inference.contracts import InferenceDriver
-from llm_port_backend.services.inference.drivers.ray.client import RayClusterClient
+from llm_port_backend.services.inference.drivers.ray.client import (
+    _INTERACTIVE_PROBE_BUDGET_SEC,
+    RayClusterClient,
+)
 from llm_port_backend.services.inference.drivers.ray.commands import NodeCommandGateway
 from llm_port_backend.services.inference.drivers.ray.logs import RayLogReader
 from llm_port_backend.services.inference.observability import (
@@ -203,21 +206,22 @@ class RayDriver(InferenceDriver):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _runtime_bundle_payload(environment: InferenceEnvironment | None) -> dict[str, Any] | None:
-        """The pinned runtime bundle, so log reads address the right container."""
-        if environment is None:
-            return None
-        bundle_id = (getattr(environment, "config_json", None) or {}).get("runtime_bundle_id")
-        if not bundle_id:
-            return None
-        from llm_port_backend.services.inference.bundles import default_bundle_registry
+    async def _runtime_bundle_payload_for(
+        session: "AsyncSession",
+        node_id: "uuid.UUID | str | None",
+    ) -> dict[str, Any] | None:
+        """The bundle for one machine, so a probe addresses the right container.
 
-        bundle = default_bundle_registry.get_bundle(str(bundle_id))
-        if bundle is None:
-            return None
-        return default_bundle_registry.container_launch_spec(
-            bundle, name="llm-port-ray-runtime",
+        Resolved per node rather than per environment: on a cluster spanning
+        two platforms the container name is the same everywhere but the image
+        behind it is not, and a payload built from the wrong one addressed a
+        container that was never started.
+        """
+        from llm_port_backend.services.inference.bundles import (  # noqa: PLC0415
+            runtime_bundle_payload_for,
         )
+
+        return await runtime_bundle_payload_for(session, node_id, driver="ray")
 
     async def _deployment_context(
         self, session: "AsyncSession", deployment: Any
@@ -275,7 +279,12 @@ class RayDriver(InferenceDriver):
             replica_id=replica_id,
             tail=tail,
             since=since,
-            runtime_bundle=self._runtime_bundle_payload(environment),
+            # The node the reader will actually address -- a replica log lives
+            # on the node hosting that replica, which need not be the head and
+            # need not run the same image.
+            runtime_bundle=await self._runtime_bundle_payload_for(
+                session, node_id or head_node_id
+            ),
         )
 
     async def deployment_metrics(
@@ -308,11 +317,45 @@ class RayDriver(InferenceDriver):
             )
             return metrics
 
+        # As with the cluster figures: the replica counts above already come
+        # from what the reconciler observed, and asking Serve again costs the
+        # same ~20s round trip that a polling page cannot absorb.  The probe
+        # below only adds per-replica detail, so it is worth exactly one
+        # attempt on a deployment nobody has observed yet -- never on the
+        # steady-state path a screen refreshes.
+        observation = (deployment.observed_status_json or {}).get("observation") or {}
+        if observation.get("reconciled"):
+            # The reconciler already decided what state this application is
+            # in, and the deployment row carries that decision.  Leaving
+            # ``app_status`` unset here made the card read "Runtime state:
+            # unknown" beside "Copies ready 2 / 2" on a deployment that was
+            # demonstrably serving -- the same screen contradicting itself.
+            #
+            # Taken from the deployment's own phase rather than invented: it
+            # has exactly the provenance the replica counts beside it do, so
+            # the two cannot disagree.
+            metrics.app_status = str(getattr(deployment, "phase", "") or "") or None
+            metrics.partials.append(
+                MetricsPartial(
+                    tier="serve",
+                    severity="info",
+                    reason=(
+                        "Copy counts are as of the last cluster check. "
+                        "Per-copy detail is not shown here."
+                    ),
+                )
+            )
+            return metrics
+
         client = RayClusterClient(node_control)
         try:
             serve_status = await client.probe_serve(
                 head_node_id=head_node_id,
-                runtime_bundle=self._runtime_bundle_payload(environment),
+                runtime_bundle=await self._runtime_bundle_payload_for(session, head_node_id),
+                # A page is waiting on this.  If the node cannot answer
+                # quickly, say so as a partial rather than holding the
+                # connection open.
+                budget_sec=_INTERACTIVE_PROBE_BUDGET_SEC,
             )
         except Exception as exc:  # noqa: BLE001 - metrics never fail a request
             metrics.partials.append(MetricsPartial(tier="serve", reason=f"Serve probe failed: {exc}"))
@@ -352,6 +395,94 @@ class RayDriver(InferenceDriver):
             metrics.partials.extend(env_metrics.partials)
         return metrics
 
+    @staticmethod
+    async def _scrape_targets(
+        session: "AsyncSession",
+        raw_metrics: dict[str, Any] | None,
+        environment: Any = None,
+    ) -> list[ScrapeTarget]:
+        """Turn Ray's advertised metrics endpoints into reachable scrape targets.
+
+        Ray advertises each node by its *Ray* address, which on a fabric-bound
+        cluster is the fabric IP -- 10.100.0.x here, an isolated direct link
+        between the two machines.  Recording that as a scrape target produces
+        something nothing outside the fabric can reach, and it looked for a
+        while like the fabric made central scraping impossible.
+
+        It does not.  The metrics agent binds 0.0.0.0 and only *advertises*
+        the fabric address, so the same port answers on the node's management
+        address:
+
+            http://10.100.0.2:40535/metrics   (fabric)      unreachable
+            http://10.88.10.71:40535/metrics  (management)  200
+
+        So the fabric address is kept in the observation -- it is the truth
+        about the cluster -- and translated here, at the one point where the
+        address has to be dialled rather than described.
+        """
+        from llm_port_backend.db.models.node_control import InfraNode  # noqa: PLC0415
+
+        # ``node_id`` on a Ray target is *Ray's* node id, not ours, so it
+        # cannot be looked up directly.  The fabric plan is the bridge: it
+        # maps our node UUIDs to the very addresses Ray advertises.
+        by_fabric_ip: dict[str, str] = {}
+        bindings = (
+            ((getattr(environment, "config_json", None) or {}).get("resolved_fabric") or {})
+            .get("node_bindings")
+            or {}
+        )
+        for node_uuid, binding in bindings.items():
+            ip = (binding or {}).get("ip")
+            if not ip:
+                continue
+            try:
+                node = await session.get(InfraNode, uuid.UUID(str(node_uuid)))
+            except (ValueError, TypeError):
+                continue
+            if node is not None and node.host:
+                by_fabric_ip[str(ip)] = str(node.host).strip()
+
+        targets: list[ScrapeTarget] = []
+        for target in ((raw_metrics or {}).get("targets") or []):
+            if not isinstance(target, dict):
+                continue
+            advertised = target.get("address")
+            port = target.get("port")
+            if not advertised or not port:
+                continue
+
+            address = by_fabric_ip.get(str(advertised), str(advertised))
+            node_id = target.get("node_id")
+
+            targets.append(
+                ScrapeTarget(
+                    node_id=node_id,
+                    address=address,
+                    port=int(port),
+                    url=f"http://{address}:{int(port)}/metrics",
+                )
+            )
+        return targets
+
+    @staticmethod
+    def _dashboard_url(environment: InferenceEnvironment) -> str | None:
+        """Where this cluster's rendered dashboard lives, if there is one.
+
+        ``None`` when monitoring is off, so the UI shows no link at all rather
+        than one that leads to a Grafana that is not running.
+        """
+        try:
+            from llm_port_backend.services.llm.monitoring import (  # noqa: PLC0415
+                get_monitoring_provisioner,
+            )
+
+            provisioner = get_monitoring_provisioner()
+            if provisioner is None:
+                return None
+            return provisioner.dashboard_url(environment.id)
+        except Exception:  # noqa: BLE001 - a missing link never fails metrics
+            return None
+
     async def environment_metrics(
         self,
         session: "AsyncSession",
@@ -361,7 +492,13 @@ class RayDriver(InferenceDriver):
     ) -> EnvironmentMetrics:
         """Aggregate the cluster tier for *environment*."""
         metrics = EnvironmentMetrics(
-            environment_id=str(environment.id), observed_at=datetime.now(tz=UTC)
+            environment_id=str(environment.id),
+            observed_at=datetime.now(tz=UTC),
+            # Set before any early return: a cluster the probe cannot reach is
+            # exactly when the operator wants the dashboard, because Prometheus
+            # kept scraping while the control path was down and the panels hold
+            # the history that explains what happened.
+            dashboard_url=self._dashboard_url(environment),
         )
         head_node_id = getattr(environment, "head_node_id", None)
         if node_control is None or head_node_id is None:
@@ -370,15 +507,75 @@ class RayDriver(InferenceDriver):
             )
             return metrics
 
+        # Read what the reconciler already saw, rather than asking the node
+        # again.
+        #
+        # A GET_RAY_STATUS round trip takes 10-25s on this hardware (median
+        # ~19s).  No budget makes that safe for a screen that polls every ten
+        # seconds: the request either outlives the interval and stacks, or it
+        # is cut short and the page shows zeros.  Meanwhile the reconciler has
+        # been collecting exactly these figures every 30s and storing them.
+        #
+        # So the read is a read.  It is fast, it holds no connection open, and
+        # it carries the time it was taken so nobody mistakes it for live.
+        stored = (environment.observed_status_json or {}).get("cluster")
+        if isinstance(stored, dict) and stored:
+            metrics.alive = bool(stored.get("alive", False))
+            metrics.version = stored.get("version")
+            metrics.nodes_total = int(stored.get("num_nodes") or 0)
+            metrics.nodes_alive = len(
+                [n for n in (stored.get("nodes") or []) if n.get("alive")]
+            ) or (int(stored.get("num_nodes") or 0) if stored.get("alive") else 0)
+            metrics.gpus_total = float(stored.get("total_gpus") or 0)
+            metrics.gpus_available = float(stored.get("available_gpus") or 0)
+            metrics.cpus_total = float(stored.get("total_cpus") or 0)
+            metrics.raw = {
+                "conditions": (environment.observed_status_json or {}).get("conditions", []),
+            }
+            # Scrape targets come from the same observation.  Without this
+            # the stored path returned none, and Prometheus had nothing to
+            # discover on every call but the very first.
+            metrics.scrape_targets = await self._scrape_targets(
+                session, stored.get("metrics"), environment
+            )
+            metrics.partials.append(
+                MetricsPartial(
+                    tier="cluster",
+                    # Information, not a fault: this is the normal path. The
+                    # figures are real, they are simply not from this instant.
+                    severity="info",
+                    reason="As of the last cluster check, not this moment.",
+                )
+            )
+            return metrics
+
+        # Nothing stored yet -- a cluster that has never reconciled.  Ask once,
+        # briefly, rather than showing an empty screen with no explanation.
         client = RayClusterClient(node_control)
         try:
             status = await client.probe_cluster(
                 head_node_id=head_node_id,
-                runtime_bundle=self._runtime_bundle_payload(environment),
+                runtime_bundle=await self._runtime_bundle_payload_for(session, head_node_id),
                 include_metrics=True,
+                budget_sec=_INTERACTIVE_PROBE_BUDGET_SEC,
             )
         except Exception as exc:  # noqa: BLE001
             metrics.partials.append(MetricsPartial(tier="cluster", reason=f"probe failed: {exc}"))
+            return metrics
+
+        if not status.observed:
+            # The probe ran out of time.  Copying its zeros here would show
+            # "0 of 0 accelerators, 0 nodes alive" as though those had been
+            # measured, which is the one thing these screens must never do.
+            metrics.partials.append(
+                MetricsPartial(
+                    tier="cluster",
+                    reason=(
+                        "The lead machine did not answer in time, so these "
+                        "figures are not shown rather than guessed."
+                    ),
+                )
+            )
             return metrics
 
         metrics.alive = status.alive
@@ -390,21 +587,9 @@ class RayDriver(InferenceDriver):
         metrics.cpus_total = status.total_cpus
         metrics.raw = {"conditions": (environment.observed_status_json or {}).get("conditions", [])}
 
-        targets = ((status.metrics or {}) or {}).get("targets") or []
-        for target in targets:
-            if not isinstance(target, dict):
-                continue
-            address = target.get("address")
-            port = target.get("port")
-            if address and port:
-                metrics.scrape_targets.append(
-                    ScrapeTarget(
-                        node_id=target.get("node_id"),
-                        address=str(address),
-                        port=int(port),
-                        url=target.get("url") or f"http://{address}:{int(port)}/metrics",
-                    )
-                )
+        metrics.scrape_targets = await self._scrape_targets(
+            session, status.metrics or {}, environment
+        )
 
         # Honest partial rather than a silent zero: the deployed runtime image
         # is missing its metrics dependencies, so worker nodes bind no metrics

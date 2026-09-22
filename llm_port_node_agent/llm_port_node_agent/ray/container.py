@@ -48,6 +48,11 @@ _IDLE_COMMAND = ["sleep", "infinity"]
 # Above this, a GPU is carrying a real allocation rather than driver overhead.
 _GPU_BUSY_THRESHOLD_MIB = 1024
 
+# Ray records the cluster a node last joined here.  It is the only
+# trustworthy answer to "am I already a member of *this* cluster", which
+# is a different question from "is a raylet running".
+_CURRENT_CLUSTER_FILE = "/tmp/ray/ray_current_cluster"
+
 
 def _container_name(ps_line: str) -> str | None:
     """Container name out of one ``ps --format '{{json .}}'`` line."""
@@ -112,6 +117,10 @@ class RuntimeBundleSpec:
     ipc_mode: str = "host"
     pid_mode: str | None = None
     gpus: str = "all"
+    #: Vendor the bundle targets, from the backend's target architecture.
+    #: Decides how the semantic ``gpus`` request becomes runtime flags -- an
+    #: AMD node needs /dev/kfd, not ``--gpus``.
+    accelerator_vendor: str = "nvidia"
     devices: list[str] = field(default_factory=list)
     capabilities: list[str] = field(default_factory=list)
     shm_size: str | None = None
@@ -155,6 +164,11 @@ class RuntimeBundleSpec:
             ipc_mode=str(req.get("ipc_mode") or "host"),
             pid_mode=req.get("pid_mode"),
             gpus=str(req.get("gpus") or "all"),
+            accelerator_vendor=str(
+                (payload.get("target_architecture") or {}).get("accelerator_vendor")
+                or req.get("accelerator_vendor")
+                or "nvidia"
+            ),
             devices=[str(d) for d in (req.get("devices") or [])],
             capabilities=[str(c) for c in (req.get("capabilities") or [])],
             shm_size=req.get("shm_size"),
@@ -407,11 +421,19 @@ class RayContainerRuntime:
             local_id = await self._local_image_id(spec)
             if local_id:
                 expected_ids.add(local_id)
+            drift = self._launch_drift(info, spec, merged_env)
             if running_image and running_image not in expected_ids:
                 log.warning(
                     "Container %s runs image %s, expected %s — recreating",
                     spec.name, running_image, spec.digest,
                 )
+                await handler.remove(spec.name, force=True)
+            elif drift:
+                # The image alone is not the contract: a container created
+                # before the token path or a mount changed keeps the old one
+                # silently, and `ray start` then fails inside it with an
+                # opaque "token file cannot be opened or is empty".
+                log.warning("Container %s no longer matches its spec (%s) — recreating", spec.name, drift)
                 await handler.remove(spec.name, force=True)
             elif state.get("Running"):
                 return {"container": spec.name, "created": False, "running": True}
@@ -430,6 +452,7 @@ class RayContainerRuntime:
             name=spec.name,
             env=merged_env,
             gpus=spec.gpus if spec.gpus not in ("", "none") else None,
+            accelerator_vendor=spec.accelerator_vendor,
             volumes=volumes,
             command=list(_IDLE_COMMAND),
             entrypoint="",
@@ -443,6 +466,47 @@ class RayContainerRuntime:
             "running": True,
             "preflight": preflight,
         }
+
+    def _launch_drift(
+        self,
+        info: dict[str, Any] | None,
+        spec: RuntimeBundleSpec,
+        env: dict[str, str],
+    ) -> str | None:
+        """Describe how a running container differs from the spec, if it does.
+
+        Only the parts that silently break the runtime are compared: the bind
+        mounts it must read models and the cluster token through, and the
+        token path it was told to use.  Diffing everything would recreate the
+        container on cosmetic differences between runtimes.
+
+        Returns a short reason, or ``None`` when the container still matches.
+        """
+        if not isinstance(info, dict):
+            return None
+
+        wanted_targets = {m.container_path for m in spec.mounts}
+        token_dir = self._token_path.rsplit("/", 1)[0]
+        wanted_targets.add(token_dir)
+
+        actual_targets = {
+            str(m.get("Destination"))
+            for m in (info.get("Mounts") or [])
+            if isinstance(m, dict) and m.get("Destination")
+        }
+        missing = wanted_targets - actual_targets
+        if missing:
+            return f"missing mounts: {', '.join(sorted(missing))}"
+
+        config = info.get("Config") if isinstance(info.get("Config"), dict) else {}
+        actual_env = {}
+        for entry in config.get("Env") or []:
+            key, _, value = str(entry).partition("=")
+            actual_env[key] = value
+        wanted_token = env.get("RAY_AUTH_TOKEN_PATH")
+        if wanted_token and actual_env.get("RAY_AUTH_TOKEN_PATH") != wanted_token:
+            return "RAY_AUTH_TOKEN_PATH changed"
+        return None
 
     async def _local_image_id(self, spec: RuntimeBundleSpec) -> str | None:
         """The config ID of the locally present image, if any.
@@ -535,7 +599,34 @@ class RayContainerRuntime:
         include_dashboard: bool = True,
         env: dict[str, str] | None = None,
     ) -> dict[str, Any]:
-        """``ray start --head`` inside the runtime container."""
+        """``ray start --head`` inside the runtime container.
+
+        Idempotent against the node, for the same reason ``join_cluster`` is.
+        A node already heading *this* cluster is left alone; a node heading a
+        *different* one is stopped first.
+
+        Without that second case, asking the same machine to head a second
+        cluster -- which is exactly what creating a new cluster from the same
+        fleet does -- started another GCS and another raylet beside the first.
+        The DGX head reached three GCS servers and four raylets that way, and
+        a cluster with two control planes in one container serves nothing.
+        """
+        target = f"{node_ip_address or ''}:{port}" if node_ip_address else None
+        joined = await self._joined_cluster(spec)
+        if joined and await self._raylet_running(spec):
+            if target is None or joined == target:
+                log.info("Already heading %s; not starting a second head.", joined)
+                return {
+                    "started": True,
+                    "already_running": True,
+                    "in_container": spec.name,
+                    "head_address": joined,
+                    "cluster_address": joined,
+                    "dashboard_url": None,
+                }
+            log.warning("Node heads %s, not %s; stopping it first.", joined, target)
+            await self.stop(spec, force=True)
+
         args = ["start", "--head", f"--port={port}"]
         if node_ip_address:
             args.append(f"--node-ip-address={node_ip_address}")
@@ -575,7 +666,36 @@ class RayContainerRuntime:
         num_gpus: int | None = None,
         env: dict[str, str] | None = None,
     ) -> dict[str, Any]:
-        """``ray start --address=<head>`` inside the runtime container."""
+        """``ray start --address=<head>`` inside the runtime container.
+
+        Idempotent against the *node*, not against the error message.  This
+        used to rely on ``tolerate_already_running``, which assumes a second
+        ``ray start --address`` fails -- it does not.  It starts an additional
+        raylet, and the cluster gains a phantom node that is ``Alive`` in GCS,
+        advertises CPUs and a GPU, and attracts placement it can never serve.
+
+        The DGX pair reached four "alive" nodes for two machines this way:
+        three raylets in one container, and a Serve proxy scheduled onto a
+        node that was not where we thought it was.
+        """
+        target = head_address.strip()
+        joined = await self._joined_cluster(spec)
+
+        if joined == target and await self._raylet_running(spec):
+            log.info("Already a member of %s; not starting a second raylet.", target)
+            return {
+                "joined": True,
+                "already_member": True,
+                "in_container": spec.name,
+                "head_address": head_address,
+            }
+
+        if joined and joined != target:
+            # Pointing at a different cluster.  Leaving it up would keep its
+            # registration alive alongside the new one.
+            log.warning("Node is joined to %s, not %s; stopping it first.", joined, target)
+            await self.stop(spec, force=True)
+
         args = ["start", f"--address={head_address}"]
         if node_ip_address:
             args.append(f"--node-ip-address={node_ip_address}")
@@ -587,7 +707,54 @@ class RayContainerRuntime:
         await self._ray(
             spec, args, env=env, label="ray start --address", tolerate_already_running=True,
         )
-        return {"joined": True, "in_container": spec.name, "head_address": head_address}
+        return {
+            "joined": True,
+            "already_member": False,
+            "in_container": spec.name,
+            "head_address": head_address,
+        }
+
+    async def _joined_cluster(self, spec: RuntimeBundleSpec) -> str | None:
+        """The cluster this node last joined, per Ray's own marker.
+
+        ``None`` when the node has never joined, or when the container is not
+        up to answer -- both of which mean "go ahead and start".
+        """
+        try:
+            handler = self._handler(spec)
+            code, out, _ = await handler.exec_(
+                spec.name,
+                ["cat", _CURRENT_CLUSTER_FILE],
+                env=None,
+                timeout_sec=15,
+                raise_on_error=False,
+            )
+        except ContainerRuntimeError:
+            return None
+        if code != 0:
+            return None
+        value = (out or "").strip()
+        return value or None
+
+    async def _raylet_running(self, spec: RuntimeBundleSpec) -> bool:
+        """Whether a raylet is actually alive, not merely recorded as joined."""
+        try:
+            handler = self._handler(spec)
+            code, out, _ = await handler.exec_(
+                spec.name,
+                ["pgrep", "-c", "raylet"],
+                env=None,
+                timeout_sec=15,
+                raise_on_error=False,
+            )
+        except ContainerRuntimeError:
+            return False
+        if code != 0:
+            return False
+        try:
+            return int((out or "0").strip().splitlines()[0]) > 0
+        except (ValueError, IndexError):
+            return False
 
     async def stop(
         self, spec: RuntimeBundleSpec, *, force: bool = False, remove: bool = False
@@ -754,15 +921,33 @@ class RayContainerRuntime:
         container_name: str = DEFAULT_CONTAINER_NAME,
         timeout_sec: float = 30,
     ) -> dict[str, Any]:
-        """Prometheus scrape targets, derived from the cluster's own node list.
+        """Prometheus scrape targets, as Ray itself publishes them.
 
-        Built from ``cluster-status`` rather than a separate verb: the node
-        records already carry ``metrics_export_port``, so this needs no extra
-        round trip into the container.
+        Ray writes the authoritative list to
+        ``/tmp/ray/prom_metrics_service_discovery.json`` and keeps it current
+        as nodes join and leave.  Deriving the list from the node records
+        instead gave one endpoint per node and missed the head's other
+        exporters entirely -- on the DGX pair, four targets published, two
+        derived.  The two lost were the autoscaler (cluster capacity) and the
+        dashboard/component exporter (per-component memory).
+
+        The node-derived list is kept as a fallback: an older Ray, or a
+        session whose file has not appeared yet, still yields the per-node
+        endpoints rather than nothing.
         """
-        _code, res = await self._helper(
-            container_name, ["cluster-status"], timeout_sec=timeout_sec
-        )
+        published = await self._published_metrics_targets(container_name)
+        if published:
+            return {"enabled": True, "targets": published}
+
+        # A metrics read runs inside the status probe the backend polls, so it
+        # must not be able to fail that probe: a container that went away is a
+        # cluster with no targets, not a cluster that cannot be described.
+        try:
+            _code, res = await self._helper(
+                container_name, ["cluster-status"], timeout_sec=timeout_sec
+            )
+        except ContainerRuntimeError:
+            return {"enabled": False, "targets": []}
         if not isinstance(res, dict) or not res.get("alive"):
             return {"enabled": False, "targets": []}
 
@@ -796,6 +981,54 @@ class RayContainerRuntime:
             return {"available": False, "applications": {}}
         res.setdefault("applications", {})
         return res
+
+    async def _published_metrics_targets(
+        self, container_name: str
+    ) -> list[dict[str, Any]]:
+        """Read Ray's own service-discovery file, if it is there.
+
+        Format is Prometheus file_sd: a list of ``{"labels": ..., "targets":
+        ["host:port", ...]}``.  Ray owns it, so it covers every exporter on
+        every node without us having to know which exporters exist.
+        """
+        try:
+            handler = self._handler(self._spec_for(container_name))
+            code, out, _ = await handler.exec_(
+                container_name,
+                ["cat", "/tmp/ray/prom_metrics_service_discovery.json"],
+                env=None,
+                timeout_sec=15,
+                raise_on_error=False,
+            )
+        except ContainerRuntimeError:
+            return []
+        if code != 0 or not out:
+            return []
+
+        try:
+            groups = json.loads(out)
+        except (json.JSONDecodeError, ValueError):
+            return []
+        if not isinstance(groups, list):
+            return []
+
+        targets: list[dict[str, Any]] = []
+        for group in groups:
+            if not isinstance(group, dict):
+                continue
+            for entry in group.get("targets") or []:
+                address, _, port = str(entry).rpartition(":")
+                if not address or not port.isdigit():
+                    continue
+                targets.append({
+                    # Ray's file names no node id; the backend maps the
+                    # address to one of our machines anyway.
+                    "node_id": None,
+                    "address": address,
+                    "port": int(port),
+                    "url": f"http://{address}:{int(port)}/metrics",
+                })
+        return targets
 
     async def run_serve_app(
         self,
@@ -874,4 +1107,10 @@ def _means_already_running(detail: str) -> bool:
         or "address is already in use" in detail
         or "already joined" in detail
         or "connection to the ray cluster already exists" in detail
+        # Ray 2.58 does not say "already running" when a head is started over
+        # a live session: `_write_cluster_info_to_kv` asserts that the new
+        # session name matches the one already persisted in the GCS KV store.
+        # That assertion *is* "a head is already up here", and without this a
+        # second reconcile pass turned a healthy cluster into `failed`.
+        or "does not match persisted value" in detail
     )

@@ -305,3 +305,23 @@ async def test_status_tiers_reach_the_container(tmp_path) -> None:
     assert result["serve"]["available"] is True
     assert result["metrics"]["enabled"] is True
     assert "version_mismatch" not in result
+
+
+def test_session_mismatch_counts_as_already_running() -> None:
+    """Ray 2.58's phrasing for "a head is already up here".
+
+    Starting a head over a live session does not produce "already running";
+    ``_write_cluster_info_to_kv`` asserts the new session name against the one
+    persisted in the GCS KV store.  Treating that as a hard failure turned a
+    healthy two-node cluster into ``failed`` on the next reconcile pass.
+    """
+    from llm_port_node_agent.ray.container import _means_already_running
+
+    detail = (
+        "assertionerror: session name session_2026-09-21_06-01-04_502717_4415 "
+        "does not match persisted value b'session_2026-09-21_05-58-09_508397_98'. "
+        "perhaps there was an error connecting to the gcs storage backend."
+    )
+    assert _means_already_running(detail)
+    # Still a failure when the head genuinely could not start.
+    assert not _means_already_running("ray start failed: port 6379 unreachable")

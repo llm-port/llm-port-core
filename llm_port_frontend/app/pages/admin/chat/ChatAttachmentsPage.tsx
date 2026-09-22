@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { chatAdmin, type ChatAttachment, type ChatStats } from "~/api/chat";
 import { DataTable, type ColumnDef } from "~/components/DataTable";
@@ -26,33 +26,32 @@ function formatBytes(bytes: number): string {
 export default function ChatAttachmentsPage() {
   const { t } = useTranslation();
 
+  // The table and the summary cards are separate questions and answered by
+  // separate queries -- the cards aggregate across every project and session,
+  // the table lists one page of files. Gathered together the table waited for
+  // the aggregate, which is the slower of the two and the less urgent.
   const {
-    data: { attachments, stats },
+    data: attachments,
     loading,
     error,
-    refresh: load,
+    refresh: reloadAttachments,
     setError,
-  } = useAsyncData(
-    async () => {
-      const [attachments, stats] = await Promise.all([
-        chatAdmin.listAttachments(),
-        chatAdmin.stats(),
-      ]);
-      return { attachments, stats };
-    },
-    [],
-    {
-      initialValue: {
-        attachments: [] as ChatAttachment[],
-        stats: {
-          total_projects: 0,
-          total_sessions: 0,
-          total_attachments: 0,
-          total_attachment_bytes: 0,
-        } as ChatStats,
-      },
-    },
-  );
+  } = useAsyncData(() => chatAdmin.listAttachments(), [], {
+    initialValue: [] as ChatAttachment[],
+  });
+
+  // Starts as null, not as zeros. A card reading "0 projects" while the count
+  // is still on its way is a wrong answer stated confidently; a dash is an
+  // honest one.
+  const statsLoad = useAsyncData(() => chatAdmin.stats(), [], {
+    initialValue: null as ChatStats | null,
+  });
+  const stats = statsLoad.data;
+
+  const load = useCallback(async () => {
+    await Promise.all([reloadAttachments(), statsLoad.refresh()]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [deleteTarget, setDeleteTarget] = useState<ChatAttachment | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -166,19 +165,19 @@ export default function ChatAttachmentsPage() {
   const statCards = [
     {
       label: t("chat_admin.stat_projects"),
-      value: stats.total_projects,
+      value: stats ? stats.total_projects : "—",
     },
     {
       label: t("chat_admin.stat_sessions"),
-      value: stats.total_sessions,
+      value: stats ? stats.total_sessions : "—",
     },
     {
       label: t("chat_admin.stat_attachments"),
-      value: stats.total_attachments,
+      value: stats ? stats.total_attachments : "—",
     },
     {
       label: t("chat_admin.stat_storage"),
-      value: formatBytes(stats.total_attachment_bytes),
+      value: stats ? formatBytes(stats.total_attachment_bytes) : "—",
     },
   ];
 

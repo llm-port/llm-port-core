@@ -10,18 +10,26 @@ import os
 import platform
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from urllib.parse import urlparse
 
 from llm_port_node_agent.config import AgentConfig
 from llm_port_node_agent.service import NodeAgentService
+from llm_port_node_agent.single_instance import AlreadyRunningError, SingleInstanceLock
 
 SERVICE_NAME = "llmport-agent"
 _IS_WINDOWS = platform.system() == "Windows"
 _ENV_PREFIX = "LLM_PORT_NODE_AGENT_"
+
+# Someone has to walk to a browser and click, so wait in human time.
+_JOIN_WAIT_SECONDS = 15 * 60
+_JOIN_POLL_SECONDS = 3.0
+_AGENT_VERSION = "0.1.8"
 
 # ── Env-file paths (per-platform) ────────────────────────────────
 _LINUX_SYSTEM_ENV_FILE = Path(f"/etc/{SERVICE_NAME}.env")
@@ -59,7 +67,7 @@ def _inject_env_file() -> None:
     Values already present in the real environment take precedence,
     so the file acts as a set of defaults.
     """
-    file_env = _load_env_file()
+    file_env = _effective_env()
     for key, value in file_env.items():
         if key not in os.environ:
             os.environ[key] = value
@@ -69,11 +77,24 @@ async def _run() -> None:
     _inject_env_file()
     config = AgentConfig.from_env()
     _configure_logging(config.log_level)
+
+    # Refuse to be the second agent on this node.  Two of them enrol as the
+    # same machine and hold two streams; the backend then dispatches commands
+    # to one session while the other is the live one, and those commands never
+    # reach a terminal state.  Nothing appears to happen, anywhere.
+    lock = SingleInstanceLock(config.state_path)
+    try:
+        lock.acquire()
+    except AlreadyRunningError as exc:
+        _err(str(exc))
+        sys.exit(1)
+
     service = NodeAgentService(config)
     try:
         await service.run_forever()
     finally:
         await service.close()
+        lock.release()
 
 
 # ── Helpers (shared) ──────────────────────────────────────────────
@@ -129,12 +150,35 @@ def _load_env_file() -> dict[str, str]:
 
     User-local values take precedence over the system file so that
     non-root ``configure --set`` always wins.
+
+    Files only -- this is what gets written back out. To *read* the agent's
+    configuration, use :func:`_effective_env`.
     """
     if _IS_WINDOWS:
         return _parse_env_file(_WIN_ENV_FILE)
     # System-wide first, then overlay user-local
     merged = _parse_env_file(_LINUX_SYSTEM_ENV_FILE)
     merged.update(_parse_env_file(_LINUX_USER_ENV_FILE))
+    return merged
+
+
+def _effective_env() -> dict[str, str]:
+    """The configuration as the agent will actually see it.
+
+    Files, then the process environment on top.  ``run`` has always read the
+    environment -- that is what ``AgentConfig.from_env`` does -- while the
+    commands around it read only the files. An agent configured entirely
+    through ``LLM_PORT_NODE_AGENT_*`` variables, which is how a container or
+    a unit file does it, therefore joined under its container hostname and
+    advertised the wrong address, and ``join`` refused to run at all for want
+    of a backend URL it had been handed.
+    """
+    merged = _load_env_file()
+    merged.update({
+        key: value
+        for key, value in os.environ.items()
+        if key.startswith(_ENV_PREFIX) and value.strip()
+    })
     return merged
 
 
@@ -227,7 +271,7 @@ def _err(msg: str) -> None:
 
 def _show_config() -> dict[str, str]:
     """Display current configuration from env file + env vars. Returns merged dict."""
-    file_env = _load_env_file()
+    file_env = _effective_env()
     live_env = {k: v for k, v in os.environ.items() if k.startswith(_ENV_PREFIX)}
     merged = {**file_env, **live_env}
 
@@ -620,7 +664,7 @@ def cmd_interactive() -> None:
 
 def _load_env_into_process() -> None:
     """Load saved env file into the current process environment."""
-    file_env = _load_env_file()
+    file_env = _effective_env()
     for k, v in file_env.items():
         if k not in os.environ:
             os.environ[k] = v
@@ -691,7 +735,7 @@ def _build_service_content(agent_bin: str) -> str:
     user_env_file = Path(home_dir) / ".config" / SERVICE_NAME / "agent.env"
 
     # Determine model_store from current env (may differ from default)
-    merged = _load_env_file()
+    merged = _effective_env()
     model_store = merged.get(f"{_ENV_PREFIX}MODEL_STORE", "/srv/llm-port/models")
     state_dir = merged.get(
         f"{_ENV_PREFIX}STATE_PATH",
@@ -737,7 +781,17 @@ def _build_service_content(agent_bin: str) -> str:
             "[Unit]\n"
             "Description=llm-port node agent\n"
             "After=network-online.target docker.service\n"
-            "Wants=network-online.target\n\n"
+            "Wants=network-online.target\n"
+            # A start that can never succeed must stop retrying and say so.
+            # The agent handles a backend outage itself -- it reconnects with backoff
+            # and never exits for that -- so a failed *start* means something
+            # structural, most often a second agent already holding the state lock.
+            # Without a limit systemd retries every 5s forever while reporting
+            # "activating (auto-restart)", which reads like a slow boot rather than
+            # a wedged service: observed on the DGX head at restart counter 9259,
+            # roughly fifteen hours of looping that nothing surfaced.
+            "StartLimitIntervalSec=300\n"
+            "StartLimitBurst=10\n\n"
             "[Service]\n"
             "Type=simple\n"
             f"User=@@USER@@\n"
@@ -866,6 +920,148 @@ def cmd_init() -> None:
     print("\n  Host initialisation complete.")
 
 
+async def _join_flow(config: AgentConfig) -> bool:
+    """Ask the backend to let this machine in, then wait for a human.
+
+    The whole point of this path is that nothing long is typed here.  The
+    operator types a backend address; the code we print is short enough to
+    read across a room, and it is a *confirmation* value rather than a secret
+    -- the credential only ever comes back to this process, which is the one
+    holding the poll secret.
+
+    Returns:
+        True once a credential has been stored, False if it was refused or
+        timed out.
+    """
+    from llm_port_node_agent.backend_client import BackendClient
+    from llm_port_node_agent.gpu import detect_gpu
+    from llm_port_node_agent.preflight import build_static_capabilities
+    from llm_port_node_agent.runtimes import detect_runtime
+    from llm_port_node_agent.state_store import StateStore
+
+    # The same detection the service does, and for the same reason: what a
+    # node reports at join is what decides which runtime image it can run, so
+    # a join that describes the machine differently from the service would
+    # enrol a node the cluster then refuses.
+    #
+    # ``GpuCollector`` is the Protocol, not a collector -- constructing it
+    # raised "Protocols cannot be instantiated" and took the whole join with
+    # it.
+    runtime = detect_runtime(preferred=config.container_runtime)
+    capabilities = await build_static_capabilities(
+        runtime,
+        detect_gpu(),
+        paths={
+            "model_store": config.model_store_root,
+            "ray_session": config.ray_session_dir,
+        },
+    )
+
+    client = BackendClient(config)
+    try:
+        asked = await client.request_join(
+            agent_id=config.agent_id,
+            host=config.advertise_host,
+            capabilities=capabilities,
+            version=_AGENT_VERSION,
+        )
+    except Exception as exc:  # noqa: BLE001 - the message is the product here
+        _err(f"Could not reach {config.backend_url}: {exc}")
+        return False
+
+    code = asked.get("code", "?")
+    poll_secret = asked.get("poll_secret")
+    request_id = asked.get("id")
+
+    _section("Waiting for approval")
+    print()
+    print(f"      Code:  {code}")
+    print()
+    print("  Open LLM.Port in a browser, go to Machines, and approve this")
+    print("  request.  Check the code above matches the one on screen.")
+    print()
+
+    if not poll_secret:
+        # This machine already had a live request, so the secret belongs to
+        # the process that made it.  Saying so beats polling forever.
+        _warn("This machine is already waiting for approval from an earlier run.")
+        _warn("Approve it in the browser; that run will pick up the credential.")
+        return False
+
+    # A human has to walk to a browser, so poll patiently rather than tightly.
+    deadline = time.monotonic() + _JOIN_WAIT_SECONDS
+    while time.monotonic() < deadline:
+        await asyncio.sleep(_JOIN_POLL_SECONDS)
+        try:
+            result = await client.collect_join(request_id=request_id, poll_secret=poll_secret)
+        except Exception as exc:  # noqa: BLE001
+            _warn(f"Could not reach the backend: {exc}")
+            continue
+
+        status = result.get("status")
+        if status == "pending":
+            continue
+        if status == "approved":
+            store = StateStore(config.state_path)
+            store.load()
+            store.state.credential = result.get("credential")
+            store.state.node_id = result.get("node_id")
+            store.save()
+            _ok(f"Approved.  This machine is now '{result.get('agent_id')}'.")
+            return True
+        if status == "rejected":
+            _err(f"The request was refused. {result.get('message') or ''}".strip())
+            return False
+        _err(f"The request is no longer usable ({status}).")
+        return False
+
+    _err("Nobody approved this within the time limit.  Run join again to retry.")
+    return False
+
+
+def cmd_join(backend_url: str | None) -> None:
+    """Enrol this machine by asking, rather than by carrying a token to it."""
+    _banner()
+
+    merged = _effective_env()
+    backend = (backend_url or merged.get(f"{_ENV_PREFIX}BACKEND_URL") or "").strip()
+    if not backend:
+        _err("Where is LLM.Port?  Usage: llmport-agent join http://<backend-host>:8000")
+        sys.exit(1)
+    if "://" not in backend:
+        # "10.88.10.220:8000" is what a person types; accept it.
+        backend = f"http://{backend}"
+
+    hostname = socket.gethostname()
+    agent_id = merged.get(f"{_ENV_PREFIX}AGENT_ID") or hostname
+    host = merged.get(f"{_ENV_PREFIX}ADVERTISE_HOST") or merged.get(f"{_ENV_PREFIX}HOST") or hostname
+
+    _section("This machine")
+    _kv("Name", agent_id)
+    _kv("Address", host)
+    _kv("LLM.Port", backend)
+
+    # Build the config the same way the service will, so a join that works
+    # is a guarantee the service will reach the same backend the same way.
+    os.environ[f"{_ENV_PREFIX}BACKEND_URL"] = backend
+    os.environ[f"{_ENV_PREFIX}AGENT_ID"] = agent_id
+    os.environ[f"{_ENV_PREFIX}HOST"] = host
+    if not asyncio.run(_join_flow(AgentConfig.from_env())):
+        sys.exit(1)
+
+    # Persist what the service will need, then hand over to `start`.
+    env = _load_env_file()
+    env[f"{_ENV_PREFIX}BACKEND_URL"] = backend
+    env[f"{_ENV_PREFIX}AGENT_ID"] = agent_id
+    env[f"{_ENV_PREFIX}HOST"] = host
+    # An enrollment token left over from a previous attempt is now misleading.
+    env.pop(f"{_ENV_PREFIX}ENROLLMENT_TOKEN", None)
+    _save_env_file(env)
+
+    _section("Starting the agent")
+    cmd_start()
+
+
 def cmd_start() -> None:
     """Install and start llmport-agent as a background service."""
     _load_env_into_process()
@@ -895,7 +1091,7 @@ def _cmd_start_linux(agent_bin: str, env_lines: list[str]) -> None:
     env_content = "\n".join(env_lines) + "\n"
 
     # Resolve model_store to ensure state/model dirs exist with correct ownership
-    merged = _load_env_file()
+    merged = _effective_env()
     model_store = merged.get(f"{_ENV_PREFIX}MODEL_STORE", "/srv/llm-port/models")
     state_dir = "/var/lib/llmport-agent"
 
@@ -1028,7 +1224,7 @@ def cmd_run() -> None:
 def cmd_scan() -> None:
     """Scan and display models in the configured model store."""
     _banner()
-    merged = {**_load_env_file(), **{k: v for k, v in os.environ.items() if k.startswith(_ENV_PREFIX)}}
+    merged = _effective_env()
     store = merged.get(f"{_ENV_PREFIX}MODEL_STORE", "/srv/llm-port/models")
     store_path = Path(store)
 
@@ -1098,6 +1294,16 @@ def main() -> None:
     sub.add_parser("show", help="Show current configuration")
     sub.add_parser("scan", help="Scan and list models in the model cache")
     sub.add_parser("init", help="One-time host setup (sudoers, directories)")
+    p_join = sub.add_parser(
+        "join",
+        help="Ask to join a cluster and wait for an administrator to approve",
+    )
+    p_join.add_argument(
+        "backend",
+        nargs="?",
+        metavar="BACKEND_URL",
+        help="Where LLM.Port is, e.g. http://10.88.10.220:8000",
+    )
     sub.add_parser("run", help="Run agent in the foreground")
     sub.add_parser("start", help="Install and start as a background service")
     sub.add_parser("stop", help="Stop and remove the background service")
@@ -1111,6 +1317,8 @@ def main() -> None:
         cmd_show()
     elif args.command == "scan":
         cmd_scan()
+    elif args.command == "join":
+        cmd_join(args.backend)
     elif args.command == "init":
         cmd_init()
     elif args.command == "configure":

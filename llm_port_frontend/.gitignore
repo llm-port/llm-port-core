@@ -5,3 +5,6 @@
 # React Router
 /.react-router/
 /build/
+e2e/.auth/
+test-results/
+playwright-report/

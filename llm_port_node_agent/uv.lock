@@ -2049,6 +2049,7 @@ source = { editable = "." }
 dependencies = [
     { name = "httpx" },
     { name = "psutil" },
+    { name = "pydantic" },
     { name = "websockets" },
 ]
 
@@ -2079,6 +2080,7 @@ requires-dist = [
     { name = "jinja2", marker = "extra == 'llm'", specifier = ">=3.1,<4" },
     { name = "jinja2", marker = "extra == 'ray-host'", specifier = ">=3.1,<4" },
     { name = "psutil", specifier = ">=5.9,<8.0" },
+    { name = "pydantic", specifier = ">=2.0,<3.0" },
     { name = "pyinstaller", marker = "extra == 'build'", specifier = ">=6.0,<7.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24" },

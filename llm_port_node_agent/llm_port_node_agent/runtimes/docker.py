@@ -9,6 +9,7 @@ import shutil
 from typing import Any
 
 from llm_port_node_agent.runtimes import ContainerRuntimeError
+from llm_port_node_agent.runtimes.accelerators import accelerator_run_flags
 
 log = logging.getLogger(__name__)
 
@@ -75,6 +76,7 @@ class DockerRuntime:
         ports: list[str] | None = None,
         env: dict[str, str] | None = None,
         gpus: str | None = None,
+        accelerator_vendor: str | None = None,
         volumes: list[str] | None = None,
         command: list[str] | None = None,
         entrypoint: str | None = None,
@@ -87,8 +89,10 @@ class DockerRuntime:
             args.extend(["-p", p])
         for k, v in (env or {}).items():
             args.extend(["-e", f"{k}={v}"])
-        if gpus:
-            args.extend(["--gpus", gpus])
+        # Semantic request -> this vendor's flags.  Hardcoding --gpus here
+        # was the one place the bundle's "semantic, not CLI flags" contract
+        # leaked, and it is what would stop an AMD or Intel node working.
+        args.extend(accelerator_run_flags(accelerator_vendor, gpus))
         if entrypoint is not None:
             args.extend(["--entrypoint", entrypoint])
         for vol in volumes or []:

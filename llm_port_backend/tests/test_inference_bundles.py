@@ -9,7 +9,8 @@ import yaml
 from pydantic import ValidationError
 
 from llm_port_backend.db.models.node_control import InfraNode
-from llm_port_backend.services.inference.bundles import (
+from llm_port_backend.services.inference.bundles import (  # noqa: PLC0415
+    _CERTIFIED_DGX_SPARK_RUNTIME_MANIFEST,
     CERTIFIED_DGX_SPARK_BUNDLE,
     ContainerSpec,
     RuntimeBundleManifest,
@@ -37,48 +38,53 @@ def test_certified_dgx_spark_bundle_valid() -> None:
 def test_certified_bundle_identity_matches_the_deployed_image() -> None:
     """The catalog entry must agree with the image that is actually deployed.
 
-    These values were read off both DGX Spark nodes on 2026-09-20 with
-    ``docker image inspect`` and ``importlib.metadata`` inside the container -
-    deliberately NOT copied from ``runtime_image/runtime-manifest.json``, which
-    records a build (``sha256:d5dd2c6a...``, vLLM ``0.27.1+93523f72.dev``) that
-    is present on neither node.  A digest-pinned deployment is the integrity
-    mechanism the air-gap direction rests on, so a constant that has drifted
-    from the hardware is worse than no constant at all.
+    Repinned on 2026-09-21 to the image rebuilt on spark-ts3202, which carries
+    the metrics stack and the helper's Serve write verbs.  A digest-pinned
+    deployment is the integrity mechanism the air-gap direction rests on, so a
+    constant that has drifted from the hardware is worse than no constant at
+    all -- the agent refuses to start a container whose identity does not
+    match, which is exactly what happened before this repin.
+
+    Identity is *derived* from ``rootfs_layers`` rather than transcribed, so
+    this asserts the derivation rather than a second hand-copied digest.
     """
     bundle = CERTIFIED_DGX_SPARK_BUNDLE
     assert bundle.container.image == "llmport/ray-vllm-gb10:ray2.58-nv26.08"
-    # spark-ts3202's config id; spark-3201 holds the same content under
-    # sha256:d36c047d..., which is why rootfs_digest is the primary check.
+    # spark-ts3202's config id.  A save/load transfer changes this but not the
+    # layer diff IDs, which is why rootfs_digest is the primary check.
     assert bundle.container.digest == (
-        "sha256:7dc13b9aff5a00dc447251d550a29bcddf9480cc7efad1509cfbd9a0c661a9d8"
+        "sha256:0fa7782c83f57f60f09aae1329fb21c82a32112bf6b4b5ad49a54055e24c63bd"
     )
-    assert bundle.container.rootfs_digest == (
-        "sha256:e5e139aba1deaaccff763993a4f4ca5a477d8d157cef5c72f8081b2b863d58d8"
+    assert bundle.container.rootfs_digest == compute_rootfs_digest(
+        list(_CERTIFIED_DGX_SPARK_RUNTIME_MANIFEST["rootfs_layers"])
     )
 
     matrix = bundle.compatibility_matrix
     assert matrix.ray_version == "2.58.0"
-    assert matrix.vllm_version == "0.27.1+93523f72.nv26.8.64249418"
+    # Reported by the in-container helper (``vllm.__version__``), which is the
+    # same source the agent and system_fingerprint read.
+    assert matrix.vllm_version == "0.27.1+93523f72.dev"
     assert matrix.cuda_version == "13.4"
     assert matrix.python_version == "3.12.3"
-    assert matrix.torch_version == "2.14.0a0+4fdf77b940.nv26.8.63802676"
+    assert matrix.torch_version == "2.14.0a0+4fdf77b940.nv26.08"
     assert matrix.nccl_version == "2.30.7"
-    assert matrix.triton_version == "3.6.0+git5d72932fc5.nv26.3"
+    assert matrix.triton_version == "3.6.0"
 
 
-def test_certification_status_records_the_worker_metrics_gap() -> None:
-    """The bundle must not claim a clean pass it does not have.
+def test_certification_status_is_not_inherited_across_a_rebuild() -> None:
+    """A rebuilt image has not earned the previous image's evidence.
 
-    The deployed image is missing ``opencensus``, so Ray's ``ReporterAgent``
-    cannot load and worker nodes never bind their metrics port - confirmed on
-    both nodes.  ``MetricsDiscovery`` depends on that port, so a catalog entry
-    reading "11/11 passed" would mislead whoever schedules onto it.
+    The old entry read "partial, 10/11" because the shipped image was missing
+    ``opencensus``.  The rebuild fixes that, but a *different* artifact cannot
+    inherit the old run's result: certification is evidence from hardware, not
+    a property of the Dockerfile.  Until ``remote_certify_2node.py`` runs
+    against this image the honest status is "uncertified", which is also what
+    stops the UI from presenting it as proven.
     """
     cert = CERTIFIED_DGX_SPARK_BUNDLE.certification
-    assert cert.status == "partial"
-    assert cert.checks_total == 11
-    assert cert.checks_passed == 10
-    assert cert.notes and "opencensus" in cert.notes[0]
+    assert cert.status == "uncertified"
+    assert cert.checks_total == 0
+    assert cert.checks_passed == 0
 
 
 def test_rootfs_digest_is_canonical_and_order_sensitive() -> None:
@@ -142,6 +148,34 @@ def test_bundle_generated_from_runtime_manifest() -> None:
     assert partial.certification.status == "partial"
     assert partial.certification.checks_passed == 1
     assert partial.certification.notes
+
+
+def test_content_identity_is_derived_from_layers_not_transcribed() -> None:
+    """A manifest carrying ``rootfs_layers`` yields the digest by computation.
+
+    This is the fix for the image drift: the build emits the layer list and the
+    catalog derives identity from it, so there is no hand-copied digest to
+    disagree with the artifact.  ``rebuild_runtime_image.py`` deliberately
+    writes no ``rootfs_digest`` for this reason.
+    """
+    layers = ["sha256:" + f"{index:02x}" * 32 for index in range(3)]
+    manifest = {
+        "release_tag": "example/img:v1",
+        "image_id": "sha256:" + "ab" * 32,
+        "rootfs_layers": layers,
+        "stack_components": {"ray": "2.58.0", "vllm": "9.9.9", "cuda": "13.4"},
+    }
+    built = RuntimeBundleManifest.from_runtime_manifest(
+        manifest, bundle_id="bundle-example", display_name="Example",
+    )
+    assert built.container.rootfs_digest == compute_rootfs_digest(layers)
+
+    # An explicit digest still wins, so an older manifest keeps working.
+    manifest["rootfs_digest"] = "sha256:" + "cd" * 32
+    pinned = RuntimeBundleManifest.from_runtime_manifest(
+        manifest, bundle_id="bundle-example", display_name="Example",
+    )
+    assert pinned.container.rootfs_digest == "sha256:" + "cd" * 32
 
 
 def test_bundle_yaml_roundtrip(tmp_path: Path) -> None:
@@ -240,3 +274,86 @@ def test_container_launch_spec_carries_semantic_requirements() -> None:
     assert spec["env"]["VLLM_HOST_IP"] == "10.100.0.1"
     assert any(m["container_path"] == "/models" for m in spec["mounts"])
 
+
+
+# ── resolution and node-supplied mounts ──────────────────────────────────
+
+
+def _node(agent_id: str, **caps: object) -> InfraNode:
+    return InfraNode(agent_id=agent_id, host="10.0.0.1", capabilities_json=dict(caps))
+
+
+def test_resolution_follows_the_machine_not_a_pin() -> None:
+    """Each node gets the image built for its own platform."""
+    registry = RuntimeBundleRegistry()
+
+    dgx = _node("spark", machine="aarch64", gpu_vendor="nvidia", gpu_count=1)
+    workstation = _node("box", machine="x86_64", gpu_vendor="nvidia", gpu_count=1)
+
+    assert registry.resolve_for_node(dgx).bundle_id == "bundle-dgx-spark-gb10-v1"
+    assert (
+        registry.resolve_for_node(workstation).bundle_id
+        == "bundle-generic-x86_64-nvidia-v1"
+    )
+
+
+def test_a_node_that_has_not_reported_its_platform_resolves_to_nothing() -> None:
+    """Silence is not a match.
+
+    ``validate_node_compatibility`` is permissive -- an unreported field is
+    not a reason something cannot work -- so without this an unknown machine
+    matched every bundle and took whichever sorted first, which is how an
+    aarch64 image would be sent to a machine nobody had inventoried.
+    """
+    registry = RuntimeBundleRegistry()
+    assert registry.resolve_for_node(_node("unknown")) is None
+    assert registry.resolve_for_node(_node("blank", machine="  ")) is None
+
+
+def test_a_generic_bundle_takes_its_mounts_from_the_node() -> None:
+    """The image says which container paths it needs; the node says where."""
+    registry = RuntimeBundleRegistry()
+    bundle = registry.get_bundle("bundle-generic-x86_64-nvidia-v1")
+    assert bundle is not None
+    # The point of a generic bundle: it names no host path, because it has
+    # never seen the machine.
+    assert bundle.container.mounts == []
+
+    node = _node(
+        "box",
+        machine="x86_64",
+        gpu_vendor="nvidia",
+        paths={"model_store": "/home/op/.cache/huggingface", "ray_session": "/var/lib/llm-port/ray"},
+    )
+    spec = registry.container_launch_spec(bundle, name="llm-port-ray-runtime", node=node)
+    by_target = {m["container_path"]: m for m in spec["mounts"]}
+    assert by_target["/models"]["host_path"] == "/home/op/.cache/huggingface"
+    assert by_target["/models"]["mode"] == "ro"
+    assert by_target["/tmp/ray"]["host_path"] == "/var/lib/llm-port/ray"
+    assert by_target["/tmp/ray"]["mode"] == "rw"
+
+
+def test_a_bundle_that_declares_a_mount_keeps_it() -> None:
+    """A bundle certified for one machine's layout is not overridden."""
+    registry = RuntimeBundleRegistry()
+    node = _node(
+        "spark",
+        machine="aarch64",
+        gpu_vendor="nvidia",
+        paths={"model_store": "/somewhere/else", "ray_session": "/elsewhere"},
+    )
+    spec = registry.container_launch_spec(
+        CERTIFIED_DGX_SPARK_BUNDLE, name="llm-port-ray-runtime", node=node
+    )
+    by_target = {m["container_path"]: m["host_path"] for m in spec["mounts"]}
+    assert by_target["/models"] == "/srv/llm-port/models"
+    assert by_target["/tmp/ray"] == "/var/lib/llm-port/ray"
+
+
+def test_a_node_with_no_reported_paths_gets_no_invented_ones() -> None:
+    """Better an absent mount than one pointing at a guess."""
+    registry = RuntimeBundleRegistry()
+    bundle = registry.get_bundle("bundle-generic-x86_64-nvidia-v1")
+    node = _node("box", machine="x86_64", gpu_vendor="nvidia")
+    spec = registry.container_launch_spec(bundle, name="llm-port-ray-runtime", node=node)
+    assert spec["mounts"] == []

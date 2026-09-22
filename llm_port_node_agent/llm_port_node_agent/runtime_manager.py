@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import shlex
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -25,6 +26,11 @@ _READINESS_TIMEOUT_SEC = 600  # 10 minutes — large models can take a while
 _READINESS_POLL_INTERVAL_SEC = 5
 _READINESS_PROGRESS_INTERVAL_SEC = 15
 _LOGS_TAIL_MAX_LINES = 200  # hard cap on log-tail line counts sent to the backend
+
+
+#: Identifiers allowed to reach the log glob unquoted.  Covers our own
+#: deployment app names ("llmport-<uuid>") and Ray's replica ids.
+_SAFE_LOG_TOKEN = re.compile(r"[A-Za-z0-9._-]{1,128}")
 
 
 class RuntimeManagerError(RuntimeError):
@@ -471,7 +477,16 @@ class RuntimeManager:
         }
 
     async def fetch_container_logs(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """Fetch recent container logs for a runtime."""
+        """Fetch recent logs for a runtime.
+
+        Two shapes, because the Ray path and the per-model-container path put
+        their output in different places.  A container started to run one
+        model writes to its own stdout, and ``docker logs`` is the answer.
+        The Ray runtime container idles on ``sleep infinity`` and every Serve
+        replica inside it writes to its own file, so ``docker logs`` on it is
+        legitimately, permanently empty -- which is what the deployment log
+        panel was showing: nothing at all, for a deployment that was serving.
+        """
         runtime_id = self._require_runtime_id(payload)
         container_name = self._lookup_container(runtime_id, payload, allow_missing=True)
         if not container_name:
@@ -480,15 +495,87 @@ class RuntimeManager:
             tail = int(payload.get("tail", 300))
         except (TypeError, ValueError):
             tail = 300
-        tail = str(max(10, min(tail, _LOGS_TAIL_MAX_LINES)))
+        tail = max(10, min(tail, _LOGS_TAIL_MAX_LINES))
+
+        app_name = str(payload.get("runtime_name") or "").strip()
+        if app_name:
+            serve = await self._fetch_serve_replica_logs(
+                container_name,
+                app_name=app_name,
+                replica_id=str(payload.get("replica_id") or "").strip() or None,
+                tail=tail,
+            )
+            if serve:
+                return {"logs": serve}
+
         code, combined = await self._runtime.logs(
             container_name,
-            tail=tail,
+            tail=str(tail),
             timestamps=True,
         )
         if code != 0 and "no such container" in combined.lower():
             return {"logs": f"Container {container_name} does not exist on this node. Deploy or update the runtime to create it."}
         return {"logs": combined}
+
+    async def _fetch_serve_replica_logs(
+        self,
+        container_name: str,
+        *,
+        app_name: str,
+        replica_id: str | None,
+        tail: int,
+    ) -> str:
+        """Tail the Serve replica log files for *app_name* inside the container.
+
+        Ray writes one file per replica under
+        ``/tmp/ray/session_latest/logs/serve/``, named
+        ``replica_<app>_<deployment>_<id>.log``.  Reading them is the only way
+        to see what a replica actually did: the engine's own output, the model
+        load, and the tracebacks when it fails to come up.
+
+        Returns an empty string when there is nothing to read, so the caller
+        can fall back to the container's console rather than reporting an
+        empty page as though it were the answer.
+        """
+        # The glob has to reach the shell unquoted to expand, so the app name
+        # cannot be shell-quoted into it.  It is checked instead: these are
+        # our own generated identifiers ("llmport-<uuid>", and Serve's own
+        # replica ids), and anything outside that alphabet is refused rather
+        # than escaped -- there is no legitimate value this rejects, and it
+        # leaves no way to end the glob and start a command.
+        if not _SAFE_LOG_TOKEN.fullmatch(app_name):
+            log.warning("Refusing a Serve log read for an unexpected app name")
+            return ""
+        if replica_id and not _SAFE_LOG_TOKEN.fullmatch(replica_id):
+            replica_id = None
+
+        base = "/tmp/ray/session_latest/logs/serve"
+        pattern = (
+            f"{base}/replica_{app_name}_*{replica_id}*.log"
+            if replica_id
+            else f"{base}/replica_{app_name}_*.log"
+        )
+        script = (
+            f"files=$(ls -1t {pattern} 2>/dev/null | head -8); "
+            f'[ -z "$files" ] && exit 9; '
+            f'for f in $files; do echo "===== $(basename $f) ====="; '
+            f'tail -n {int(tail)} "$f"; done'
+        )
+        try:
+            code, out, _err = await self._runtime.exec_(
+                container_name,
+                ["sh", "-c", script],
+                timeout_sec=30,
+                raise_on_error=False,
+            )
+        except Exception:  # noqa: BLE001 - fall back to the console
+            log.debug("Serve replica log read failed for %s", app_name, exc_info=True)
+            return ""
+        if code != 0 or not out.strip():
+            # rc 9 is our own "no files matched": a deployment that has not
+            # started a replica yet, or one on another node.
+            return ""
+        return out
 
     async def _tail_container_logs(self, container_name: str, lines: int = 30) -> str:
         """Fetch a short, capped log tail for embedding in error context.

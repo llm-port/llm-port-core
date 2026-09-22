@@ -50,7 +50,7 @@ import hashlib
 import json
 import logging
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select
@@ -74,6 +74,7 @@ from llm_port_backend.services.inference.artifacts import (
     ModelArtifactCoordinator,
 )
 from llm_port_backend.services.inference.bundles import (
+    node_and_bundle_for,
     default_bundle_registry,
     translate_host_path_to_container,
 )
@@ -98,6 +99,12 @@ def _gateway(node_control: "NodeControlService | NodeCommandGateway") -> NodeCom
     return NodeCommandGateway(node_control)
 
 log = logging.getLogger(__name__)
+
+#: Bind every Serve proxy to all interfaces.  The backend cannot know which
+#: node Ray will place a proxy on, so this is the only address that is valid
+#: on all of them.
+_WILDCARD_BIND = "0.0.0.0"  # noqa: S104 - see _serve_options
+_WILDCARD_BINDS = frozenset({_WILDCARD_BIND, "::", ""})
 
 # Must match the name the environment manager starts the container under.
 _RUNTIME_CONTAINER_NAME = "llm-port-ray-runtime"
@@ -129,6 +136,55 @@ def _serve_app_entry(status: Any, name: str) -> dict[str, Any] | None:
     if not app or not isinstance(app, dict):
         return None
     return app
+
+
+def _reported_route_prefix(deployment: Any) -> str | None:
+    """The route prefix the agent said it mounted the app on, if it said.
+
+    Recorded in ``observed_status.observation.run`` by the apply step.  An
+    older agent that reports none leaves this ``None`` and the caller falls
+    back to the documented convention.
+    """
+    observed = getattr(deployment, "observed_status_json", None) or {}
+    run = ((observed.get("observation") or {}).get("run") or {})
+    prefix = run.get("route_prefix")
+    if not isinstance(prefix, str) or not prefix.startswith("/"):
+        return None
+    # "/" means the app is at the root; the endpoint path is appended as-is.
+    return "" if prefix == "/" else prefix.rstrip("/")
+
+
+def _failure_detail(app: dict[str, Any] | None, *, limit: int = 600) -> str:
+    """The reason an application failed, in the operator's status message.
+
+    Ray puts the useful text on the *deployment* inside the application, not
+    on the application itself, whose ``message`` is usually empty.  Reading
+    only the outer one produced "application DEPLOY_FAILED:" with nothing
+    after the colon -- a failure with no reason, for a problem whose reason
+    was sitting one level down:
+
+        ValueError: Free memory on device cuda:0 (109.83/121.69 GiB) on
+        startup is less than desired GPU memory utilization (0.92, ...)
+    """
+    if not app:
+        return ""
+    outer = str(app.get("message") or "").strip()
+    inner = ""
+    for entry in (app.get("deployments") or {}).values():
+        if not isinstance(entry, dict):
+            continue
+        text = str(entry.get("message") or "").strip()
+        if text and (entry.get("status") or "").upper() in ("DEPLOY_FAILED", "UNHEALTHY"):
+            inner = text
+            break
+        if text and not inner:
+            inner = text
+    detail = inner or outer
+    if len(detail) > limit:
+        # Ray's message carries a full traceback; the first lines hold the
+        # cause and the rest is frames the operator cannot act on.
+        detail = detail[:limit].rstrip() + " ..."
+    return detail
 
 
 def _model_server_deployments(app: dict[str, Any]) -> dict[str, Any]:
@@ -210,6 +266,15 @@ class _DeploymentFacts:
     artifact_root_path: str | None = None
     spec_data: dict[str, Any] | None = None
     total_replicas: int = 0
+    #: The runtime bundle certified for the *head* node, and its rendered
+    #: launch contract.  Both are per-machine facts: on a cluster spanning
+    #: two platforms the image differs by node even though the container
+    #: name does not.  ``None`` means the head runs Ray on the host.
+    runtime_bundle: Any = None
+    runtime_bundle_payload: dict[str, Any] | None = None
+    #: The composed mount table -- the bundle's, plus the head node's own
+    #: paths.  What the container will actually be started with.
+    runtime_mounts: list[Any] = field(default_factory=list)
 
 
 @dataclass
@@ -298,7 +363,7 @@ class RayDeploymentManager:
                 result = await self._client_for(node_control).delete_serve_app(
                     head_node_id=facts.head_node_id,
                     app_name=app_name,
-                    runtime_bundle=self._runtime_bundle_payload(facts.environment),
+                    runtime_bundle=facts.runtime_bundle_payload,
                 )
                 ok = bool(result.get("deleted"))
             except RayCommandError as exc:
@@ -368,13 +433,46 @@ class RayDeploymentManager:
 
         # 3c. Preparation gate (WI-5): Gate on artifact readiness across environment nodes
         readiness = facts.artifact_readiness
-        offline_only = bool(((facts.environment.config_json or {}).get("artifacts") or {}).get("offline_only", False))
+        artifacts_cfg = (facts.environment.config_json or {}).get("artifacts") or {}
+
+        # The runtime bundle is air-gapped by construction: the Phase 4B
+        # contract forbids this path from touching Hugging Face or NGC, and
+        # the certified image carries ``HF_HUB_OFFLINE=1`` to enforce it.  So
+        # "fall back to remote source" was never something the architecture
+        # offers -- it only deferred the failure into Ray, which reported it
+        # four minutes later as
+        #
+        #     Failed to create vLLM engine config: Cannot find an appropriate
+        #     cached snapshot folder for the specified revision
+        #
+        # while the precise reason ("model_sync payload with files is
+        # required") had been sitting in artifact readiness the whole time.
+        #
+        # So a remote fetch is now opt-in rather than assumed.  ``offline_only``
+        # is still honoured for anything that sets it.
+        allow_remote_fetch = bool(artifacts_cfg.get("allow_remote_fetch", False))
+        offline_only = bool(artifacts_cfg.get("offline_only", False))
 
         if readiness is not None and not readiness.all_ready:
-            cannot_reach_offline = offline_only and (
-                bool(readiness.failed_node_ids or readiness.blockers)
-                or readiness.manifest_sha256 is None
-            )
+            # Evidence that a sync was *attempted and failed*.  That is the
+            # case which used to slip through: readiness already knew exactly
+            # why ("model_sync payload with files is required"), and we
+            # deployed anyway.
+            #
+            # Deliberately narrower than "not all_ready".  A model with no
+            # artifact record at all is not evidence of anything -- the node
+            # may already hold it in its own Hugging Face cache, which is a
+            # supported way to run -- so that case still proceeds and lets the
+            # engine be the judge.
+            has_hard_blockers = bool(readiness.failed_node_ids)
+            # A missing server-side manifest is weaker -- it means we have not
+            # recorded one, not that the model is absent -- so it only decides
+            # the question when the operator has declared the environment
+            # offline-only.
+            no_manifest = offline_only and readiness.manifest_sha256 is None
+            cannot_reach_offline = (
+                has_hard_blockers and not allow_remote_fetch
+            ) or no_manifest
             if cannot_reach_offline:
                 blockers = list(readiness.blockers)
                 if readiness.manifest_sha256 is None and not blockers:
@@ -385,7 +483,10 @@ class RayDeploymentManager:
                 self._observe(
                     deployment,
                     DeploymentPhase.FAILED,
-                    f"Artifact readiness blocked in offline-only mode: {blocker_msg}",
+                    # Say what is wrong in the operator's terms and name the
+                    # node, rather than making them read a Ray traceback.
+                    f"The model is not on every machine yet, and this runtime "
+                    f"cannot download it: {blocker_msg}",
                     False,
                     observed={
                         "reconciled": False,
@@ -458,7 +559,7 @@ class RayDeploymentManager:
         )
         if not need_apply:
             serve_status = await self._probe_serve(
-                client, facts.head_node_id, app_name, facts.environment
+                client, facts.head_node_id, app_name, facts.runtime_bundle_payload
             )
             if serve_status is not None and serve_status.alive:
                 current = _serve_app_entry(serve_status, app_name)
@@ -476,7 +577,7 @@ class RayDeploymentManager:
                     llm_serving_args=llm_serving_args,
                     serve_options=self._serve_options(facts),
                     idem_prefix=f"inference-dep:run:{deployment.id}:{deployment.generation}",
-                    runtime_bundle=self._runtime_bundle_payload(facts.environment),
+                    runtime_bundle=facts.runtime_bundle_payload,
                 )
             except RayCommandError as exc:
                 if exc.error_code == "command_timeout":
@@ -509,7 +610,7 @@ class RayDeploymentManager:
             client,
             head_node_id=facts.head_node_id,
             app_name=app_name,
-            environment=facts.environment,
+            runtime_bundle=facts.runtime_bundle_payload,
         )
 
         app_status = ((observed or {}).get("status") or "").upper()
@@ -519,7 +620,7 @@ class RayDeploymentManager:
             # or a reconcile is requested (phase FAILED forces a re-apply).
             self._observe(
                 deployment, DeploymentPhase.FAILED,
-                f"application DEPLOY_FAILED: {(observed or {}).get('message') or ''}".strip(), False,
+                f"application DEPLOY_FAILED: {_failure_detail(observed)}".strip(), False,
                 observed={"reconciled": False, "reason": "deploy-failed", "app": app_name},
                 config_hash=config_hash,
             )
@@ -527,7 +628,7 @@ class RayDeploymentManager:
         if app_status == "UNHEALTHY":
             self._observe(
                 deployment, DeploymentPhase.DEGRADED,
-                f"application UNHEALTHY: {(observed or {}).get('message') or ''}".strip(), False,
+                f"application UNHEALTHY: {_failure_detail(observed)}".strip(), False,
                 observed={"reconciled": False, "reason": "unhealthy", "app": app_name},
                 mark_observed=False,
                 ready_replicas=ready,
@@ -614,6 +715,24 @@ class RayDeploymentManager:
             )
         facts.head_node_id = head
         facts.head_host = await self._host_of(session, head)
+        head_row, facts.runtime_bundle = await node_and_bundle_for(
+            session, head, driver="ray"
+        )
+        if facts.runtime_bundle is not None:
+            # The mount table as the agent will see it: the bundle's own
+            # mounts plus the head's paths.  ``_resolve`` keeps it because the
+            # model-path translation below reads it, and translating against
+            # the bundle alone would miss every mount the node supplied.
+            facts.runtime_mounts = default_bundle_registry.mounts_for_node(
+                facts.runtime_bundle, head_row
+            )
+            facts.runtime_bundle_payload = (
+                default_bundle_registry.container_launch_spec(
+                    facts.runtime_bundle,
+                    name=_RUNTIME_CONTAINER_NAME,
+                    node=head_row,
+                )
+            )
 
         model = await self._model_of(session, deployment.model_id)
         if model is None:
@@ -649,21 +768,24 @@ class RayDeploymentManager:
 
         # Apply D-3 container mount path translation if all_ready
         if readiness.all_ready and host_root_path:
-            bundle_id = (environment.config_json or {}).get("runtime_bundle_id")
-            if bundle_id:
-                bundle = default_bundle_registry.get_bundle(bundle_id)
-                if bundle and bundle.container.mounts:
-                    translated = translate_host_path_to_container(host_root_path, bundle.container.mounts)
-                    if translated:
-                        facts.availability_root_path = translated
-                    else:
-                        facts.availability_root_path = None
-                        readiness.blockers.append(
-                            f"Host artifact root {host_root_path} is not mapped under any container mount in bundle {bundle_id}"
-                        )
-                        readiness.all_ready = False
+            # The path the *head* sees.  Serve resolves the model inside the
+            # head's runtime container, so the mount table that matters is the
+            # one from the head's own bundle -- not from a bundle pinned on
+            # the cluster, which on a mixed cluster belonged to nobody.
+            bundle = facts.runtime_bundle
+            if bundle is not None and facts.runtime_mounts:
+                translated = translate_host_path_to_container(
+                    host_root_path, facts.runtime_mounts
+                )
+                if translated:
+                    facts.availability_root_path = translated
                 else:
-                    facts.availability_root_path = host_root_path
+                    facts.availability_root_path = None
+                    readiness.blockers.append(
+                        f"Host artifact root {host_root_path} is not mapped under "
+                        f"any container mount in bundle {bundle.bundle_id}"
+                    )
+                    readiness.all_ready = False
             else:
                 facts.availability_root_path = host_root_path
         else:
@@ -723,28 +845,6 @@ class RayDeploymentManager:
     # Plan (compile)
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _runtime_bundle_payload(environment) -> dict[str, Any] | None:
-        """The runtime bundle pinned on *environment*, rendered for the agent.
-
-        Serve operations must run inside the same pinned container the cluster
-        was started from; sending no bundle makes the agent fall back to a host
-        Ray SDK that a certified node does not have.
-        """
-        if environment is None:
-            return None
-        bundle_id = (getattr(environment, "config_json", None) or {}).get("runtime_bundle_id")
-        if not bundle_id:
-            return None
-        from llm_port_backend.services.inference.bundles import default_bundle_registry
-
-        bundle = default_bundle_registry.get_bundle(str(bundle_id))
-        if bundle is None:
-            return None
-        return default_bundle_registry.container_launch_spec(
-            bundle, name=_RUNTIME_CONTAINER_NAME,
-        )
-
     def _plan_total_replicas(self, spec_data: dict[str, Any]) -> int:
         scale = (spec_data or {}).get("scale") or {}
         autoscale = scale.get("autoscale")
@@ -778,7 +878,7 @@ class RayDeploymentManager:
         *,
         head_node_id: uuid.UUID,
         app_name: str,
-        environment: Any = None,
+        runtime_bundle: dict[str, Any] | None = None,
     ) -> "tuple[dict[str, Any] | None, int, int]":
         """Poll the Serve status tier for *app_name*; return (entry, ready, total).
 
@@ -790,7 +890,7 @@ class RayDeploymentManager:
         last: dict[str, Any] | None = None
         ready = total = 0
         while True:
-            status = await self._probe_serve(client, head_node_id, app_name, environment)
+            status = await self._probe_serve(client, head_node_id, app_name, runtime_bundle)
             entry = _serve_app_entry(status, app_name)
             if entry is not None:
                 last = entry
@@ -810,13 +910,13 @@ class RayDeploymentManager:
         client: RayClusterClient,
         head_node_id: uuid.UUID,
         app_name: str,
-        environment: Any = None,
+        runtime_bundle: dict[str, Any] | None = None,
     ) -> Any:
         """Best-effort Serve status probe; ``None`` when the probe itself errors."""
         try:
             return await client.probe_serve(
                 head_node_id=head_node_id,
-                runtime_bundle=self._runtime_bundle_payload(environment),
+                runtime_bundle=runtime_bundle,
             )
         except Exception as exc:  # noqa: BLE001 - probe never wedges the loop
             log.warning("probe_serve for %s failed: %s", app_name, exc)
@@ -832,18 +932,38 @@ class RayDeploymentManager:
     def _serve_options(self, facts: _DeploymentFacts) -> dict[str, Any]:
         """Serve HTTP proxy placement for the environment (F13).
 
-        ``HeadOnly`` binds the single proxy to the head's cluster IP — the
-        address the endpoint is published under.  ``EveryNode`` applies one
-        ``host`` to every node's proxy, so it must be a wildcard.
+        Where a proxy *binds* and where clients *reach* it are two different
+        questions, and this used to answer both with one value: under
+        ``HeadOnly`` it passed the head node's management IP as the bind
+        address.  That is wrong in two independent ways.
+
+        First, a socket can only bind an address that exists on the machine it
+        is running on, and the backend does not choose that machine -- Ray
+        does.  Hand it a specific IP and every proxy that lands anywhere else
+        dies with ``EADDRNOTAVAIL``, retries, and dies again; Serve reports
+        only "Failed to update the deployments", so the real cause is three
+        log files away.
+
+        Second, on a cluster bound to a separate fabric the management IP is
+        not the address Ray nodes carry at all, so the bind can fail even on
+        the node we meant.
+
+        So the bind is always the wildcard, and the routable address clients
+        use is resolved separately in :meth:`_publish_endpoint`.  A wildcard
+        bind on the head still answers on the head's address; it simply also
+        survives Ray placing the proxy somewhere we did not predict.
         """
         cfg = self._environment_config(facts)
         location = cfg.serve_proxy_location or "HeadOnly"
+        # Kept as an escape hatch for an operator pinning a specific
+        # interface, but never derived -- deriving it is what broke.
+        host = cfg.serve_http_host or _WILDCARD_BIND
         if cfg.serve_http_host:
-            host = cfg.serve_http_host
-        elif location == "HeadOnly" and facts.head_host:
-            host = facts.head_host
-        else:
-            host = "0.0.0.0"  # noqa: S104 - wildcard required for per-node proxies
+            log.warning(
+                "Environment pins serve_http_host=%s; the Serve proxy will fail "
+                "to start on any node without that address.",
+                cfg.serve_http_host,
+            )
         return {
             "proxy_location": location,
             "http_options": {"host": host, "port": int(cfg.serve_http_port)},
@@ -870,9 +990,14 @@ class RayDeploymentManager:
         # agent sets it), so the base URL is <proxy>/<app_name><path>.
         http = self._serve_options(facts)["http_options"]
         host = http["host"]
-        if host in ("0.0.0.0", "::"):  # noqa: S104 - wildcard bind: publish the head's address
+        if host in _WILDCARD_BINDS:  # wildcard bind: publish the head's address
             host = facts.head_host or (facts.environment.address if facts.environment else None) or "head"
-        address = f"http://{host}:{http['port']}/{app_name}"
+        # Take the prefix the agent reported rather than assuming it.  This
+        # published "/<app>" while the container path was mounting at "/",
+        # so the address in the UI returned 404 for a model that was serving
+        # perfectly well one path up.
+        prefix = _reported_route_prefix(deployment) or f"/{app_name}"
+        address = f"http://{host}:{http['port']}{prefix}"
 
         existing = await endpoint_dao.list_for_deployment(deployment.id)
         target = next(

@@ -305,7 +305,17 @@ def _provision_local_binary(
                     "[Unit]\n"
                     "Description=llm-port node agent\n"
                     "After=network-online.target docker.service\n"
-                    "Wants=network-online.target\n\n"
+                    "Wants=network-online.target\n"
+                    # A start that can never succeed must stop retrying and say so.
+                    # The agent handles a backend outage itself -- it reconnects with backoff
+                    # and never exits for that -- so a failed *start* means something
+                    # structural, most often a second agent already holding the state lock.
+                    # Without a limit systemd retries every 5s forever while reporting
+                    # "activating (auto-restart)", which reads like a slow boot rather than
+                    # a wedged service: observed on the DGX head at restart counter 9259,
+                    # roughly fifteen hours of looping that nothing surfaced.
+                    "StartLimitIntervalSec=300\n"
+                    "StartLimitBurst=10\n\n"
                     "[Service]\n"
                     "Type=simple\n"
                     "EnvironmentFile=-/etc/llmport-agent.env\n"

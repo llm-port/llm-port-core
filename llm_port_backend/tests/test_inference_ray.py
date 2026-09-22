@@ -64,6 +64,7 @@ from llm_port_backend.services.inference.reconciliation import ReconciliationCon
 from llm_port_backend.services.nodes.auth import hash_with_pepper
 from llm_port_backend.settings import settings
 from llm_port_backend.web.api.admin.system.views import router as system_router
+from tests.platform_fixtures import DGX_SPARK_PLATFORM
 
 
 # ---------------------------------------------------------------------------
@@ -166,6 +167,12 @@ class _FakeNodeControl:
         base = self._result_json
         if command_type in self._results:
             return self._results[command_type]
+        if command_type == NodeCommandType.ENSURE_RUNTIME_IMAGE.value:
+            # Every node resolves to a runtime bundle now -- the image step is
+            # no longer conditional on someone having pinned one -- so the
+            # default answer is an agent that has the image. A test about the
+            # image itself overrides this through ``results``.
+            return {"verified": True}
         return base
 
     async def issue_command(self, **kwargs: Any) -> Any:
@@ -467,8 +474,14 @@ async def probe_env(
     await dbsession.flush()
 
     nodes = [
-        InfraNode(agent_id=f"ray-head-{uuid.uuid4().hex[:8]}", host="10.0.0.1"),
-        InfraNode(agent_id=f"ray-worker-{uuid.uuid4().hex[:8]}", host="10.0.0.2"),
+        InfraNode(
+            agent_id=f"ray-head-{uuid.uuid4().hex[:8]}", host="10.0.0.1",
+            capabilities_json=dict(DGX_SPARK_PLATFORM),
+        ),
+        InfraNode(
+            agent_id=f"ray-worker-{uuid.uuid4().hex[:8]}", host="10.0.0.2",
+            capabilities_json=dict(DGX_SPARK_PLATFORM),
+        ),
     ]
     dbsession.add_all(nodes)
     await dbsession.flush()
@@ -694,7 +707,10 @@ async def secret_app(
     app.dependency_overrides[get_db_session] = lambda: dbsession
 
     # Enrolled node with a credential the endpoint can verify.
-    node = InfraNode(agent_id=f"agent-{uuid.uuid4().hex[:8]}", host="10.0.0.9")
+    node = InfraNode(
+        agent_id=f"agent-{uuid.uuid4().hex[:8]}", host="10.0.0.9",
+        capabilities_json=dict(DGX_SPARK_PLATFORM),
+    )
     dbsession.add(node)
     await dbsession.flush()
     cred_id = uuid.uuid4()
@@ -844,7 +860,10 @@ async def deployment_env(dbsession: AsyncSession) -> tuple[InferenceDeployment, 
     cp = InferenceControlPlane(name=f"cp-{uuid.uuid4().hex[:12]}", driver="ray")
     dbsession.add(cp)
     await dbsession.flush()
-    node = InfraNode(agent_id=f"ray-head-{uuid.uuid4().hex[:8]}", host="10.0.0.1")
+    node = InfraNode(
+        agent_id=f"ray-head-{uuid.uuid4().hex[:8]}", host="10.0.0.1",
+        capabilities_json=dict(DGX_SPARK_PLATFORM),
+    )
     dbsession.add(node)
     await dbsession.flush()
     env = InferenceEnvironment(
@@ -909,10 +928,16 @@ async def test_deployment_active_runs_and_publishes(deployment_env, dbsession: A
     assert runs[0]["payload"]["app_name"] == app
     assert runs[0]["payload"]["llm_serving_args"]
     assert runs[0]["idempotency_key"].startswith(f"inference-dep:run:{dep.id}:{dep.generation}")
-    # F13: the Serve proxy is placed on the head and bound to its cluster IP
-    # (Ray's default 127.0.0.1 is unreachable off-node).
+    # F13: the Serve proxy is placed on the head.  It binds the wildcard, not
+    # the head's address -- this assertion used to require "10.0.0.1" and was
+    # pinning a real defect: the backend does not choose which node Ray puts a
+    # proxy on, and a proxy that lands elsewhere cannot bind an address that
+    # machine does not have.  On the DGX pair that produced an endless
+    # EADDRNOTAVAIL crash-loop reported only as "Failed to update the
+    # deployments".  Ray's own default of 127.0.0.1 stays wrong for the
+    # opposite reason (unreachable off-node), hence an explicit wildcard.
     assert runs[0]["payload"]["proxy_location"] == "HeadOnly"
-    assert runs[0]["payload"]["http_options"] == {"host": "10.0.0.1", "port": 8000}
+    assert runs[0]["payload"]["http_options"] == {"host": "0.0.0.0", "port": 8000}
 
     # Readiness was observed through the Serve tier (best-effort probe).
     serves = fake.by_type(NodeCommandType.GET_RAY_SERVE_STATUS.value)

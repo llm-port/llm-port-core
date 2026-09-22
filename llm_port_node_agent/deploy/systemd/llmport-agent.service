@@ -2,6 +2,16 @@
 Description=llm-port node agent
 After=network-online.target docker.service
 Wants=network-online.target
+# A start that can never succeed must stop retrying and say so.
+# The agent handles a backend outage itself (it reconnects with backoff
+# and never exits for that), so a failed *start* means something
+# structural -- most often a second agent already holding the state lock.
+# Without a limit systemd retried every 5s forever while reporting
+# "activating (auto-restart)", which reads like a slow boot rather than a
+# wedged service: observed on the DGX head at restart counter 9259, about
+# fifteen hours of looping that nothing surfaced.
+StartLimitIntervalSec=300
+StartLimitBurst=10
 
 [Service]
 Type=simple

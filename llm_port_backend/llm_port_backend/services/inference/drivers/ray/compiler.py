@@ -267,6 +267,29 @@ def _accelerator_type(raw: str | None) -> str | None:
     return None
 
 
+#: How replicas write their logs.
+#:
+#: Ray Serve's default is a human-shaped line: a timestamp, the deployment,
+#: the replica id and the message, run together. Parsing labels back out of
+#: that is a regex that breaks the first time Ray changes its formatter --
+#: and it has to run on every line shipped.
+#:
+#: JSON encoding makes the same facts fields. The forwarder reads
+#: ``deployment``, ``replica`` and ``levelname`` instead of inferring them,
+#: and a message containing a newline or a colon stops being a parsing
+#: hazard.
+#:
+#: ``logs_dir`` is deliberately left alone: Ray's own session layout is what
+#: the session-directory mount and the log reader both address.
+DEFAULT_LOGGING_CONFIG: dict[str, Any] = {
+    "encoding": "JSON",
+    # Access logs are one line per request per replica. On a busy cluster
+    # that is the bulk of the volume and none of the signal -- the gateway
+    # already records every request with its latency and token counts.
+    "enable_access_log": False,
+}
+
+
 def _deployment_config(
     *,
     replicas: int,
@@ -286,7 +309,9 @@ def _deployment_config(
     ``num_replicas`` and ``autoscaling_config`` are mutually exclusive in Ray's
     ``DeploymentConfig``; exactly one path is taken here.
     """
-    config: dict[str, Any] = {}
+    # Structured logs on every path, including scale-to-zero: a deployment
+    # that is being stopped is one whose logs are most likely to be read.
+    config: dict[str, Any] = {"logging_config": dict(DEFAULT_LOGGING_CONFIG)}
     if replicas <= 0 and max_replicas is None:
         # Scale to zero with fixed replicas. Serve accepts num_replicas=0.
         config["num_replicas"] = 0
@@ -307,6 +332,39 @@ def _deployment_config(
     else:
         config["num_replicas"] = int(replicas)
     return config
+
+
+#: Fraction of accelerator memory an engine may reserve when the spec does
+#: not say.
+#:
+#: Ray Serve LLM defaults to 0.92, which is fine on a discrete GPU whose
+#: memory is otherwise untouched.  On unified-memory hardware -- GB10, Grace
+#: Hopper, Jetson -- that same number is measured against *system RAM* that
+#: the operating system is already using, so it is simply unreachable:
+#:
+#:     ValueError: Free memory on device cuda:0 (109.83/121.69 GiB) on startup
+#:     is less than desired GPU memory utilization (0.92, 111.95 GiB).
+#:
+#: The first replica on a freshly booted node squeaks in and the second does
+#: not, which reads as "scaling does nothing" rather than as a memory
+#: setting.  0.80 leaves roughly 24GB of headroom on a 122GB node, which is
+#: comfortably more than the OS and the agent need, and an operator who wants
+#: the last of it can still set ``engine.config.gpu_memory_utilization``.
+DEFAULT_GPU_MEMORY_UTILIZATION = 0.80
+
+#: Ask vLLM for its KV cache block metrics.
+#:
+#: Off by default in vLLM, which means three histograms are never declared:
+#: how long a cache block lives before eviction, how long it sits idle first,
+#: and the gap before a block is reused.  Those are the numbers that say
+#: whether the cache is sized right for the traffic -- the difference between
+#: "the model is slow" and "the model keeps recomputing the same prefixes".
+#:
+#: The cost is bounded by vLLM itself: ``kv_cache_metrics_sample`` defaults to
+#: 0.01, so one block in a hundred is measured rather than every one.  An
+#: operator who wants it off can still set ``engine.config.kv_cache_metrics``
+#: to false, the same way every other default here can be overridden.
+DEFAULT_KV_CACHE_METRICS = True
 
 
 def _engine_kwargs(
@@ -330,6 +388,8 @@ def _engine_kwargs(
         kwargs.setdefault("pipeline_parallel_size", int(pipeline_parallel_size))
     if revision:
         kwargs.setdefault("revision", str(revision))
+    kwargs.setdefault("gpu_memory_utilization", DEFAULT_GPU_MEMORY_UTILIZATION)
+    kwargs.setdefault("kv_cache_metrics", DEFAULT_KV_CACHE_METRICS)
     return kwargs
 
 
@@ -338,8 +398,37 @@ _PLACEMENT_STRATEGIES = frozenset({"PACK", "STRICT_PACK", "SPREAD", "STRICT_SPRE
 # Env vars a (user-controlled) spec may set on replicas.  Everything else in
 # ``runtime_env`` (pip, working_dir, py_modules, ...) installs or runs code on
 # the GPU nodes and is therefore not accepted from a spec.
-_ENV_VAR_PREFIXES = ("VLLM_", "HF_", "NCCL_", "CUDA_")
-_ENV_VAR_DENYLIST = frozenset({"CUDA_VISIBLE_DEVICES"})
+# One entry per accelerator stack, because a ROCm or Level Zero node tunes
+# through its own names -- an NVIDIA-only allow-list would silently reject
+# every knob a non-NVIDIA node has.
+_ENV_VAR_PREFIXES = (
+    "VLLM_",
+    "HF_",
+    "NCCL_",   # NVIDIA collectives
+    "CUDA_",
+    "RCCL_",   # AMD collectives
+    "HIP_",
+    "ROCR_",
+    "HSA_",
+    "ZE_",     # Intel Level Zero
+    "SYCL_",
+)
+# Each stack's "which devices can I see" override, denied for the same reason
+# in every case: it would let a spec reach accelerators outside the allocation
+# the scheduler gave it.  Extending the prefixes above without extending this
+# set is what would turn a vendor addition into a hole.
+_ENV_VAR_DENYLIST = frozenset(
+    {
+        "CUDA_VISIBLE_DEVICES",
+        "HIP_VISIBLE_DEVICES",
+        "ROCR_VISIBLE_DEVICES",
+        "GPU_DEVICE_ORDINAL",
+        "ZE_AFFINITY_MASK",
+        "ONEAPI_DEVICE_SELECTOR",
+        "SYCL_DEVICE_ALLOWLIST",
+        "SYCL_DEVICE_FILTER",
+    }
+)
 
 
 def _ray_extension(spec: InferenceDeploymentSpecV1Alpha1) -> dict[str, Any]:
@@ -569,6 +658,14 @@ def compile_spec(
     return {
         "llm_configs": [llm_config],
         "ingress_cls_config": {},  # default: ray.serve.llm.OpenAiIngress
+        # The ingress is a deployment too, and its logging is configured
+        # separately from the engines'. Without this its lines stayed
+        # human-formatted while the engines' became JSON, so half the
+        # deployment's log panel had a parsed level and a clean message and
+        # half did not -- from the same deployment, in the same view.
+        "ingress_deployment_config": {
+            "logging_config": dict(DEFAULT_LOGGING_CONFIG),
+        },
     }
 
 

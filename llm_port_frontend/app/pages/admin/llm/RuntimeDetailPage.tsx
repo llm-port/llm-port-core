@@ -446,53 +446,27 @@ export default function RuntimeDetailPage() {
     }
   }
 
+  /**
+   * The runtime itself, and nothing else.
+   *
+   * This used to be a five-deep serial chain -- runtime, then provider and
+   * model, then health, then 300 lines of logs, then the command timeline --
+   * all under one `loading` flag that drew a full-page spinner.  Three of
+   * those five reach the runtime's *host*, so a runtime on a node that was
+   * slow or unreachable left the page blank for as long as the browser was
+   * willing to wait.  That is the page whose entire purpose is to explain why
+   * a runtime is unwell.
+   *
+   * Now only this call gates the frame.  Everything else hangs off `rt` in
+   * its own effect below, fails in its own place, and leaves the rest of the
+   * page readable.
+   */
   async function load() {
     if (!id) return;
     setLoading(true);
     setError(null);
     try {
-      const r = await runtimes.get(id);
-      setRt(r);
-      const [p, m] = await Promise.all([
-        provApi.get(r.provider_id),
-        modelApi.get(r.model_id),
-      ]);
-      setProvider(p);
-      setModel(m);
-
-      // Health & logs for running/starting/error runtimes
-      if (
-        r.status === "running" ||
-        r.status === "starting" ||
-        r.status === "error"
-      ) {
-        if (r.status !== "error") {
-          try {
-            setHealth(await runtimes.health(id));
-          } catch {
-            setHealth(null);
-          }
-        }
-        try {
-          const logRes = await runtimes.fetchLogs(id, 300);
-          setLogs(await logRes.text());
-        } catch {
-          setLogs("");
-        }
-      }
-
-      // Fetch node command timeline for node-deployed runtimes
-      if (r.assigned_node_id && r.last_command_id) {
-        try {
-          const tl = await nodesApi.commandTimeline(
-            r.assigned_node_id,
-            r.last_command_id,
-          );
-          setCmdTimeline(tl);
-        } catch {
-          /* command may not exist yet */
-        }
-      }
+      setRt(await runtimes.get(id));
     } catch (e: unknown) {
       setError(
         e instanceof Error ? e.message : t("llm_runtime_detail.failed_load"),
@@ -505,6 +479,108 @@ export default function RuntimeDetailPage() {
   useEffect(() => {
     load();
   }, [id]);
+
+  // ── Detail sources, each independent of the others ─────────────────
+  //
+  // Named by the ids they describe rather than by `rt`, so a poll that
+  // re-fetches the runtime does not re-fetch a provider that has not changed.
+
+  const providerId = rt?.provider_id;
+  useEffect(() => {
+    if (!providerId) return;
+    let cancelled = false;
+    provApi
+      .get(providerId)
+      .then((p) => {
+        if (!cancelled) setProvider(p);
+      })
+      .catch(() => {
+        // The header falls back to the id, which is still an answer.
+        if (!cancelled) setProvider(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [providerId]);
+
+  const modelId = rt?.model_id;
+  useEffect(() => {
+    if (!modelId) return;
+    let cancelled = false;
+    modelApi
+      .get(modelId)
+      .then((m) => {
+        if (!cancelled) setModel(m);
+      })
+      .catch(() => {
+        if (!cancelled) setModel(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [modelId]);
+
+  // Health is the slowest of the lot: it dials the runtime.  On its own it
+  // costs nobody anything.
+  const healthStatus = rt?.status;
+  useEffect(() => {
+    if (!id || !healthStatus) return;
+    if (healthStatus !== "running" && healthStatus !== "starting") return;
+    let cancelled = false;
+    runtimes
+      .health(id)
+      .then((h) => {
+        if (!cancelled) setHealth(h);
+      })
+      .catch(() => {
+        if (!cancelled) setHealth(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id, healthStatus]);
+
+  useEffect(() => {
+    if (!id || !healthStatus) return;
+    if (
+      healthStatus !== "running" &&
+      healthStatus !== "starting" &&
+      healthStatus !== "error"
+    ) {
+      return;
+    }
+    let cancelled = false;
+    runtimes
+      .fetchLogs(id, 300)
+      .then((res) => res.text())
+      .then((text) => {
+        if (!cancelled) setLogs(text);
+      })
+      .catch(() => {
+        if (!cancelled) setLogs("");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id, healthStatus]);
+
+  const assignedNodeId = rt?.assigned_node_id;
+  const lastCommandId = rt?.last_command_id;
+  useEffect(() => {
+    if (!assignedNodeId || !lastCommandId) return;
+    let cancelled = false;
+    nodesApi
+      .commandTimeline(assignedNodeId, lastCommandId)
+      .then((tl) => {
+        if (!cancelled) setCmdTimeline(tl);
+      })
+      .catch(() => {
+        /* the command may not exist yet */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [assignedNodeId, lastCommandId]);
 
   // Poll while in a transient state OR while running until health confirmed.
   // This catches containers that crash shortly after start (e.g. bad args).

@@ -38,6 +38,15 @@ export default [
     route("/admin/llm/models/:id", "pages/admin/llm/ModelDetailPage.tsx"),
     route("/admin/llm/runtimes", "pages/admin/llm/RuntimesPage.tsx"),
     route("/admin/llm/runtimes/:id", "pages/admin/llm/RuntimeDetailPage.tsx"),
+    // Clusters and deployments - separate from the legacy Runtime screens
+    // by design (migration plan requirement 3).
+    route("/admin/clusters", "pages/admin/clusters/ClustersPage.tsx"),
+    route("/admin/clusters/:id", "pages/admin/clusters/ClusterDetailPage.tsx"),
+    route("/admin/deployments", "pages/admin/clusters/DeploymentsPage.tsx"),
+    route(
+      "/admin/deployments/:id",
+      "pages/admin/inference/InferenceDeploymentDetailPage.tsx",
+    ),
     route("/admin/nodes", "pages/admin/nodes/NodeFleetPage.tsx"),
     route("/admin/nodes/profiles", "pages/admin/nodes/NodeProfilesPage.tsx"),
     route("/admin/nodes/:id", "pages/admin/nodes/NodeDetailPage.tsx"),

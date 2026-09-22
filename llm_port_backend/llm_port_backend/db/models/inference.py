@@ -243,7 +243,10 @@ class InferenceEnvironment(Base):
         nullable=False,
         default=EnvironmentDesiredState.RUNNING.value,
     )
-    ray_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # The backend's own version string, written by whichever driver owns
+    # the environment.  Not `ray_version`: a Dynamo or exo environment has
+    # no Ray, and this column is part of the neutral domain.
+    runtime_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
     head_node_id: Mapped[uuid.UUID | None] = mapped_column(
         PGUUID(as_uuid=True),
         ForeignKey("infra_node.id", ondelete="SET NULL"),
@@ -304,6 +307,56 @@ class InferenceEnvironmentBinding(Base):
     __table_args__ = (UniqueConstraint("environment_id", "driver", name="uq_env_binding_env_driver"),)
 
 
+class InferenceComputePool(Base):
+    """A scheduling-compatible group of nodes inside an environment.
+
+    A pool is not new information: it is the *persisted equivalence class* of
+    nodes under the same compatibility rules a runtime bundle is matched with
+    (vendor, CPU architecture, accelerator family).  Persisting it is what
+    lets a mixed-vendor cluster -- NVIDIA here, ROCm there, an Apple/exo group
+    tomorrow -- say which machines are interchangeable, instead of the cluster
+    being the only grouping and therefore implicitly homogeneous.
+
+    Derived on membership so nothing has to be configured; ``managed`` marks a
+    pool an operator has taken over, which derivation then leaves alone.
+    """
+
+    __tablename__ = "inference_compute_pools"
+    __table_args__ = (
+        UniqueConstraint("environment_id", "name", name="uq_compute_pool_env_name"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    environment_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("inference_environments.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    #: Stable identity of the compatibility class, e.g. "nvidia/aarch64/gb10".
+    #: Derivation matches on this, never on the display name.
+    signature: Mapped[str] = mapped_column(String(256), nullable=False, index=True)
+    accelerator_vendor: Mapped[str] = mapped_column(String(64), nullable=False)
+    accelerator_family: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    cpu_architecture: Mapped[str] = mapped_column(String(32), nullable=False)
+    #: Free-form scheduling hints an operator adds; never written by derivation.
+    labels_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    #: True once an operator edits the pool, which stops derivation renaming it.
+    managed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 class InferenceEnvironmentNode(Base):
     """Desired membership of an infra node in an environment."""
 
@@ -329,7 +382,15 @@ class InferenceEnvironmentNode(Base):
         nullable=False,
         default=EnvironmentNodeRole.WORKER.value,
     )
-    ray_status: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # What the backend reports about this member (Ray: alive/dead).  Named
+    # for the domain, not for one backend's vocabulary.
+    member_status: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    compute_pool_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("inference_compute_pools.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     observed_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     joined_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(

@@ -31,6 +31,9 @@ import LanIcon from "@mui/icons-material/Lan";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import HubIcon from "@mui/icons-material/Hub";
+import DeviceHubIcon from "@mui/icons-material/DeviceHub";
+import WorkspacesIcon from "@mui/icons-material/Workspaces";
+import RocketLaunchIcon from "@mui/icons-material/RocketLaunch";
 import DescriptionIcon from "@mui/icons-material/Description";
 import LlmIcon from "~/components/LlmIcon";
 import SettingsRemoteIcon from "@mui/icons-material/SettingsRemote";
@@ -281,6 +284,26 @@ export const NAV: NavEntry[] = [
     ],
   },
   {
+    id: "inference",
+    kind: "group",
+    labelKey: "nav.inference_group",
+    icon: <DeviceHubIcon />,
+    children: [
+      {
+        to: "/admin/clusters",
+        labelKey: "nav.clusters",
+        icon: <WorkspacesIcon />,
+        permission: "inference.environments:read",
+      },
+      {
+        to: "/admin/deployments",
+        labelKey: "nav.deployments",
+        icon: <RocketLaunchIcon />,
+        permission: "inference.deployments:read",
+      },
+    ],
+  },
+  {
     id: "utilities",
     kind: "group",
     labelKey: "nav.utilities_group",
@@ -496,6 +519,10 @@ export function adminPageTitle(
     return t("llm_runtime_detail.page_title");
   if (pathname.startsWith("/admin/llm/runtimes"))
     return t("llm_providers.title");
+  if (pathname.startsWith("/admin/clusters/")) return "Cluster";
+  if (pathname.startsWith("/admin/clusters")) return t("nav.clusters");
+  if (pathname.startsWith("/admin/deployments/")) return "Deployment";
+  if (pathname.startsWith("/admin/deployments")) return t("nav.deployments");
   if (pathname.startsWith("/admin/nodes/onboarding")) return "Node Onboarding";
   if (pathname.startsWith("/admin/nodes/profiles")) return "Node Profiles";
   if (pathname.startsWith("/admin/nodes")) return "Node Fleet";

@@ -26,7 +26,9 @@ import hashlib
 import json
 import logging
 import re
+import uuid
 from pathlib import Path
+from typing import TYPE_CHECKING
 from typing import Any
 
 import yaml
@@ -56,14 +58,29 @@ class BundleValidationError(ValueError):
 
 
 class AcceleratorSpec(BaseModel):
-    """Accelerator hardware constraints for a bundle."""
+    """Accelerator hardware constraints for a bundle.
+
+    ``compute_capabilities`` is the set the image was **built for**, not a
+    single card it belongs to. A stock x86_64 vLLM image compiles kernels for
+    ``sm_75`` through ``sm_120`` plus a PTX fallback, which is every
+    mainstream NVIDIA card since Turing -- so one image serves a whole
+    platform and there is no reason to cut one per GPU model. Verified by
+    reading ``torch.cuda.get_arch_list()`` out of the images themselves.
+
+    What genuinely forces a separate bundle is the CPU architecture (no JIT
+    across it), the accelerator vendor, and a vendor base image with its own
+    tuning -- which is why the DGX bundle exists, not because GB10 needs
+    bespoke kernels.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     vendor: str = "nvidia"
     families: list[str] = Field(default_factory=list)
     compute_capabilities: list[str] = Field(default_factory=list)
-    min_cuda_driver: str | None = None
+    #: Lowest host driver version this bundle runs on, in the vendor's own
+    #: numbering (NVIDIA display driver, ROCm, Level Zero...).
+    min_driver_version: str | None = None
 
 
 class TargetArchitecture(BaseModel):
@@ -239,6 +256,13 @@ class RuntimeBundleManifest(BaseModel):
     bundle_id: str
     display_name: str
     description: str = ""
+    #: Which orchestrator this image can serve.
+    #:
+    #: A bundle is an artifact for a *driver on a platform*, and the driver
+    #: half was implicit while Ray was the only one. Making it explicit is
+    #: what lets an EXO or Dynamo image sit in the same registry and be
+    #: resolved by the same rule instead of by a second mechanism.
+    driver: str = "ray"
     target_architecture: TargetArchitecture = Field(default_factory=TargetArchitecture)
     container: ContainerSpec
     platform_tuning: PlatformTuning = Field(default_factory=PlatformTuning)
@@ -253,6 +277,7 @@ class RuntimeBundleManifest(BaseModel):
         bundle_id: str,
         display_name: str,
         description: str = "",
+        driver: str = "ray",
         target_architecture: TargetArchitecture | None = None,
         platform_tuning: PlatformTuning | None = None,
         mounts: list[ContainerMount] | None = None,
@@ -293,6 +318,7 @@ class RuntimeBundleManifest(BaseModel):
             bundle_id=bundle_id,
             display_name=display_name,
             description=description,
+            driver=driver,
             target_architecture=target_architecture or TargetArchitecture(),
             container=ContainerSpec(
                 image=str(image),
@@ -355,48 +381,89 @@ def _opt(value: Any) -> str | None:
 # identity is generated rather than transcribed.
 _CERTIFIED_DGX_SPARK_RUNTIME_MANIFEST: dict[str, Any] = {
     "release_tag": "llmport/ray-vllm-gb10:ray2.58-nv26.08",
-    "image_id": "sha256:7dc13b9aff5a00dc447251d550a29bcddf9480cc7efad1509cfbd9a0c661a9d8",
-    "rootfs_digest": "sha256:e5e139aba1deaaccff763993a4f4ca5a477d8d157cef5c72f8081b2b863d58d8",
+    "image_id": "sha256:0fa7782c83f57f60f09aae1329fb21c82a32112bf6b4b5ad49a54055e24c63bd",
+    # Generated from `docker image inspect` on the head after the 2026-09-21
+    # rebuild, together with the stack versions the in-container helper
+    # reports.  ``rootfs_digest`` is deliberately absent: ``from_runtime_manifest``
+    # derives it from these layers, so there is no hand-copied digest that can
+    # disagree with the artifact.  Regenerate with
+    # ``llm_port_ray_migration/runtime_image/rebuild_runtime_image.py``.
+    "rootfs_layers": [
+        "sha256:646eea22414270d74b0c9e9d6d3b9550701ae62e658a099825d4d15045a3630b",
+        "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
+        "sha256:b62ae719da325023291d2882dfcf1bff54862385d4cb47202c58b14f56acac22",
+        "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
+        "sha256:50f48a9054b417e1df457e9c233643b89a6405fbd40dc9c524261876b46401fc",
+        "sha256:61ef3360ef86fba1c03e4f83d58d0c31918ddd3e8df8c5eee5537f1280509fb6",
+        "sha256:5b3c5f2d09ae291825acf64501e42c3658d7f6ea2c48908b48948896e9bdb755",
+        "sha256:440999f48460f3302c87f1168d2ee8afa4a18837e41bd6e10f74fb8ff0dde885",
+        "sha256:20a48e40ad48fe502511953248d831019d7c6b3ea42a0cfa36476bc7f02c475f",
+        "sha256:27e63e3e99f954c4b211f13a4ba67fd2aecb981d6219dab173232745b155a4b2",
+        "sha256:4f3d32c1172786ab7e03f2f891e011185327c66d697f04e9a55254839b2ea50f",
+        "sha256:77ccbecc64e3521aa1a86d5d2e54aa2b48d8e93fd7e9d5ed375e148c04235e70",
+        "sha256:a7fb3101ec81ff8af5290444a848f990c1dbdbf04c099f0d2d76e07a05e92d7f",
+        "sha256:907c89e4a12a707fd3d088f42f2d7fbdde57052142878db72ff80070fc9d66ed",
+        "sha256:2f8cbd3a33bb7d1d15d91afb8f292f44f0e2eaeae7cb4f6eb6180e2a41008e0c",
+        "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
+        "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
+        "sha256:1f7e8a6e984a4eb4392a5f6a46c5e12daec7b42a4900f79c4f3f3ed96dbc0d11",
+        "sha256:99f80f53dc9f209a92eabf3a0bce0783cab51edd4903cf3622963f76aeef7684",
+        "sha256:588edcf255ebf51d0524db1cf9ebc9a1b97f001ba0e855cb14da725e5278f8b3",
+        "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
+        "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
+        "sha256:46143ce80d06f0e891ddae985f7f2f867bd1e3cb1726aad15f2902e31b6ab629",
+        "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
+        "sha256:33e7df43658bd96a6b2c4444996f18fec881556e65e9a16d676e2a1dc6800fbe",
+        "sha256:7486744b62e0e0a656228b6a013168367022dd621c61870474553a2ad0654353",
+        "sha256:0513053d657d79c3bc8cac7216b5b062790642d9420ce85bb939001903753ecb",
+        "sha256:7e5a743fdb53a33fac59ddb0664a3b731182f04c6bf68a60b1675574b4adf896",
+        "sha256:7745e9f21b7cce162b3ca091f794cd76e751efb1a389be3c3e95969456fe87b8",
+        "sha256:b3fb88517743060c320aa3115c1d45ffc18b06cf189afa712f64c33cbaf200ae",
+        "sha256:a4f20c59b1f259e8a543a58b86510a786056799dfa40a6aae7834dfcff9215ee",
+        "sha256:241df8b2ba77b834e5ce33cb1e72888f0b355c347c8dc78ad8f2bfed67ee8cff",
+        "sha256:61308c80ba797b5e06312d033f65becf694237f853c8a848de3770b6c06389a2",
+        "sha256:2d940475d95a9e6d9c052a6a6da2ee43224e1ec0b28a5107834d37b134e2fd16",
+        "sha256:7a7bacdce5553ff23e2561833371ce8eae88563e0c50e2c665bf09126cb6cf9e",
+        "sha256:1d4012de3622646eb71e6d1d7010245c967c32b66dbbf4a0931c2718c7babec0",
+        "sha256:d9769af12364092a5516d799f79bc4b0813883aaab4b9d304ea1f1c6098cb375",
+        "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
+        "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
+        "sha256:937b7ac7a1b6102c8a79cbb114c3d1321aeed0c943d253cd4580596caffdc0a7",
+        "sha256:071687548a3cc073f179b077861802c73b364ba554d436b4ced652617587536c",
+        "sha256:2444c059e04c0b4f8e586e1f37035d1b10eac3760fa92ee09344133705032807",
+        "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
+        "sha256:f2b18835f9ce49ebff2fbb14785ea4337201861790a85da28c3938970bff16f0",
+        "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
+        "sha256:34bd926e1ecf14ae9c2e2ab3f1703d2be796a9e5bbb15faa0b24437fb29eeaa6",
+        "sha256:a9b9cb3b77927b8ab38425b32c1c7ab4f869b883b00b9332112ca6b26c03a1fd",
+        "sha256:445394881a389faa449205826c8309a198aed272e0a9b1b544fa735d2a5c49e8",
+        "sha256:c36b2056e1689bb7d4c3f302925d9fe545176ebed48a8512116625840708b6fb",
+        "sha256:c11abb476f7551b445547a1a597f0aa313d42d1308842ddf58417ad62a44f1f2",
+        "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
+        "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
+    ],
     "stack_components": {
         "python": "3.12.3",
         "cuda": "13.4",
         "nccl": "2.30.7",
-        # As reported by the container, not as written in runtime-manifest.json
-        # (which records the ".dev" local versions of a different build).
-        "torch": "2.14.0a0+4fdf77b940.nv26.8.63802676",
-        "vllm": "0.27.1+93523f72.nv26.8.64249418",
-        "triton": "3.6.0+git5d72932fc5.nv26.3",
+        "torch": "2.14.0a0+4fdf77b940.nv26.08",
+        "vllm": "0.27.1+93523f72.dev",
+        "triton": "3.6.0",
         "transformers": "5.14.1",
         "ray": "2.58.0",
         "pyarrow": "25.0.1",
     },
     "certification": {
         "hardware_target": "NVIDIA DGX Spark / GB10",
-        "timestamp": "2026-09-19T19:33:24Z",
-        "overall_status": "PASSED",
-        "checks_total": 11,
-        "checks": [
-            {"name": "GPU Detection", "status": "PASS"},
-            {"name": "BF16 CUDA Execution", "status": "PASS"},
-            {"name": "Ray Head Startup", "status": "PASS"},
-            {"name": "Ray SDK Probe (Dashboard-independent)", "status": "PASS"},
-            {"name": "vLLM Engine Initialization (Offline)", "status": "PASS"},
-            {"name": "vLLM Token Generation", "status": "PASS"},
-            {"name": "Ray Serve LLM App Health", "status": "PASS"},
-            {"name": "OpenAI Endpoint Response", "status": "PASS"},
-            {"name": "OpenAI Streaming Response", "status": "PASS"},
-            {"name": "Ray Serve Clean Shutdown", "status": "PASS"},
-            {
-                "name": "Prometheus Metrics Export",
-                "status": "PARTIAL",
-                "detail": (
-                    "Head exports metrics, worker nodes do not: the deployed image is "
-                    "missing 'opencensus', so ray.dashboard.modules.reporter.reporter_agent "
-                    "fails to import and never binds the metrics port on a worker. "
-                    "Verified on both nodes 2026-09-20. Fixed by rebuilding the image."
-                ),
-            },
-        ],
+        "timestamp": "2026-09-21T00:00:00Z",
+        "overall_status": "uncertified",
+        "checks_total": 0,
+        "checks": [],
+        "detail": (
+            "Rebuilt on the head with the metrics stack and the helper's write "
+            "verbs asserted at build time.  Re-run remote_certify_2node.py to "
+            "earn a certified status."
+        ),
     },
 }
 
@@ -416,7 +483,7 @@ CERTIFIED_DGX_SPARK_BUNDLE = RuntimeBundleManifest.from_runtime_manifest(
             vendor="nvidia",
             families=["Blackwell", "GB10"],
             compute_capabilities=["12.1"],
-            min_cuda_driver="570.86.10",
+            min_driver_version="570.86.10",
         ),
     ),
     requirements=ContainerRequirements(
@@ -429,7 +496,35 @@ CERTIFIED_DGX_SPARK_BUNDLE = RuntimeBundleManifest.from_runtime_manifest(
     ),
     mounts=[
         ContainerMount(host_path="/srv/llm-port/models", container_path="/models", mode="ro"),
-        ContainerMount(host_path="/home/sachi/.cache/huggingface", container_path="/models/huggingface", mode="ro"),
+        # Mounted at Hugging Face's own default location rather than nested
+        # under /models.  The previous target, /models/huggingface, sat inside
+        # the read-only bind mount above, and the host source of that mount has
+        # no "huggingface" directory -- so runc could not create the mountpoint
+        # and every container start failed with "read-only file system".
+        # /root/.cache is ordinary image rootfs, so the mountpoint is created
+        # normally, and HF_HOME needs no override because this *is* the default.
+        ContainerMount(
+            host_path="/home/sachi/.cache/huggingface",
+            container_path="/root/.cache/huggingface",
+            mode="ro",
+        ),
+        # Ray's session directory, on the host.
+        #
+        # Every Serve replica writes its own log file under
+        # ``session_latest/logs/serve/``, and the runtime container itself
+        # idles on ``sleep infinity`` -- so its console is empty and the only
+        # record of what a replica did lives in these files. Without the
+        # mount the agent has to shell into the container to read them, which
+        # costs an exec per poll and loses the byte offsets that make tailing
+        # cheap. With it they are ordinary files.
+        #
+        # Read-write because Ray owns the directory and writes to it; a
+        # read-only mount would stop the cluster starting at all.
+        ContainerMount(
+            host_path="/var/lib/llm-port/ray",
+            container_path="/tmp/ray",
+            mode="rw",
+        ),
     ],
     platform_tuning=PlatformTuning(
         ray=RayPlatformTuning(
@@ -437,6 +532,17 @@ CERTIFIED_DGX_SPARK_BUNDLE = RuntimeBundleManifest.from_runtime_manifest(
                 # Certified necessary: the GB10's unified memory makes Ray's
                 # host memory monitor evict workers spuriously.
                 "RAY_memory_monitor_refresh_ms": "0",
+                # Raylet and Python worker logs do not rotate by default.
+                # That is survivable while the session directory lives inside
+                # a container that gets recreated; once it is persisted on the
+                # host (see the /tmp/ray mount above) an unbounded log
+                # directory is how a node's disk fills, quietly, weeks later.
+                #
+                # 256 MiB across 5 files per log is roughly 1.2 GiB worst case
+                # per log family -- enough to keep a long incident readable,
+                # small enough to sit on a system disk.
+                "RAY_ROTATION_MAX_BYTES": str(256 * 1024 * 1024),
+                "RAY_ROTATION_BACKUP_COUNT": "5",
             },
             start_args={
                 "disable_usage_stats": True,
@@ -456,6 +562,82 @@ CERTIFIED_DGX_SPARK_BUNDLE = RuntimeBundleManifest.from_runtime_manifest(
 )
 
 
+
+def _load_runtime_manifest(name: str) -> dict[str, Any]:
+    """Read a minted runtime manifest that ships beside the code.
+
+    Kept as a file rather than a literal because it is the build's output,
+    not something a person should be editing: the image reference, its id and
+    its layer digests all have to match the artifact exactly or the pin is a
+    fiction.
+    """
+    here = Path(__file__).resolve()
+    for root in (
+        # The dev repo sits beside llm-port-core in a full checkout.
+        here.parents[5] / "llm-port-dev" / "llm_port_ray_migration" / "runtime_image",
+        # A slim checkout that vendors the manifests under the backend.
+        here.parents[3] / "llm_port_ray_migration" / "runtime_image",
+    ):
+        candidate = root / name
+        if candidate.is_file():
+            return json.loads(candidate.read_text(encoding="utf-8"))
+    raise BundleValidationError(f"runtime manifest {name!r} not found")
+
+
+#: The generic x86_64 NVIDIA runtime.
+#:
+#: One bundle for the whole platform, not one per card. Its kernels are
+#: compiled for sm_75 through sm_120 -- Turing to Blackwell -- so a TITAN RTX,
+#: an A100 and an RTX 5090 all run the same image, and adding a GPU model is
+#: usually adding nothing at all.
+#:
+#: Ray 2.58.0 matches the DGX bundle on purpose: Ray refuses to form a cluster
+#: across mismatched versions, so the two platforms have to move together.
+#:
+#: It carries no mounts. The DGX bundle's paths are that machine's
+#: (``/home/sachi/.cache/huggingface``), and a generic bundle has no business
+#: guessing where a model store lives -- the agent supplies it.
+try:
+    GENERIC_X86_NVIDIA_BUNDLE: RuntimeBundleManifest | None = (
+        RuntimeBundleManifest.from_runtime_manifest(
+            _load_runtime_manifest("runtime-manifest-x86_64.json"),
+            bundle_id="bundle-generic-x86_64-nvidia-v1",
+            display_name="NVIDIA x86_64 Runtime (generic)",
+            description=(
+                "Ray 2.58 + vLLM 0.26 for any mainstream NVIDIA card on "
+                "x86_64, from Turing (sm_75) to Blackwell (sm_120)"
+            ),
+            driver="ray",
+            report_ref="llm_port_ray_migration/runtime_image/runtime-manifest-x86_64.json",
+            target_architecture=TargetArchitecture(
+                cpu="x86_64",
+                os="linux",
+                accelerator=AcceleratorSpec(
+                    vendor="nvidia",
+                    families=[],  # deliberately open: the capability list is the gate
+                    compute_capabilities=[
+                        "7.5", "8.0", "8.6", "9.0", "10.0", "12.0",
+                    ],
+                ),
+            ),
+        )
+    )
+except BundleValidationError:  # pragma: no cover - manifest absent in a slim checkout
+    GENERIC_X86_NVIDIA_BUNDLE = None
+
+
+#: Container paths a node fills from its own configuration.
+#:
+#: ``(key in capabilities_json["paths"], container path, mode)``. These are
+#: the paths every Ray runtime image expects regardless of platform: the model
+#: store it reads weights from, and the session directory Ray writes its logs
+#: to. Anything image-specific stays in the bundle's own mount list.
+_NODE_MOUNT_POINTS: tuple[tuple[str, str, str], ...] = (
+    ("model_store", "/models", "ro"),
+    ("ray_session", "/tmp/ray", "rw"),
+)
+
+
 class RuntimeBundleRegistry:
     """In-memory and file-backed registry for certified runtime bundles."""
 
@@ -463,6 +645,10 @@ class RuntimeBundleRegistry:
         self._bundles: dict[str, RuntimeBundleManifest] = {
             CERTIFIED_DGX_SPARK_BUNDLE.bundle_id: CERTIFIED_DGX_SPARK_BUNDLE,
         }
+        if GENERIC_X86_NVIDIA_BUNDLE is not None:
+            self._bundles[GENERIC_X86_NVIDIA_BUNDLE.bundle_id] = (
+                GENERIC_X86_NVIDIA_BUNDLE
+            )
 
     def register_bundle(self, bundle: RuntimeBundleManifest) -> None:
         """Register a new or updated bundle after validating its identity."""
@@ -493,6 +679,59 @@ class RuntimeBundleRegistry:
             raise BundleValidationError(
                 f"bundle {bundle.bundle_id}: compatibility_matrix.{', '.join(missing)} is empty"
             )
+
+    def resolve_for_node(
+        self, node: InfraNode, *, driver: str = "ray"
+    ) -> RuntimeBundleManifest | None:
+        """The certified bundle that runs *driver* on *node*, if there is one.
+
+        This replaces pinning a bundle id on the environment. Architecture is
+        a property of a machine, so an artifact keyed by architecture cannot
+        belong to the cluster: a cluster with an aarch64 and an x86_64 node
+        has no single right answer, and pinning one meant the wrong image was
+        pushed to the odd node out and the container simply failed to start.
+
+        Resolution is by platform, not by card. A bundle declares the
+        capability set it was built for, and one image covers a whole
+        generation range -- so adding a GPU model is usually adding nothing.
+
+        ``None`` means no certified bundle covers this machine, which the
+        caller must treat as a refusal rather than a reason to fall back to
+        something that will not run.
+        """
+        # A node that has not reported its platform cannot be resolved for.
+        # ``validate_node_compatibility`` is permissive by design -- it
+        # answers "is there a reason this cannot work", and an unknown field
+        # is not a reason -- so on a node with no inventory yet every bundle
+        # passed and the sort below picked one by capability count. That is
+        # how an aarch64 image would be chosen for an unknown machine.
+        caps = node.capabilities_json or {}
+        if not str(caps.get("machine") or "").strip():
+            return None
+
+        matches = [
+            bundle
+            for bundle in self._bundles.values()
+            if bundle.driver == driver
+            and self.validate_node_compatibility(bundle, node)[0]
+        ]
+        if not matches:
+            return None
+        # Deterministic when several fit: the narrowest capability set wins,
+        # then bundle_id. A bundle that names fewer capabilities was built
+        # more specifically for this hardware, and an arbitrary pick here
+        # would make a cluster's image depend on dict ordering.
+        matches.sort(
+            key=lambda b: (
+                len(b.target_architecture.accelerator.compute_capabilities) or 999,
+                b.bundle_id,
+            )
+        )
+        return matches[0]
+
+    def bundles_for_driver(self, driver: str) -> list[RuntimeBundleManifest]:
+        """Every bundle that serves *driver*, for the operator-facing list."""
+        return [b for b in self._bundles.values() if b.driver == driver]
 
     def get_bundle(self, bundle_id: str) -> RuntimeBundleManifest | None:
         """Fetch a bundle by ID."""
@@ -600,11 +839,43 @@ class RuntimeBundleRegistry:
         return merged
 
     @staticmethod
+    def mounts_for_node(
+        bundle: RuntimeBundleManifest, node: "InfraNode | None"
+    ) -> list[ContainerMount]:
+        """The bundle's mounts, with the node's own paths filled in.
+
+        A bundle knows which container paths its image expects; it cannot know
+        where they live on a machine it has never seen. The node reports that
+        under ``capabilities_json["paths"]``, so the two are composed here
+        rather than one of them guessing.
+
+        A mount the bundle declares explicitly wins, so a bundle certified for
+        one machine's layout keeps it.
+        """
+        declared = list(bundle.container.mounts)
+        taken = {m.container_path for m in declared}
+        paths = ((node.capabilities_json or {}).get("paths") or {}) if node else {}
+
+        for key, container_path, mode in _NODE_MOUNT_POINTS:
+            if container_path in taken:
+                continue
+            host_path = str(paths.get(key) or "").strip()
+            if not host_path:
+                continue
+            declared.append(
+                ContainerMount(
+                    host_path=host_path, container_path=container_path, mode=mode
+                )
+            )
+        return declared
+
+    @staticmethod
     def container_launch_spec(
         bundle: RuntimeBundleManifest,
         *,
         name: str,
         env: dict[str, str] | None = None,
+        node: "InfraNode | None" = None,
     ) -> dict[str, Any]:
         """Render a bundle into the node-agent container launch contract.
 
@@ -620,11 +891,101 @@ class RuntimeBundleRegistry:
             "rootfs_digest": bundle.container.rootfs_digest,
             "repo_digest": bundle.container.repo_digest,
             "runtime_handler": bundle.container.runtime_handler,
+            # The agent maps ``requirements.gpus`` onto its handler's flags,
+            # and which flags those are depends on the vendor -- ``--gpus`` is
+            # the NVIDIA toolkit's spelling, not a universal one.
+            "target_architecture": {
+                "cpu": bundle.target_architecture.cpu,
+                "os": bundle.target_architecture.os,
+                "accelerator_vendor": bundle.target_architecture.accelerator.vendor,
+                "accelerator_families": list(bundle.target_architecture.accelerator.families),
+            },
             "requirements": req.model_dump(),
-            "mounts": [m.model_dump() for m in bundle.container.mounts],
+            "mounts": [
+                m.model_dump()
+                for m in RuntimeBundleRegistry.mounts_for_node(bundle, node)
+            ],
             "env": dict(env or {}),
         }
 
 
 # Default singleton registry instance
 default_bundle_registry = RuntimeBundleRegistry()
+
+
+#: The Ray runtime container's name on a node.
+#:
+#: One name on every node, deliberately: the image behind it differs per
+#: platform, but an operator reading ``docker ps`` on any member of a cluster
+#: should see the same thing running.
+RUNTIME_CONTAINER_NAME = "llm-port-ray-runtime"
+
+
+async def runtime_bundle_payload_for(
+    session: "AsyncSession",
+    node_id: "uuid.UUID | str | None",
+    *,
+    driver: str = "ray",
+    env: dict[str, str] | None = None,
+) -> dict[str, Any] | None:
+    """The launch contract for *driver*'s container on the machine *node_id*.
+
+    ``None`` when the node has no certified bundle, which the agent reads as
+    "run on the host runtime". That fallback is only ever right for a node
+    that genuinely has one; :func:`~...planner` refuses a deployment onto a
+    node without a bundle before it gets this far.
+    """
+    node = await _node_row(session, node_id)
+    if node is None:
+        return None
+    bundle = default_bundle_registry.resolve_for_node(node, driver=driver)
+    if bundle is None:
+        return None
+    return default_bundle_registry.container_launch_spec(
+        bundle, name=RUNTIME_CONTAINER_NAME, env=env or {}, node=node,
+    )
+
+
+async def bundle_for_node(
+    session: "AsyncSession", node_id: "uuid.UUID | str | None", *, driver: str = "ray"
+) -> RuntimeBundleManifest | None:
+    """The bundle that runs *driver* on the machine *node_id* names.
+
+    A small async wrapper so callers that hold an id rather than a row do not
+    each write the same two lines, and so there is one place to change when
+    resolution grows a cache.
+    """
+    node = await _node_row(session, node_id)
+    if node is None:
+        return None
+    return default_bundle_registry.resolve_for_node(node, driver=driver)
+
+
+async def node_and_bundle_for(
+    session: "AsyncSession", node_id: "uuid.UUID | str | None", *, driver: str = "ray"
+) -> "tuple[InfraNode | None, RuntimeBundleManifest | None]":
+    """The node row and the bundle certified for it, from one lookup.
+
+    Callers need both -- the bundle for the image, the row for the host paths
+    the launch spec is composed from -- and fetching the row twice for one
+    command is the kind of thing that only shows up under load.
+    """
+    node = await _node_row(session, node_id)
+    if node is None:
+        return None, None
+    return node, default_bundle_registry.resolve_for_node(node, driver=driver)
+
+
+async def _node_row(
+    session: "AsyncSession", node_id: "uuid.UUID | str | None"
+) -> "InfraNode | None":
+    """The node row behind an id, or ``None`` for anything unusable."""
+    if node_id is None:
+        return None
+    from llm_port_backend.db.models.node_control import InfraNode  # noqa: PLC0415
+
+    try:
+        key = node_id if isinstance(node_id, uuid.UUID) else uuid.UUID(str(node_id))
+    except (ValueError, TypeError):
+        return None
+    return await session.get(InfraNode, key)

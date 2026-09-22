@@ -90,6 +90,17 @@ class RayManager:
             except OSError:
                 token_dir = "/tmp/llm-port/ray"
         self._token_dir = Path(token_dir)
+        # Claim the directory now, whichever branch chose it.  The runtime
+        # container bind-mounts this path, and Docker creates a missing
+        # bind-mount source as **root** -- which happens during
+        # ENSURE_RUNTIME_IMAGE, long before the first token write.  An agent
+        # running as an unprivileged user could then never write its own
+        # cluster token, and `ray start` failed inside the container with an
+        # opaque "token file cannot be opened or is empty".
+        try:
+            self._token_dir.mkdir(parents=True, exist_ok=True)
+        except OSError:  # noqa: BLE001 - a read-only path is reported at write time
+            pass
         self._token_file = self._token_dir / "cluster.token"
         self._container = RayContainerRuntime(token_path=str(self._token_file))
         # The agent's own SDK attach must present the cluster token.  Ray
@@ -581,6 +592,12 @@ class RayManager:
                 spec.app_name,
                 spec.llm_serving_args,
                 http_options=spec.http_options,
+                # One prefix per application, matching the host path.  The
+                # container path defaulted to "/", so the address the backend
+                # published (which assumes "/<app>") 404'd, and a second
+                # deployment on the same cluster would have collided with the
+                # first over the root prefix.
+                route_prefix=f"/{spec.app_name}",
             )
 
         # build_openai_app + serve.run are driver-side Python API calls that

@@ -43,17 +43,26 @@ export default function JobsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [j, m] = await Promise.all([
-        jobs.list(statusFilter ? (statusFilter as DownloadJobStatus) : undefined),
-        modelApi.list(),
-      ]);
-      setData(j);
-      setModelsList(m);
+      setData(
+        await jobs.list(
+          statusFilter ? (statusFilter as DownloadJobStatus) : undefined,
+        ),
+      );
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : t("llm_jobs.failed_load"));
     } finally {
       setLoading(false);
     }
+    // Only used to put a name next to a model id.  Until it lands the table
+    // shows the id, which is worse than a name and much better than nothing
+    // -- and the page reloads this on every filter change, so it must not be
+    // in front of the rows.
+    void modelApi
+      .list()
+      .then(setModelsList)
+      .catch(() => {
+        /* ids stand in for names */
+      });
   }
 
   useEffect(() => {

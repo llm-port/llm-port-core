@@ -18,6 +18,7 @@ from llm_port_backend.db.models.inference import (
     InferenceDeployment,
     InferenceEnvironment,
     InferenceEnvironmentNode,
+    ModelAvailability,
     ModelAvailabilityStatus,
 )
 from llm_port_backend.db.models.llm import LLMModel, ModelSource, ModelStatus
@@ -29,6 +30,7 @@ from llm_port_backend.db.models.node_control import (
 )
 from llm_port_backend.services.inference.drivers.ray.deployment import RayDeploymentManager
 from llm_port_backend.services.inference.drivers.ray.client import RayCommandError
+from tests.platform_fixtures import DGX_SPARK_PLATFORM
 
 
 class _FakeNodeControlService:
@@ -123,7 +125,10 @@ async def test_deployment_phase_progression_pending_preparing_applying_running(
     dbsession.add(cp)
     await dbsession.flush()
 
-    node = InfraNode(agent_id=f"head-{uuid.uuid4().hex[:8]}", host="10.0.0.1", status="healthy")
+    node = InfraNode(
+        agent_id=f"head-{uuid.uuid4().hex[:8]}", host="10.0.0.1", status="healthy",
+        capabilities_json=dict(DGX_SPARK_PLATFORM),
+    )
     dbsession.add(node)
     await dbsession.flush()
 
@@ -234,6 +239,96 @@ async def test_deployment_phase_progression_pending_preparing_applying_running(
 
 
 @pytest.mark.anyio
+async def test_a_failed_sync_blocks_the_deploy_without_offline_only(
+    dbsession: AsyncSession,
+) -> None:
+    """The DGX regression: readiness knew, and we deployed anyway.
+
+    ``offline_only`` defaulted to False, which the gate read as "a remote
+    fetch is available" and used to skip straight to ``serve.run``.  It is not
+    available: the Phase 4B runtime bundle is air-gapped by construction and
+    the certified image carries ``HF_HUB_OFFLINE=1``.
+
+    So the deploy went ahead with nothing to load, and four minutes later Ray
+    reported
+
+        Failed to create vLLM engine config: Cannot find an appropriate
+        cached snapshot folder for the specified revision
+
+    while artifact readiness had been holding the real reason the whole time.
+    """
+    cp = InferenceControlPlane(name=f"cp-{uuid.uuid4().hex[:8]}", driver="ray")
+    dbsession.add(cp)
+    await dbsession.flush()
+
+    node = InfraNode(
+        agent_id=f"head-{uuid.uuid4().hex[:8]}", host="10.0.0.2", status="healthy",
+        capabilities_json=dict(DGX_SPARK_PLATFORM),
+    )
+    dbsession.add(node)
+    await dbsession.flush()
+
+    # Note: no "artifacts" config at all -- this is the default environment,
+    # which is exactly the one that used to slip through.
+    env = InferenceEnvironment(
+        control_plane_id=cp.id,
+        name=f"env-{uuid.uuid4().hex[:8]}",
+        head_node_id=node.id,
+        status=EnvironmentStatus.READY.value,
+        config_json={"runtime_bundle_id": "bundle-dgx-spark-gb10-v1"},
+    )
+    dbsession.add(env)
+    await dbsession.flush()
+    dbsession.add(InferenceEnvironmentNode(environment_id=env.id, node_id=node.id, role="head"))
+
+    model = LLMModel(
+        display_name="org/never-synced",
+        source=ModelSource.HUGGINGFACE,
+        status=ModelStatus.AVAILABLE,
+        hf_repo_id="org/never-synced",
+        hf_revision="main",
+    )
+    dbsession.add(model)
+    await dbsession.flush()
+
+    dep = InferenceDeployment(
+        environment_id=env.id,
+        model_id=model.id,
+        name=f"dep-{uuid.uuid4().hex[:8]}",
+        spec_json=_spec(),
+        phase=DeploymentPhase.PENDING.value,
+    )
+    dbsession.add(dep)
+    await dbsession.commit()
+
+    # A node whose sync was attempted and failed -- the real condition, as
+    # opposed to a model nobody has tried to place yet.
+    dbsession.add(
+        ModelAvailability(
+            model_id=model.id,
+            node_id=node.id,
+            status=ModelAvailabilityStatus.FAILED.value,
+            status_message="model_sync payload with files is required.",
+        )
+    )
+    await dbsession.commit()
+
+    manager = RayDeploymentManager()
+    fake_control = _FakeNodeControlService()
+    await manager.reconcile_deployment(dbsession, dep, node_control=fake_control)
+
+    assert dep.phase == DeploymentPhase.FAILED.value
+    # Nothing was handed to Ray, so nothing can fail obscurely inside it.
+    assert not any(
+        c["command_type"] == NodeCommandType.RUN_SERVE_APP.value for c in fake_control.issued
+    )
+    # And the operator is told what is actually wrong.
+    message = dep.phase_message or ""
+    assert "cannot download it" in message
+    assert "model_sync payload with files is required" in message
+
+
+@pytest.mark.anyio
 async def test_deployment_offline_only_blocks_on_missing_artifact(
     dbsession: AsyncSession,
 ) -> None:
@@ -242,7 +337,10 @@ async def test_deployment_offline_only_blocks_on_missing_artifact(
     dbsession.add(cp)
     await dbsession.flush()
 
-    node = InfraNode(agent_id=f"head-{uuid.uuid4().hex[:8]}", host="10.0.0.2", status="healthy")
+    node = InfraNode(
+        agent_id=f"head-{uuid.uuid4().hex[:8]}", host="10.0.0.2", status="healthy",
+        capabilities_json=dict(DGX_SPARK_PLATFORM),
+    )
     dbsession.add(node)
     await dbsession.flush()
 
@@ -290,7 +388,12 @@ async def test_deployment_offline_only_blocks_on_missing_artifact(
     # Must be marked FAILED immediately with blocker explanation
     assert dep.phase == DeploymentPhase.FAILED.value
     assert dep.observed_generation == dep.generation  # terminal failure is observed
-    assert "offline-only" in (dep.phase_message or "")
+    # The message is written for the operator, not from the config flag that
+    # produced it: "offline-only mode" told them nothing they could act on.
+    message = dep.phase_message or ""
+    assert "cannot download it" in message
+    # ...and it still names the underlying blocker.
+    assert "org/non-existent-local-model" in message
     # No RUN_SERVE_APP must have been issued
     assert not any(c["command_type"] == NodeCommandType.RUN_SERVE_APP.value for c in fake_control.issued)
 
@@ -304,7 +407,10 @@ async def test_deployment_offline_only_blocks_on_unmapped_mount(
     dbsession.add(cp)
     await dbsession.flush()
 
-    node = InfraNode(agent_id=f"head-{uuid.uuid4().hex[:8]}", host="10.0.0.3", status="healthy")
+    node = InfraNode(
+        agent_id=f"head-{uuid.uuid4().hex[:8]}", host="10.0.0.3", status="healthy",
+        capabilities_json=dict(DGX_SPARK_PLATFORM),
+    )
     dbsession.add(node)
     await dbsession.flush()
 

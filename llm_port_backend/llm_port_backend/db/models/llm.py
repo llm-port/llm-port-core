@@ -43,6 +43,15 @@ class ProviderTarget(enum.StrEnum):
 
     LOCAL_DOCKER = "local_docker"
     REMOTE_ENDPOINT = "remote_endpoint"
+    #: Served by an inference deployment on one of our own clusters.
+    #:
+    #: Neither of the other two fits, and the difference is not cosmetic: a
+    #: cluster-backed provider is started by scaling a deployment, its logs
+    #: are per-replica across several machines, and it has no container on
+    #: this host to start or stop. Calling it ``local_docker`` would offer
+    #: controls that cannot work; calling it ``remote_endpoint`` would hide
+    #: that we own it.
+    INFERENCE_CLUSTER = "inference_cluster"
 
 
 class ModelSource(enum.StrEnum):
@@ -153,6 +162,22 @@ class LLMProvider(Base):
         nullable=True,
         doc="Provider-specific params (headers, api_version, etc.).",
     )
+    source_kind: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        doc=(
+            "What owns this row, when something does: 'inference_deployment' "
+            "for a provider derived from a deployment, NULL for one a person "
+            "created. Same vocabulary as the gateway's llm_provider_instance, "
+            "on purpose -- two layers describing ownership differently is how "
+            "they drift."
+        ),
+    )
+    source_id: Mapped[str | None] = mapped_column(
+        String(128),
+        nullable=True,
+        doc="The owning record's id, paired with source_kind.",
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -164,6 +189,16 @@ class LLMProvider(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+
+    @property
+    def is_derived(self) -> bool:
+        """Whether a deployment owns this row rather than a person.
+
+        A derived provider must not be edited or deleted from the providers
+        screen: the deployment would recreate or overwrite it, and the two
+        would disagree in between.
+        """
+        return bool(self.source_kind)
 
 
 class LLMModel(Base):

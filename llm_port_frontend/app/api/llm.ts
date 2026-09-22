@@ -9,7 +9,18 @@ const BASE = "/api/llm";
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type ProviderType = "vllm" | "llamacpp" | "tgi" | "ollama" | "cloud";
-export type ProviderTarget = "local_docker" | "remote_endpoint";
+/**
+ * Where a provider's engine runs.
+ *
+ * `inference_cluster` is served by one of our own deployments: it is started
+ * by scaling that deployment, its logs are per-replica across machines, and
+ * it has no container on this host to start or stop. The screen must not
+ * offer controls that cannot work on it.
+ */
+export type ProviderTarget =
+  | "local_docker"
+  | "remote_endpoint"
+  | "inference_cluster";
 
 /** LiteLLM provider prefixes for remote endpoints. */
 export type LiteLLMProvider =
@@ -47,6 +58,20 @@ export type DownloadJobStatus =
   | "failed"
   | "canceled";
 
+/** The record that owns a derived provider. */
+export interface ManagedBy {
+  kind: string;
+  id: string;
+  name: string | null;
+  /**
+   * The owner's own state. A cluster-backed provider has no container of its
+   * own, so this is the only honest thing to show in a status column.
+   */
+  state: string | null;
+  /** What it serves: a derived provider has no runtime row to join through. */
+  model_name: string | null;
+}
+
 export interface Provider {
   id: string;
   name: string;
@@ -58,8 +83,24 @@ export interface Provider {
   litellm_provider: string | null;
   litellm_model: string | null;
   extra_params: Record<string, unknown> | null;
+  /**
+   * What owns this provider, when something does. `"inference_deployment"`
+   * means a deployment created it and will remove it with itself — it cannot
+   * be edited or deleted from the providers screen, because the next
+   * reconcile would undo it.
+   */
+  source_kind: string | null;
+  /** The owning record's id: the deployment to send the operator to. */
+  source_id: string | null;
+  /** Resolved owner, when there is one: what to call it and how it is doing. */
+  managed_by: ManagedBy | null;
   created_at: string;
   updated_at: string;
+}
+
+/** Whether a deployment owns this provider rather than a person. */
+export function isDerivedProvider(provider: Provider): boolean {
+  return Boolean(provider.source_kind);
 }
 
 export interface ModelInstance {
@@ -281,6 +322,20 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 export const providers = {
   list() {
     return request<Provider[]>("/providers/");
+  },
+  /**
+   * Live stat-card values and a dashboard link for a provider of either kind.
+   *
+   * One call whether the model runs in a local container or across a cluster:
+   * the screen showing these cards does not care, and a person whose role
+   * reaches this page but not the deployments page still gets the figures
+   * rather than a link somewhere they cannot go.
+   *
+   * Returns `{ enabled: false }` when there is nothing to show — a muted
+   * state, not an error.
+   */
+  monitoringStats(id: string) {
+    return request<RuntimeMonitoring>(`/providers/${id}/monitoring-stats`);
   },
   get(id: string) {
     return request<Provider>(`/providers/${id}`);

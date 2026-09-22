@@ -24,10 +24,18 @@ async def docker_available(runtime: ContainerRuntime | None = None) -> bool:
 async def build_static_capabilities(
     runtime: ContainerRuntime | None = None,
     gpu_collector: GpuCollector | None = None,
+    paths: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    """Return stable host capability metadata."""
+    """Return stable host capability metadata.
+
+    *paths* are the host directories this node keeps its model store and Ray
+    session in. They are reported rather than assumed because a runtime bundle
+    describes an image, not a machine: the container path is the same
+    everywhere, the host path behind it is this node's alone.
+    """
     gpu = gpu_collector or NullCollector()
     return {
+        "paths": dict(paths or {}),
         "hostname": socket.gethostname(),
         "os": platform.platform(),
         "machine": platform.machine(),

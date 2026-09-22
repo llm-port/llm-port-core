@@ -166,7 +166,7 @@ class EnvironmentDAO:
         control_plane_id: uuid.UUID,
         name: str,
         description: str | None = None,
-        ray_version: str | None = None,
+        runtime_version: str | None = None,
         head_node_id: uuid.UUID | None = None,
         address: str | None = None,
         config: dict[str, Any] | None = None,
@@ -177,7 +177,7 @@ class EnvironmentDAO:
             control_plane_id=control_plane_id,
             name=name,
             description=description,
-            ray_version=ray_version,
+            runtime_version=runtime_version,
             head_node_id=head_node_id,
             address=address,
             config_json=config or {},
@@ -244,7 +244,7 @@ class EnvironmentDAO:
         name: str | None = None,
         description: str | None = ...,
         desired_state: EnvironmentDesiredState | None = ...,
-        ray_version: str | None = ...,
+        runtime_version: str | None = ...,
         head_node_id: uuid.UUID | None = ...,
         address: str | None = ...,
         config: dict[str, Any] | None = ...,
@@ -261,8 +261,8 @@ class EnvironmentDAO:
         if description is not ...:
             environment.description = description
             changed = True
-        if ray_version is not ...:
-            environment.ray_version = ray_version
+        if runtime_version is not ...:
+            environment.runtime_version = runtime_version
             changed = True
         if head_node_id is not ...:
             environment.head_node_id = head_node_id

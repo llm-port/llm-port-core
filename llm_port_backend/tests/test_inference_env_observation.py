@@ -28,6 +28,7 @@ from llm_port_backend.db.models.node_control import (
 )
 from llm_port_backend.services.inference.drivers.ray.environment import RayEnvironmentManager
 from llm_port_backend.services.inference.planner import MultiNodeFabricPlanner
+from tests.platform_fixtures import DGX_SPARK_PLATFORM
 
 
 class _FakeNodeControl:
@@ -84,6 +85,10 @@ class _FakeNodeControl:
 
 def _caps(roce_ip: str) -> dict:
     return {
+        # The platform a live agent reports; without it no runtime bundle
+        # resolves and the lifecycle refuses the node before it gets to what
+        # these tests are about.
+        **DGX_SPARK_PLATFORM,
         "network": {
             "fabrics": [{
                 "interface": "enp1s0f1np1",

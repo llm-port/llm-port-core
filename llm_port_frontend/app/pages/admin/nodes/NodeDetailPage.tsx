@@ -190,24 +190,40 @@ export default function NodeDetailPage() {
 
   /* ── data loading ──────────────────────────────────────────────── */
 
+  /**
+   * The node record gates the page; its command history and the profile list
+   * do not.
+   *
+   * Gathered in one `Promise.all` they shared a `loading` flag, so the slowest
+   * of the three decided when anything appeared -- and the command list grows
+   * without bound on a busy node while the profile list is fleet-wide.  The
+   * node record itself is one row and always fast.  Waiting on the other two
+   * meant the screen that says whether a node is up took as long as the screen
+   * that lists everything ever asked of it.
+   */
   const load = useCallback(async () => {
     if (!id) return;
     setLoading(true);
     setError(null);
     try {
-      const [nodeRes, commandRes, profilesRes] = await Promise.all([
-        nodesApi.get(id),
-        nodesApi.listCommands(id),
-        nodesApi.listProfiles().catch(() => [] as NodeProfile[]),
-      ]);
-      setNode(nodeRes);
-      setCommands(commandRes);
-      setProfiles(profilesRes);
+      setNode(await nodesApi.get(id));
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to load node.");
     } finally {
       setLoading(false);
     }
+    // The two panels below fill in on their own; a failure in either leaves
+    // the node's own status on screen, which is the thing being looked for.
+    void nodesApi
+      .listCommands(id)
+      .then(setCommands)
+      .catch(() => {
+        /* the command panel stays as it was */
+      });
+    void nodesApi
+      .listProfiles()
+      .then(setProfiles)
+      .catch(() => setProfiles([]));
   }, [id]);
 
   const silentRefresh = useCallback(async () => {

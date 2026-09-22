@@ -59,7 +59,10 @@
     "chat_group": "Conversation",
     "chat_projects": "Projets",
     "chat_sessions": "Sessions",
-    "chat_attachments": "Pièces jointes"
+    "chat_attachments": "Pièces jointes",
+    "inference_group": "Infrastructure IA",
+    "clusters": "Clusters",
+    "deployments": "Déploiements"
   },
   "auth": {
     "logout": "Déconnexion",

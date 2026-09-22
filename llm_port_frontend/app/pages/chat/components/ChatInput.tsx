@@ -55,7 +55,15 @@ export default function ChatInput({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const canSend = text.trim().length > 0 && !disabled && !streaming;
+  // A model has to be chosen before there is anywhere to send to.  The list
+  // is fetched, and the selector auto-picks the first entry once it arrives,
+  // so for the first second after the page opens ``selectedModel`` is empty.
+  // Sending in that window used to reach the stream hook and come back as
+  // "Please select a model before sending a message." -- while the picker
+  // was, by then, showing a model.  Blocking the send is the honest version:
+  // the button is visibly unavailable until there is something to send to.
+  const canSend =
+    text.trim().length > 0 && !disabled && !streaming && selectedModel !== "";
 
   const handleSend = useCallback(() => {
     if (!canSend) return;
