@@ -24,7 +24,7 @@ import click
 import psutil
 
 from llmport.core.console import console, success, warning, error, info
-from llmport.core.registry import DEV_ENDPOINTS
+from llmport.core.registry import DEV_ENDPOINTS, DEV_MODULE_ENDPOINTS, ModuleInfo
 from llmport.core.settings import load_config
 from llmport.core.workspace import (
     find_service_dir,
@@ -436,7 +436,131 @@ def _ensure_gateway_env(api_dir: Path, workspace: Path) -> None:
     info("Gateway .env completed with missing dev defaults.")
 
 
-#: Ports the dev services bind, for the check after stopping them.
+def _apply_env(env_path: Path, values: dict[str, str], *, header: str) -> bool:
+    """Set *values* in the ``.env`` at *env_path*, keeping every other line.
+
+    A key already in the file is rewritten where it stands; a missing one is
+    appended under *header*. Returns whether the file changed.
+    """
+    before = env_path.read_text(encoding="utf-8") if env_path.exists() else ""
+    out: list[str] = []
+    seen: set[str] = set()
+    for line in before.splitlines():
+        s = line.strip()
+        key = s.split("=", 1)[0].strip() if s and not s.startswith("#") and "=" in s else None
+        if key in values:
+            seen.add(key)
+            out.append(f"{key}={values[key]}")
+        else:
+            out.append(line)
+    missing = [k for k in values if k not in seen]
+    if missing:
+        if out and out[-1].strip():
+            out.append("")
+        out.append(f"# ── {header} ──")
+        out.extend(f"{k}={values[k]}" for k in missing)
+    after = "\n".join(out) + "\n"
+    if after == before:
+        return False
+    env_path.write_text(after, encoding="utf-8")
+    return True
+
+
+def _ensure_module_envs(
+    workspace: Path, backend_dir: Path, api_dir: Path, running: list[ModuleInfo],
+) -> None:
+    """Point each module, and the gateway and backend, at the modules that run.
+
+    The switches in the gateway and backend ``.env`` are owned by ``dev up``:
+    a module that is not started this time is switched off, not left pointing
+    at a port nothing listens on.
+    """
+    from llmport.core.dev_modules import caller_env, module_env
+    from llmport.core.registry import _read_env_values
+
+    shared_path = _shared_env_path(workspace)
+    shared = _read_env_values(shared_path) if shared_path else {}
+    header = "llmport dev up: modules"
+    if api_dir.exists() and _apply_env(api_dir / ".env", caller_env("API", shared=shared, running=running), header=header):
+        info("Gateway .env: module switches updated.")
+    if backend_dir.exists() and _apply_env(
+        backend_dir / ".env", caller_env("BACKEND", shared=shared, running=running), header=header,
+    ):
+        info("Backend .env: module switches updated.")
+    for module in running:
+        module_dir = find_service_dir(workspace, module.dev_dir)
+        if module_dir.exists():
+            _apply_env(module_dir / ".env", module_env(module, shared=shared, running=running), header=header)
+
+
+def _install_module_deps(module_dir: Path, module: ModuleInfo) -> None:
+    """Sync a module's dependencies, and install what its lock cannot carry.
+
+    ``--inexact``: an exact sync removes what the lock does not list, and the
+    spaCy model PII needs is exactly that -- it would be uninstalled and
+    downloaded again (~560 MB) on every ``dev up``.
+    """
+    label = _module_label(module)
+    env = _own_environment()
+    console.print(f"[cyan]Installing {label} dependencies (uv sync)…[/cyan]")
+    result = subprocess.run(["uv", "sync", "--locked", "--inexact"], cwd=str(module_dir), env=env)
+    if result.returncode != 0:
+        warning("uv sync --locked failed, retrying without --locked…")
+        result = subprocess.run(["uv", "sync", "--inexact"], cwd=str(module_dir), env=env)
+        if result.returncode != 0:
+            error(f"{label}: uv sync failed.")
+            return
+    for import_name, wheel in module.extra_wheels:
+        probe = subprocess.run(
+            ["uv", "run", "--no-sync", "python", "-c", f"import {import_name}"],
+            cwd=str(module_dir), capture_output=True, env=env,
+        )
+        if probe.returncode == 0:
+            continue
+        console.print(f"[cyan]Installing {import_name} for {label} (one-time download)…[/cyan]")
+        if subprocess.run(["uv", "pip", "install", wheel], cwd=str(module_dir), env=env).returncode != 0:
+            error(f"{label}: could not install {import_name}; it will not start without it.")
+    success(f"{label} dependencies installed.")
+
+
+def _own_environment() -> dict[str, str]:
+    """This environment, less the virtualenv ``dev up`` itself runs in.
+
+    Run as ``uv run llmport``, the CLI's own ``.venv`` is ``VIRTUAL_ENV``.
+    ``uv sync`` and ``uv run`` ignore it inside a project, but ``uv pip``
+    honours it before the project's ``.venv``: PII's spaCy model was
+    installed into the CLI, and PII could not load it.
+    """
+    return {k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"}
+
+
+def _migrate_module(module_dir: Path, module: ModuleInfo) -> None:
+    """Bring a module's database up to date (its ``.env`` has the credentials)."""
+    if not module.database or not (module_dir / "alembic.ini").exists():
+        return
+    result = subprocess.run(
+        ["uv", "run", "alembic", "upgrade", "head"], cwd=str(module_dir), env=_own_environment(),
+    )
+    if result.returncode != 0:
+        warning(f"{_module_label(module)}: Alembic migration exited with non-zero code.")
+    else:
+        success(f"{_module_label(module)} migrations up to date.")
+
+
+def _module_label(module: ModuleInfo) -> str:
+    return {"pii": "PII", "mcp": "MCP"}.get(module.name, module.name.capitalize())
+
+
+def _module_present(workspace: Path, module: ModuleInfo) -> bool:
+    """Whether the module's code is in this workspace; says so when it is not."""
+    if find_service_dir(workspace, module.dev_dir).exists():
+        return True
+    warning(f"{_module_label(module)}: {module.dev_dir} is not in this workspace — not started.")
+    return False
+
+
+#: Ports the dev services bind, for the check after stopping them. The ports
+#: of the modules started this time are added by ``dev up``.
 _DEV_PORTS = {8000: "Backend", 8001: "API gateway", 5173: "Frontend"}
 
 
@@ -563,6 +687,9 @@ _SERVICE_INVOCATIONS = (
     "uv run -m llm_port_api",
     "uv run taskiq worker",
     "npm run dev",
+    "uv run -m llm_port_pii",
+    "uv run -m llm_port_mcp",
+    "uv run -m llm_port_skills",
 )
 
 
@@ -833,6 +960,16 @@ def _stop_old_workers() -> None:
     help="Run services as background processes with log files (for servers without a GUI).",
 )
 @click.option(
+    "--modules",
+    default=None,
+    metavar="LIST",
+    help=(
+        "Optional modules to run beside the backend, comma-separated "
+        "(pii, mcp, skills), or 'none'. Default: the ones switched on with "
+        "`llmport module enable`."
+    ),
+)
+@click.option(
     "--local-node",
     is_flag=True,
     help="Provision llm_port_node_agent locally or over SSH before launching dev services.",
@@ -882,6 +1019,7 @@ def dev_up(
     skip_deps: bool,
     skip_migrations: bool,
     headless: bool,
+    modules: str | None,
     local_node: bool,
     local_node_host: str,
     local_node_workdir: str,
@@ -904,13 +1042,29 @@ def dev_up(
       • Gateway   → uv run -m llm_port_api      (http://localhost:8001, /v1 edge)
       • Worker    → uv run taskiq worker …       (task processing)
       • Frontend  → npm run dev                  (http://localhost:5173)
+
+    With --modules (or modules switched on with `llmport module enable`):
+      • PII       → uv run -m llm_port_pii       (http://127.0.0.1:8003)
+      • MCP       → uv run -m llm_port_mcp       (http://127.0.0.1:8007)
+      • Skills    → uv run -m llm_port_skills    (http://127.0.0.1:8008)
     """
+    from llmport.core.dev_modules import UnknownModuleError, select_modules
+
     cfg = load_config()
     workspace = _find_workspace()
     # Monorepo-aware: init clones services into <workspace>/llm-port-core/…
     backend_dir = find_service_dir(workspace, "llm_port_backend")
     frontend_dir = find_service_dir(workspace, "llm_port_frontend")
     api_dir = find_service_dir(workspace, "llm_port_api")
+
+    try:
+        running_modules = [] if frontend_only else select_modules(modules, cfg.profiles)
+    except UnknownModuleError as exc:
+        error(str(exc))
+        sys.exit(2)
+    running_modules = [
+        m for m in running_modules if _module_present(workspace, m)
+    ]
 
     console.print("[bold magenta]llm.port Dev Environment[/bold magenta]\n")
 
@@ -926,6 +1080,7 @@ def dev_up(
     _ensure_backend_env(backend_dir, workspace)
     if not frontend_only:
         _ensure_gateway_env(api_dir, workspace)
+        _ensure_module_envs(workspace, backend_dir, api_dir, running_modules)
 
     # ── Shared infra ──────────────────────────────────────────────
     if not skip_infra and not frontend_only:
@@ -964,11 +1119,16 @@ def dev_up(
         if not frontend_only and api_dir.exists():
             from llmport.commands.dev.dev_init import _install_backend_deps
             _install_backend_deps(api_dir)
+        for module in running_modules:
+            _install_module_deps(find_service_dir(workspace, module.dev_dir), module)
 
     # ── Migrations ────────────────────────────────────────────────
     if not skip_migrations and not frontend_only and backend_dir.exists():
         from llmport.commands.dev.dev_init import _run_migrations
         _run_migrations(backend_dir)
+    if not skip_migrations:
+        for module in running_modules:
+            _migrate_module(find_service_dir(workspace, module.dev_dir), module)
 
     # ── Reclaim the workspace ─────────────────────────────────────
     # Before anything is launched, not after: a service that is already
@@ -977,9 +1137,25 @@ def dev_up(
     # failure -- ``dev up`` reports success, the logs show a clean start, and
     # the running system quietly ignores every change made since.
     console.print("\n[cyan]Stopping anything already running here…[/cyan]")
+    # The ports of the modules about to start too -- and only theirs: a port
+    # of a module not started here may be someone else's.
+    _DEV_PORTS.update({m.port: _module_label(m) for m in running_modules})
     _reclaim_workspace(workspace)
 
     started: list[str] = []
+
+    # ── Launch modules ────────────────────────────────────────────
+    # First, so they are loading (PII reads a 560 MB model) while the rest
+    # start. Nothing waits for them: the gateway calls them per request.
+    for module in running_modules:
+        label = _module_label(module)
+        module_dir = find_service_dir(workspace, module.dev_dir)
+        console.print(f"\n[cyan]Launching {label}…[/cyan]")
+        if _launch_terminal(label, module_dir, f"uv run -m {module.dev_dir}", headless=headless):
+            success(f"{label} → http://127.0.0.1:{module.port}")
+            started.append(label)
+        else:
+            error(f"{label} failed to start.")
 
     # ── Launch backend ────────────────────────────────────────────
     if not frontend_only:
@@ -1122,11 +1298,15 @@ def dev_up(
         sys.exit(1)
 
     endpoints = []
+    module_names = {m.name for m in running_modules}
     for name, url in DEV_ENDPOINTS:
         if frontend_only and name in ("Backend", "API Docs", "Worker", "LLM API"):
             continue
         if backend_only and name == "Frontend":
             continue
+        module_name = DEV_MODULE_ENDPOINTS.get(name)
+        if module_name is not None and module_name not in module_names:
+            continue  # a module that is not running
         endpoints.append((name, url))
 
     console.print()

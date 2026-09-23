@@ -64,6 +64,10 @@ _DEV_PROCESS_PATTERNS: list[tuple[str, list[str]]] = [
     ("API gateway", ["m llm_port_api"]),
     ("Backend", ["m llm_port_backend"]),
     ("Frontend", ["npm run dev", "react-router dev"]),
+    # Optional modules started by ``dev up --modules``.
+    ("PII", ["m llm_port_pii"]),
+    ("MCP", ["m llm_port_mcp"]),
+    ("Skills", ["m llm_port_skills"]),
 ]
 
 

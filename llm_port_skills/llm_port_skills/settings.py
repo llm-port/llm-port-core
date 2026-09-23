@@ -67,7 +67,11 @@ class Settings(BaseSettings):
     default_max_resolve_results: int = 3
 
     # ── Observability ──
-    prometheus_dir: Path = TEMP_DIR / "prom"
+    # Named per service, like the backend's and gateway's. Each service clears
+    # this directory on startup; with PII, MCP and skills sharing ``prom`` on
+    # one host (``llmport dev up --modules``), the one starting last could not
+    # clear files the others held open, and exited (FileExistsError).
+    prometheus_dir: Path = TEMP_DIR / "prom-skills"
     sentry_dsn: Optional[str] = None
     sentry_sample_rate: float = 1.0
     opentelemetry_endpoint: Optional[str] = None

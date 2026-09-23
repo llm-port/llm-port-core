@@ -12,7 +12,7 @@ from llmport.core.settings import load_config, save_config
 
 @click.group("module")
 def module_group() -> None:
-    """Manage optional llm.port modules (pii, auth, mailer, docling)."""
+    """Manage optional llm.port modules (pii, mcp, skills)."""
 
 
 @module_group.command("list")
@@ -59,7 +59,10 @@ def module_enable(modules: tuple[str, ...]) -> None:
 
     cfg.profiles = sorted(profiles)
     save_config(cfg)
-    console.print("\n[dim]Run [bold]llmport up[/bold] to apply changes.[/dim]")
+    console.print(
+        "\n[dim]Run [bold]llmport up[/bold] to apply changes "
+        "(or [bold]llmport dev up[/bold] in a dev workspace).[/dim]",
+    )
 
 
 @module_group.command("disable")
@@ -83,4 +86,7 @@ def module_disable(modules: tuple[str, ...]) -> None:
 
     cfg.profiles = sorted(profiles)
     save_config(cfg)
-    console.print("\n[dim]Run [bold]llmport down && llmport up[/bold] to apply changes.[/dim]")
+    console.print(
+        "\n[dim]Run [bold]llmport down && llmport up[/bold] to apply changes "
+        "(or [bold]llmport dev up[/bold] in a dev workspace).[/dim]",
+    )

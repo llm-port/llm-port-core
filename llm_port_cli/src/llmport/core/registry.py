@@ -66,6 +66,25 @@ class ModuleInfo:
     port: int = 0
     service_url: str = ""
     env_vars: tuple[tuple[str, str], ...] = ()
+    # ── How ``llmport dev up`` runs it: on the host, like the backend ──
+    #: The service directory it runs from; empty for a module dev mode
+    #: does not run.
+    dev_dir: str = ""
+    #: Its own database, migrated with Alembic from ``dev_dir``.
+    database: str = ""
+    #: The Redis database number it uses, when it uses Redis.
+    redis_base: int | None = None
+    #: The token the gateway and backend present to it, in dev. The shared
+    #: ``.env`` overrides it (``LLM_PORT_<NAME>_SERVICE_TOKEN``).
+    dev_service_token: str = ""
+    #: What the backend's URL for it adds to the service root.
+    backend_url_suffix: str = ""
+    #: Settings of its own in dev, beyond host, port and credentials.
+    dev_settings: tuple[tuple[str, str], ...] = ()
+    #: Its settings that hold another module's URL: (setting, module name).
+    dev_links: tuple[tuple[str, str], ...] = ()
+    #: What it imports that its lock file cannot carry: (import name, wheel).
+    extra_wheels: tuple[tuple[str, str], ...] = ()
 
 
 MODULES: dict[str, ModuleInfo] = {
@@ -80,6 +99,15 @@ MODULES: dict[str, ModuleInfo] = {
             ("LLM_PORT_API_PII_ENABLED", "true"),
             ("LLM_PORT_API_PII_SERVICE_URL", "http://llm-port-pii:8000"),
         ),
+        dev_dir="llm_port_pii",
+        backend_url_suffix="/api",
+        # The spaCy model Presidio loads. Not a PyPI package, so the lock
+        # file cannot carry it; the image installs the same wheel.
+        extra_wheels=((
+            "en_core_web_lg",
+            "https://github.com/explosion/spacy-models/releases/download/"
+            "en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl",
+        ),),
     ),
     "mcp": ModuleInfo(
         name="mcp",
@@ -94,6 +122,14 @@ MODULES: dict[str, ModuleInfo] = {
             ("LLM_PORT_BACKEND_MCP_ENABLED", "true"),
             ("LLM_PORT_BACKEND_MCP_SERVICE_URL", "http://llm-port-mcp:8000"),
         ),
+        dev_dir="llm_port_mcp",
+        database="llm_mcp",
+        redis_base=3,
+        dev_service_token="dev-mcp-service-token",
+        # Fixed, like every other dev secret: it encrypts the MCP servers'
+        # credentials in llm_mcp, which outlive a regenerated .env.
+        dev_settings=(("ENCRYPTION_KEY", "dev-mcp-encryption-key-change-me-32b"),),
+        dev_links=(("PII_SERVICE_URL", "pii"),),
     ),
     "skills": ModuleInfo(
         name="skills",
@@ -108,6 +144,10 @@ MODULES: dict[str, ModuleInfo] = {
             ("LLM_PORT_BACKEND_SKILLS_ENABLED", "true"),
             ("LLM_PORT_BACKEND_SKILLS_SERVICE_URL", "http://llm-port-skills:8000"),
         ),
+        dev_dir="llm_port_skills",
+        database="llm_skills",
+        redis_base=4,
+        dev_service_token="dev-skills-service-token",
     ),
 }
 
@@ -271,6 +311,10 @@ DEV_PROCESSES: list[DevProcess] = [
     DevProcess("Worker", "taskiq worker", "—"),
     DevProcess("Frontend", "npm run dev", "http://localhost:5173"),
     DevProcess("API gateway", "llm_port_api", "http://localhost:8001"),
+    # Optional modules (``llmport dev up --modules``).
+    DevProcess("PII", "llm_port_pii", "http://127.0.0.1:8003"),
+    DevProcess("MCP", "llm_port_mcp", "http://127.0.0.1:8007"),
+    DevProcess("Skills", "llm_port_skills", "http://127.0.0.1:8008"),
 ]
 
 
@@ -284,9 +328,17 @@ DEV_ENDPOINTS: list[tuple[str, str]] = [
     ("Grafana", "http://localhost:3001"),
     ("RabbitMQ", "http://localhost:15672"),
     ("LLM API", "http://localhost:8001"),
-    ("MCP Registry", "http://localhost:8007"),
-    ("Skills Registry", "http://localhost:8008"),
+    ("PII", "http://127.0.0.1:8003"),
+    ("MCP Registry", "http://127.0.0.1:8007"),
+    ("Skills Registry", "http://127.0.0.1:8008"),
 ]
+
+#: The endpoints above that exist only while their module runs.
+DEV_MODULE_ENDPOINTS: dict[str, str] = {
+    "PII": "pii",
+    "MCP Registry": "mcp",
+    "Skills Registry": "skills",
+}
 
 
 # ── Convenience helpers ──────────────────────────────────────────

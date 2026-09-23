@@ -113,8 +113,8 @@ llmport logs -f llm-port-backend    # tail one service
 
 ```bash
 llmport module list                 # show available modules
-llmport module enable pii auth      # enable modules
-llmport module disable docling      # disable a module
+llmport module enable pii skills    # enable modules
+llmport module disable mcp          # disable a module
 ```
 
 ### Configuration
@@ -152,6 +152,7 @@ llmport dev init ~/projects/llm-port --overwrite   # force pull
 # Start / stop / status
 llmport dev up
 llmport dev up --backend-only
+llmport dev up --modules pii,mcp,skills   # also run the optional modules
 llmport dev up --local-node
 llmport dev up --local-node --local-node-host ubuntu@10.0.0.12
 llmport dev down
@@ -161,6 +162,12 @@ llmport dev status
 llmport dev doctor
 llmport dev doctor --install --yes
 ```
+
+`--modules` runs PII (8003), MCP (8007) and skills (8008) on the host beside
+the backend, and points the gateway and backend at them. Without it, the
+modules switched on with `llmport module enable` run; the others are switched
+off in the gateway and backend. See
+[What the gateway does with a chat request](../docs/gateway-pipeline.md).
 
 `--local-node` installs a systemd unit by default and requires sudo on Linux.
 Use `--local-node-no-sudo` to skip privileged systemd setup.
@@ -185,6 +192,7 @@ Use `--local-node-no-sudo` to skip privileged systemd setup.
 | `llmport admin reset-password`               | Reset a user password directly in the database                |
 | `llmport dev init [DIR]`                     | Bootstrap full developer workspace                            |
 | `llmport dev up`                             | Start backend, worker, and frontend dev servers               |
+| `llmport dev up --modules pii,mcp,skills`    | Also run the optional modules on the host                     |
 | `llmport dev up --local-node`                | Start dev services and provision node-agent                   |
 | `llmport dev down`                           | Stop all dev processes                                        |
 | `llmport dev status`                         | Show repo branches, infra, and dev processes                  |

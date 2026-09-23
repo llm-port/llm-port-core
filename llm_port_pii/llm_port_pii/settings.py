@@ -61,7 +61,11 @@ class Settings(BaseSettings):
 
     # This variable is used to define
     # multiproc_dir. It's required for [uvi|guni]corn projects.
-    prometheus_dir: Path = TEMP_DIR / "prom"
+    # Named per service, like the backend's and gateway's. Each service clears
+    # this directory on startup; with PII, MCP and skills sharing ``prom`` on
+    # one host (``llmport dev up --modules``), the one starting last could not
+    # clear files the others held open, and exited (FileExistsError).
+    prometheus_dir: Path = TEMP_DIR / "prom-pii"
 
     # Sentry's configuration.
     sentry_dsn: Optional[str] = None
