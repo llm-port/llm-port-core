@@ -16,7 +16,6 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from urllib.parse import urlparse
 
 import psutil
 
@@ -73,6 +72,11 @@ def _configure_logging(level: str) -> None:
         level=getattr(logging, level.upper(), logging.INFO),
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     )
+    # httpx logs every request at INFO. The log forwarder pushes to Loki every
+    # few seconds, so each push wrote a line that the next push shipped to
+    # Loki: the agent's logs filled with records of sending its logs.
+    for noisy in ("httpx", "httpcore"):
+        logging.getLogger(noisy).setLevel(max(logging.WARNING, logging.getLogger().level))
 
 
 def _inject_env_file() -> None:
@@ -582,22 +586,11 @@ def cmd_configure() -> None:
     _section("Logging & Monitoring")
 
     # Determine the backend host for smart Loki default
-    parsed_backend = urlparse(backend_url)
-    backend_host = parsed_backend.hostname or "127.0.0.1"
-
-    same_host = _prompt_yn(
-        f"Is Loki running on the same host as LLM Port ({backend_host})?",
-        default=True,
-    )
-    if same_host:
-        loki_default = f"http://{backend_host}:3100"
-    else:
-        existing_loki = _cur("LOKI_URL")
-        loki_default = existing_loki or ""
-
+    # Blank is the right answer almost always: the agent then asks LLM.Port
+    # where to send its logs, which keeps working if Loki moves.
     loki_url = _prompt(
-        "Loki URL (leave blank to disable log forwarding)",
-        default=loki_default,
+        "Loki URL (blank: LLM.Port says where to send logs)",
+        default=_cur("LOKI_URL") or "",
     )
     if loki_url:
         env[f"{_ENV_PREFIX}LOKI_URL"] = loki_url

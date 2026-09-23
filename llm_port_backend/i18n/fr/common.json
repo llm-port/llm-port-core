@@ -142,7 +142,26 @@
     "live_tail_active": "Suivi en temps réel actif",
     "no_logs_current_filters": "Aucun journal trouvé pour les filtres actuels.",
     "no_logs_found": "Aucun journal trouvé.",
-    "no_rows_match_filters": "Aucune ligne ne correspond aux filtres de colonnes actuels."
+    "no_rows_match_filters": "Aucune ligne ne correspond aux filtres de colonnes actuels.",
+    "label_host": "Machine",
+    "label_job": "Source",
+    "label_app": "Déploiement",
+    "label_deployment": "Composant",
+    "label_replica": "Copie",
+    "label_compose_service": "Service",
+    "label_container": "Conteneur",
+    "label_level": "Niveau",
+    "column_machine": "Machine",
+    "column_source": "Source",
+    "job_node_agent": "Journal système",
+    "job_ray_serve": "Service du modèle",
+    "job_docker": "Services LLM.Port",
+    "job_node_container": "Conteneurs de modèles",
+    "component_ingress": "Entrée de l'API",
+    "component_server": "Serveur de modèle ({{model}})",
+    "agent_of": "Journal système de {{name}}",
+    "deleted_deployment": "Déploiement supprimé ({{id}})",
+    "open_in_logs": "Ouvrir dans les journaux"
   },
   "language": {
     "label": "Langue"

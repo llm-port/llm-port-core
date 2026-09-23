@@ -10,6 +10,8 @@ import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import { useTranslation } from "react-i18next";
 
+import { labelTitle, valueTitle, type NameLookups } from "./labelMeta";
+
 const PRESETS = ["15m", "1h", "6h", "24h", "custom"] as const;
 export type TimePreset = (typeof PRESETS)[number];
 
@@ -22,6 +24,8 @@ interface LogsFiltersProps {
   availableLabelKeys: string[];
   selectedLabels: Record<string, string>;
   valuesByLabel: Record<string, string[]>;
+  /** Machine and deployment names, for label values that are only ids. */
+  names: NameLookups;
   onPresetChange: (value: TimePreset) => void;
   onCustomStartChange: (value: string) => void;
   onCustomEndChange: (value: string) => void;
@@ -40,6 +44,7 @@ export default function LogsFilters({
   availableLabelKeys,
   selectedLabels,
   valuesByLabel,
+  names,
   onPresetChange,
   onCustomStartChange,
   onCustomEndChange,
@@ -103,25 +108,37 @@ export default function LogsFilters({
           sx={{ minWidth: 200 }}
         />
 
-        {availableLabelKeys.map((labelKey) => (
-          <FormControl key={labelKey} size="small" sx={{ minWidth: 160 }}>
-            <InputLabel>{labelKey}</InputLabel>
-            <Select
-              value={selectedLabels[labelKey] ?? ""}
-              label={labelKey}
-              onChange={(e) => onLabelValueChange(labelKey, e.target.value)}
-            >
-              <MenuItem value="">
-                {t("table.all", { defaultValue: "All" })}
-              </MenuItem>
-              {(valuesByLabel[labelKey] ?? []).map((value) => (
-                <MenuItem key={value} value={value}>
-                  {value}
+        {availableLabelKeys.map((labelKey) => {
+          const title = labelTitle(labelKey, t);
+          const selected = selectedLabels[labelKey] ?? "";
+          // A selected value the range no longer holds stays selectable, so
+          // it can be seen and cleared.
+          const values = valuesByLabel[labelKey] ?? [];
+          const options = selected && !values.includes(selected) ? [selected, ...values] : values;
+          return (
+            <FormControl key={labelKey} size="small" sx={{ minWidth: 160 }}>
+              <InputLabel id={`logs-filter-${labelKey}`}>{title}</InputLabel>
+              <Select
+                labelId={`logs-filter-${labelKey}`}
+                value={selected}
+                label={title}
+                data-testid={`logs-filter-${labelKey}`}
+                // Empty shows the filter's name in the field, as other selects do.
+                renderValue={(value) => valueTitle(labelKey, String(value), names, t)}
+                onChange={(e) => onLabelValueChange(labelKey, e.target.value)}
+              >
+                <MenuItem value="">
+                  {t("table.all", { defaultValue: "All" })}
                 </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-        ))}
+                {options.map((value) => (
+                  <MenuItem key={value} value={value}>
+                    {valueTitle(labelKey, value, names, t)}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          );
+        })}
 
         <Stack direction="row" spacing={0.5} alignItems="center">
           <Switch

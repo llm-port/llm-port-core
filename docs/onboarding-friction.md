@@ -71,6 +71,16 @@ Not shown: which machine each copy is on. Ray's status reports copy counts
 per deployment, not placement, and adding it means changing the runtime
 image.
 
+### Found looking for a machine's logs, and fixed
+
+| What happened | What changed |
+|---|---|
+| Since both DGX nodes were reinstalled with the one-line install, none of their logs reached Loki: the installer writes no Loki address, and an agent without one forwards nothing, silently | The agent asks the backend where to send logs (`GET /api/node-files/log-sink`); the backend answers with Loki's port on the address the machine reached it on, or `LLM_PORT_BACKEND_AGENT_LOKI_URL`. Agent 0.1.10 |
+| The Logs page offered five hard-coded filters under their raw label names; a model's logs (labels `app` / `deployment` / `replica`, no `container`) could not be filtered, and the default query `{container=~".+"}` hid them entirely | Filters come from the labels in the chosen range, named for people (Machine, Source, Deployment, Component, Copy), each narrowed by the others; the default query matches every stream |
+| "Container" was the machine's whole system journal (`node-spark-3201`), and the table's Container column linked it to the Containers page | Machine and Source columns; only a real server container links to the Containers page |
+| No way to go from a machine to its logs | **Open in Logs** on the machine's page (`/admin/logs?host=…`) |
+| The agent logged every push to Loki, and shipped those lines to Loki | httpx request logging off in the agent |
+
 Still open: a join request shows the machine's hostname as its address, not
 the IP it connected from; and the gateway still holds an alias
 (`qwen2.5-0.5b`) and a disabled instance for a deployment that no longer

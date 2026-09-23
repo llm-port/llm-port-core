@@ -905,6 +905,14 @@ llmport-agent run`}
                 {t("nodes.logs_entries", { count: flatLogs.length })}
               </Typography>
             </Stack>
+            {/* The full logs page, already narrowed to this machine. */}
+            <Button
+              size="small"
+              sx={{ ml: "auto", mr: 1 }}
+              onClick={() => navigate(`/admin/logs?host=${encodeURIComponent(node.host)}`)}
+            >
+              {t("logs.open_in_logs", { defaultValue: "Open in Logs" })}
+            </Button>
             <IconButton
               size="small"
               onClick={() => setLogsExpanded((v) => !v)}

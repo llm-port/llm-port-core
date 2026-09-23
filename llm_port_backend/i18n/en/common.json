@@ -142,7 +142,26 @@
     "live_tail_active": "Live tail active",
     "no_logs_current_filters": "No logs found for the current filters.",
     "no_logs_found": "No logs found.",
-    "no_rows_match_filters": "No rows match current column filters."
+    "no_rows_match_filters": "No rows match current column filters.",
+    "label_host": "Machine",
+    "label_job": "Source",
+    "label_app": "Deployment",
+    "label_deployment": "Component",
+    "label_replica": "Copy",
+    "label_compose_service": "Service",
+    "label_container": "Container",
+    "label_level": "Level",
+    "column_machine": "Machine",
+    "column_source": "Source",
+    "job_node_agent": "System log",
+    "job_ray_serve": "Model serving",
+    "job_docker": "LLM.Port services",
+    "job_node_container": "Model containers",
+    "component_ingress": "API entry",
+    "component_server": "Model server ({{model}})",
+    "agent_of": "{{name}} system log",
+    "deleted_deployment": "Deleted deployment ({{id}})",
+    "open_in_logs": "Open in Logs"
   },
   "language": {
     "label": "Language"

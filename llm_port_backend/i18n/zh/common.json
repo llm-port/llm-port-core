@@ -142,7 +142,26 @@
     "live_tail_active": "实时追踪已启用",
     "no_logs_current_filters": "当前筛选条件下未找到日志。",
     "no_logs_found": "未找到日志。",
-    "no_rows_match_filters": "没有行匹配当前列筛选条件。"
+    "no_rows_match_filters": "没有行匹配当前列筛选条件。",
+    "label_host": "机器",
+    "label_job": "来源",
+    "label_app": "部署",
+    "label_deployment": "组件",
+    "label_replica": "副本",
+    "label_compose_service": "服务",
+    "label_container": "容器",
+    "label_level": "级别",
+    "column_machine": "机器",
+    "column_source": "来源",
+    "job_node_agent": "系统日志",
+    "job_ray_serve": "模型服务",
+    "job_docker": "LLM.Port 服务",
+    "job_node_container": "模型容器",
+    "component_ingress": "API 入口",
+    "component_server": "模型服务器（{{model}}）",
+    "agent_of": "{{name}} 系统日志",
+    "deleted_deployment": "已删除的部署（{{id}}）",
+    "open_in_logs": "在日志中打开"
   },
   "language": {
     "label": "语言"

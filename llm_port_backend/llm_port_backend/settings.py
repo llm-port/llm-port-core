@@ -298,6 +298,11 @@ class Settings(BaseSettings):
         ),
     )
     loki_base_url: str = "http://127.0.0.1:3100"
+    # Where node agents push their logs. Empty means derive it: keep Loki's
+    # port and use the address the agent itself reached this backend on --
+    # right whenever Loki is published on the backend's host (LOKI_BIND).
+    # Set it when Loki lives elsewhere or behind a different name.
+    agent_loki_url: str = ""
     # Verify TLS when querying Loki over HTTPS. Set to False only for
     # self-signed test setups; supply a CA bundle path for custom roots.
     loki_verify_tls: bool = True

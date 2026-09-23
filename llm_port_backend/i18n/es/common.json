@@ -142,7 +142,26 @@
     "live_tail_active": "Streaming en vivo activo",
     "no_logs_current_filters": "No se encontraron logs para los filtros actuales.",
     "no_logs_found": "No se encontraron logs.",
-    "no_rows_match_filters": "Ninguna fila coincide con los filtros de columna actuales."
+    "no_rows_match_filters": "Ninguna fila coincide con los filtros de columna actuales.",
+    "label_host": "Máquina",
+    "label_job": "Origen",
+    "label_app": "Despliegue",
+    "label_deployment": "Componente",
+    "label_replica": "Copia",
+    "label_compose_service": "Servicio",
+    "label_container": "Contenedor",
+    "label_level": "Nivel",
+    "column_machine": "Máquina",
+    "column_source": "Origen",
+    "job_node_agent": "Registro del sistema",
+    "job_ray_serve": "Servicio del modelo",
+    "job_docker": "Servicios de LLM.Port",
+    "job_node_container": "Contenedores de modelos",
+    "component_ingress": "Entrada de la API",
+    "component_server": "Servidor del modelo ({{model}})",
+    "agent_of": "Registro del sistema de {{name}}",
+    "deleted_deployment": "Despliegue eliminado ({{id}})",
+    "open_in_logs": "Abrir en Registros"
   },
   "language": {
     "label": "Idioma"

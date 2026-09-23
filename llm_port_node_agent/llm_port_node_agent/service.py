@@ -43,6 +43,8 @@ class NodeAgentService:
         self._client = BackendClient(config)
         self._stream: StreamClient | None = None
         self._loki: LokiClient | None = None
+        # Held so the forwarders are never garbage-collected mid-run.
+        self._log_tasks: list[asyncio.Task[None]] = []
         self._ray_manager: Any = None  # typed import is local (optional dep)
 
     async def run_forever(self) -> None:
@@ -151,61 +153,16 @@ class NodeAgentService:
         stream._dispatcher = dispatcher
         self._stream = stream
 
-        # Start log collection → Loki push loop if configured
-        log_task: asyncio.Task[None] | None = None
+        # Log forwarding to Loki. An explicit LLM_PORT_NODE_AGENT_LOKI_URL wins;
+        # otherwise the backend says where to send logs. The one-line install
+        # writes no Loki address, so machines installed that way forwarded
+        # nothing at all -- the logs page went silent for them without a word.
         if self._config.loki_url:
-            # The ``host`` label has to be the identity the *backend* knows
-            # this node by, because that is what the UI queries with.  It
-            # records ``advertise_host`` (enrolment replaces a bare hostname
-            # with the address the request came from), so labelling
-            # with ``config.host`` -- the local hostname -- produced logs that
-            # were shipped, stored, and impossible to find.
-            loki_client = LokiClient(
-                loki_url=self._config.loki_url,
-                labels={
-                    "job": "node-agent",
-                    "host": self._config.advertise_host,
-                    # The operator's name for the machine, for hand-written
-                    # queries; the UI matches on ``host``.
-                    "agent_id": self._config.agent_id,
-                    "container": f"node-{self._config.agent_id}",
-                },
-                verify_tls=self._config.verify_tls,
-                ca_bundle=self._config.tls_ca_bundle,
-            )
-            self._loki = loki_client
-            collector = LogCollector(max_lines=self._config.log_batch_size)
-            log_task = asyncio.create_task(
-                self._log_push_loop(collector, loki_client),
-                name="log_push",
-            )
-            # Container log forwarding — tails docker logs for tracked workloads
-            container_log_task = asyncio.create_task(
-                ContainerLogForwarder(
-                    runtime=runtime,
-                    state_store=self._state_store,
-                    loki=loki_client,
-                    host=self._config.advertise_host,
-                    interval_sec=self._config.log_flush_interval_sec,
-                ).run_forever(),
-                name="container_log_forwarder",
-            )
-            # Ray Serve replica logs.  A separate forwarder because they are
-            # files rather than a container's console -- the runtime container
-            # idles on ``sleep infinity`` and every replica writes its own
-            # file inside it, so ``docker logs`` on it is permanently empty.
-            ray_log_task = asyncio.create_task(
-                RayServeLogForwarder(
-                    loki=loki_client,
-                    host=self._config.advertise_host,
-                    session_dir=self._config.ray_session_dir,
-                    interval_sec=self._config.log_flush_interval_sec,
-                ).run_forever(),
-                name="ray_serve_log_forwarder",
-            )
-            log.info("System log collection enabled → %s", self._config.loki_url)
+            self._start_log_forwarding(self._config.loki_url, runtime)
         else:
-            log.info("LLM_PORT_NODE_AGENT_LOKI_URL not set — system log collection disabled.")
+            self._log_tasks.append(
+                asyncio.create_task(self._discover_log_sink(runtime), name="log_sink_discovery"),
+            )
 
         backoff = self._config.reconnect_min_sec
         auth_fail_streak = 0
@@ -276,6 +233,86 @@ class NodeAgentService:
         if self._loki:
             await self._loki.flush()
             await self._loki.close()
+
+    def _start_log_forwarding(self, loki_url: str, runtime: Any) -> None:
+        """Push system, container and Ray Serve logs to *loki_url*."""
+        # The ``host`` label has to be the identity the *backend* knows
+        # this node by, because that is what the UI queries with.  It
+        # records ``advertise_host`` (enrolment replaces a bare hostname
+        # with the address the request came from), so labelling
+        # with ``config.host`` -- the local hostname -- produced logs that
+        # were shipped, stored, and impossible to find.
+        loki_client = LokiClient(
+            loki_url=loki_url,
+            labels={
+                "job": "node-agent",
+                "host": self._config.advertise_host,
+                # The operator's name for the machine, for hand-written
+                # queries; the UI matches on ``host``.
+                "agent_id": self._config.agent_id,
+                "container": f"node-{self._config.agent_id}",
+            },
+            verify_tls=self._config.verify_tls,
+            ca_bundle=self._config.tls_ca_bundle,
+        )
+        self._loki = loki_client
+        collector = LogCollector(max_lines=self._config.log_batch_size)
+        self._log_tasks.append(
+            asyncio.create_task(self._log_push_loop(collector, loki_client), name="log_push"),
+        )
+        # Container log forwarding — tails docker logs for tracked workloads
+        self._log_tasks.append(
+            asyncio.create_task(
+                ContainerLogForwarder(
+                    runtime=runtime,
+                    state_store=self._state_store,
+                    loki=loki_client,
+                    host=self._config.advertise_host,
+                    interval_sec=self._config.log_flush_interval_sec,
+                ).run_forever(),
+                name="container_log_forwarder",
+            ),
+        )
+        # Ray Serve replica logs.  A separate forwarder because they are
+        # files rather than a container's console -- the runtime container
+        # idles on ``sleep infinity`` and every replica writes its own
+        # file inside it, so ``docker logs`` on it is permanently empty.
+        self._log_tasks.append(
+            asyncio.create_task(
+                RayServeLogForwarder(
+                    loki=loki_client,
+                    host=self._config.advertise_host,
+                    session_dir=self._config.ray_session_dir,
+                    interval_sec=self._config.log_flush_interval_sec,
+                ).run_forever(),
+                name="ray_serve_log_forwarder",
+            ),
+        )
+        log.info("System log collection enabled → %s", loki_url)
+
+    async def _discover_log_sink(self, runtime: Any) -> None:
+        """Ask the backend where to send logs, until it answers.
+
+        Waits for a credential (a fresh install is still joining) and retries
+        while the backend is unreachable, backing off to five minutes. A
+        backend that offers no sink -- or predates the question -- ends it.
+        """
+        delay = 5.0
+        while True:
+            credential = self._state_store.state.credential
+            if credential:
+                try:
+                    sink = await self._client.log_sink(credential=credential)
+                except Exception:  # noqa: BLE001 - unreachable now is not "no sink"
+                    log.debug("Could not ask the backend for a log sink yet.", exc_info=True)
+                else:
+                    if sink:
+                        self._start_log_forwarding(sink, runtime)
+                    else:
+                        log.info("The backend offers no log sink — system log collection disabled.")
+                    return
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 300.0)
 
     async def _log_push_loop(
         self,

@@ -187,7 +187,7 @@ llmport-agent configure        # guided; writes the config for you
 | Agent ID | A name for this machine; defaults to its hostname |
 | Advertise host | The address other machines reach it on — see below |
 | Model store | It detects your HuggingFace caches and lists them with model counts |
-| Loki URL | Defaults to the LLM.Port host; blank disables log forwarding |
+| Loki URL | Leave blank: the agent asks LLM.Port where to send logs. Set it only to send them somewhere else |
 
 It shows you everything before saving.
 
@@ -211,6 +211,10 @@ GPU. If it shows no accelerator, see *Troubleshooting*.
 
 On the machine itself, `llmport-agent status` reports the service and
 `llmport-agent show` prints the configuration it is actually using.
+
+Within a minute its logs appear in LLM.Port as well: press **Open in Logs**
+on the machine's page. Nothing to configure: the agent asks LLM.Port where to
+send them. If none arrive, see [the FAQ](faq.md#a-machines-logs-are-missing).
 
 ### The agent's commands
 
@@ -542,6 +546,10 @@ its configuration at startup and never looks again, so deleting the binary,
 the unit and the config leaves it running, still streaming to the server,
 and the machine stays green — indefinitely. Run `pgrep -af llmport-agent` on
 the machine; if anything comes back, `sudo llmport-agent stop` will end it.
+
+**A machine's logs do not show up under Logs.**
+The machine cannot reach LLM.Port's log store on port 3100, or its agent
+predates 0.1.10. See [the FAQ](faq.md#a-machines-logs-are-missing).
 
 **A machine goes offline and its work sticks.**
 Commands in flight when an agent stops are declared dead once they have been

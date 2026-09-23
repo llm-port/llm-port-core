@@ -230,3 +230,49 @@ from **Models**, and the deployment picks it up once the model is there.
 Read the message on the deployment page. It carries the engine's own reason.
 Most often the model does not fit in the GPU's memory, or it needs a number
 format the card does not support.
+
+---
+
+## Logs
+
+### Where do I see one machine's logs?
+
+On the machine's page, press **Open in Logs**. It opens **Logs** with that
+machine already chosen. On the Logs page itself, pick it under **Machine**:
+machines are listed by name, with the address LLM.Port knows them by.
+
+![The logs of one machine](images/logs/logs-one-machine.png)
+
+The filters come from the logs themselves, so they only offer what the chosen
+time range contains. Choosing one narrows the others. With a machine chosen,
+**Source** offers only what that machine sent.
+
+### What do the sources mean?
+
+| Source | What it is |
+|---|---|
+| System log | The machine's own system journal: every service on it, not only LLM.Port |
+| Model serving | The model's copies on the cluster. **Deployment** and **Component** narrow it to one deployment, and to its model server or its API entry |
+| LLM.Port services | The containers of LLM.Port itself, on the server |
+| Model containers | Models run the older way, one container per model |
+
+### A machine's logs are missing.
+
+A machine asks LLM.Port where to send its logs when its agent starts. For the
+logs to arrive, the machine must be able to reach LLM.Port's log store
+(Loki) on port 3100:
+
+- In development, set `LOKI_BIND=0.0.0.0` in `llm_port_shared/.env` and
+  restart the shared stack. By default Loki listens only on the server itself.
+- Where Loki lives on another host or behind another name, set
+  `LLM_PORT_BACKEND_AGENT_LOKI_URL` on the backend to an address the machines
+  can reach.
+
+Machines installed with the one-line install before agent 0.1.10 sent no logs
+at all. Run the same install line again to upgrade them.
+
+### I sent a request but see no log line for it.
+
+The model's copies write log lines when something happens (starting,
+stopping, an error), not for every request. Ray records each request in its
+proxy log, which is not sent to LLM.Port.

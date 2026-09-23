@@ -13,6 +13,7 @@ import logging
 import os
 import re
 import uuid
+from urllib.parse import urlsplit
 from pathlib import Path
 from typing import Any
 
@@ -95,6 +96,54 @@ async def node_whoami(node: InfraNode = Depends(_authenticate_node)) -> dict[str
     machine that was already in the fleet.
     """
     return {"node_id": str(node.id), "agent_id": node.agent_id, "host": node.host}
+
+
+def agent_log_sink(loki_base_url: str, agent_loki_url: str, request_host: str | None) -> str | None:
+    """The Loki address a node agent should push to.
+
+    The backend's own address for Loki is usually one only it can use: a
+    loopback address in development, the container name ``llm-port-loki`` in
+    the deployment. Neither means anything on a machine across the network.
+    The machine does know one address that works -- the one it reached this
+    backend on -- and in both setups Loki is published on that same host, so
+    keep Loki's port and swap the host.
+    """
+    if agent_loki_url.strip():
+        return agent_loki_url.strip()
+    parts = urlsplit(loki_base_url.strip())
+    host = parts.hostname
+    if not host:
+        return None
+    local_only = (
+        host in ("localhost", "::1")
+        or host.startswith("127.")
+        or "." not in host  # a container or compose service name
+    )
+    if not local_only:
+        return loki_base_url.strip().rstrip("/")
+    if not request_host:
+        return None
+    port = parts.port or (443 if parts.scheme == "https" else 3100)
+    netloc = f"[{request_host}]" if ":" in request_host else request_host
+    return f"{parts.scheme or 'http'}://{netloc}:{port}"
+
+
+@router.get("/log-sink", name="node_log_sink")
+async def node_log_sink(
+    request: Request,
+    _node: InfraNode = Depends(_authenticate_node),
+) -> dict[str, Any]:
+    """Where this machine should send its logs.
+
+    The one-line install writes no Loki address, and an agent without one
+    forwards nothing: machines installed that way disappeared from the logs
+    page without a word. The agent asks here instead when it has none.
+    """
+    return {
+        "loki_url": agent_log_sink(
+            settings.loki_base_url, settings.agent_loki_url, request.url.hostname,
+        ),
+    }
 
 
 @router.get(

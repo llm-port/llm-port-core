@@ -20,12 +20,18 @@ import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 
+import { isServerContainer, machineOf, sourceOf, type NameLookups } from "./labelMeta";
+
 interface FlattenedLog extends LogEntry {
   id: string;
   __labels: Record<string, string>;
   __level: string;
   __service: string;
   __container: string;
+  /** The machine the line came from, by name where known. */
+  __machine: string;
+  /** What produced it: a container, a model's component, the agent. */
+  __source: string;
   __host: string;
   __job: string;
   __tsMs: number;
@@ -36,6 +42,7 @@ interface LogsTableProps {
   loading: boolean;
   error: string | null;
   live: boolean;
+  names: NameLookups;
 }
 
 const PAGE_SIZE = 200;
@@ -79,12 +86,13 @@ export default function LogsTable({
   loading,
   error,
   live,
+  names,
 }: LogsTableProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [levelFilter, setLevelFilter] = useState<string[]>([]);
-  const [containerFilter, setContainerFilter] = useState<string[]>([]);
+  const [sourceFilter, setSourceFilter] = useState<string[]>([]);
 
   const flatLogs = useMemo(() => {
     const lines: FlattenedLog[] = [];
@@ -108,6 +116,8 @@ export default function LogsTable({
           __level: level,
           __service: service,
           __container: container,
+          __machine: machineOf(labels, names),
+          __source: sourceOf(labels, names, t),
           __host: host,
           __job: job,
           __tsMs: Number.isNaN(tsMs) ? 0 : tsMs,
@@ -116,7 +126,7 @@ export default function LogsTable({
       }
     }
     return lines.sort((a, b) => b.__tsMs - a.__tsMs);
-  }, [streams]);
+  }, [streams, names, t]);
 
   const levelOptions = useMemo(
     () =>
@@ -126,9 +136,9 @@ export default function LogsTable({
     [flatLogs],
   );
 
-  const containerOptions = useMemo(
+  const sourceOptions = useMemo(
     () =>
-      Array.from(new Set(flatLogs.map((r) => r.__container).filter(Boolean)))
+      Array.from(new Set(flatLogs.map((r) => r.__source).filter(Boolean)))
         .sort()
         .map((value) => ({ value, label: value })),
     [flatLogs],
@@ -138,21 +148,21 @@ export default function LogsTable({
     return flatLogs.filter((row) => {
       const levelActive =
         levelFilter.length > 0 && levelFilter.length < levelOptions.length;
-      const containerActive =
-        containerFilter.length > 0 &&
-        containerFilter.length < containerOptions.length;
+      const sourceActive =
+        sourceFilter.length > 0 &&
+        sourceFilter.length < sourceOptions.length;
 
       if (levelActive && !levelFilter.includes(row.__level)) return false;
-      if (containerActive && !containerFilter.includes(row.__container))
+      if (sourceActive && !sourceFilter.includes(row.__source))
         return false;
       return true;
     });
   }, [
     flatLogs,
     levelFilter,
-    containerFilter,
+    sourceFilter,
     levelOptions.length,
-    containerOptions.length,
+    sourceOptions.length,
   ]);
 
   const visibleRows = filteredRows.slice(0, visibleCount);
@@ -175,12 +185,12 @@ export default function LogsTable({
   }, [levelOptions]);
 
   useEffect(() => {
-    setContainerFilter((prev) => withDefaults(prev, containerOptions));
-  }, [containerOptions]);
+    setSourceFilter((prev) => withDefaults(prev, sourceOptions));
+  }, [sourceOptions]);
 
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
-  }, [levelFilter, containerFilter]);
+  }, [levelFilter, sourceFilter]);
 
   const columns: ColumnDef<FlattenedLog>[] = [
     {
@@ -222,24 +232,36 @@ export default function LogsTable({
       },
     },
     {
-      key: "container",
-      label: t("logs.container"),
+      key: "machine",
+      label: t("logs.column_machine", { defaultValue: "Machine" }),
       sortable: true,
-      sortValue: (row) => row.__container,
-      searchValue: (row) => row.__container,
-      minWidth: 160,
+      sortValue: (row) => row.__machine,
+      searchValue: (row) => row.__machine,
+      minWidth: 120,
+      render: (row) => (
+        <Typography variant="body2" fontFamily="monospace" noWrap sx={{ maxWidth: 180 }}>
+          {row.__machine || "—"}
+        </Typography>
+      ),
+    },
+    {
+      key: "source",
+      label: t("logs.column_source", { defaultValue: "Source" }),
+      sortable: true,
+      sortValue: (row) => row.__source,
+      searchValue: (row) => row.__source,
+      minWidth: 180,
       render: (row) => {
-        const name = row.__container || "—";
-        if (!row.__container) {
+        const name = row.__source || "—";
+        // Only a container on this server is on the Containers page; a
+        // machine's agent or a model's component is not a container at all.
+        if (!isServerContainer(row.__labels)) {
           return (
-            <Typography
-              variant="body2"
-              fontFamily="monospace"
-              noWrap
-              sx={{ maxWidth: 240 }}
-            >
-              {name}
-            </Typography>
+            <Tooltip title={name}>
+              <Typography variant="body2" fontFamily="monospace" noWrap sx={{ maxWidth: 280 }}>
+                {name}
+              </Typography>
+            </Tooltip>
           );
         }
         return (
@@ -250,12 +272,12 @@ export default function LogsTable({
               underline="hover"
               onClick={() =>
                 navigate(
-                  `/admin/containers?highlight=${encodeURIComponent(name)}`,
+                  `/admin/containers?highlight=${encodeURIComponent(row.__container)}`,
                 )
               }
               sx={{
                 fontFamily: "monospace",
-                maxWidth: 240,
+                maxWidth: 280,
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
@@ -357,12 +379,12 @@ export default function LogsTable({
             minWidth: 120,
           },
           {
-            label: t("logs.container"),
+            label: t("logs.column_source", { defaultValue: "Source" }),
             value: "",
-            options: containerOptions,
+            options: sourceOptions,
             multi: true,
-            multiValue: containerFilter,
-            onMultiChange: (values) => setContainerFilter(values),
+            multiValue: sourceFilter,
+            onMultiChange: (values) => setSourceFilter(values),
             minWidth: 180,
           },
         ]}

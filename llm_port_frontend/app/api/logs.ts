@@ -44,6 +44,19 @@ export const logsApi = {
   getLabelValues(name: string) {
     return request<{ label: string; values: string[] }>(`/label/${encodeURIComponent(name)}/values`);
   },
+  /**
+   * Every label present in the range, each with the values it can take given
+   * the *other* selections -- so choosing a machine narrows the rest.
+   */
+  getFilters(params: { start?: string; end?: string; selected: Record<string, string> }) {
+    const qs = new URLSearchParams();
+    if (params.start) qs.set("start", params.start);
+    if (params.end) qs.set("end", params.end);
+    for (const [name, value] of Object.entries(params.selected)) {
+      if (value) qs.append("sel", `${name}:${value}`);
+    }
+    return request<{ labels: Record<string, string[]> }>(`/filters?${qs.toString()}`);
+  },
   queryRange(params: LogsQueryParams) {
     const qs = new URLSearchParams();
     qs.set("query", params.query);

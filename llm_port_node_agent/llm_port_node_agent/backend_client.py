@@ -112,6 +112,24 @@ class BackendClient:
         payload = res.json()
         return payload if isinstance(payload, dict) else None
 
+    async def log_sink(self, *, credential: str) -> str | None:
+        """Where this machine should send its logs, per the backend.
+
+        ``None`` when the backend offers no sink, or predates the question
+        (404). Raises when the backend cannot be asked right now, so the
+        caller retries rather than giving up on logs for good.
+        """
+        res = await self._client.get(
+            "/api/node-files/log-sink",
+            headers={"Authorization": f"Bearer {credential}"},
+        )
+        if res.status_code == 404:
+            return None
+        res.raise_for_status()
+        payload = res.json()
+        url = payload.get("loki_url") if isinstance(payload, dict) else None
+        return str(url) if url else None
+
     async def rotate_credential(self, *, credential: str) -> dict[str, Any]:
         """Rotate active credential using bearer auth."""
         res = await self._client.post(

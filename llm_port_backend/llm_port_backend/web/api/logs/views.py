@@ -310,6 +310,92 @@ async def list_label_values(
     return {"label": name, "values": sorted(str(value) for value in values)}
 
 
+#: A Loki label name, as the selector syntax allows one.
+_LABEL_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+#: Labels no one filters by: Loki's own, and per-container ids.
+_INTERNAL_LABELS = frozenset({"__stream_shard__", "container_id"})
+
+#: How many values one label may offer; past this a picker is useless anyway.
+_MAX_VALUES_PER_LABEL = 500
+
+
+def _selector(selected: dict[str, str], *, excluding: str | None = None) -> str | None:
+    """A stream selector for *selected*, leaving out *excluding*."""
+    parts = []
+    for name, value in sorted(selected.items()):
+        if name == excluding or not value:
+            continue
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+        parts.append(f'{name}="{escaped}"')
+    return "{" + ",".join(parts) + "}" if parts else None
+
+
+@router.get("/filters", name="logs_filters")
+async def list_filters(
+    request: Request,
+    start: str | None = Query(default=None),
+    end: str | None = Query(default=None),
+    sel: list[str] = Query(default=[]),
+    _user: User = Depends(require_permission("logs", "read")),
+) -> dict[str, Any]:
+    """Every label present in the range, each with the values it can take.
+
+    The logs page built its filters from a fixed list of five label names and
+    loaded each one's values across all time, so a model's logs -- whose
+    streams carry ``app`` / ``deployment`` / ``replica`` and no ``container``
+    -- could not be filtered at all. Here the labels come from what is
+    actually in the range, and each label's values are narrowed by the *other*
+    selections (``sel=host:10.88.10.71``), so picking a machine leaves only
+    that machine's sources, deployments and levels to choose from.
+
+    Loki answers label questions from its index, which is coarser than a
+    query: a value can appear whose last line is somewhat older than *start*.
+    """
+    correlation_id = _get_correlation_id(request)
+    _enforce_rate_limit(request, "filters")
+    now = datetime.now(tz=UTC)
+    start_ns = _time_param_ns(start, int((now - timedelta(hours=1)).timestamp() * 1_000_000_000))
+    end_ns = _time_param_ns(end, int(now.timestamp() * 1_000_000_000))
+
+    selected: dict[str, str] = {}
+    for item in sel:
+        name, _, value = item.partition(":")
+        if not _LABEL_NAME.match(name):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid label '{name}'.")
+        _enforce_label_name_allowed(name)
+        selected[name] = value
+
+    window = {"start": str(start_ns), "end": str(end_ns)}
+    try:
+        payload = await _request_loki_json("/loki/api/v1/labels", params=window)
+    except LokiUpstreamError as exc:
+        _raise_bad_gateway(exc, correlation_id)
+    names = [str(n) for n in (payload.get("data") or []) if str(n) not in _INTERNAL_LABELS]
+    allowed = _allowlisted_labels()
+    if allowed is not None:
+        names = [n for n in names if n.lower() in allowed]
+
+    async def values_of(name: str) -> tuple[str, list[str]]:
+        params = dict(window)
+        scope = _selector(selected, excluding=name)
+        if scope:
+            params["query"] = scope
+        try:
+            data = await _request_loki_json(f"/loki/api/v1/label/{quote(name)}/values", params=params)
+        except LokiUpstreamError:
+            return name, []
+        values = sorted({str(v) for v in (data.get("data") or [])})
+        return name, values[:_MAX_VALUES_PER_LABEL]
+
+    import asyncio  # noqa: PLC0415
+
+    results = await asyncio.gather(*(values_of(n) for n in names))
+    labels = {name: values for name, values in results if values}
+    log.info("logs.filters correlation_id=%s labels=%s", correlation_id, len(labels))
+    return {"labels": labels}
+
+
 @router.get("/query_range", name="logs_query_range")
 async def query_range(
     request: Request,

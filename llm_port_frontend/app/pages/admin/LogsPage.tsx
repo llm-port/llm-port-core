@@ -9,14 +9,24 @@ import Tab from "@mui/material/Tab";
 import Tabs from "@mui/material/Tabs";
 import Typography from "@mui/material/Typography";
 
+import { inferenceApi } from "~/api/inference";
 import { logsApi, type LogStream } from "~/api/logs";
+import { nodesApi } from "~/api/nodes";
 import AuditLogsTab from "~/pages/admin/AuditLogsTab";
 import LogsFilters, { type TimePreset } from "~/pages/admin/logs/LogsFilters";
 import LogsTable from "~/pages/admin/logs/LogsTable";
+import { filterLabels, NO_NAMES, type NameLookups } from "~/pages/admin/logs/labelMeta";
 
 type LogsTab = "logs" | "audit";
 
-const LABEL_PRIORITY = ["compose_service", "container", "job", "host", "level"];
+/** Labels to start with, from the URL: ``/admin/logs?host=10.88.10.71`` is one machine's logs. */
+function labelsFromUrl(params: URLSearchParams): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of params.entries()) {
+    if (key !== "tab" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(key) && value) out[key] = value;
+  }
+  return out;
+}
 
 function getTab(param: string | null): LogsTab {
   return param === "audit" ? "audit" : "logs";
@@ -45,10 +55,9 @@ function nsToIso(ns: string): string {
   return new Date(ms).toISOString();
 }
 
-function buildLogql(
+export function buildLogql(
   selectedLabels: Record<string, string>,
   search: string,
-  fallbackLabel?: string,
 ): string {
   const parts: string[] = [];
   for (const [label, value] of Object.entries(selectedLabels)) {
@@ -64,8 +73,10 @@ function buildLogql(
     }
   }
   if (parts.length === 0) {
-    const safeLabel = fallbackLabel ?? "job";
-    parts.push(`${safeLabel}=~".+"`);
+    // Every stream carries ``job``. The first filter's label was used here
+    // before -- "container" -- which silently hid every stream without one,
+    // among them all of a model's own logs.
+    parts.push(`job=~".+"`);
   }
   const selector = `{${parts.join(",")}}`;
   if (!search.trim()) return selector;
@@ -133,8 +144,9 @@ export default function LogsPage() {
 
   const [availableLabelKeys, setAvailableLabelKeys] = useState<string[]>([]);
   const [selectedLabels, setSelectedLabels] = useState<Record<string, string>>(
-    {},
+    () => labelsFromUrl(searchParams),
   );
+  const [names, setNames] = useState<NameLookups>(NO_NAMES);
   const [valuesByLabel, setValuesByLabel] = useState<Record<string, string[]>>(
     {},
   );
@@ -148,8 +160,8 @@ export default function LogsPage() {
   const manualCloseRef = useRef(false);
 
   const query = useMemo(
-    () => buildLogql(selectedLabels, search, availableLabelKeys[0]),
-    [selectedLabels, search, availableLabelKeys],
+    () => buildLogql(selectedLabels, search),
+    [selectedLabels, search],
   );
 
   function closeSocket() {
@@ -158,20 +170,18 @@ export default function LogsPage() {
     wsRef.current = null;
   }
 
+  function currentRange(): { start?: string; end?: string } {
+    if (preset === "custom") {
+      return { start: datetimeLocalToIso(customStart), end: datetimeLocalToIso(customEnd) };
+    }
+    return presetToRange(preset);
+  }
+
   async function fetchQueryRange() {
     setLoading(true);
     setError(null);
     try {
-      let start: string | undefined;
-      let end: string | undefined;
-      if (preset === "custom") {
-        start = datetimeLocalToIso(customStart);
-        end = datetimeLocalToIso(customEnd);
-      } else {
-        const range = presetToRange(preset);
-        start = range.start;
-        end = range.end;
-      }
+      const { start, end } = currentRange();
 
       const response = await logsApi.queryRange({
         query,
@@ -214,21 +224,18 @@ export default function LogsPage() {
     };
   }
 
-  async function loadLabels() {
+  // The filters are whatever labels the logs in this range carry, each with
+  // the values the *other* selections leave -- not a fixed list of names.
+  async function loadFilters() {
     try {
-      const result = await logsApi.getLabels();
-      const preferred = LABEL_PRIORITY.filter((key) =>
-        result.labels.includes(key),
-      );
-      setAvailableLabelKeys(preferred);
-
-      const valuesPairs = await Promise.all(
-        preferred.map(async (label) => {
-          const values = await logsApi.getLabelValues(label);
-          return [label, values.values] as const;
-        }),
-      );
-      setValuesByLabel(Object.fromEntries(valuesPairs));
+      const { start, end } = currentRange();
+      const result = await logsApi.getFilters({ start, end, selected: selectedLabels });
+      // Keep a selected label even if the range no longer has it, so it can
+      // still be cleared.
+      const keys = new Set([...Object.keys(result.labels), ...Object.keys(selectedLabels)]);
+      setAvailableLabelKeys(filterLabels([...keys]));
+      setValuesByLabel(result.labels);
+      setTopError(null);
     } catch (e: unknown) {
       setTopError(
         e instanceof Error ? e.message : t("logs.failed_load_labels"),
@@ -236,13 +243,37 @@ export default function LogsPage() {
     }
   }
 
+  // Machine and deployment names for label values that are only ids.
+  // Best-effort: without them the ids themselves are shown.
+  async function loadNames() {
+    const [nodes, deployments] = await Promise.all([
+      nodesApi.list().catch(() => []),
+      inferenceApi.listDeployments().catch(() => []),
+    ]);
+    setNames({
+      machines: new Map(nodes.map((n) => [n.host, n.agent_id] as [string, string])),
+      deployments: new Map(deployments.map((d) => [`llmport-${d.id}`, d.name] as [string, string])),
+    });
+  }
+
   useEffect(() => {
-    void loadLabels();
-    void fetchQueryRange();
+    void loadNames();
     return () => {
       closeSocket();
     };
   }, []);
+
+  useEffect(() => {
+    void loadFilters();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preset, customStart, customEnd, selectedLabels]);
+
+  // Choosing a machine, source or level shows its logs at once; the search
+  // text and a custom range still wait for Apply.
+  useEffect(() => {
+    if (!live) void fetchQueryRange();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedLabels, preset]);
 
   useEffect(() => {
     if (tab !== "logs") {
@@ -311,6 +342,7 @@ export default function LogsPage() {
             availableLabelKeys={availableLabelKeys}
             selectedLabels={selectedLabels}
             valuesByLabel={valuesByLabel}
+            names={names}
             onPresetChange={setPreset}
             onCustomStartChange={setCustomStart}
             onCustomEndChange={setCustomEnd}
@@ -352,6 +384,7 @@ export default function LogsPage() {
             loading={loading}
             error={error}
             live={live}
+            names={names}
           />
         </Box>
       )}
