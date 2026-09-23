@@ -3,8 +3,9 @@ from __future__ import annotations
 import json
 import logging
 import time
+import uuid
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
@@ -22,6 +23,7 @@ from llm_port_api.services.gateway.mcp_client import MCPClient
 from llm_port_api.services.gateway.mcp_tool_cache import MCP_TOOL_PREFIX, MCPToolCache
 from llm_port_api.services.gateway.pii_client import PIIClient
 from llm_port_api.services.gateway.pii_policy import PIIPolicy, parse_pii_policy
+from llm_port_api.services.gateway.pii_restore import redact_tokens, restore_payload, restore_sse
 from llm_port_api.services.gateway.proxy import UpstreamProxy, UpstreamResult
 from llm_port_api.services.gateway.rag_lite_client import RagLiteClient
 from llm_port_api.services.gateway.ratelimit import RateLimiter
@@ -64,17 +66,13 @@ def _candidate_adapter_kwargs(candidate: Any) -> dict[str, Any]:
     }
 
 
-class _PIIFallbackToLocalRequested(Exception):
-    """Signal that cloud egress should be rerouted to a local provider."""
-
-
 # ── PII context system prompts ───────────────────────────────────────────────
 _PII_REDACT_SYSTEM_PROMPT = (
     "IMPORTANT — Privacy notice: The user's message has been processed by an "
     "automated PII (Personally Identifiable Information) redaction system. "
     "Certain sensitive values have been replaced with placeholders such as "
-    "[REDACTED_EMAIL_ADDRESS], [REDACTED_PHONE_NUMBER], [REDACTED_PERSON], "
-    "[REDACTED_CREDIT_CARD], etc. These placeholders indicate where real data "
+    "<EMAIL_ADDRESS>, <PHONE_NUMBER>, <PERSON>, "
+    "<CREDIT_CARD>, etc. These placeholders indicate where real data "
     "existed but was removed for privacy. "
     "When responding, preserve these placeholders exactly as they appear — do "
     "not attempt to guess the original values. If the user asks you to recall "
@@ -171,6 +169,74 @@ def _check_kind(endpoint: str, alias: str, candidates: list[Any]) -> None:
     )
 
 
+def _is_cloud(candidate: Any) -> bool:
+    """Whether the route goes to a remote (cloud) provider."""
+    return candidate.provider_type.value.startswith("remote_")
+
+
+def _needs_scan(pii_policy: PIIPolicy | None, candidate: Any) -> bool:
+    """Whether the PII policy scans what is sent to *candidate*."""
+    if pii_policy is None:
+        return False
+    if _is_cloud(candidate):
+        return pii_policy.egress.enabled_for_cloud
+    return pii_policy.egress.enabled_for_local
+
+
+def _insert_after_system(payload: dict[str, Any], message: dict[str, Any]) -> dict[str, Any]:
+    """*payload* with *message* after its leading system messages."""
+    messages = list(payload.get("messages") or [])
+    at = 0
+    while at < len(messages) and messages[at].get("role") == "system":
+        at += 1
+    messages.insert(at, message)
+    return {**payload, "messages": messages}
+
+
+def _skills_used(skills: list[ResolvedSkill]) -> list[dict[str, Any]] | None:
+    """The skills a request used, for the audit log."""
+    if not skills:
+        return None
+    return [
+        {"skill_id": str(s.skill_id), "name": s.name, "slug": s.slug, "version": s.version}
+        for s in skills
+    ]
+
+
+@dataclass(slots=True)
+class _Prepared:
+    """What a request has gathered on its way to the model.
+
+    Filled step by step, so that wherever it fails, the route can release the
+    slot it holds and write down how far the request got.
+    """
+
+    payload: dict[str, Any]
+    egress_payload: dict[str, Any] | None = None
+    token_mapping: dict[str, str] | None = None
+    decision: RoutingDecision | None = None
+    fallback_outcome: str = "not_used"
+    pii_policy: PIIPolicy | None = None
+    session_id: str | None = None
+    skills: list[ResolvedSkill] = field(default_factory=list)
+    rag_context: dict[str, Any] | None = None
+    trace_context: Any = None
+
+    @property
+    def instance_id(self) -> str | None:
+        return str(self.decision.candidate.instance_id) if self.decision is not None else None
+
+    @property
+    def trace_id(self) -> str | None:
+        return self.trace_context.trace_id if self.trace_context is not None else None
+
+    @property
+    def fallback_error_code(self) -> str | None:
+        if self.fallback_outcome == "fallback_to_local_succeeded":
+            return "pii_fallback_to_local_succeeded"
+        return None
+
+
 class GatewayService:
     """Core shared pipeline for chat + embeddings + models."""
 
@@ -259,130 +325,33 @@ class GatewayService:
             alias=model_alias, tenant_id=auth.tenant_id,
         )
         _check_kind(endpoint, model_alias, candidates)
-        decision: RoutingDecision | None = await self.router.pick_and_lease(
-            candidates=candidates, request_id=request_id,
-        )
 
+        req = _Prepared(payload=payload)
         result: UpstreamResult | None = None
-        fallback_outcome = "not_used"
         error_code: str | None = None
         status_code = 500
         usage_prompt = None
         usage_completion = None
         usage_total = None
-        trace_context = None
         # ── Observability tracking ──────────────────────────────────────
         retry_count = 0
         finish_reason: str | None = None
-        skills_used: list[dict[str, Any]] | None = None
-        rag_context: dict[str, Any] | None = None
         mcp_tool_calls: list[dict[str, Any]] = []
         mcp_tool_call_count = 0
         mcp_tool_loop_iterations = 0
         try:
-            # RAG Lite context injection (before PII so context is scanned too)
-            payload, rag_context = await self._inject_rag_context(payload, auth)
-
-            # Session context injection (history + memory + summaries)
-            resolved_session_id: str | None = None
-            if endpoint == "/v1/chat/completions":
-                payload, resolved_session_id = await self._inject_session_context(
-                    payload, auth, session_id,
-                )
-
-            # Skills injection (after session context, before PII)
-            resolved_skills: list[ResolvedSkill] = []
-            if endpoint == "/v1/chat/completions":
-                payload, resolved_skills = await self._inject_skills(
-                    payload, auth, session_id=resolved_session_id,
-                )
-
-            pii_session_override = None
-            if resolved_session_id:
-                import uuid as _uuid  # noqa: PLC0415
-
-                try:
-                    _sid = _uuid.UUID(resolved_session_id)
-                    pii_session_override = await self.dao.get_session_pii_override(
-                        _sid, auth.tenant_id, auth.user_id,
-                    )
-                except (ValueError, TypeError):
-                    pass
-
-            pii_policy = _resolve_pii_policy(policy, session_override=pii_session_override)
-            egress_payload = payload
-            token_mapping: dict[str, str] | None = None
-
-            if pii_policy and self.pii_client and decision is not None:
-                try:
-                    egress_payload, token_mapping = await self._apply_egress_pii(
-                        payload=payload,
-                        pii_policy=pii_policy,
-                        is_cloud=self._is_cloud_provider(decision),
-                        request_id=request_id,
-                    )
-                except _PIIFallbackToLocalRequested:
-                    fallback_outcome = "fallback_to_local_attempted"
-                    released_decision = decision
-                    decision = None
-                    try:
-                        decision = await self._fallback_to_local_candidate(
-                            current_decision=released_decision,
-                            candidates=candidates,
-                            request_id=request_id,
-                        )
-                    except GatewayError:
-                        fallback_outcome = "fallback_to_local_failed"
-                        raise
-                    fallback_outcome = "fallback_to_local_succeeded"
-                    egress_payload, token_mapping = await self._apply_egress_pii(
-                        payload=payload,
-                        pii_policy=pii_policy,
-                        is_cloud=False,
-                        request_id=request_id,
-                    )
-
-            # Inject PII context system prompt when egress was sanitized
-            if egress_payload is not payload and pii_policy:
-                egress_payload = self._inject_pii_system_prompt(
-                    egress_payload, pii_policy,
-                )
-
-            obs_payload = egress_payload
-            if pii_policy and self.pii_client and pii_policy.telemetry.enabled:
-                obs_payload = await self._apply_telemetry_pii(
-                    payload=payload,
-                    pii_policy=pii_policy,
-                    request_id=request_id,
-                )
-
-            trace_context = self.observability.start_request_trace(
-                request_id=request_id,
-                tenant_id=auth.tenant_id,
-                user_id=auth.user_id,
+            await self._prepare(
+                req,
+                auth=auth,
                 endpoint=endpoint,
-                model_alias=model_alias,
-                payload=obs_payload,
-                privacy_mode=policy.privacy_mode if policy else None,
+                candidates=candidates,
+                request_id=request_id,
+                session_id=session_id,
+                policy=policy,
                 stream=False,
-                routing_metadata={"pii_fallback_outcome": fallback_outcome},
             )
-
-            # Inject current date/time so the model is aware of "today"
-            if endpoint == "/v1/chat/completions":
-                egress_payload = self._inject_datetime_context(egress_payload)
-
-            # MCP tool injection: merge MCP tools into the payload
-            if endpoint == "/v1/chat/completions" and self.mcp_tool_cache:
-                egress_payload = await self._inject_mcp_tools(
-                    egress_payload, auth.tenant_id,
-                )
-
-            # Apply skill-based tool constraints (after all tools are merged)
-            if resolved_skills:
-                egress_payload = self._apply_skill_tool_constraints(
-                    egress_payload, resolved_skills,
-                )
+            decision = req.decision
+            assert decision is not None and req.egress_payload is not None  # noqa: S101
 
             for attempt in range(settings.retry_pre_first_token + 1):
                 try:
@@ -393,12 +362,12 @@ class GatewayService:
                         # so /v1/embeddings could not reach one at all.
                         adapter_result = await self.adapter.embedding(
                             **_candidate_adapter_kwargs(decision.candidate),
-                            payload=egress_payload,
+                            payload=req.egress_payload,
                         )
                     else:
                         adapter_result = await self.adapter.completion(
                             **_candidate_adapter_kwargs(decision.candidate),
-                            payload=egress_payload,
+                            payload=req.egress_payload,
                             stream=False,
                         )
                     from llm_port_api.services.gateway.llm_adapter import CompletionResult  # noqa: PLC0415
@@ -428,18 +397,15 @@ class GatewayService:
                 )
             # Tool execution loop (MCP + client-local + server-managed)
             if endpoint == "/v1/chat/completions" and (self.mcp_client or self.tool_router):
-                mcp_pii_override = self._mcp_pii_mode_override(
-                    pii_policy, decision,
-                )
                 mcp_loop_result = await self._run_mcp_tool_loop(
                     result=result,
-                    egress_payload=egress_payload,
+                    egress_payload=req.egress_payload,
                     adapter=self.adapter,
                     decision=decision,
                     tenant_id=auth.tenant_id,
                     request_id=request_id,
-                    pii_mode_override=mcp_pii_override,
-                    session_id=resolved_session_id,
+                    pii_mode_override=self._mcp_pii_mode_override(req.pii_policy, decision),
+                    session_id=req.session_id,
                 )
                 result = mcp_loop_result.result
                 mcp_tool_calls = mcp_loop_result.tool_calls
@@ -451,80 +417,54 @@ class GatewayService:
             if _choices:
                 finish_reason = _choices[0].get("finish_reason")
 
-            # Build skills_used metadata
-            if resolved_skills:
-                skills_used = [
-                    {
-                        "skill_id": str(s.skill_id),
-                        "name": s.name,
-                        "slug": s.slug,
-                        "version": s.version,
-                    }
-                    for s in resolved_skills
-                ]
-
             usage = usage_from_payload(result.payload)
             usage_prompt = usage.prompt_tokens
             usage_completion = usage.completion_tokens
             usage_total = usage.total_tokens
             latency_ms = int((time.perf_counter() - started) * 1000)
 
-            # Detokenize response when tokenize mode was used
-            response_payload = result.payload
-            if token_mapping and self.pii_client:
-                try:
-                    response_payload = await self.pii_client.detokenize(
-                        payload=result.payload,
-                        token_mapping=token_mapping,
-                    )
-                except Exception:
-                    logger.warning(
-                        "PII detokenize failed for %s; returning raw response",
-                        request_id,
-                    )
+            # The client gets the values tokenize mode took out; the trace
+            # keeps the answer as the model gave it, with the tokens.
+            response_payload = restore_payload(result.payload, req.token_mapping)
 
-            if trace_context is not None:
+            if req.trace_context is not None:
                 self.observability.record_success(
-                    trace_context,
+                    req.trace_context,
                     status_code=result.status_code,
                     latency_ms=latency_ms,
                     ttft_ms=None,
                     prompt_tokens=usage_prompt,
                     completion_tokens=usage_completion,
                     total_tokens=usage_total,
-                    provider_instance_id=(
-                        str(decision.candidate.instance_id) if decision is not None else None
-                    ),
+                    provider_instance_id=req.instance_id,
                     output_payload=result.payload,
                 )
             # Persist assistant response in session
             await self._persist_assistant_response(
-                session_id_str=resolved_session_id,
+                session_id_str=req.session_id,
                 response_payload=response_payload,
                 model_alias=model_alias,
-                provider_instance_id=(
-                    str(decision.candidate.instance_id) if decision is not None else None
-                ),
-                trace_id=trace_context.trace_id if trace_context is not None else None,
+                provider_instance_id=req.instance_id,
+                trace_id=req.trace_id,
             )
 
             # Record skills usage telemetry
             await self._record_skills_usage(
-                resolved_skills, auth, session_id=resolved_session_id,
+                req.skills, auth, session_id=req.session_id,
             )
 
             return GatewayResponse(
                 status_code=result.status_code,
                 payload=response_payload,
-                provider_instance_id=str(decision.candidate.instance_id),  # type: ignore[union-attr]
+                provider_instance_id=str(decision.candidate.instance_id),
                 latency_ms=latency_ms,
-                trace_id=trace_context.trace_id if trace_context is not None else None,
+                trace_id=req.trace_id,
             )
         except GatewayError as exc:
             error_code = exc.code
             status_code = exc.status_code
-            if trace_context is None:
-                trace_context = self.observability.start_request_trace(
+            if req.trace_context is None:
+                req.trace_context = self.observability.start_request_trace(
                     request_id=request_id,
                     tenant_id=auth.tenant_id,
                     user_id=auth.user_id,
@@ -533,31 +473,27 @@ class GatewayService:
                     payload={"model": payload.get("model"), "_pii_mode": "pre_upstream_error"},
                     privacy_mode=policy.privacy_mode if policy else None,
                     stream=False,
-                    routing_metadata={"pii_fallback_outcome": fallback_outcome},
+                    routing_metadata={"pii_fallback_outcome": req.fallback_outcome},
                 )
             self.observability.record_failure(
-                trace_context,
+                req.trace_context,
                 status_code=exc.status_code,
                 latency_ms=int((time.perf_counter() - started) * 1000),
-                provider_instance_id=(
-                    str(decision.candidate.instance_id) if decision is not None else None
-                ),
+                provider_instance_id=req.instance_id,
                 error_code=exc.code,
                 error_message=exc.message,
             )
             raise
         finally:
-            if decision is not None:
-                await self.router.release(decision)
+            if req.decision is not None:
+                await self.router.release(req.decision)
             await self.audit.log(
                 request_id=request_id,
-                trace_id=trace_context.trace_id if trace_context is not None else None,
+                trace_id=req.trace_id,
                 tenant_id=auth.tenant_id,
                 user_id=auth.user_id,
                 model_alias=model_alias,
-                provider_instance_id=(
-                    str(decision.candidate.instance_id) if decision is not None else None
-                ),
+                provider_instance_id=req.instance_id,
                 endpoint=endpoint,
                 status_code=status_code,
                 latency_ms=int((time.perf_counter() - started) * 1000),
@@ -565,21 +501,17 @@ class GatewayService:
                 prompt_tokens=usage_prompt,
                 completion_tokens=usage_completion,
                 total_tokens=usage_total,
-                error_code=error_code or (
-                    "pii_fallback_to_local_succeeded"
-                    if fallback_outcome == "fallback_to_local_succeeded"
-                    else None
-                ),
+                error_code=error_code or req.fallback_error_code,
                 stream=False,
                 provider_name=(
-                    decision.candidate.litellm_provider
-                    if decision is not None else None
+                    req.decision.candidate.litellm_provider
+                    if req.decision is not None else None
                 ),
-                session_id=resolved_session_id or session_id,
+                session_id=req.session_id or session_id,
                 finish_reason=finish_reason,
                 retry_count=retry_count,
-                skills_used=skills_used,
-                rag_context=rag_context,
+                skills_used=_skills_used(req.skills),
+                rag_context=req.rag_context,
                 mcp_tool_call_count=mcp_tool_call_count,
                 mcp_tool_loop_iterations=mcp_tool_loop_iterations,
                 tool_calls=mcp_tool_calls,
@@ -609,129 +541,35 @@ class GatewayService:
             alias=model_alias, tenant_id=auth.tenant_id,
         )
         _check_kind("/v1/chat/completions", model_alias, candidates)
-        decision: RoutingDecision | None = await self.router.pick_and_lease(
-            candidates=candidates, request_id=request_id,
-        )
 
-        fallback_outcome = "not_used"
-        trace_context = None
+        req = _Prepared(payload=payload)
         stream_started = False
         stats: StreamStats | None = None
         pre_stream_status_code = 500
         pre_stream_error_code: str | None = None
         # ── Observability tracking ──────────────────────────────────────
         stream_finish_reason: str | None = None
-        stream_skills_used: list[dict[str, Any]] | None = None
-        stream_rag_context: dict[str, Any] | None = None
         stream_mcp_tool_calls: list[dict[str, Any]] = []
         stream_mcp_tool_call_count = 0
         stream_mcp_tool_loop_iterations = 0
         try:
-            # RAG Lite context injection (before PII so context is scanned too)
-            payload, stream_rag_context = await self._inject_rag_context(payload, auth)
-
-            # Session context injection (history + memory + summaries)
-            resolved_stream_session_id: str | None = None
-            payload, resolved_stream_session_id = await self._inject_session_context(
-                payload, auth, session_id,
-            )
-
-            # Skills injection (after session context, before PII)
-            resolved_stream_skills: list[ResolvedSkill] = []
-            payload, resolved_stream_skills = await self._inject_skills(
-                payload, auth, session_id=resolved_stream_session_id,
-            )
-
-            pii_stream_override = None
-            if resolved_stream_session_id:
-                import uuid as _uuid  # noqa: PLC0415
-
-                try:
-                    _sid = _uuid.UUID(resolved_stream_session_id)
-                    pii_stream_override = await self.dao.get_session_pii_override(
-                        _sid, auth.tenant_id, auth.user_id,
-                    )
-                except (ValueError, TypeError):
-                    pass
-
-            pii_policy = _resolve_pii_policy(policy, session_override=pii_stream_override)
-            egress_payload = payload
-
-            if pii_policy and self.pii_client and decision is not None:
-                try:
-                    # For streaming, sanitize only request egress payload.
-                    egress_payload, _ = await self._apply_egress_pii(
-                        payload=payload,
-                        pii_policy=pii_policy,
-                        is_cloud=self._is_cloud_provider(decision),
-                        request_id=request_id,
-                    )
-                except _PIIFallbackToLocalRequested:
-                    fallback_outcome = "fallback_to_local_attempted"
-                    released_decision = decision
-                    decision = None
-                    try:
-                        decision = await self._fallback_to_local_candidate(
-                            current_decision=released_decision,
-                            candidates=candidates,
-                            request_id=request_id,
-                        )
-                    except GatewayError:
-                        fallback_outcome = "fallback_to_local_failed"
-                        raise
-                    fallback_outcome = "fallback_to_local_succeeded"
-                    egress_payload, _ = await self._apply_egress_pii(
-                        payload=payload,
-                        pii_policy=pii_policy,
-                        is_cloud=False,
-                        request_id=request_id,
-                    )
-
-            # Inject PII context system prompt when egress was sanitized
-            if egress_payload is not payload and pii_policy:
-                egress_payload = self._inject_pii_system_prompt(
-                    egress_payload, pii_policy,
-                )
-
-            obs_payload = egress_payload
-            if pii_policy and self.pii_client and pii_policy.telemetry.enabled:
-                obs_payload = await self._apply_telemetry_pii(
-                    payload=payload,
-                    pii_policy=pii_policy,
-                    request_id=request_id,
-                )
-
-            trace_context = self.observability.start_request_trace(
-                request_id=request_id,
-                tenant_id=auth.tenant_id,
-                user_id=auth.user_id,
+            await self._prepare(
+                req,
+                auth=auth,
                 endpoint=endpoint,
-                model_alias=model_alias,
-                payload=obs_payload,
-                privacy_mode=policy.privacy_mode if policy else None,
+                candidates=candidates,
+                request_id=request_id,
+                session_id=session_id,
+                policy=policy,
                 stream=True,
-                routing_metadata={"pii_fallback_outcome": fallback_outcome},
             )
-
-            # Inject current date/time so the model is aware of "today"
-            egress_payload = self._inject_datetime_context(egress_payload)
-
-            # MCP tool injection: merge MCP tools into the payload
-            mcp_tools_injected = False
-            if self.mcp_tool_cache:
-                egress_payload = await self._inject_mcp_tools(
-                    egress_payload, auth.tenant_id,
-                )
-                mcp_tools_injected = any(
-                    (t.get("function", {}).get("name") or "").startswith(MCP_TOOL_PREFIX)
-                    for t in (egress_payload.get("tools") or [])
-                )
-
-            # Apply skill-based tool constraints (after all tools are merged)
-            if resolved_stream_skills:
-                egress_payload = self._apply_skill_tool_constraints(
-                    egress_payload, resolved_stream_skills,
-                )
+            decision = req.decision
+            egress_payload = req.egress_payload
+            assert decision is not None and egress_payload is not None  # noqa: S101
+            mcp_tools_injected = any(
+                (t.get("function", {}).get("name") or "").startswith(MCP_TOOL_PREFIX)
+                for t in (egress_payload.get("tools") or [])
+            )
 
             if mcp_tools_injected and (self.mcp_client or self.tool_router):
                 # When MCP tools are present, use non-streaming to enable the
@@ -772,10 +610,8 @@ class GatewayService:
                     decision=decision,
                     tenant_id=auth.tenant_id,
                     request_id=request_id,
-                    pii_mode_override=self._mcp_pii_mode_override(
-                        pii_policy, decision,
-                    ),
-                    session_id=resolved_stream_session_id,
+                    pii_mode_override=self._mcp_pii_mode_override(req.pii_policy, decision),
+                    session_id=req.session_id,
                 )
                 mcp_result = mcp_loop_result.result
                 stream_mcp_tool_calls = mcp_loop_result.tool_calls
@@ -786,7 +622,7 @@ class GatewayService:
                 if _mcp_choices:
                     stream_finish_reason = _mcp_choices[0].get("finish_reason")
                 mcp_usage = usage_from_payload(mcp_result.payload)
-                wrapped_stream = _nonstream_to_sse(mcp_result.payload)
+                wrapped_stream = _nonstream_to_sse(restore_payload(mcp_result.payload, req.token_mapping))
                 stats = StreamStats(
                     ttft_ms=int((time.perf_counter() - started) * 1000),
                     usage=mcp_usage,
@@ -799,24 +635,18 @@ class GatewayService:
                 )
                 # raw_stream is a coroutine returning AsyncIterator[bytes]
                 raw_stream = await raw_stream  # type: ignore[misc]
-                wrapped_stream, stats = await wrap_sse_stream(raw_stream)
+                # The tokens tokenize mode put in go back to the values as the
+                # answer streams. They were not: the mapping was dropped here,
+                # and the chat page -- which always streams -- showed
+                # "Hello [PERSON_1]".
+                wrapped_stream, stats = await wrap_sse_stream(
+                    restore_sse(raw_stream, req.token_mapping),
+                )
             stream_started = True
-
-            # Build skills_used metadata
-            if resolved_stream_skills:
-                stream_skills_used = [
-                    {
-                        "skill_id": str(s.skill_id),
-                        "name": s.name,
-                        "slug": s.slug,
-                        "version": s.version,
-                    }
-                    for s in resolved_stream_skills
-                ]
 
             # Start stream buffer for SSE reconnection
             _sbuf = self.stream_buffer
-            _sbuf_sid = resolved_stream_session_id
+            _sbuf_sid = req.session_id
             if _sbuf and _sbuf_sid:
                 _sbuf.start(_sbuf_sid)
 
@@ -840,45 +670,37 @@ class GatewayService:
                     yield b"data: [DONE]\n\n"
                 finally:
                     # Persist the assistant response in the session
-                    if resolved_stream_session_id and accumulated_content:
+                    if req.session_id and accumulated_content:
                         try:
                             await self._persist_stream_assistant_response(
-                                session_id_str=resolved_stream_session_id,
+                                session_id_str=req.session_id,
                                 content="".join(accumulated_content),
                                 model_alias=model_alias,
-                                provider_instance_id=(
-                                    str(decision.candidate.instance_id) if decision is not None else None
-                                ),
-                                trace_id=trace_context.trace_id if trace_context is not None else None,
+                                provider_instance_id=req.instance_id,
+                                trace_id=req.trace_id,
                                 token_estimate=stats.usage.completion_tokens if stats is not None else None,
                             )
                         except Exception:
                             logger.warning("Failed to persist streamed assistant response", exc_info=True)
                     # Record skills usage telemetry
-                    if resolved_stream_skills:
+                    if req.skills:
                         try:
                             await self._record_skills_usage(
-                                resolved_stream_skills, auth,
-                                session_id=resolved_stream_session_id,
+                                req.skills, auth,
+                                session_id=req.session_id,
                             )
                         except Exception:
                             logger.debug("Failed to record stream skills usage", exc_info=True)
-                    final_error_code = stream_error_code or (
-                        "pii_fallback_to_local_succeeded"
-                        if fallback_outcome == "fallback_to_local_succeeded"
-                        else None
-                    )
-                    if decision is not None:
-                        await self.router.release(decision)
+                    final_error_code = stream_error_code or req.fallback_error_code
+                    if req.decision is not None:
+                        await self.router.release(req.decision)
                     await self.audit.log(
                         request_id=request_id,
-                        trace_id=trace_context.trace_id if trace_context is not None else None,
+                        trace_id=req.trace_id,
                         tenant_id=auth.tenant_id,
                         user_id=auth.user_id,
                         model_alias=model_alias,
-                        provider_instance_id=(
-                            str(decision.candidate.instance_id) if decision is not None else None
-                        ),
+                        provider_instance_id=req.instance_id,
                         endpoint=endpoint,
                         status_code=stream_status_code,
                         latency_ms=int((time.perf_counter() - started) * 1000),
@@ -889,30 +711,28 @@ class GatewayService:
                         error_code=final_error_code,
                         stream=True,
                         provider_name=(
-                            decision.candidate.litellm_provider
-                            if decision is not None else None
+                            req.decision.candidate.litellm_provider
+                            if req.decision is not None else None
                         ),
-                        session_id=resolved_stream_session_id or session_id,
+                        session_id=req.session_id or session_id,
                         finish_reason=stream_finish_reason,
                         retry_count=0,
-                        skills_used=stream_skills_used,
-                        rag_context=stream_rag_context,
+                        skills_used=_skills_used(req.skills),
+                        rag_context=req.rag_context,
                         mcp_tool_call_count=stream_mcp_tool_call_count,
                         mcp_tool_loop_iterations=stream_mcp_tool_loop_iterations,
                         tool_calls=stream_mcp_tool_calls,
                     )
-                    if trace_context is not None:
+                    if req.trace_context is not None:
                         self.observability.finalize_stream(
-                            trace_context,
+                            req.trace_context,
                             status_code=stream_status_code,
                             latency_ms=int((time.perf_counter() - started) * 1000),
                             ttft_ms=stats.ttft_ms if stats is not None else None,
                             prompt_tokens=stats.usage.prompt_tokens if stats is not None else None,
                             completion_tokens=stats.usage.completion_tokens if stats is not None else None,
                             total_tokens=stats.usage.total_tokens if stats is not None else None,
-                            provider_instance_id=(
-                                str(decision.candidate.instance_id) if decision is not None else None
-                            ),
+                            provider_instance_id=req.instance_id,
                             error_code=final_error_code,
                         )
                     # Mark stream buffer as finished for reconnection
@@ -921,16 +741,16 @@ class GatewayService:
 
             return StreamingGatewayResponse(
                 stream=_stream_with_finalize(),
-                provider_instance_id=str(decision.candidate.instance_id),  # type: ignore[union-attr]
+                provider_instance_id=str(decision.candidate.instance_id),
                 latency_ms=int((time.perf_counter() - started) * 1000),
                 stats=stats,
-                trace_id=trace_context.trace_id if trace_context is not None else None,
+                trace_id=req.trace_id,
             )
         except GatewayError as exc:
             pre_stream_status_code = exc.status_code
             pre_stream_error_code = exc.code
-            if trace_context is None:
-                trace_context = self.observability.start_request_trace(
+            if req.trace_context is None:
+                req.trace_context = self.observability.start_request_trace(
                     request_id=request_id,
                     tenant_id=auth.tenant_id,
                     user_id=auth.user_id,
@@ -939,32 +759,28 @@ class GatewayService:
                     payload={"model": payload.get("model"), "_pii_mode": "pre_upstream_error"},
                     privacy_mode=policy.privacy_mode if policy else None,
                     stream=True,
-                    routing_metadata={"pii_fallback_outcome": fallback_outcome},
+                    routing_metadata={"pii_fallback_outcome": req.fallback_outcome},
                 )
             self.observability.record_failure(
-                trace_context,
+                req.trace_context,
                 status_code=exc.status_code,
                 latency_ms=int((time.perf_counter() - started) * 1000),
-                provider_instance_id=(
-                    str(decision.candidate.instance_id) if decision is not None else None
-                ),
+                provider_instance_id=req.instance_id,
                 error_code=exc.code,
                 error_message=exc.message,
             )
             raise
         finally:
             if not stream_started:
-                if decision is not None:
-                    await self.router.release(decision)
+                if req.decision is not None:
+                    await self.router.release(req.decision)
                 await self.audit.log(
                     request_id=request_id,
-                    trace_id=trace_context.trace_id if trace_context is not None else None,
+                    trace_id=req.trace_id,
                     tenant_id=auth.tenant_id,
                     user_id=auth.user_id,
                     model_alias=model_alias,
-                    provider_instance_id=(
-                        str(decision.candidate.instance_id) if decision is not None else None
-                    ),
+                    provider_instance_id=req.instance_id,
                     endpoint=endpoint,
                     status_code=pre_stream_status_code,
                     latency_ms=int((time.perf_counter() - started) * 1000),
@@ -972,39 +788,224 @@ class GatewayService:
                     prompt_tokens=None,
                     completion_tokens=None,
                     total_tokens=None,
-                    error_code=pre_stream_error_code or (
-                        "pii_fallback_to_local_succeeded"
-                        if fallback_outcome == "fallback_to_local_succeeded"
-                        else None
-                    ),
+                    error_code=pre_stream_error_code or req.fallback_error_code,
                     stream=True,
                     provider_name=(
-                        decision.candidate.litellm_provider
-                        if decision is not None else None
+                        req.decision.candidate.litellm_provider
+                        if req.decision is not None else None
                     ),
                     session_id=session_id,
                     finish_reason=None,
                     retry_count=0,
-                    skills_used=stream_skills_used,
-                    rag_context=stream_rag_context,
+                    skills_used=_skills_used(req.skills),
+                    rag_context=req.rag_context,
                     mcp_tool_call_count=0,
                     mcp_tool_loop_iterations=0,
                     tool_calls=[],
                 )
 
     # ------------------------------------------------------------------
-    # PII helpers
+    # On the way to the model
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _is_cloud_provider(decision: RoutingDecision) -> bool:
-        """Return whether the routed provider is a cloud/remote provider."""
-        return decision.candidate.provider_type.value.startswith("remote_")
+    async def _prepare(
+        self,
+        req: _Prepared,
+        *,
+        auth: AuthContext,
+        endpoint: str,
+        candidates: list[Any],
+        request_id: str,
+        session_id: str | None,
+        policy: Any | None,
+        stream: bool,
+    ) -> None:
+        """Gather the context, pass it through PII, then take a model slot.
 
-    @staticmethod
-    def _is_local_candidate(decision: RoutingDecision) -> bool:
-        """Return whether the routed provider is local/on-prem."""
-        return not GatewayService._is_cloud_provider(decision)
+        One path for streamed and whole answers alike; they had a copy each,
+        and the streaming copy had dropped the PII token mapping.
+
+        The slot is taken last. It used to be taken first and held while RAG,
+        the session and the PII scans ran -- close to a second with PII on --
+        during which the model could have been answering someone else.
+        """
+        chat = endpoint == "/v1/chat/completions"
+        payload = req.payload
+
+        rag_message, req.rag_context = await self._retrieve_rag(payload, auth)
+        if chat:
+            payload, req.session_id = await self._inject_session_context(
+                payload, auth, session_id,
+            )
+        if rag_message is not None:
+            # After the session step, which keeps the client's messages as the
+            # chat's history. Retrieved context belongs to this answer only; put
+            # in before, it was saved into the history as a system message on
+            # every turn.
+            payload = _insert_after_system(payload, rag_message)
+        if chat:
+            payload, req.skills = await self._inject_skills(
+                payload, auth, session_id=req.session_id,
+            )
+        req.payload = payload
+
+        req.pii_policy = _resolve_pii_policy(
+            policy, session_override=await self._session_pii_override(req.session_id, auth),
+        )
+        scanned, candidates = await self._scan_egress(req, candidates=candidates, request_id=request_id)
+        telemetry_payload = None
+        if req.pii_policy and self.pii_client and req.pii_policy.telemetry.enabled:
+            if scanned is not None and req.pii_policy.telemetry.mode != "metrics_only":
+                # One scan serves both what leaves and what the trace keeps:
+                # the same text was scanned a second time for the trace, which
+                # doubled what PII cost every request.
+                telemetry_payload = redact_tokens(*scanned)
+            else:
+                telemetry_payload = await self._apply_telemetry_pii(
+                    payload=payload,
+                    pii_policy=req.pii_policy,
+                    request_id=request_id,
+                )
+        mcp_tools = (
+            await self.mcp_tool_cache.get_tools(auth.tenant_id)
+            if chat and self.mcp_tool_cache else None
+        )
+
+        # Everything that waits on another service is done: now the slot.
+        req.decision = await self._lease(req, candidates=candidates, request_id=request_id)
+
+        egress = payload
+        if scanned is not None and _needs_scan(req.pii_policy, req.decision.candidate):
+            egress, req.token_mapping = scanned
+            egress = self._inject_pii_system_prompt(egress, req.pii_policy)  # type: ignore[arg-type]
+
+        req.trace_context = self.observability.start_request_trace(
+            request_id=request_id,
+            tenant_id=auth.tenant_id,
+            user_id=auth.user_id,
+            endpoint=endpoint,
+            model_alias=_require_model(payload),
+            payload=telemetry_payload if telemetry_payload is not None else egress,
+            privacy_mode=policy.privacy_mode if policy else None,
+            stream=stream,
+            routing_metadata={"pii_fallback_outcome": req.fallback_outcome},
+        )
+
+        if chat:
+            # Inject current date/time so the model is aware of "today"
+            egress = self._inject_datetime_context(egress)
+            if mcp_tools:
+                egress = self._merge_mcp_tools(egress, mcp_tools, auth.tenant_id)
+        # Apply skill-based tool constraints (after all tools are merged)
+        if req.skills:
+            egress = self._apply_skill_tool_constraints(egress, req.skills)
+        req.egress_payload = egress
+
+    async def _session_pii_override(self, session_id: str | None, auth: AuthContext) -> Any | None:
+        """The PII settings a user chose for this chat session, if any."""
+        if not session_id:
+            return None
+        try:
+            sid = uuid.UUID(session_id)
+        except (ValueError, TypeError):
+            return None
+        return await self.dao.get_session_pii_override(sid, auth.tenant_id, auth.user_id)
+
+    async def _scan_egress(
+        self,
+        req: _Prepared,
+        *,
+        candidates: list[Any],
+        request_id: str,
+    ) -> tuple[tuple[dict[str, Any], dict[str, str] | None] | None, list[Any]]:
+        """Scan what will leave, when any route it may take calls for it.
+
+        Returns the scan (payload and token mapping), or ``None`` when there is
+        none, and the candidates left: only the local ones when a failed scan
+        falls back to them. The route is chosen after this -- by the slot -- so
+        the scan is made if any candidate needs it, and a route that does not
+        gets the payload as it was.
+        """
+        pii_policy = req.pii_policy
+        if (
+            pii_policy is None
+            or self.pii_client is None
+            or not any(_needs_scan(pii_policy, c) for c in candidates)
+        ):
+            return None, candidates
+        try:
+            return await self._sanitize(req.payload, pii_policy), candidates
+        except Exception:
+            fail_action = pii_policy.egress.fail_action
+            if fail_action == "block":
+                raise GatewayError(
+                    status_code=502,
+                    message="PII service unavailable and fail_action=block.",
+                    error_type="server_error",
+                    code="pii_service_unavailable",
+                ) from None
+            if fail_action == "fallback_to_local" and any(_is_cloud(c) for c in candidates):
+                req.fallback_outcome = "fallback_to_local_attempted"
+                local = [c for c in candidates if not _is_cloud(c)]
+                if not local:
+                    req.fallback_outcome = "fallback_to_local_failed"
+                    raise GatewayError(
+                        status_code=503,
+                        message="PII fallback requested but no local provider candidate is available.",
+                        error_type="server_error",
+                        code="pii_fallback_no_local_provider",
+                    ) from None
+                if any(_needs_scan(pii_policy, c) for c in local):
+                    try:
+                        return await self._sanitize(req.payload, pii_policy), local
+                    except Exception:
+                        # Local is let through, as it was before.
+                        logger.warning(
+                            "PII egress scan failed again for %s; sending to local unscanned", request_id,
+                        )
+                return None, local
+            logger.warning(
+                "PII egress scan failed for %s; fail_action=%s, allowing through",
+                request_id,
+                fail_action,
+            )
+            return None, candidates
+
+    async def _sanitize(
+        self, payload: dict[str, Any], pii_policy: PIIPolicy,
+    ) -> tuple[dict[str, Any], dict[str, str] | None]:
+        assert self.pii_client is not None  # noqa: S101
+        result = await self.pii_client.sanitize(
+            payload=payload,
+            policy=pii_policy,
+            mode=pii_policy.egress.mode,
+        )
+        return result.sanitized_payload, result.token_mapping
+
+    async def _lease(
+        self, req: _Prepared, *, candidates: list[Any], request_id: str,
+    ) -> RoutingDecision:
+        """Take a model slot among *candidates*."""
+        if req.fallback_outcome != "fallback_to_local_attempted":
+            return await self.router.pick_and_lease(candidates=candidates, request_id=request_id)
+        try:
+            decision = await self.router.pick_and_lease(candidates=candidates, request_id=request_id)
+        except GatewayError as exc:
+            req.fallback_outcome = "fallback_to_local_failed"
+            if exc.code == "no_capacity":
+                raise GatewayError(
+                    status_code=503,
+                    message="PII fallback requested but no local provider has free capacity.",
+                    error_type="server_error",
+                    code="pii_fallback_no_local_capacity",
+                ) from exc
+            raise
+        req.fallback_outcome = "fallback_to_local_succeeded"
+        return decision
+
+    # ------------------------------------------------------------------
+    # PII helpers
+    # ------------------------------------------------------------------
 
     @staticmethod
     def _mcp_pii_mode_override(
@@ -1028,43 +1029,6 @@ class GatewayService:
         if not should_scan:
             return "allow"
         return None
-
-    async def _fallback_to_local_candidate(
-        self,
-        *,
-        current_decision: RoutingDecision,
-        candidates: list[Any],
-        request_id: str,
-    ) -> RoutingDecision:
-        """Release cloud lease and pick a local candidate for fallback."""
-        await self.router.release(current_decision)
-
-        local_candidates = [
-            candidate
-            for candidate in candidates
-            if not candidate.provider_type.value.startswith("remote_")
-        ]
-        if not local_candidates:
-            raise GatewayError(
-                status_code=503,
-                message="PII fallback requested but no local provider candidate is available.",
-                error_type="server_error",
-                code="pii_fallback_no_local_provider",
-            )
-        try:
-            return await self.router.pick_and_lease(
-                candidates=local_candidates,
-                request_id=request_id,
-            )
-        except GatewayError as exc:
-            if exc.code == "no_capacity":
-                raise GatewayError(
-                    status_code=503,
-                    message="PII fallback requested but no local provider has free capacity.",
-                    error_type="server_error",
-                    code="pii_fallback_no_local_capacity",
-                ) from exc
-            raise
 
     @staticmethod
     def _inject_datetime_context(
@@ -1124,63 +1088,6 @@ class GatewayService:
         new_messages.insert(insert_idx, pii_system_msg)
         return {**egress_payload, "messages": new_messages}
 
-    async def _apply_egress_pii(
-        self,
-        *,
-        payload: dict[str, Any],
-        pii_policy: PIIPolicy,
-        is_cloud: bool,
-        request_id: str,
-    ) -> tuple[dict[str, Any], dict[str, str] | None]:
-        """Sanitize *payload* before sending to upstream provider.
-
-        Returns ``(sanitized_payload, token_mapping | None)``.
-        If PII scanning is not applicable (local provider, policy disabled),
-        the original *payload* is returned unchanged.
-        """
-        assert self.pii_client is not None  # noqa: S101
-
-        should_scan = (
-            (is_cloud and pii_policy.egress.enabled_for_cloud)
-            or (not is_cloud and pii_policy.egress.enabled_for_local)
-        )
-        if not should_scan:
-            return payload, None
-
-        try:
-            result = await self.pii_client.sanitize(
-                payload=payload,
-                policy=pii_policy,
-                mode=pii_policy.egress.mode,
-            )
-        except Exception:
-            # Honour fail_action
-            if pii_policy.egress.fail_action == "block":
-                raise GatewayError(
-                    status_code=502,
-                    message="PII service unavailable and fail_action=block.",
-                    error_type="server_error",
-                    code="pii_service_unavailable",
-                )
-            if pii_policy.egress.fail_action == "fallback_to_local" and is_cloud:
-                raise _PIIFallbackToLocalRequested()
-            # Only "allow" reaches here (validated at parse time).
-            logger.warning(
-                "PII egress scan failed for %s; fail_action=%s, allowing through",
-                request_id,
-                pii_policy.egress.fail_action,
-            )
-            return payload, None
-
-        if result.pii_detected and pii_policy.egress.fail_action == "block":
-            # In redact mode we already replaced PII; "block" means
-            # we should reject the request when PII is found.
-            if pii_policy.egress.mode == "redact":
-                # Still send the redacted payload (PII is removed).
-                pass
-
-        return result.sanitized_payload, result.token_mapping
-
     async def _apply_telemetry_pii(
         self,
         *,
@@ -1213,47 +1120,46 @@ class GatewayService:
             )
             return {"model": payload.get("model"), "_pii_mode": "fallback"}
 
-    async def _inject_rag_context(
+    async def _retrieve_rag(
         self,
         payload: dict[str, Any],
         auth: AuthContext,
-    ) -> tuple[dict[str, Any], dict[str, Any] | None]:
-        """Optionally inject RAG Lite context into the messages.
+    ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+        """Search RAG Lite for context to answer the last user message with.
 
-        Looks for a ``rag`` dict in the payload (added by the frontend).
-        If present, queries the backend's RAG Lite search endpoint and
-        prepends a system message with the retrieved context.
+        Looks for a ``rag`` dict in the payload, which is always removed so
+        the upstream provider does not receive unknown fields. Returns the
+        system message carrying the context -- or ``None`` -- and what was
+        found, for the audit log.
 
-        The ``rag`` key is always stripped from the payload so the upstream
-        provider doesn't receive unknown fields.
-
-        Returns ``(payload, rag_metadata)`` where *rag_metadata* is ``None``
-        when no RAG context was injected, or a dict with chunk/collection info.
+        The search runs as the caller: the backend checks the user's own
+        permission to search. It was called without a token, got a 401 each
+        time, and the answer went out without its context.
         """
         rag_config = payload.pop("rag", None)
         if not rag_config or not self.rag_lite_client:
-            return payload, None
+            return None, None
 
         # Extract search query from the last user message
-        messages = payload.get("messages", [])
         user_query = ""
-        for msg in reversed(messages):
+        for msg in reversed(payload.get("messages", [])):
             if msg.get("role") == "user":
                 content = msg.get("content", "")
                 user_query = content if isinstance(content, str) else str(content)
                 break
 
         if not user_query:
-            return payload, None
+            return None, None
 
         results = await self.rag_lite_client.search(
             query=user_query,
             top_k=rag_config.get("top_k", 5),
             collection_ids=rag_config.get("collection_ids"),
+            api_token=auth.token,
         )
 
         if not results:
-            return payload, None
+            return None, None
 
         # Build context block from search results
         context_parts = []
@@ -1267,19 +1173,12 @@ class GatewayService:
             "If the context is not relevant, ignore it.\n\n"
             + "\n\n---\n\n".join(context_parts)
         )
-
-        # Prepend as a system message
-        payload["messages"] = [
-            {"role": "system", "content": context_block},
-            *messages,
-        ]
-
         rag_metadata = {
             "chunk_count": len(results),
             "collection_ids": rag_config.get("collection_ids"),
             "top_k": rag_config.get("top_k", 5),
         }
-        return payload, rag_metadata
+        return {"role": "system", "content": context_block}, rag_metadata
 
     async def _inject_session_context(
         self,
@@ -1518,18 +1417,13 @@ class GatewayService:
 
     # ── MCP tool helpers ─────────────────────────────────────────────────────
 
-    async def _inject_mcp_tools(
-        self,
+    @staticmethod
+    def _merge_mcp_tools(
         payload: dict[str, Any],
+        mcp_tools: list[dict[str, Any]],
         tenant_id: str,
     ) -> dict[str, Any]:
         """Merge MCP tools into the outgoing payload's ``tools`` array."""
-        assert self.mcp_tool_cache is not None  # noqa: S101
-        mcp_tools = await self.mcp_tool_cache.get_tools(tenant_id)
-        if not mcp_tools:
-            logger.debug("MCP tool injection: no tools for tenant %s", tenant_id)
-            return payload
-
         existing = list(payload.get("tools") or [])
         existing.extend(
             t["openai_tool"] if "openai_tool" in t else t for t in mcp_tools

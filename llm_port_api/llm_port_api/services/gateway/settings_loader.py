@@ -16,6 +16,7 @@ Keys loaded
 - ``llm_port_api.mcp_service_url`` → ``settings.mcp_service_url``
 - ``llm_port_api.skills_enabled`` → ``settings.skills_enabled``
 - ``llm_port_api.skills_service_url`` → ``settings.skills_service_url``
+- ``rag_lite.enabled`` → ``settings.rag_lite_enabled``
 """
 
 from __future__ import annotations
@@ -36,6 +37,10 @@ _VALUE_KEYS: dict[str, str] = {
     "llm_port_api.mcp_service_url": "mcp_service_url",
     "llm_port_api.skills_enabled": "skills_enabled",
     "llm_port_api.skills_service_url": "skills_service_url",
+    # The Modules page switches RAG Lite on for the backend only; without
+    # this the gateway never added retrieved context to a chat that asked
+    # for it -- it went to the model without it, and nothing said so.
+    "rag_lite.enabled": "rag_lite_enabled",
 }
 
 

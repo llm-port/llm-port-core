@@ -166,16 +166,21 @@ class ContextAssembler:
         if after_id and recent:
             recent = [m for m in recent if m.created_at > summary.created_at]
 
-        for msg in recent:
+        # The newest turns that fit, kept in order. Filled from the oldest,
+        # the budget ran out on the old turns and the latest ones -- the ones
+        # the question follows from -- were the ones left out.
+        kept: list[dict[str, Any]] = []
+        for msg in reversed(recent):
             msg_tokens = msg.token_estimate or _estimate_tokens(msg.content)
             if msg_tokens > budget:
                 break
-            result.messages.append({
+            kept.append({
                 "role": msg.role,
                 "content": msg.content,
             })
             total_tokens += msg_tokens
             budget -= msg_tokens
+        result.messages.extend(reversed(kept))
 
         # 5. Current request messages (always included)
         for msg in current_messages:

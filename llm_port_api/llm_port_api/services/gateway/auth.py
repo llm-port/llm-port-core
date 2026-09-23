@@ -21,6 +21,9 @@ class AuthContext:
     user_id: str
     tenant_id: str
     raw_claims: dict[str, Any]
+    #: The bearer token the caller sent, for calls made on their behalf --
+    #: RAG Lite search on the backend checks the user's own permission.
+    token: str | None = None
 
 
 # auto_error=False so we can return our own structured error response
@@ -86,7 +89,7 @@ def verify_token(token: str) -> dict[str, Any]:
     return claims
 
 
-def get_auth_context_from_claims(claims: dict[str, Any]) -> AuthContext:
+def get_auth_context_from_claims(claims: dict[str, Any], token: str | None = None) -> AuthContext:
     """Extract user and tenant identifiers from verified claims."""
     user_id = str(claims.get("sub", "")).strip()
     if not user_id:
@@ -100,7 +103,7 @@ def get_auth_context_from_claims(claims: dict[str, Any]) -> AuthContext:
         # Default to "default" tenant for single-tenant deployments and
         # fastapi-users tokens that don't carry a tenant_id claim.
         tenant_id = "default"
-    return AuthContext(user_id=user_id, tenant_id=tenant_id, raw_claims=claims)
+    return AuthContext(user_id=user_id, tenant_id=tenant_id, raw_claims=claims, token=token)
 
 
 async def get_auth_context(
@@ -120,4 +123,4 @@ async def get_auth_context(
         )
     await _refresh_jwt_secret_if_needed()
     claims = verify_token(token)
-    return get_auth_context_from_claims(claims)
+    return get_auth_context_from_claims(claims, token)

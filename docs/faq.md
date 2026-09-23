@@ -249,6 +249,20 @@ format the card does not support.
 
 ---
 
+## Chat
+
+### A chat answer shows [PERSON_1] where a name should be.
+
+PII is in tokenize mode: names leave as tokens and are put back in the
+answer. Streamed answers, which is how the chat page gets them, kept the
+tokens until 2026-09-23. Restart the gateway to get the fix. See
+[What the gateway does with a chat request](gateway-pipeline.md).
+
+### Does PII make chat slower?
+
+By about 30–50 ms per request. The PII service scans only the new message;
+the chat's history was scanned on earlier turns and is not scanned again.
+
 ## Logs
 
 ### Where do I see one machine's logs?

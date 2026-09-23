@@ -86,22 +86,3 @@ class PIIClient:
         except Exception:
             logger.exception("PII sanitize call failed")
             raise
-
-    async def detokenize(
-        self,
-        *,
-        payload: dict[str, Any],
-        token_mapping: dict[str, str],
-    ) -> dict[str, Any]:
-        """Call ``POST /api/v1/pii/detokenize`` to restore original text."""
-        try:
-            resp = await self._http.post(
-                f"{self._base}/api/v1/pii/detokenize",
-                json={"payload": payload, "token_mapping": token_mapping},
-                timeout=10.0,
-            )
-            resp.raise_for_status()
-            return resp.json().get("payload", payload)
-        except Exception:
-            logger.exception("PII detokenize call failed")
-            raise

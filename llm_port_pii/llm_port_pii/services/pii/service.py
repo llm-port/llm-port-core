@@ -13,11 +13,13 @@ that preserve semantic meaning for the LLM while hiding real values.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any
 
-from presidio_analyzer import AnalyzerEngine, RecognizerResult
+from presidio_analyzer import AnalyzerEngine, BatchAnalyzerEngine, RecognizerResult
 from presidio_anonymizer import AnonymizerEngine
 from presidio_anonymizer.entities import EngineResult
 
@@ -94,11 +96,14 @@ class PIIService:
         *,
         default_language: str = "en",
         default_score_threshold: float = 0.35,
+        analysis_cache_size: int = 20_000,
     ) -> None:
         self._analyzer = analyzer
+        self._batch = BatchAnalyzerEngine(analyzer_engine=analyzer)
         self._anonymizer = anonymizer
         self._default_language = default_language
         self._default_score_threshold = default_score_threshold
+        self._analyses = _AnalysisCache(analysis_cache_size)
 
     # ------------------------------------------------------------------
     # Factory
@@ -114,13 +119,20 @@ class PIIService:
         log.info("Initializing Presidio engines (loading spaCy model)...")
         analyzer = AnalyzerEngine()
         anonymizer = AnonymizerEngine()
-        log.info("Presidio engines ready.")
-        return cls(
+        service = cls(
             analyzer,
             anonymizer,
             default_language=default_language,
             default_score_threshold=default_score_threshold,
         )
+        # The first analysis finishes setting up spaCy's pipeline: the first
+        # chat after a start waited ~0.9 s for it. Pay it here, at startup.
+        service._batch.analyze_iterator(
+            texts=["Warm-up: John Smith lives in Berlin."],
+            language=default_language,
+        )
+        log.info("Presidio engines ready.")
+        return service
 
     # ------------------------------------------------------------------
     # Public API -- raw text
@@ -139,9 +151,8 @@ class PIIService:
         ents = entities or DEFAULT_ENTITIES
         threshold = score_threshold or self._default_score_threshold
 
-        results: list[RecognizerResult] = await asyncio.to_thread(
-            self._analyzer.analyze,
-            text=text,
+        (results,) = await self._analyze_many(
+            [text],
             language=lang,
             entities=ents,
             score_threshold=threshold,
@@ -172,9 +183,8 @@ class PIIService:
         ents = entities or DEFAULT_ENTITIES
         threshold = score_threshold or self._default_score_threshold
 
-        results: list[RecognizerResult] = await asyncio.to_thread(
-            self._analyzer.analyze,
-            text=text,
+        (results,) = await self._analyze_many(
+            [text],
             language=lang,
             entities=ents,
             score_threshold=threshold,
@@ -224,7 +234,7 @@ class PIIService:
         if mode not in ("redact", "tokenize"):
             raise ValueError(
                 f"Unsupported sanitize mode '{mode}'. "
-                "Supported modes: 'redact', 'tokenize'."
+                "Supported modes: 'redact', 'tokenize'.",
             )
 
         lang = language or self._default_language
@@ -232,6 +242,20 @@ class PIIService:
         threshold = score_threshold or self._default_score_threshold
 
         all_entities: list[DetectedEntity] = []
+
+        # Every text of the payload analysed at once, in the order the walk
+        # below visits them: what was seen before comes from the cache, the
+        # rest goes through spaCy in one batch. Analysed one by one, each
+        # message cost a spaCy run and a thread hop -- about 15 ms apiece, on
+        # the whole chat history, again on every turn.
+        analyses = iter(
+            await self._analyze_many(
+                self._texts_of(payload),
+                language=lang,
+                entities=ents,
+                score_threshold=threshold,
+            ),
+        )
 
         if mode == "tokenize":
             # Shared mutable state for building the token mapping.
@@ -242,13 +266,7 @@ class PIIService:
             value_to_token: dict[str, str] = {}
 
             async def _tokenize_text(text: str) -> str:
-                results: list[RecognizerResult] = await asyncio.to_thread(
-                    self._analyzer.analyze,
-                    text=text,
-                    language=lang,
-                    entities=ents,
-                    score_threshold=threshold,
-                )
+                results = next(analyses)
                 for r in results:
                     all_entities.append(
                         DetectedEntity(
@@ -280,7 +298,9 @@ class PIIService:
 
                 # Sort by start position descending so we can
                 # replace from end to start without shifting offsets.
-                sorted_results = sorted(non_overlapping, key=lambda r: r.start, reverse=True)
+                sorted_results = sorted(
+                    non_overlapping, key=lambda r: r.start, reverse=True,
+                )
                 chars = list(text)
                 for r in sorted_results:
                     original = text[r.start : r.end]
@@ -300,14 +320,8 @@ class PIIService:
             token_mapping = None  # type: ignore[assignment]
 
             async def _redact_text(text: str) -> str:
-                """Analyze + redact a single text string."""
-                results: list[RecognizerResult] = await asyncio.to_thread(
-                    self._analyzer.analyze,
-                    text=text,
-                    language=lang,
-                    entities=ents,
-                    score_threshold=threshold,
-                )
+                """Redact a single text string, from its analysis."""
+                results = next(analyses)
                 for r in results:
                     all_entities.append(
                         DetectedEntity(
@@ -321,12 +335,11 @@ class PIIService:
                 if not results:
                     return text
 
-                engine_result: EngineResult = await asyncio.to_thread(
-                    self._anonymizer.anonymize,
-                    text=text,
-                    analyzer_results=results,
-                )
-                return engine_result.text
+                # Inline: replacing spans is cheap next to the analysis, and
+                # a thread hop per message is what this change removes.
+                return self._anonymizer.anonymize(
+                    text=text, analyzer_results=results,
+                ).text
 
             sanitize_fn = _redact_text
 
@@ -336,13 +349,15 @@ class PIIService:
         # Chat completions: messages[].content
         if "messages" in sanitized:
             sanitized["messages"] = await self._walk_messages(
-                sanitized["messages"], sanitize_fn,
+                sanitized["messages"],
+                sanitize_fn,
             )
 
         # Embeddings: input (string | list[string])
         if "input" in sanitized:
             sanitized["input"] = await self._walk_input(
-                sanitized["input"], sanitize_fn,
+                sanitized["input"],
+                sanitize_fn,
             )
 
         return SanitizeResult(
@@ -399,6 +414,80 @@ class PIIService:
     # Private helpers -- OpenAI schema walkers
     # ------------------------------------------------------------------
 
+    async def _analyze_many(
+        self,
+        texts: list[str],
+        *,
+        language: str,
+        entities: list[str],
+        score_threshold: float,
+    ) -> list[list[RecognizerResult]]:
+        """The analysis of each of *texts*, in order.
+
+        Remembered per text and settings: a chat sends its whole history on
+        every turn, and each message's analysis is the same as the last time.
+        The texts not seen before go through spaCy together, in one batch and
+        one thread hop.
+        """
+        settings_key = (language, tuple(sorted(entities)), score_threshold)
+        keys = [
+            (hashlib.sha256(t.encode("utf-8")).digest(), settings_key) for t in texts
+        ]
+        missing: dict[tuple[Any, ...], str] = {}
+        for key, text in zip(keys, texts, strict=True):
+            if text and key not in self._analyses and key not in missing:
+                missing[key] = text
+        found: dict[tuple[Any, ...], tuple[tuple[str, int, int, float], ...]] = {}
+        if missing:
+            batch = await asyncio.to_thread(
+                self._batch.analyze_iterator,
+                texts=list(missing.values()),
+                language=language,
+                batch_size=len(missing),
+                entities=entities,
+                score_threshold=score_threshold,
+            )
+            for key, results in zip(missing, batch, strict=True):
+                found[key] = tuple(
+                    (r.entity_type, r.start, r.end, r.score) for r in results
+                )
+                self._analyses.put(key, found[key])
+        analyses: list[list[RecognizerResult]] = []
+        for key, text in zip(keys, texts, strict=True):
+            spans = found.get(key) or (self._analyses.get(key) if text else ())
+            analyses.append(
+                [
+                    RecognizerResult(entity_type=e, start=b, end=f, score=sc)
+                    for e, b, f, sc in spans
+                ],
+            )
+        return analyses
+
+    @staticmethod
+    def _texts_of(payload: dict[str, Any]) -> list[str]:
+        """The texts ``sanitize_payload`` rewrites, in the order it visits them."""
+        texts: list[str] = []
+        messages = payload.get("messages")
+        if isinstance(messages, list):
+            for msg in messages:
+                if not isinstance(msg, dict):
+                    continue
+                content = msg.get("content")
+                if isinstance(content, str):
+                    texts.append(content)
+                elif isinstance(content, list):
+                    texts.extend(
+                        part.get("text", "")
+                        for part in content
+                        if isinstance(part, dict) and part.get("type") == "text"
+                    )
+        input_value = payload.get("input")
+        if isinstance(input_value, str):
+            texts.append(input_value)
+        elif isinstance(input_value, list):
+            texts.extend(item for item in input_value if isinstance(item, str))
+        return texts
+
     @staticmethod
     async def _walk_messages(
         messages: Any,
@@ -449,3 +538,33 @@ class PIIService:
                     result.append(item)
             return result
         return input_value
+
+
+class _AnalysisCache:
+    """The most recent analyses, by text hash and scan settings.
+
+    Holds entity types, offsets and scores -- never the text itself.
+    """
+
+    def __init__(self, size: int) -> None:
+        self._size = max(size, 0)
+        self._entries: OrderedDict[
+            tuple[Any, ...], tuple[tuple[str, int, int, float], ...],
+        ] = OrderedDict()
+
+    def __contains__(self, key: object) -> bool:
+        return key in self._entries
+
+    def get(self, key: tuple[Any, ...]) -> tuple[tuple[str, int, int, float], ...]:
+        self._entries.move_to_end(key)
+        return self._entries[key]
+
+    def put(
+        self, key: tuple[Any, ...], value: tuple[tuple[str, int, int, float], ...],
+    ) -> None:
+        if not self._size:
+            return
+        self._entries[key] = value
+        self._entries.move_to_end(key)
+        while len(self._entries) > self._size:
+            self._entries.popitem(last=False)

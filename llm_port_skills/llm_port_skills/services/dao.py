@@ -162,6 +162,10 @@ class SkillDao:
             if hasattr(skill, key) and key not in ("id", "tenant_id", "created_at"):
                 setattr(skill, key, value)
         await self._session.flush()
+        # The flush expires what the database sets (``updated_at``); read back
+        # lazily while the response is built, that failed with MissingGreenlet
+        # and rolled the change back -- no skill could ever be published.
+        await self._session.refresh(skill)
         return skill
 
     async def update_skill_body(

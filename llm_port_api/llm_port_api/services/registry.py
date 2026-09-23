@@ -124,6 +124,18 @@ _KNOWN_SERVICES: list[_ServiceDef] = [
         ),
         health_path="/api/health",
     ),
+    # Missing until 2026-09-23: startup configured "skills" but the registry
+    # did not know it, so its URL was never set, the gateway never built a
+    # skills client, and no skill ever reached a chat -- with the module on.
+    _ServiceDef(
+        name="skills",
+        display_name="Skills Registry",
+        description=(
+            "Versioned LLM instruction sets (skills), resolved per request "
+            "and injected into the chat as system prompts."
+        ),
+        health_path="/api/health",
+    ),
 ]
 
 

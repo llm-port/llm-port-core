@@ -269,8 +269,11 @@ async def list_assignments(
     return [SkillAssignmentResponse.model_validate(a) for a in assignments]
 
 
+# ``/assignments``, like the list above and every caller (backend, admin page).
+# These two said ``/assign``: assigning a skill from the admin page was a 405,
+# so no skill could reach a chat.
 @router.post(
-    "/{skill_id}/assign",
+    "/{skill_id}/assignments",
     response_model=SkillAssignmentResponse,
     status_code=201,
 )
@@ -299,7 +302,7 @@ async def create_assignment(
     return SkillAssignmentResponse.model_validate(assignment)
 
 
-@router.delete("/{skill_id}/assign/{assignment_id}", status_code=204)
+@router.delete("/{skill_id}/assignments/{assignment_id}", status_code=204)
 async def delete_assignment(
     skill_id: uuid.UUID,
     assignment_id: uuid.UUID,
