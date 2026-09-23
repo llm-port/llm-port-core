@@ -345,7 +345,11 @@ async def reconcile_environment(
     mgr_kwargs: dict[str, Any] = {}
     if _accepts_param(mgr.reconcile_environment, "node_control"):
         mgr_kwargs["node_control"] = _node_control_or_none(context)
+    before = _status_text(environment.status)
     await mgr.reconcile_environment(context.session, environment, **mgr_kwargs)
+    if _status_text(environment.status) != before:
+        # The cluster went down, or came back: its models have to find out.
+        await _requeue_deployments(context, environment)
 
     # Copy what the cluster says about each machine onto the machine's own
     # row.  Without this the membership table and the topology picture have
@@ -363,6 +367,52 @@ async def reconcile_environment(
         "reconciled": True,
         "reason": "dispatched to driver",
     }
+
+
+def _status_text(status: Any) -> str:
+    return str(getattr(status, "value", status) or "")
+
+
+async def _requeue_deployments(
+    context: ReconciliationContext, environment: InferenceEnvironment
+) -> None:
+    """Queue every live deployment on *environment* for a fresh look.
+
+    A running deployment is only revisited when something about it changes,
+    and its cluster going down is not a change to the deployment's row. So a
+    cluster could be restarted from scratch -- its Serve applications gone
+    with the old head -- while its deployments went on reading "running"
+    and nothing re-applied them.
+    """
+    from llm_port_backend.db.models.inference import (  # noqa: PLC0415
+        DeploymentDesiredState,
+        InferenceDeployment,
+    )
+    from llm_port_backend.services.inference.service import (  # noqa: PLC0415
+        _queue_for_reconcile,
+    )
+    from llm_port_backend.services.inference.wakeup import (  # noqa: PLC0415
+        wake_reconciler_after_commit,
+    )
+
+    try:
+        rows = await context.session.execute(
+            select(InferenceDeployment).where(
+                InferenceDeployment.environment_id == environment.id,
+                InferenceDeployment.desired_state.notin_([
+                    DeploymentDesiredState.DELETED.value,
+                    DeploymentDesiredState.STOPPED.value,
+                ]),
+            )
+        )
+        deployments = list(rows.scalars())
+    except Exception:  # noqa: BLE001 - never fails the cluster's own pass
+        log.exception("Could not list the deployments of environment %s", environment.id)
+        return
+    for deployment in deployments:
+        _queue_for_reconcile(deployment)
+    if deployments:
+        wake_reconciler_after_commit(context.session)
 
 
 async def _sync_member_status(

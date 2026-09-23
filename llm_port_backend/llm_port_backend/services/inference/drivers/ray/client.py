@@ -35,6 +35,10 @@ _PROBE_BUDGET_SEC = 90.0
 #: time is reported as "not observed" rather than waited out.
 _INTERACTIVE_PROBE_BUDGET_SEC = 8.0
 
+#: An identical probe to the same node issued this recently, and not finished,
+#: is shared rather than sent again (see ``_dispatch_and_poll``).
+_PROBE_SHARE_SEC = 60.0
+
 # Budget for *mutating* Serve lifecycle commands (RUN_SERVE_APP /
 # DELETE_SERVE_APP).  build_openai_app + serve.run do GCS round-trips and can
 # take longer than a probe, so they get a larger (but still bounded) budget.
@@ -143,7 +147,11 @@ def _parse_serve_status(result: dict[str, Any] | None) -> RayServeStatus:
         available=available,
         active=bool(source.get("active", False)),
         apps=dict(apps) if isinstance(apps, dict) else {},
-        detail=source.get("detail"),
+        # Why Serve is unavailable ("There is no Serve instance running ...")
+        # is how a cluster with no Serve is told from a probe that could not
+        # look. The agent sends it as ``detail``; the helper's own name for
+        # it, ``error``, is accepted too.
+        detail=source.get("detail") or source.get("error"),
     )
 
 
@@ -225,6 +233,27 @@ class RayClusterClient:
             )
         return current
 
+    async def _probe_in_flight(
+        self, node_id: uuid.UUID, command_type: str, payload: dict[str, Any],
+    ) -> Any:
+        """An identical probe to *node_id* issued within ``_PROBE_SHARE_SEC`` and not finished."""
+        from datetime import UTC, datetime, timedelta  # noqa: PLC0415
+
+        try:
+            recent = await self._gateway.list_recent(node_id=node_id, command_type=command_type, limit=10)
+        except Exception:  # noqa: BLE001 - sharing is an optimisation; issue a fresh one
+            return None
+        cutoff = datetime.now(tz=UTC) - timedelta(seconds=_PROBE_SHARE_SEC)
+        for command in recent:
+            issued = getattr(command, "issued_at", None)
+            if issued is None or issued < cutoff:
+                break  # newest first: the rest are older still
+            if command.status in _TERMINAL or command.status == _SUCCESS:
+                continue
+            if (command.payload_json or {}) == payload:
+                return command
+        return None
+
     async def _dispatch_and_poll(
         self,
         *,
@@ -242,22 +271,30 @@ class RayClusterClient:
         never resume an earlier in-flight probe: one sent to an agent that has
         since died stays ``running`` until the reaper expires it, and resuming
         it would make every later probe wait on a result that never comes.
+
+        The one exception is a probe issued moments ago and still on its way:
+        an identical question to the same node shares it. Against a head whose
+        Ray had died every probe took 30 s to fail, and callers asking every
+        few seconds stacked them on the agent until nothing else it was asked
+        -- the recovery's own probe included -- got an answer in time.
         """
         node_id = node_id if isinstance(node_id, uuid.UUID) else uuid.UUID(str(node_id))
-        key = f"{self._format_idempotency_key(idem_prefix, node_id)}:{uuid.uuid4().hex[:12]}"
-        try:
-            command = await self._gateway.issue(
-                node_id=node_id,
-                command_type=command_type,
-                payload=payload or {},
-                issued_by=issued_by,
-                correlation_id=None,
-                timeout_sec=timeout_sec,
-                idempotency_key=key,
-            )
-        except ValueError:
-            log.warning("%s dispatch: node %s not found", command_type, node_id)
-            return None
+        command = await self._probe_in_flight(node_id, command_type, payload or {})
+        if command is None:
+            key = f"{self._format_idempotency_key(idem_prefix, node_id)}:{uuid.uuid4().hex[:12]}"
+            try:
+                command = await self._gateway.issue(
+                    node_id=node_id,
+                    command_type=command_type,
+                    payload=payload or {},
+                    issued_by=issued_by,
+                    correlation_id=None,
+                    timeout_sec=timeout_sec,
+                    idempotency_key=key,
+                )
+            except ValueError:
+                log.warning("%s dispatch: node %s not found", command_type, node_id)
+                return None
 
         # How long the *agent* may take and how long *this caller* is willing
         # to wait are different questions.  Conflating them meant a caller

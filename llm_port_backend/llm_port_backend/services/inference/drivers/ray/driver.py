@@ -324,7 +324,13 @@ class RayDriver(InferenceDriver):
         # attempt on a deployment nobody has observed yet -- never on the
         # steady-state path a screen refreshes.
         observation = (deployment.observed_status_json or {}).get("observation") or {}
-        if observation.get("reconciled"):
+        # Any observation at all, not only a converged one. A deployment whose
+        # cluster had lost its head is observed and not "reconciled", and
+        # probing Serve on every refresh of its page sent a new command to a
+        # dead head every eight seconds; each took 30 s to fail, they queued
+        # on the agent, and the cluster's own recovery probe waited behind
+        # them for as long as the page stayed open.
+        if observation:
             # The reconciler already decided what state this application is
             # in, and the deployment row carries that decision.  Leaving
             # ``app_status`` unset here made the card read "Runtime state:

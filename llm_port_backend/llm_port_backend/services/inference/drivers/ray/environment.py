@@ -21,6 +21,11 @@ The 8-step loop (RUNNING):
 For a STOPPED/DELETED environment the loop performs the mirror-image
 tear-down and records the stopped observation.
 
+Once a cluster has come up at its current generation, later passes are health
+checks instead (:meth:`RayEnvironmentManager._check`): one probe, and a
+recovery -- head re-formed, lost workers rejoined -- only when two looks agree
+that something is gone.
+
 The manager mutates the session (command rows + observed state) but does not
 commit; the owning loop commits after a pass.  Remote actions are never wrapped
 in an additional DB transaction around the network calls themselves.
@@ -29,6 +34,7 @@ in an additional DB transaction around the network calls themselves.
 from __future__ import annotations
 
 import logging
+import time
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select
@@ -81,9 +87,17 @@ _SUCCEEDED = NodeCommandStatus.SUCCEEDED.value
 #: Outside Ray's default worker-port range (10002-19999) and clear of its
 #: fixed ports, and only open while a transfer is under way.
 _IMAGE_SEED_PORT = 8271
-#: How long a machine may be offline before its cluster is told so. A backend
-#: restart disconnects every agent at once; they are back well inside this.
+#: How long a machine may be offline before its cluster is told so, just after
+#: this backend started: a restart disconnects every agent at once, and they
+#: are back well inside this.
 _OFFLINE_GRACE_SEC = 120
+#: The same, once the backend has been up a while. A machine dropping then has
+#: dropped on its own -- a reboot, a crash -- and the long grace hid it: the
+#: DGX head rebooted and its cluster read "ready" for two and a half minutes.
+#: This only covers an agent restarting, which is back in seconds.
+_SINGLE_DROP_GRACE_SEC = 30
+#: When this process started (monotonic), to tell the two apart.
+_PROCESS_STARTED = time.monotonic()
 
 #: How long a seeding member keeps serving before giving up on its peers.
 _IMAGE_SEED_TIMEOUT_SEC = 3600
@@ -113,6 +127,36 @@ _RETRY_CAP_SEC = 30 * 60
 #: fingerprint changed (the server's own copy of the image, say), and at once
 #: when anything inside it does.
 _PERMANENT_RECHECK_SEC = 60 * 60
+
+#: Restarts LLM.Port makes on its own before it declares a cluster failed.
+_MAX_RECOVERY_ATTEMPTS = 3
+#: How long a failed health check waits for a second look before anything is
+#: restarted. One probe that timed out on a busy head is not a dead cluster,
+#: and restarting a serving cluster on its word would cause the very outage
+#: the check is there to catch.
+_CONFIRM_AFTER_SEC = 20
+#: Spacing between restart attempts: this, doubled after each one.
+_RECOVERY_BACKOFF_SEC = 30
+#: Once the attempts are used up, how often it is still looked at -- and
+#: restarted once more if still down. What stopped it may have been fixed
+#: without anyone telling LLM.Port: a network link back, a machine repaired.
+_GAVE_UP_RECHECK_SEC = 15 * 60
+#: After a restart, how long the cluster has to show every member before the
+#: attempt counts as not having worked, and how often it is looked at.
+_SETTLE_SEC = 30.0
+_SETTLE_POLL_SEC = 5.0
+
+
+def _when(value: Any) -> Any:
+    """An ISO timestamp from the observed state, or ``None``."""
+    from datetime import datetime  # noqa: PLC0415
+
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
 
 
 class _LifecycleFailed(RuntimeError):
@@ -250,12 +294,33 @@ class RayEnvironmentManager:
             self._observe(
                 environment,
                 EnvironmentStatus.FAILED if head_gone else EnvironmentStatus.DEGRADED,
-                RayClusterStatus(alive=False, observed=False),
+                # With only a worker away the head can still be asked, and the
+                # models on it still report their surviving copies from the
+                # last snapshot; with the head away nothing is known.
+                RayClusterStatus(alive=False, observed=False) if head_gone else None,
                 expected_nodes=len(nodes),
                 reason=(
                     f"{names} {verb} offline: no agent connected. "
                     "The cluster is checked again when it reconnects."
                 ),
+            )
+            return
+
+        if self._converged(environment):
+            # Nothing has been asked of this cluster since it last came up, so
+            # this pass is a health check: the periodic one, or a machine
+            # reconnecting. Look before touching anything, and act only on
+            # what the look finds.
+            await self._check(
+                session,
+                environment,
+                head=head,
+                workers=workers,
+                nodes=nodes,
+                gateway=gateway,
+                config=config,
+                credential_ref=credential_ref,
+                head_address=head_address,
             )
             return
 
@@ -316,14 +381,397 @@ class RayEnvironmentManager:
         # 7. Refresh the environment capability snapshot.
         await self._refresh_capabilities(environment, config)
         # 8. Persist the observed state for the cluster we just reconciled.
+        observed_status = map_cluster_to_environment_status(status, len(nodes))
+        if observed_status is EnvironmentStatus.READY:
+            # Up as asked. From here until the next change, passes over this
+            # cluster are health checks rather than another start sequence.
+            observed = dict(environment.observed_status_json or {})
+            observed["converged_generation"] = environment.generation
+            observed.pop("recovery", None)
+            environment.observed_status_json = observed
         self._observe(
             environment,
-            map_cluster_to_environment_status(status, len(nodes)),
+            observed_status,
             status,
             expected_nodes=len(nodes),
             address=status.cluster_address or head_address,
             version=status.version or config.ray_version,
         )
+
+    # ------------------------------------------------------------------
+    # Health check and recovery of a cluster that was up
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _converged(environment) -> bool:
+        """Whether the cluster came up at its current generation."""
+        observed = environment.observed_status_json or {}
+        return observed.get("converged_generation") == environment.generation
+
+    async def _check(
+        self,
+        session,
+        environment,
+        *,
+        head,
+        workers,
+        nodes,
+        gateway: NodeCommandGateway,
+        config,
+        credential_ref,
+        head_address,
+    ) -> None:
+        """Look at a cluster that was up, and bring it back if it is not.
+
+        A healthy cluster was never looked at again once it came up, so a Ray
+        head that died left the cluster reading "ready" and its models
+        "running" for as long as nobody changed anything -- while every
+        request failed. Now the reconciler looks every minute (and whenever a
+        member reconnects), and when the look finds a problem:
+
+        1. it looks again after ``_CONFIRM_AFTER_SEC`` before restarting
+           anything, and says it is doing so;
+        2. a lost head is re-formed: everything stopped, the head started
+           fresh, every worker joined to it. A lost worker is rejoined;
+        3. the cluster is given ``_SETTLE_SEC`` to show every member;
+        4. up to ``_MAX_RECOVERY_ATTEMPTS`` attempts, spaced out, and then an
+           explicit failure that says what was tried. After that it is only
+           looked at every ``_GAVE_UP_RECHECK_SEC``; Try again starts over.
+
+        The models are re-applied by the deployment reconciler, which sees the
+        cluster's head change.
+        """
+        from datetime import UTC, datetime, timedelta  # noqa: PLC0415
+
+        now = datetime.now(tz=UTC)
+        recovery = dict((environment.observed_status_json or {}).get("recovery") or {})
+        due = _when(recovery.get("next_look_at"))
+        if due is not None and now < due:
+            if recovery.get("gave_up"):
+                environment.observed_generation = environment.generation
+            return
+
+        status = await self._verify_cluster(session, head, gateway)
+        if not status.observed:
+            # No answer is not an answer: nothing is restarted on it.
+            log.info("Environment %s: health check got no answer from the head's agent", environment.id)
+            environment.observed_generation = environment.generation
+            return
+
+        members = await self._member_rows(session, nodes)
+        problem = self._diagnose(environment, status, head, nodes, members)
+        if problem is None:
+            self._finish_recovery(environment, recovery, now)
+            self._observe(
+                environment,
+                map_cluster_to_environment_status(status, len(nodes)),
+                status,
+                expected_nodes=len(nodes),
+                address=status.cluster_address or head_address,
+                version=status.version or config.ray_version,
+            )
+            return
+
+        kind, lost = problem
+        what = self._describe(kind, lost, members)
+        if not recovery:
+            self._set_recovery(environment, {
+                "kind": kind,
+                "detail": what,
+                "attempt": 0,
+                "suspected_at": now.isoformat(),
+                "next_look_at": (now + timedelta(seconds=_CONFIRM_AFTER_SEC)).isoformat(),
+            })
+            # The cluster snapshot stays as it was: one look is not enough to
+            # tell the models' users that they are down.
+            self._observe(
+                environment,
+                EnvironmentStatus.DEGRADED,
+                None,
+                expected_nodes=len(nodes),
+                reason=f"{what}. Checking again before restarting anything.",
+            )
+            return
+
+        attempt = int(recovery.get("attempt") or 0) + 1
+        recovery.update({"kind": kind, "detail": what, "attempt": attempt})
+        recovery.setdefault("suspected_at", now.isoformat())
+        recovery.pop("next_look_at", None)
+        self._set_recovery(environment, recovery)
+        self._observe(
+            environment,
+            EnvironmentStatus.DEGRADED,
+            status,
+            expected_nodes=len(nodes),
+            reason=self._restarting(kind, what, attempt),
+        )
+        # A restart takes minutes and the pass commits only at its end; say
+        # what is happening now rather than after it is over.
+        await self._commit_progress(session)
+
+        error: str | None = None
+        try:
+            if kind == "head":
+                await self._reform(
+                    session, environment, head, workers, gateway=gateway, config=config,
+                    credential_ref=credential_ref, head_address=head_address, attempt=attempt,
+                )
+            else:
+                await self._rejoin(
+                    session, environment, lost, gateway=gateway, config=config,
+                    credential_ref=credential_ref, head_address=head_address, attempt=attempt,
+                )
+        except (_LifecycleFailed, _LifecycleUnobserved) as exc:
+            error = getattr(exc, "detail", None) or str(exc)
+
+        if error is None:
+            status = await self._settle(session, environment, head, nodes, members, gateway)
+            if status.observed and self._diagnose(environment, status, head, nodes, members) is None:
+                self._finish_recovery(environment, recovery, datetime.now(tz=UTC))
+                self._observe(
+                    environment,
+                    map_cluster_to_environment_status(status, len(nodes)),
+                    status,
+                    expected_nodes=len(nodes),
+                    address=status.cluster_address or head_address,
+                    version=status.version or config.ray_version,
+                )
+                return
+            error = "it was restarted but did not come back"
+
+        recovery["last_error"] = error
+        if attempt >= _MAX_RECOVERY_ATTEMPTS:
+            recovery["gave_up"] = True
+            recovery["next_look_at"] = (
+                datetime.now(tz=UTC) + timedelta(seconds=_GAVE_UP_RECHECK_SEC)
+            ).isoformat()
+            self._set_recovery(environment, recovery)
+            self._observe(
+                environment,
+                EnvironmentStatus.FAILED,
+                status,
+                expected_nodes=len(nodes),
+                reason=(
+                    f"{what}. LLM.Port restarted it {attempt} times and it did not "
+                    f"come back (last: {error}). It tries again every "
+                    f"{_GAVE_UP_RECHECK_SEC // 60} minutes; use Try again once the "
+                    f"cause is fixed."
+                ),
+            )
+            return
+        wait = _RECOVERY_BACKOFF_SEC * 2 ** (attempt - 1)
+        recovery["next_look_at"] = (datetime.now(tz=UTC) + timedelta(seconds=wait)).isoformat()
+        self._set_recovery(environment, recovery)
+        self._observe(
+            environment,
+            EnvironmentStatus.DEGRADED,
+            status,
+            expected_nodes=len(nodes),
+            reason=(
+                f"{what}. Restart {attempt} of {_MAX_RECOVERY_ATTEMPTS} did not bring it "
+                f"back ({error}); trying again in {wait} s."
+            ),
+        )
+
+    def _diagnose(self, environment, status: RayClusterStatus, head, nodes, members):
+        """What is wrong with a cluster that answered, or ``None``.
+
+        ``("head", [head])`` when the head is gone -- Ray not answering at
+        all, or the head machine missing from its own cluster -- and
+        ``("members", [...])`` for workers the cluster no longer lists.
+        """
+        if not status.alive:
+            return "head", [head]
+        missing = self._missing_members(environment, status, nodes, members)
+        if not missing:
+            return None
+        if any(node.node_id == head.node_id for node in missing):
+            return "head", [head]
+        return "members", missing
+
+    def _missing_members(self, environment, status: RayClusterStatus, nodes, members) -> list:
+        """Members with no live record in the cluster.
+
+        Ray names a node by the address it was started on -- the fabric link
+        here, not the address LLM.Port knows the machine by -- so both are
+        tried. An agent too old to list nodes gives only a count, which
+        cannot say who is missing: nothing is restarted on it.
+        """
+        if not status.nodes:
+            return []
+        alive: set[str] = set()
+        for record in status.alive_node_records:
+            for key in ("node_ip", "node_manager_address", "node_name"):
+                if record.get(key):
+                    alive.add(str(record[key]).strip())
+        bindings = (self._get_resolved_fabric(environment) or {}).get("node_bindings") or {}
+        missing = []
+        for node in nodes:
+            row = members.get(node.node_id)
+            addresses = {
+                (bindings.get(str(node.node_id)) or {}).get("ip"),
+                self._clean_host(getattr(row, "host", None)),
+            }
+            if not any(a and str(a).strip() in alive for a in addresses):
+                missing.append(node)
+        return missing
+
+    @staticmethod
+    def _clean_host(host: Any) -> str | None:
+        text = str(host or "").strip()
+        if text.startswith("host="):
+            text = text[len("host="):]
+        return text or None
+
+    @staticmethod
+    async def _member_rows(session, nodes) -> dict:
+        ids = [n.node_id for n in nodes]
+        if not ids:
+            return {}
+        rows = await session.execute(select(InfraNode).where(InfraNode.id.in_(ids)))
+        return {row.id: row for row in rows.scalars()}
+
+    @staticmethod
+    def _describe(kind: str, lost, members) -> str:
+        def name(node) -> str:
+            row = members.get(node.node_id)
+            return (getattr(row, "agent_id", None) or getattr(row, "host", None) or str(node.node_id))
+
+        if kind == "head":
+            return f"Ray on {name(lost[0])}, the cluster's head, is not running"
+        names = ", ".join(sorted(name(n) for n in lost))
+        verb = "has" if len(lost) == 1 else "have"
+        return f"{names} {verb} dropped out of the cluster"
+
+    @staticmethod
+    def _restarting(kind: str, what: str, attempt: int) -> str:
+        of = (
+            f"attempt {attempt} of {_MAX_RECOVERY_ATTEMPTS}"
+            if attempt <= _MAX_RECOVERY_ATTEMPTS
+            else f"attempt {attempt}"
+        )
+        if kind == "head":
+            return (
+                f"{what}. Restarting the cluster ({of}); models on it are down "
+                f"until it is back."
+            )
+        return f"{what}. Rejoining ({of})."
+
+    @staticmethod
+    def _set_recovery(environment, recovery: dict[str, Any]) -> None:
+        observed = dict(environment.observed_status_json or {})
+        observed["recovery"] = recovery
+        environment.observed_status_json = observed
+
+    @staticmethod
+    def _finish_recovery(environment, recovery: dict[str, Any], now) -> None:
+        """Clear a recovery that worked; keep a record of it if one ran."""
+        if not recovery:
+            return
+        observed = dict(environment.observed_status_json or {})
+        observed.pop("recovery", None)
+        if int(recovery.get("attempt") or 0) > 0:
+            observed["last_recovery"] = {
+                "kind": recovery.get("kind"),
+                "detail": recovery.get("detail"),
+                "noticed_at": recovery.get("suspected_at"),
+                "recovered_at": now.isoformat(),
+                "attempts": recovery.get("attempt"),
+            }
+            log.info(
+                "Environment %s recovered after %s attempt(s): %s",
+                environment.id, recovery.get("attempt"), recovery.get("detail"),
+            )
+        else:
+            log.info("Environment %s: second look found it healthy (%s)", environment.id, recovery.get("detail"))
+        environment.observed_status_json = observed
+
+    @staticmethod
+    async def _commit_progress(session) -> None:
+        try:
+            await session.commit()
+        except Exception:  # noqa: BLE001 - progress text is not worth failing a recovery over
+            log.debug("Could not commit recovery progress", exc_info=True)
+
+    async def _settle(self, session, environment, head, nodes, members, gateway) -> RayClusterStatus:
+        """Look until every member shows up or ``_SETTLE_SEC`` runs out."""
+        import asyncio  # noqa: PLC0415
+
+        loop = asyncio.get_event_loop()
+        deadline = loop.time() + _SETTLE_SEC
+        while True:
+            status = await self._verify_cluster(session, head, gateway)
+            healthy = status.observed and self._diagnose(environment, status, head, nodes, members) is None
+            if healthy or loop.time() >= deadline:
+                return status
+            await asyncio.sleep(_SETTLE_POLL_SEC)
+
+    async def _reform(
+        self, session, environment, head, workers, *, gateway, config, credential_ref, head_address, attempt,
+    ) -> None:
+        """Re-form a cluster whose head is gone: stop everything, start it again.
+
+        Stopping first is the point. The agent's start is idempotent against
+        a node that already heads the cluster, which is right for a start but
+        wrong here: a head whose GCS died can keep its raylet for a minute,
+        and a worker keeps pointing at the old head for as long, so both
+        would be reported as fine and then die. Stopping removes the runtime
+        container, so the start that follows is from clean.
+        """
+        stops = []
+        for worker in workers:
+            stops.append((worker, await self._issue(
+                gateway,
+                node_id=worker.node_id,
+                command_type=NodeCommandType.LEAVE_RAY_CLUSTER.value,
+                payload=await self._stop_payload(session, environment, worker.node_id),
+                key=self._recover_key(environment, attempt, "leave", worker.node_id),
+            )))
+        stops.append((head, await self._issue(
+            gateway,
+            node_id=head.node_id,
+            command_type=NodeCommandType.STOP_RAY.value,
+            payload={**await self._stop_payload(session, environment, head.node_id), "force": True},
+            key=self._recover_key(environment, attempt, "stop", head.node_id),
+        )))
+        for node, cmd in stops:
+            await self._await_result(gateway, cmd, what=f"stopping Ray on node {node.node_id}")
+
+        await self._start_head(session, environment, head, credential_ref, config, gateway, attempt=attempt)
+        await self._join_workers(
+            session, environment, workers, head_address, credential_ref, config, gateway, attempt=attempt,
+        )
+
+    async def _rejoin(
+        self, session, environment, lost, *, gateway, config, credential_ref, head_address, attempt,
+    ) -> None:
+        """Take lost workers out and join them again, from clean."""
+        leaves = []
+        for worker in lost:
+            leaves.append((worker, await self._issue(
+                gateway,
+                node_id=worker.node_id,
+                command_type=NodeCommandType.LEAVE_RAY_CLUSTER.value,
+                payload=await self._stop_payload(session, environment, worker.node_id),
+                key=self._recover_key(environment, attempt, "leave", worker.node_id),
+            )))
+        for node, cmd in leaves:
+            await self._await_result(gateway, cmd, what=f"stopping Ray on node {node.node_id}")
+        await self._join_workers(
+            session, environment, lost, head_address, credential_ref, config, gateway, attempt=attempt,
+        )
+
+    async def _stop_payload(self, session, environment, node_id) -> dict[str, Any]:
+        payload: dict[str, Any] = {"version": environment.runtime_version or "2.58.0"}
+        bundle, row = await self._bundle_of(session, node_id)
+        bundle_payload = self._bundle_payload(bundle, node=row)
+        if bundle_payload is not None:
+            payload["runtime_bundle"] = bundle_payload
+        return payload
+
+    @staticmethod
+    def _recover_key(environment, attempt: int, step: str, node_id: Any) -> str:
+        return f"inference-env:{environment.id}:{environment.generation}:recover{attempt}:{step}:{node_id}"
 
 
 
@@ -636,8 +1084,9 @@ class RayEnvironmentManager:
         """Members with no agent connected, as (gone, reconnecting).
 
         Each maps node id -> name. *Reconnecting* is offline but heard from
-        within ``_OFFLINE_GRACE_SEC``: the normal state of every machine for
-        the minute after a backend restart.
+        within the grace: ``_OFFLINE_GRACE_SEC`` for the first minutes after
+        this backend started -- every machine is reconnecting then -- and
+        ``_SINGLE_DROP_GRACE_SEC`` after that.
         """
         from datetime import UTC, datetime, timedelta  # noqa: PLC0415
 
@@ -645,7 +1094,9 @@ class RayEnvironmentManager:
         if not ids:
             return {}, {}
         rows = await session.execute(select(InfraNode).where(InfraNode.id.in_(ids)))
-        cutoff = datetime.now(tz=UTC) - timedelta(seconds=_OFFLINE_GRACE_SEC)
+        just_started = time.monotonic() - _PROCESS_STARTED < 2 * _OFFLINE_GRACE_SEC
+        grace = _OFFLINE_GRACE_SEC if just_started else _SINGLE_DROP_GRACE_SEC
+        cutoff = datetime.now(tz=UTC) - timedelta(seconds=grace)
         gone: dict = {}
         reconnecting: dict = {}
         for node in rows.scalars():
@@ -950,7 +1401,15 @@ class RayEnvironmentManager:
         return (environment.observed_status_json or {}).get("resolved_fabric")
 
     async def _start_head(
-        self, session, environment, head, credential_ref, config, gateway: NodeCommandGateway
+        self,
+        session,
+        environment,
+        head,
+        credential_ref,
+        config,
+        gateway: NodeCommandGateway,
+        *,
+        attempt: int | None = None,
     ) -> None:
         """Step 4: start the designated head node (idempotent on the agent)."""
         resolved_fabric = self._get_resolved_fabric(environment)
@@ -990,7 +1449,11 @@ class RayEnvironmentManager:
             node_id=head.node_id,
             command_type=NodeCommandType.START_RAY_HEAD.value,
             payload=payload,
-            key=f"inference-env:{environment.id}:{environment.generation}:start-head",
+            key=(
+                self._recover_key(environment, attempt, "start-head", head.node_id)
+                if attempt
+                else f"inference-env:{environment.id}:{environment.generation}:start-head"
+            ),
         )
         await self._await_result(gateway, cmd, what=f"start_ray_head on node {head.node_id}")
 
@@ -1003,6 +1466,8 @@ class RayEnvironmentManager:
         credential_ref,
         config,
         gateway: NodeCommandGateway,
+        *,
+        attempt: int | None = None,
     ) -> None:
         """Step 5: join every worker (issued together, then awaited)."""
         resolved_fabric = self._get_resolved_fabric(environment)
@@ -1044,7 +1509,11 @@ class RayEnvironmentManager:
                 node_id=worker.node_id,
                 command_type=NodeCommandType.JOIN_RAY_CLUSTER.value,
                 payload=payload,
-                key=f"inference-env:{environment.id}:{environment.generation}:join-worker:{worker.node_id}",
+                key=(
+                    self._recover_key(environment, attempt, "join", worker.node_id)
+                    if attempt
+                    else f"inference-env:{environment.id}:{environment.generation}:join-worker:{worker.node_id}"
+                ),
             )
             issued.append((worker, cmd))
         for worker, cmd in issued:
@@ -1069,7 +1538,9 @@ class RayEnvironmentManager:
             )
         except Exception as e:  # noqa: BLE001
             log.warning("Ray cluster verify on %s failed: %s", head.node_id, e)
-            return RayClusterStatus(alive=False)
+            # Not heard from, which is not the same as heard to be down: a
+            # health check must not restart a cluster over its own error.
+            return RayClusterStatus(alive=False, observed=False)
 
     async def _refresh_capabilities(self, environment, config) -> None:
         """Persist the static Ray capability snapshot (step 7)."""
@@ -1137,7 +1608,7 @@ class RayEnvironmentManager:
         self,
         environment,
         status: EnvironmentStatus,
-        cluster: RayClusterStatus,
+        cluster: RayClusterStatus | None,
         *,
         expected_nodes: int,
         address: str | None = None,
@@ -1153,15 +1624,16 @@ class RayEnvironmentManager:
         # by the planner's apply-plan (Amendment 1) and must survive the
         # reconcile pass that apply-plan itself schedules.
         observed = dict(environment.observed_status_json or {})
-        observed.update({
-            "observation": {
-                "status": status.value if hasattr(status, "value") else str(status),
-                "reconciled": status is not EnvironmentStatus.PENDING,
-                "reason": reason,
-            },
-            "cluster": cluster.model_dump(),
-            "conditions": build_environment_conditions(cluster, expected_nodes),
-        })
+        observed["observation"] = {
+            "status": status.value if hasattr(status, "value") else str(status),
+            "reconciled": status is not EnvironmentStatus.PENDING,
+            "reason": reason,
+        }
+        if cluster is not None:
+            # ``None`` keeps the last snapshot: a status change on a hunch
+            # (a health check that has to look twice) is not a measurement.
+            observed["cluster"] = cluster.model_dump()
+            observed["conditions"] = build_environment_conditions(cluster, expected_nodes)
         environment.observed_status_json = observed
         # The cluster page shows ``status_message`` when a cluster needs
         # attention and falls back to "Some machines are not reporting" when

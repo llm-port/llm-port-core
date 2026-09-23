@@ -1293,6 +1293,8 @@ async def test_reconcile_pass_hands_context_the_session_factory(monkeypatch: pyt
     monkeypatch.setattr(inference_dao.DeploymentDAO, "list_pending_observation", _pending)
     monkeypatch.setattr(reconciliation, "reconcile_environment", _reconcile)
     monkeypatch.setattr(reconciliation, "reconcile_deployment", _reconcile)
+    # The first pass after startup also queues health checks; not this test's subject.
+    monkeypatch.setattr(lifespan, "_health_check_due", lambda: False)
 
     app = SimpleNamespace(state=SimpleNamespace(db_session_factory=factory))
     await lifespan._run_inference_reconcile_pass(app)

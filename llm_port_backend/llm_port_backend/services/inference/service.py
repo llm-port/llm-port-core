@@ -448,15 +448,18 @@ class EnvironmentService:
     async def request_reconcile(self, environment_id: uuid.UUID) -> InferenceEnvironment:
         """Queue the environment for the reconciler, now.
 
-        Observed state is left alone except for the failure backoff: a person
-        pressing Try again has usually just fixed whatever it was waiting on,
-        and making them wait out an hour-long recheck to find out would be
+        Observed state is left alone except for the failure backoff and a
+        recovery that gave up: a person pressing Try again has usually just
+        fixed whatever it was waiting on, and making them wait out an
+        hour-long recheck -- or a recovery that has stopped trying -- would be
         the reconciler overruling the one party who knows something changed.
         """
         wake_reconciler_after_commit(self.session)  # act now, not at the next tick
         environment = await self.get(environment_id)
         observed = dict(environment.observed_status_json or {})
-        if observed.pop("retry", None) is not None:
+        retry = observed.pop("retry", None)
+        recovery = observed.pop("recovery", None)
+        if retry is not None or recovery is not None:
             environment.observed_status_json = observed
         _queue_for_reconcile(environment)
         await self.session.flush()

@@ -1,7 +1,9 @@
 import asyncio
 import logging
+import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Any
 
 import httpx
 from fastapi import FastAPI
@@ -428,8 +430,8 @@ async def _inference_reconciler_loop(app: FastAPI) -> None:
     """Periodically reconcile inference environments and deployments.
 
     Each pass loads only the environments and deployments whose ``observed_generation`` lags
-    ``generation`` (or in active transition phases) — a live, stable cluster/deployment never
-    re-enters the queue, so the loop is effectively event-driven by change.
+    ``generation`` (or in active transition phases), so the loop is driven by change -- plus a
+    health check every ``inference_health_check_sec`` that queues the stable ones for a look.
     Protected by PostgreSQL advisory lock across multi-replica backends.
     """
     from sqlalchemy import text  # noqa: PLC0415
@@ -474,6 +476,69 @@ async def _inference_reconciler_loop(app: FastAPI) -> None:
             log.exception("Inference reconciler pass failed.")
 
 
+#: When the reconciler last queued its health checks (monotonic seconds).
+_last_health_check: float | None = None
+
+
+def _health_check_due() -> bool:
+    """Whether it is time to look at the clusters and models that are up.
+
+    Due on the first pass after startup, too: a backend that restarts has
+    not seen its clusters since before it went down.
+    """
+    global _last_health_check  # noqa: PLW0603
+    interval = settings.inference_health_check_sec
+    if interval <= 0:
+        return False
+    now = time.monotonic()
+    if _last_health_check is not None and now - _last_health_check < interval:
+        return False
+    _last_health_check = now
+    return True
+
+
+async def _queue_health_checks(session: Any) -> None:
+    """Queue every cluster that is up and every model that is serving.
+
+    Neither was ever looked at again once it got there: a stable row does
+    not re-enter the queue, which is right for work and wrong for health. A
+    Ray head that died left its cluster "ready" and its models "running"
+    for as long as nobody touched them, with every request failing. The
+    passes these trigger are observations -- a cluster that came up at its
+    generation is probed rather than started again, and a deployment whose
+    config is applied is observed rather than re-applied.
+    """
+    from sqlalchemy import select  # noqa: PLC0415
+
+    from llm_port_backend.db.models.inference import (  # noqa: PLC0415
+        DeploymentDesiredState,
+        DeploymentPhase,
+        EnvironmentStatus,
+        InferenceDeployment,
+        InferenceEnvironment,
+    )
+    from llm_port_backend.services.inference.service import (  # noqa: PLC0415
+        _queue_for_reconcile,
+    )
+
+    environments = await session.execute(
+        select(InferenceEnvironment).where(
+            InferenceEnvironment.desired_state == "running",
+            InferenceEnvironment.status == EnvironmentStatus.READY.value,
+            InferenceEnvironment.observed_generation >= InferenceEnvironment.generation,
+        )
+    )
+    deployments = await session.execute(
+        select(InferenceDeployment).where(
+            InferenceDeployment.desired_state == DeploymentDesiredState.ACTIVE.value,
+            InferenceDeployment.phase == DeploymentPhase.RUNNING.value,
+            InferenceDeployment.observed_generation >= InferenceDeployment.generation,
+        )
+    )
+    for row in [*environments.scalars(), *deployments.scalars()]:
+        _queue_for_reconcile(row)
+
+
 async def _run_inference_reconcile_pass(app: FastAPI) -> None:
     """One reconcile pass: environments first, then deployments.
 
@@ -498,6 +563,9 @@ async def _run_inference_reconcile_pass(app: FastAPI) -> None:
 
     factory = app.state.db_session_factory
     async with factory() as session:
+        if _health_check_due():
+            await _queue_health_checks(session)
+            await session.commit()
         env_ids = [e.id for e in await EnvironmentDAO(session).list_pending_observation()]
         dep_ids = [d.id for d in await DeploymentDAO(session).list_pending_observation()]
         if not env_ids and not dep_ids:

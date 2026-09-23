@@ -322,6 +322,11 @@ class Settings(BaseSettings):
     node_enrollment_ttl_minutes: int = 30
     node_command_default_timeout_sec: int = 900
     node_stream_idle_timeout_sec: int = 120
+    # How often a cluster that is up, and a model that is serving, are looked
+    # at again. Without it a Ray head that died left both reading "ready"
+    # until someone changed something. One status probe per cluster and one
+    # Serve probe per deployment each time. 0 turns the checks off.
+    inference_health_check_sec: int = 60
 
     # Runtime monitoring — vLLM /metrics scraped by the shared-stack
     # Prometheus service, with a per-runtime Grafana dashboard rendered

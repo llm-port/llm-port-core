@@ -68,7 +68,7 @@ from llm_port_backend.db.models.inference import (
     InferenceEnvironmentNode,
 )
 from llm_port_backend.db.models.llm import LLMModel
-from llm_port_backend.db.models.node_control import InfraNode
+from llm_port_backend.db.models.node_control import InfraNode, NodeHealthStatus
 from llm_port_backend.services.inference.artifacts import (
     ArtifactReadiness,
     ModelArtifactCoordinator,
@@ -136,6 +136,37 @@ def _serve_app_entry(status: Any, name: str) -> dict[str, Any] | None:
     if not app or not isinstance(app, dict):
         return None
     return app
+
+
+def _cluster_head(environment: Any) -> str | None:
+    """Ray's id for the cluster's live head, from the last cluster observation.
+
+    It changes whenever a head is started again -- a cluster re-formed after
+    its head died, a head machine that rebooted -- and a new head starts with
+    no Serve applications. Taken from Ray rather than from LLM.Port's own
+    bookkeeping so a restart that happened any other way is noticed too.
+    """
+    observed = getattr(environment, "observed_status_json", None) or {}
+    cluster = observed.get("cluster") or {}
+    if not cluster.get("alive"):
+        return None
+    for node in cluster.get("nodes") or []:
+        if not isinstance(node, dict) or not node.get("is_head"):
+            continue
+        if node.get("alive") is False or str(node.get("state", "ALIVE")).upper() not in {"ALIVE", "UP", "ACTIVE"}:
+            continue
+        return str(node.get("node_id") or "") or None
+    return None
+
+
+def _no_serve_instance(detail: str | None) -> bool:
+    """Whether a Serve probe's error says the cluster has no Serve running.
+
+    That is what a freshly started head answers: the cluster is there and
+    reachable, and Serve has simply not been started on it -- an absent
+    application, as opposed to a probe that could not see.
+    """
+    return "no serve instance" in (detail or "").lower()
 
 
 def _reported_route_prefix(deployment: Any) -> str | None:
@@ -476,6 +507,79 @@ class RayDeploymentManager:
         # Desired ACTIVE
         # ------------------------------------------------------------------
 
+        # 3. Gate on the environment (head must exist).
+        if facts.head_node_id is None:
+            self._observe(
+                deployment, DeploymentPhase.PENDING,
+                "no head node bound to environment; waiting", False,
+                observed={"reconciled": False, "reason": "no head"},
+            )
+            return
+
+        # 3b. Gate on environment readiness (F40): a deployment never acts on
+        # a cluster that is not up — that would fail RUN_SERVE_APP and park
+        # the deployment in FAILED.  Stay PENDING (unobserved) and re-check.
+        env_status = getattr(facts.environment, "status", None)
+        if env_status != EnvironmentStatus.READY:
+            if deployment.phase in (DeploymentPhase.RUNNING.value, DeploymentPhase.DEGRADED.value):
+                # It was serving. Nothing is applied to a cluster that is not
+                # up, but what is still serving is worth saying -- and what is
+                # not has to stop being routed to.
+                await self._observe_on_unready_cluster(session, deployment, facts, node_control)
+                return
+            self._observe(
+                deployment, DeploymentPhase.PENDING,
+                f"environment not ready ({env_status}); waiting", False,
+                observed={"reconciled": False, "reason": "environment not ready"},
+                mark_observed=False,
+            )
+            return
+
+        # 3a. Already applied at this generation: this pass is a look, not a
+        # deploy. Nothing below is recomputed for it -- the compiled config
+        # depends on where the model is, and "where" wobbles: a pass that ran
+        # while the agents were reconnecting read the model as not on the
+        # machines, compiled the remote source instead of the local copy, saw
+        # a new config hash, and re-applied -- restarting a model that was
+        # serving perfectly well. It is re-applied only when it is gone.
+        observed_json = deployment.observed_status_json or {}
+        applied_hash = observed_json.get("applied_config_hash")
+        if (
+            applied_hash
+            and observed_json.get("applied_generation") == deployment.generation
+            and deployment.phase in (DeploymentPhase.RUNNING.value, DeploymentPhase.DEGRADED.value)
+        ):
+            client = self._client_for(node_control)
+            if not await self._gone(client, deployment, facts):
+                cached = observed_json.get("observation", {}).get(
+                    "run", {"app": app_name, "deployed": True, "cached": True}
+                )
+                await self._observe_serving(
+                    session, deployment, facts, client,
+                    config_hash=applied_hash, run_result=cached, observing=True,
+                )
+                return
+
+        # 3b'. Not while a machine is away. Where the model lives is read from
+        # the members that are connected, so with one reconnecting it reads
+        # as absent there: the config compiled to the remote source instead
+        # of the local copy and was applied -- twice on the DGX pair, across
+        # two backend restarts. A reconnect takes seconds; wait for it.
+        away = await self._members_away(session, facts.environment)
+        if away:
+            phase = (
+                DeploymentPhase(deployment.phase)
+                if deployment.phase in (DeploymentPhase.RUNNING.value, DeploymentPhase.DEGRADED.value)
+                else DeploymentPhase.PENDING
+            )
+            self._observe(
+                deployment, phase,
+                f"Waiting for {', '.join(away)} to reconnect before applying.", False,
+                observed={"reconciled": False, "reason": "member offline"},
+                mark_observed=False,
+            )
+            return
+
         # 2. Plan (compile the spec into a LLMServingArgs document).
         try:
             llm_serving_args = self._compile(facts)
@@ -495,28 +599,6 @@ class RayDeploymentManager:
             self._observe(
                 deployment, DeploymentPhase.FAILED, f"compile failed: {exc}",
                 False, observed={"reconciled": False, "reason": "compile"},
-            )
-            return
-
-        # 3. Gate on the environment (head must exist).
-        if facts.head_node_id is None:
-            self._observe(
-                deployment, DeploymentPhase.PENDING,
-                "no head node bound to environment; waiting", False,
-                observed={"reconciled": False, "reason": "no head"},
-            )
-            return
-
-        # 3b. Gate on environment readiness (F40): a deployment never acts on
-        # a cluster that is not up — that would fail RUN_SERVE_APP and park
-        # the deployment in FAILED.  Stay PENDING (unobserved) and re-check.
-        env_status = getattr(facts.environment, "status", None)
-        if env_status != EnvironmentStatus.READY:
-            self._observe(
-                deployment, DeploymentPhase.PENDING,
-                f"environment not ready ({env_status}); waiting", False,
-                observed={"reconciled": False, "reason": "environment not ready"},
-                mark_observed=False,
             )
             return
 
@@ -682,9 +764,15 @@ class RayDeploymentManager:
         # PREPARING on a *running* deployment (a node joining the environment,
         # a STALE digest) re-ran ``serve.run`` with an identical config and
         # restarted every replica for nothing.
+        current_head = _cluster_head(facts.environment)
+        applied_head = (deployment.observed_status_json or {}).get("applied_head")
         need_apply = (
             (applied_hash != config_hash)
             or (deployment.phase == DeploymentPhase.FAILED.value)
+            # The cluster's head was started again since this was applied --
+            # re-formed after it died, or its machine rebooted -- and a new
+            # head starts with no Serve applications at all.
+            or bool(applied_head and current_head and applied_head != current_head)
         )
         if not need_apply:
             serve_status = await self._probe_serve(
@@ -694,6 +782,10 @@ class RayDeploymentManager:
                 current = _serve_app_entry(serve_status, app_name)
                 if current is None or (current.get("status") or "").upper() == "DEPLOY_FAILED":
                     need_apply = True
+            elif serve_status is not None and _no_serve_instance(serve_status.detail):
+                # The cluster answered, and it has no Serve at all: the app is
+                # absent, not unobserved.
+                need_apply = True
             # An unobserved probe (alive=False) is not proof of absence: do
             # not redeploy on it — readiness below keeps the row pending.
 
@@ -734,6 +826,53 @@ class RayDeploymentManager:
                 deployment.id, config_hash[:8],
             )
 
+        if need_apply and deployment.phase != DeploymentPhase.RUNNING.value:
+            # Waiting for the copies takes minutes and the pass commits only at
+            # its end. After a cluster restart the page went on reading
+            # "Checking again before restarting anything" for the whole wait
+            # while the model was in fact being applied again. (A serving
+            # model being scaled keeps reading Running: it is.)
+            restarted = bool(applied_head and current_head and applied_head != current_head)
+            self._observe(
+                deployment, DeploymentPhase.APPLYING,
+                "The cluster was restarted: applying the model again; its copies are starting."
+                if restarted else "Applied; waiting for the copies to start.",
+                False,
+                observed={"reconciled": False, "action": "run", "app": app_name, "run": run_result},
+                mark_observed=False,
+                **({"ready_replicas": 0} if restarted else {}),
+            )
+            await self._commit_progress(session)
+
+        if current_head and (need_apply or not applied_head):
+            # Which head this was applied on, so a head started since is
+            # noticed. Recorded on an observation too, for deployments applied
+            # before this was kept.
+            self._remember_head(deployment, current_head)
+
+        await self._observe_serving(
+            session, deployment, facts, client,
+            config_hash=config_hash, run_result=run_result,
+        )
+
+    async def _observe_serving(
+        self,
+        session,
+        deployment: InferenceDeployment,
+        facts: "_DeploymentFacts",
+        client: RayClusterClient,
+        *,
+        config_hash: str,
+        run_result: dict[str, Any],
+        observing: bool = False,
+    ) -> None:
+        """Read how the applied app is doing and record it (steps 5 and 6).
+
+        *observing* is a health check of an app applied earlier, as opposed
+        to the follow-up of an apply this pass made.
+        """
+        app_name = facts.app_name
+
         # 5. Observe readiness (best-effort; unobserved stays pending).
         observed, ready, total = await self._poll_readiness(
             client,
@@ -762,6 +901,18 @@ class RayDeploymentManager:
                 mark_observed=False,
                 ready_replicas=ready,
                 total_replicas=_copies_wanted(facts.spec_data)[0],
+                config_hash=config_hash,
+            )
+            return
+
+        if not observed and observing:
+            # A look that got no answer. The model is as it was, as far as
+            # anyone knows: "serve.run accepted" would claim an apply nobody
+            # made. The next health check looks again.
+            self._observe(
+                deployment, DeploymentPhase(deployment.phase),
+                "Could not check the model just now; it is looked at again within a minute.", False,
+                observed={"reconciled": False, "action": "observe", "app": app_name, "run": run_result},
                 config_hash=config_hash,
             )
             return
@@ -954,6 +1105,20 @@ class RayDeploymentManager:
             facts.availability_root_path = None
 
         return facts
+
+    @staticmethod
+    async def _members_away(session, environment) -> list[str]:
+        """Names of the cluster's machines with no agent connected."""
+        rows = await session.execute(
+            select(InfraNode)
+            .join(InferenceEnvironmentNode, InferenceEnvironmentNode.node_id == InfraNode.id)
+            .where(InferenceEnvironmentNode.environment_id == environment.id)
+        )
+        return sorted(
+            node.agent_id or node.host or str(node.id)
+            for node in rows.scalars()
+            if str(node.status or "").lower() == NodeHealthStatus.OFFLINE.value
+        )
 
     async def _environment_of(self, session, environment_id: uuid.UUID) -> InferenceEnvironment | None:
         try:
@@ -1213,6 +1378,115 @@ class RayDeploymentManager:
     def _client_for(self, node_control: "NodeControlService") -> RayClusterClient:
         return RayClusterClient(node_control)
 
+    async def _gone(self, client: RayClusterClient, deployment: InferenceDeployment, facts: "_DeploymentFacts") -> bool:
+        """Whether an applied app has to be applied again.
+
+        Only when it is not there to serve: its cluster's head was started
+        again since it was applied (a new head has no Serve applications), or
+        Serve answers without it, or answers that it is not running at all.
+        A probe that could not look is not a reason: the app is left alone.
+        """
+        observed = deployment.observed_status_json or {}
+        current_head = _cluster_head(facts.environment)
+        applied_head = observed.get("applied_head")
+        if applied_head and current_head and applied_head != current_head:
+            return True
+        status = await self._probe_serve(
+            client, facts.head_node_id, facts.app_name, facts.runtime_bundle_payload
+        )
+        if status is not None and status.alive:
+            entry = _serve_app_entry(status, facts.app_name)
+            if entry is None or (entry.get("status") or "").upper() == "DEPLOY_FAILED":
+                return True
+        elif status is not None and _no_serve_instance(status.detail):
+            return True
+        if current_head and not applied_head:
+            self._remember_head(deployment, current_head)
+        return False
+
+    @staticmethod
+    async def _commit_progress(session) -> None:
+        try:
+            await session.commit()
+        except Exception:  # noqa: BLE001 - progress text is not worth failing an apply over
+            log.debug("Could not commit deployment progress", exc_info=True)
+
+    @staticmethod
+    def _remember_head(deployment: InferenceDeployment, head: str) -> None:
+        observed = dict(deployment.observed_status_json or {})
+        observed["applied_head"] = head
+        deployment.observed_status_json = observed
+
+    async def _observe_on_unready_cluster(
+        self, session, deployment: InferenceDeployment, facts: "_DeploymentFacts", node_control,
+    ) -> None:
+        """Report a deployment that was serving, on a cluster that is not ready.
+
+        It used to go to PENDING with the counts it had, so a model whose
+        cluster had lost its head kept reading two ready copies and kept being
+        routed to. What the cluster last said decides it now:
+
+        * the head is down -- nothing serves, whatever the count was: zero,
+          which stops the gateway routing to it;
+        * the head answers (a worker dropped out) -- ask Serve and report
+          that: one copy of two still serves, and stays routable;
+        * the cluster could not be looked at (its head machine is offline) --
+          nothing is known, so the counts stay and the message says so.
+
+        Nothing is applied: the deployment reconciler does that once the
+        cluster is ready again, and re-applies if the head changed meanwhile.
+        """
+        environment = facts.environment
+        about = getattr(environment, "status_message", None) or (
+            f"The cluster is {getattr(environment, 'status', 'not ready')}."
+        )
+        cluster = ((getattr(environment, "observed_status_json", None) or {}).get("cluster")) or {}
+        wanted = _copies_wanted(facts.spec_data)[0]
+        observed = {"reconciled": False, "reason": "cluster not ready", "app": facts.app_name}
+
+        # Observed, each of these: DEGRADED keeps the row in the queue on its
+        # own, and leaving the generation behind read "checking now" on the
+        # page for as long as the cluster was down.
+        if cluster.get("observed", True) and not cluster.get("alive"):
+            self._observe(
+                deployment, DeploymentPhase.DEGRADED,
+                f"Not serving. {about}", False,
+                observed=observed,
+                ready_replicas=0, total_replicas=wanted,
+            )
+            return
+
+        # A head the cluster already suspects is not asked again from here:
+        # against a dead one each question takes 30 s, and it is the cluster's
+        # own look that has to get through.
+        recovery = (getattr(environment, "observed_status_json", None) or {}).get("recovery") or {}
+        head_suspect = recovery.get("kind") == "head"
+        entry = None
+        if cluster.get("alive") and not head_suspect:
+            status = await self._probe_serve(
+                self._client_for(node_control), facts.head_node_id, facts.app_name,
+                facts.runtime_bundle_payload,
+            )
+            if status is not None and status.alive:
+                entry = _serve_app_entry(status, facts.app_name)
+        if entry is None:
+            self._observe(
+                deployment, DeploymentPhase.DEGRADED,
+                f"Cannot check the model right now. {about}", False,
+                observed=observed,
+            )
+            return
+        ready, _total = _replica_counts(entry)
+        serving = (
+            f"Serving on {ready} of {_plural(wanted, 'copy')}." if ready else "Not serving."
+        )
+        self._observe(
+            deployment, DeploymentPhase.DEGRADED,
+            f"{serving} {about}", False,
+            observed={**observed, "app_status": entry.get("status"), "ready_replicas": ready},
+            ready_replicas=ready, total_replicas=wanted,
+        )
+
     def _observe(
         self,
         deployment: InferenceDeployment,
@@ -1241,6 +1515,9 @@ class RayDeploymentManager:
         observed_status["observation"] = payload
         if config_hash:
             observed_status["applied_config_hash"] = config_hash
+            # The generation that config belongs to: once it matches, later
+            # passes only look (see step 3a).
+            observed_status["applied_generation"] = deployment.generation
         if mark_observed:
             deployment.observed_generation = deployment.generation
         deployment.phase = phase.value

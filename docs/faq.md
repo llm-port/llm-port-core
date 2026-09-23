@@ -82,6 +82,15 @@ URLs (`/admin/nodes`) and the agent's own messages still say *node*.
 
 ## Clusters
 
+### My cluster says it is restarting itself.
+
+Part of it stopped: Ray on the head, or a worker dropped out. LLM.Port
+checks every cluster once a minute, and when it finds one broken it looks a
+second time before it restarts anything. It re-forms a lost head and rejoins a
+lost worker, then applies the models again. You do not have to do anything.
+[When something fails](resilience.md) lists each failure and what you will
+see.
+
 ### My cluster failed to start. What now?
 
 The cluster page says why, in the words the machine used, and gives you
