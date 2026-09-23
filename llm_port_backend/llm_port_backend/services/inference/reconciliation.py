@@ -395,7 +395,7 @@ async def _sync_member_status(
 
         session = context.session
         bindings = (
-            ((environment.config_json or {}).get("resolved_fabric") or {}).get(
+            ((environment.observed_status_json or {}).get("resolved_fabric") or {}).get(
                 "node_bindings"
             )
             or {}

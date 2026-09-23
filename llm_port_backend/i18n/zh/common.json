@@ -52,8 +52,8 @@
     "pinned": "固定",
     "reset_nav_order": "重置导航顺序",
     "security_map": "数据驻留",
-    "nodes": "节点",
-    "node_profiles": "节点配置文件",
+    "nodes": "机器",
+    "node_profiles": "机器配置文件",
     "scheduler": "调度器",
     "utilities_group": "实用工具",
     "chat_group": "聊天",
@@ -197,7 +197,7 @@
     "show_section": "显示区域",
     "hide_section": "隐藏区域",
     "section_gauges": "系统仪表",
-    "section_node_fleet": "节点船队",
+    "section_node_fleet": "机器",
     "section_stat_cards": "统计数据",
     "section_grafana": "Grafana",
     "section_dependency_health": "依赖健康",
@@ -1195,11 +1195,11 @@
     "raw_inventory_utilization": "原始清单与利用率",
     "inventory": "清单",
     "utilization": "利用率",
-    "node_not_found": "未找到节点。",
-    "fleet_title": "节点群",
-    "no_nodes_registered": "尚未注册任何节点。",
+    "node_not_found": "未找到机器。",
+    "fleet_title": "机器",
+    "no_nodes_registered": "尚未注册任何机器。",
     "search_placeholder": "搜索主机或代理 ID",
-    "add_node": "添加节点",
+    "add_node": "添加机器",
     "host": "主机",
     "status": "状态",
     "state": "状态",
@@ -1215,7 +1215,10 @@
     "gpu_vram": "GPU 显存",
     "seen": "在线",
     "cores_logical": "{{physical}} 核心（{{logical}} 逻辑）",
-    "bytes_free": "{{bytes}} 可用"
+    "bytes_free": "{{bytes}} 可用",
+    "review_pending": "查看",
+    "pending_joins_one": "{{count}} 台机器正在等待批准：{{names}}",
+    "pending_joins_other": "{{count}} 台机器正在等待批准：{{names}}"
   },
   "rag_lite": {
     "documents_title": "RAG 文档",
@@ -1257,13 +1260,13 @@
     "create_collection": "新建集合"
   },
   "node_profiles": {
-    "page_title": "节点配置文件",
-    "create_title": "创建节点配置文件",
-    "edit_title": "编辑节点配置文件",
+    "page_title": "机器配置文件",
+    "create_title": "创建机器配置文件",
+    "edit_title": "编辑机器配置文件",
     "create": "创建配置文件",
     "name": "名称",
     "description": "描述",
-    "is_default": "新节点的默认配置文件",
+    "is_default": "新机器的默认配置文件",
     "configuration": "配置",
     "profile": "配置文件",
     "none": "未分配配置文件",
@@ -1271,9 +1274,9 @@
     "runtime": "运行时",
     "gpu_vendor": "GPU 厂商",
     "created": "创建时间",
-    "empty": "暂无节点配置文件。创建一个以开始。",
+    "empty": "暂无机器配置文件。创建一个以开始。",
     "search_placeholder": "搜索配置文件…",
     "delete_title": "删除配置文件",
-    "delete_confirm": "删除配置文件 \"{{name}}\"？使用此配置文件的节点将被取消分配。"
+    "delete_confirm": "删除配置文件 \"{{name}}\"？使用此配置文件的机器将被取消分配。"
   }
 }

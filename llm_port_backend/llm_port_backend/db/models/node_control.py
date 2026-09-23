@@ -79,6 +79,8 @@ class NodeCommandType(enum.StrEnum):
 
     # --- Runtime bundle readiness (Phase 4B) ---
     ENSURE_RUNTIME_IMAGE = "ensure_runtime_image"
+    #: Serve this node's runtime image to cluster peers over the fabric.
+    SERVE_RUNTIME_IMAGE = "serve_runtime_image"
 
 
 class InfraNodeProfile(Base):

@@ -17,13 +17,14 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from starlette import status
 
 from llm_port_backend.db.dao.llm_dao import ModelDAO
 from llm_port_backend.db.dao.node_control_dao import NodeControlDAO
 from llm_port_backend.db.models.node_control import InfraNode
 from llm_port_backend.services.docker.client import DockerService
+from llm_port_backend.services.inference import image_cache
 from llm_port_backend.services.nodes import NodeControlService
 from llm_port_backend.settings import settings
 
@@ -83,6 +84,18 @@ from llm_port_backend.services.llm.artifacts import (
 # ------------------------------------------------------------------
 # Endpoints
 # ------------------------------------------------------------------
+
+@router.get("/whoami", name="node_whoami")
+async def node_whoami(node: InfraNode = Depends(_authenticate_node)) -> dict[str, Any]:
+    """Which machine this credential belongs to -- and that it still works.
+
+    Lets an already-enrolled agent tell "I am a member here" from "I need to
+    ask to join" without changing anything. Re-running the install line is
+    how an operator upgrades, and it used to file a fresh join request for a
+    machine that was already in the fleet.
+    """
+    return {"node_id": str(node.id), "agent_id": node.agent_id, "host": node.host}
+
 
 @router.get(
     "/models/{model_id}/manifest",
@@ -228,13 +241,17 @@ async def image_save(
     request: Request,
     image: str,
     tag: str = "latest",
+    expect_id: str | None = None,
+    expect_rootfs: str | None = None,
     _node: InfraNode = Depends(_authenticate_node),
-) -> StreamingResponse:
-    """Stream a ``docker save`` tarball so the agent can load it offline.
+) -> Response:
+    """Hand a node the runtime image as a tar it can ``docker load``.
 
-    The caller specifies the image name and tag.  This endpoint uses the
-    Docker Engine API (via the mounted socket) to export the image as a
-    tar archive and streams it back in chunked pieces.
+    Served from a one-time export when there is room for one, so the
+    transfer has a real length and can be resumed with ``Range``; otherwise
+    streamed live as before. ``expect_id``/``expect_rootfs`` are the pin the
+    node was told to run: when this server holds a different build it says so
+    with a 409 instead of sending twelve gigabytes the node will refuse.
     """
     ref = f"{image}:{tag}"
     if not _SAFE_IMAGE_RE.match(ref):
@@ -251,8 +268,30 @@ async def image_save(
             detail=f"Image {ref} not found on this host.",
         )
 
-    # Expose image size so the node agent can report download progress.
-    image_size = info.get("Size") or info.get("VirtualSize") or 0
+    try:
+        image_cache.verify_expected(info, expect_id=expect_id, expect_rootfs=expect_rootfs)
+    except image_cache.ImageMismatch as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    image_id = str(info.get("Id") or "")
+    unpacked_size = int(info.get("Size") or info.get("VirtualSize") or 0)
+    if image_id:
+        try:
+            exported = await image_cache.ensure_export(docker, ref, image_id, unpacked_size)
+        except Exception:  # never let the cache stand between a node and its image
+            log.exception("Could not export %s; streaming it instead", ref)
+            exported = None
+        if exported is not None:
+            return FileResponse(
+                exported,
+                media_type="application/x-tar",
+                filename=ref.replace("/", "_").replace(":", "_") + ".tar",
+                headers={"X-Image-Id": image_id},
+            )
+
+    # No export: stream live. Not resumable, and the only size known up front
+    # is the unpacked one, which overstates the wire size about threefold.
+    image_size = unpacked_size
 
     async def _stream_docker_save():
         async with docker.client.images.export_image(ref) as stream:

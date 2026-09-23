@@ -887,8 +887,9 @@ class MultiNodeFabricPlanner:
                 nid: b.model_dump() for nid, b in selected_cand.node_bindings.items()
             },
         }
-        # Backward-compat projection in config_json
-        cfg["resolved_fabric"] = resolved_fabric_data
+        # Deliberately not projected into config_json. That column is operator
+        # intent, and a PATCH of it replaces it wholesale -- which is correct
+        # for intent and fatal for anything derived that was hiding in there.
         env.config_json = cfg
 
         # Authoritative storage in observed_status_json (Amendment 1).  The

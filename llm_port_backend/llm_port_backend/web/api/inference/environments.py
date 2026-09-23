@@ -44,6 +44,9 @@ from llm_port_backend.web.api.rbac import require_permission
 router = APIRouter()
 _ENV = "inference.environments"
 
+#: Statuses in which a member machine may be reporting progress worth showing.
+_COMING_UP = frozenset({"pending", "preparing"})
+
 
 @router.get("", response_model=list[EnvironmentDTO])
 @router.get("/", response_model=list[EnvironmentDTO], include_in_schema=False)
@@ -53,7 +56,13 @@ async def list_environments(
     service: EnvironmentService = Depends(),
 ) -> list[EnvironmentDTO]:
     """List inference environments, optionally filtered by control plane."""
-    return [_dto_from_env(e) for e in await service.list(control_plane_id=control_plane_id)]
+    dtos = []
+    for env in await service.list(control_plane_id=control_plane_id):
+        dto = _dto_from_env(env)
+        if env.status in _COMING_UP:
+            dto.progress = await service.lifecycle_progress(env.id)
+        dtos.append(dto)
+    return dtos
 
 
 @router.post("", response_model=EnvironmentDTO, status_code=status.HTTP_201_CREATED)
@@ -90,7 +99,10 @@ async def get_environment(
         env = await service.get(environment_id)
     except InferenceError as exc:
         raise _map_inference_error(exc)
-    return _dto_from_env(env)
+    dto = _dto_from_env(env)
+    if env.status in _COMING_UP:
+        dto.progress = await service.lifecycle_progress(env.id)
+    return dto
 
 
 @router.patch("/{environment_id}", response_model=EnvironmentDTO)
@@ -112,12 +124,13 @@ async def update_environment(
 @router.delete("/{environment_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_environment(
     environment_id: uuid.UUID,
+    force: bool = Query(False, description="Delete a running cluster whose machines are all offline."),
     _user: User = Depends(require_permission(_ENV, "delete")),
     service: EnvironmentService = Depends(),
 ) -> None:
-    """Delete an environment. Refused while deployments exist."""
+    """Delete an environment. Refused while deployments exist, or while it runs."""
     try:
-        await service.delete(environment_id)
+        await service.delete(environment_id, force=force)
     except InferenceError as exc:
         raise _map_inference_error(exc)
 

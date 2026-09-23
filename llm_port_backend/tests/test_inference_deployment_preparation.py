@@ -169,14 +169,19 @@ async def test_deployment_phase_progression_pending_preparing_applying_running(
     manager = RayDeploymentManager()
     fake_control = _FakeNodeControlService()
 
-    # Pass 1: Artifacts not ready yet (no row).
-    # Reconciler should discover unready artifacts, issue ensure(), and enter PREPARING.
+    # Pass 1: artifacts are not ready, and this server has no local copy of
+    # "org/test-model" to send -- so no sync can be issued at all.
+    #
+    # This used to enter PREPARING and stay there. The coordinator did say it
+    # could not send the model, but its answer was discarded and the pass
+    # reported the readiness from *before* the attempt, so the deployment sat
+    # on "Copying the model" waiting for a copy that nothing had started.
+    #
+    # With remote fetch allowed (``offline_only: False``) that refusal is not
+    # fatal -- the node fetches the model itself -- so the honest outcome is
+    # to stop waiting and get on with applying.
     await manager.reconcile_deployment(dbsession, dep, node_control=fake_control)
-    assert dep.phase == DeploymentPhase.PREPARING.value
-    assert dep.observed_generation == 0  # mark_observed=False
-    obs = dep.observed_status_json.get("observation", {})
-    assert obs.get("reason") == "preparing_artifacts"
-    assert obs.get("remote_fallback_available") is True
+    assert dep.phase == DeploymentPhase.APPLYING.value
 
     # Pass 2: Mark artifacts as READY with valid bundle mount path
     dao = ModelAvailabilityDAO(dbsession)
@@ -210,9 +215,14 @@ async def test_deployment_phase_progression_pending_preparing_applying_running(
     assert dep.observed_generation == 0  # mark_observed=False
 
     # Verify that the RUN_SERVE_APP command received the translated container path!
+    #
+    # Two runs by now, not one: pass 1 applied against the remote source
+    # because this server had no copy to send, and this pass re-applies now
+    # that the node reports a local one. The last is the one that carries the
+    # translated path.
     run_serve_cmds = [c for c in fake_control.issued if c["command_type"] == NodeCommandType.RUN_SERVE_APP.value]
-    assert len(run_serve_cmds) == 1
-    llm_args = run_serve_cmds[0]["payload"]["llm_serving_args"]
+    assert len(run_serve_cmds) == 2
+    llm_args = run_serve_cmds[-1]["payload"]["llm_serving_args"]
     # Host /srv/llm-port/models maps to container /models
     assert (
         llm_args["llm_configs"][0]["model_loading_config"]["model_source"]

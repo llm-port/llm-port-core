@@ -11,6 +11,9 @@ from __future__ import annotations
 
 import os
 import platform
+import signal
+import socket
+import time
 import shlex
 import shutil
 import subprocess
@@ -18,6 +21,7 @@ import sys
 from pathlib import Path
 
 import click
+import psutil
 
 from llmport.core.console import console, success, warning, error, info
 from llmport.core.registry import DEV_ENDPOINTS
@@ -60,6 +64,14 @@ def _ensure_databases(backend_dir: Path) -> None:
         _ensure_backend_role(backend_dir)
 
 
+#: The Windows Terminal window these tabs go into.
+#:
+#: Named rather than numbered so a second ``dev up`` reuses the same window
+#: instead of opening another, and so the tabs never land in a window the
+#: operator is working in.
+_WT_WINDOW_NAME = "llmport-dev"
+
+
 def _launch_terminal(title: str, working_dir: Path, command: str, headless: bool) -> bool:
     """Start a dev process.
 
@@ -80,9 +92,25 @@ def _launch_terminal(title: str, working_dir: Path, command: str, headless: bool
 
         wt = _which("wt")
         if wt:
+            # ``-w`` is what makes these tabs rather than windows.
+            #
+            # ``wt new-tab`` on its own opens a *new window* every time it is
+            # invoked -- "new-tab" describes what it puts in the window, not
+            # where it puts it -- so starting four services gave four windows
+            # scattered across the desktop.
+            #
+            # Naming the window fixes that, and Terminal creates it on first
+            # use: "If no window exists with the given window-id, then a new
+            # window will be created with that id/name." So the backend opens
+            # the window and the worker, gateway and frontend land beside it.
+            #
+            # A name rather than ``0`` ("most recent window") on purpose: with
+            # ``0`` the tabs would land in whichever Terminal window the
+            # operator happened to touch last, which may be one they are
+            # working in.
             subprocess.Popen(
                 [
-                    wt, "new-tab",
+                    wt, "-w", _WT_WINDOW_NAME, "new-tab",
                     "--title", title,
                     "--startingDirectory", str(working_dir),
                     shell, "-NoExit", "-Command", command,
@@ -149,27 +177,57 @@ def _launch_background(working_dir: Path, command: str, label: str | None = None
     # ~./local/bin (uv, taskiq extras) and SDK locations may be missing
     # from PATH. Prepend the usual suspects so the launched command
     # resolves the same tools an interactive shell would.
-    extra_path = os.pathsep.join(
-        filter(
-            None,
-            [
-                str(Path.home() / ".local" / "bin"),
-                str(Path.home() / ".cargo" / "bin"),
-                "/opt/homebrew/bin",
-                "/usr/local/bin",
-            ],
-        )
-    )
-    script = f"set -e\nexport PATH={shlex.quote(extra_path + os.pathsep) }${{PATH:-}}\ncd {shlex.quote(str(working_dir))}\n{command}\n"
+    is_windows = platform.system() == "Windows"
+    candidates = [
+        str(Path.home() / ".local" / "bin"),
+        str(Path.home() / ".cargo" / "bin"),
+    ]
+    if not is_windows:
+        candidates += ["/opt/homebrew/bin", "/usr/local/bin"]
+    extra_path = os.pathsep.join(filter(None, candidates))
+
     try:
         with open(log_file, "ab") as log:
-            proc = subprocess.Popen(
-                ["bash", "-c", script],
-                stdout=log,
-                stderr=subprocess.STDOUT,
-                stdin=subprocess.DEVNULL,
-                start_new_session=True,
-            )
+            if is_windows:
+                # Windows has no bash of its own, and the one Git ships cannot
+                # cd into a native path -- a quoted C:\... is not a POSIX path.
+                # Every headless service died on the script's first line with
+                # "No such file or directory" and left a 100-byte log saying
+                # so. Use the platform's own shell, and let Popen set the
+                # directory instead of writing a cd at all.
+                env = dict(os.environ)
+                env["PATH"] = extra_path + os.pathsep + env.get("PATH", "")
+                proc = subprocess.Popen(
+                    command,
+                    shell=True,
+                    cwd=str(working_dir),
+                    env=env,
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                    stdin=subprocess.DEVNULL,
+                    # CREATE_NO_WINDOW, not DETACHED_PROCESS: both hide the
+                    # console, but a detached process does not inherit the
+                    # handles passed above, so every log file stayed empty --
+                    # which defeats the whole point of headless mode.
+                    creationflags=(
+                        subprocess.CREATE_NEW_PROCESS_GROUP
+                        | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                    ),
+                )
+            else:
+                script = (
+                    "set -e\n"
+                    f"export PATH={shlex.quote(extra_path + os.pathsep)}${{PATH:-}}\n"
+                    f"cd {shlex.quote(str(working_dir))}\n"
+                    f"{command}\n"
+                )
+                proc = subprocess.Popen(
+                    ["bash", "-c", script],
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                    stdin=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
     except OSError as exc:
         error(f"Could not start background process for {working_dir}: {exc}")
         return False
@@ -349,6 +407,371 @@ def _ensure_gateway_env(api_dir: Path, workspace: Path) -> None:
     info("Gateway .env completed with missing dev defaults.")
 
 
+#: Ports the dev services bind, for the check after stopping them.
+_DEV_PORTS = {8000: "Backend", 8001: "API gateway", 5173: "Frontend"}
+
+
+def _own_process_chain() -> set[int]:
+    """This process and every ancestor of it.
+
+    The reclaim matches on the workspace path, and so does the command line of
+    whatever launched us -- ``uv run -m llmport`` from a shell inside the
+    workspace. Without this the reclaim killed its own parent.
+    """
+    chain: set[int] = set()
+    pid = os.getpid()
+    for _ in range(12):  # a guard against a cycle, not a real depth limit
+        if pid <= 0 or pid in chain:
+            break
+        chain.add(pid)
+        parent = _parent_pid(pid)
+        if parent is None:
+            break
+        pid = parent
+    return chain
+
+
+def _parent_pid(pid: int) -> int | None:
+    """The parent of *pid*, or ``None`` when it cannot be determined."""
+    if platform.system() == "Windows":
+        try:
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-Command",
+                 f"(Get-CimInstance Win32_Process -Filter 'ProcessId={pid}')"
+                 ".ParentProcessId"],
+                capture_output=True, text=True, timeout=20,
+            )
+        except Exception:  # noqa: BLE001 - best effort
+            return None
+        text = result.stdout.strip()
+        return int(text) if text.isdigit() else None
+
+    try:
+        # /proc/<pid>/stat: pid (comm) state ppid ... -- comm can contain
+        # spaces and parentheses, so split after the last ')'.
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+        return int(stat[stat.rindex(")") + 1:].split()[1])
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def _stop_workspace_services(workspace: Path) -> list[int]:
+    """Stop every dev service already running out of *workspace*.
+
+    Scoped by the workspace path rather than by process name: the point is to
+    reclaim *this* checkout's services, not to kill anybody's unrelated
+    Python. Every one of them -- backend, worker, gateway, frontend -- runs
+    from an interpreter or a node_modules under the workspace, so the path is
+    in the command line.
+
+    Returns the pids stopped, for the caller to report.
+    """
+    if platform.system() != "Windows":
+        return _stop_workspace_services_posix(workspace)
+
+    # Get-Process has no CommandLine on PowerShell 5.1, so a Where-Object on
+    # it matches nothing and the stop silently does nothing. CIM has it on
+    # every version.
+    script = (
+        "$ws = '" + str(workspace).replace("'", "''") + "';"
+        "Get-CimInstance Win32_Process |"
+        " Where-Object { $_.CommandLine -and $_.CommandLine -like \"*$ws*\" -and"
+        " ($_.Name -eq 'python.exe' -or $_.Name -eq 'node.exe' -or"
+        "  $_.Name -eq 'taskiq.exe' -or $_.Name -eq 'uv.exe') } |"
+        " ForEach-Object { $_.ProcessId }"
+    )
+    try:
+        found = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", script],
+            capture_output=True, text=True, timeout=60,
+        )
+    except Exception:  # noqa: BLE001 - reclaiming is best effort
+        return []
+
+    pids = [int(line) for line in found.stdout.split() if line.strip().isdigit()]
+    # Spare this command and everything that launched it.
+    #
+    # Sparing only our own pid was not enough: ``dev up`` runs as
+    # ``uv run -m llmport``, so ``uv.exe`` is our parent and its command line
+    # names the workspace just as a service's does. Killing it took the whole
+    # terminal down, mid-reclaim, leaving nothing started and no explanation.
+    own = _own_process_chain()
+    pids = [pid for pid in pids if pid not in own]
+    for pid in pids:
+        subprocess.run(
+            ["taskkill", "/F", "/PID", str(pid)], capture_output=True, timeout=30
+        )
+    return pids
+
+
+def _stop_workspace_services_posix(workspace: Path) -> list[int]:
+    """The same, through /proc-backed pgrep."""
+    try:
+        found = subprocess.run(
+            ["pgrep", "-f", str(workspace)], capture_output=True, text=True, timeout=30
+        )
+    except Exception:  # noqa: BLE001 - pgrep is absent on some images
+        return []
+
+    own = _own_process_chain()
+    pids = [
+        int(line)
+        for line in found.stdout.split()
+        if line.strip().isdigit() and int(line) not in own
+    ]
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            continue
+    return pids
+
+
+#: How ``dev up`` invokes each service. Matched literally, so an ad-hoc shell
+#: that merely mentions a module name is not mistaken for a running service.
+_SERVICE_INVOCATIONS = (
+    "uv run -m llm_port_backend",
+    "uv run -m llm_port_api",
+    "uv run taskiq worker",
+    "npm run dev",
+)
+
+
+def _is_within(path: Path, root: Path) -> bool:
+    """Whether *path* is *root* or sits under it."""
+    try:
+        path.resolve().relative_to(root.resolve())
+    except (ValueError, OSError):
+        return False
+    return True
+
+
+def _stop_service_hosts(workspace: Path) -> list[int]:
+    """Stop the terminals hosting this workspace's services.
+
+    ``_stop_workspace_services`` matches the workspace path in a command
+    line. The service processes satisfy that; the shells hosting them do
+    not. A tab runs ``pwsh -NoExit -Command uv run -m llm_port_backend``,
+    which names the module and no path at all, so the leaf process was
+    killed and its host survived.
+
+    That is what "the backend serves stale code" actually was. The host had
+    inherited the listening socket, so the port stayed bound after its child
+    died; the replacement could not bind, exited without saying anything,
+    and the old code kept answering. Observed here as seven LISTEN entries
+    on port 8000, every one owned by a pid that no longer existed.
+
+    Matched on the exact invocation *and* a working directory inside the
+    workspace, so a second checkout running the same module is left alone.
+    """
+    own = _own_process_chain()
+    stopped: list[int] = []
+    for proc in psutil.process_iter(["cmdline"]):
+        if proc.pid in own:
+            continue
+        try:
+            cmdline = " ".join(proc.info.get("cmdline") or [])
+            if not any(form in cmdline for form in _SERVICE_INVOCATIONS):
+                continue
+            inside = str(workspace) in cmdline or _is_within(Path(proc.cwd()), workspace)
+        except (psutil.Error, OSError):
+            continue
+        if not inside:
+            continue
+        try:
+            proc.kill()
+            stopped.append(proc.pid)
+        except psutil.Error:
+            continue
+    return stopped
+
+
+def _ports_still_held() -> dict[int, str]:
+    """Which dev ports are still listening, and what they are for.
+
+    Checked after stopping, because "the port is free" is the only thing that
+    actually predicts whether the service about to start will be the one
+    serving. A process we did not recognise -- started by hand, or from
+    another checkout -- holds the port just as well.
+    """
+    held: dict[int, str] = {}
+    for port, name in _DEV_PORTS.items():
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.settimeout(0.5)
+            if probe.connect_ex(("127.0.0.1", port)) == 0:
+                held[port] = name
+    return held
+
+
+#: How multiprocessing re-execs a worker. The whole command line, on every
+#: platform, is this import plus a handle -- no module name, no package, no
+#: path to anything that would say which service it belongs to.
+_MULTIPROCESSING_WORKER = "from multiprocessing.spawn import spawn_main"
+
+
+def _stop_orphaned_workers() -> list[int]:
+    """Stop multiprocessing workers whose supervisor is gone.
+
+    uvicorn and taskiq spawn their workers through ``multiprocessing``. Stop
+    the supervisor and those children survive, still holding the listening
+    socket they inherited -- and then nothing can find them. The system
+    connection table still attributes the socket to the supervisor, which no
+    longer exists, and no live process reports holding it either. The port
+    stays bound, and keeps serving the old build, while every tool that
+    looks says nobody owns it.
+
+    That is what "the backend is serving stale code" was. Twelve of these
+    were answering on port 8000 with every parent long dead, and they came
+    back on each restart because each restart made more.
+
+    Matched on that command line *and* a parent that no longer exists: the
+    workers of a running service have a living supervisor and are left alone.
+    """
+    own = _own_process_chain()
+    stopped: list[int] = []
+    for proc in psutil.process_iter(["cmdline", "ppid"]):
+        if proc.pid in own:
+            continue
+        try:
+            cmdline = " ".join(proc.info.get("cmdline") or [])
+            if _MULTIPROCESSING_WORKER not in cmdline:
+                continue
+            parent = proc.info.get("ppid")
+            if parent and psutil.pid_exists(parent):
+                continue  # its supervisor is alive; not ours to reap
+            proc.kill()
+        except (psutil.Error, OSError):
+            continue
+        stopped.append(proc.pid)
+    return stopped
+
+
+def _stop_port_holders(ports: dict[int, str]) -> list[int]:
+    """Stop whatever still holds a dev port, whatever it looks like.
+
+    Recognising a service by its name or path cannot be made to work.
+    uvicorn and taskiq spawn their workers through ``multiprocessing``,
+    which re-execs as ``python -c "from multiprocessing.spawn import
+    spawn_main; ..."``: no module name, no workspace path, and on this
+    machine not even the workspace's own interpreter -- the system one.
+    Twelve such orphans were found serving port 8000 with every parent long
+    dead, answering requests from another host, invisible to every filter
+    written to look for them.
+
+    So stop matching on what a process looks like. What matters is that it
+    is sitting on the port the service about to start needs. Its own process
+    chain is spared, as always.
+    """
+    own = _own_process_chain()
+    stopped: list[int] = []
+    try:
+        connections = psutil.net_connections(kind="inet")
+    except (psutil.Error, OSError, PermissionError):
+        return stopped
+
+    holders: dict[int, set[int]] = {}
+    for conn in connections:
+        if conn.status != psutil.CONN_LISTEN or not conn.pid or not conn.laddr:
+            continue
+        if conn.laddr.port in ports:
+            holders.setdefault(conn.laddr.port, set()).add(conn.pid)
+
+    for port, pids in sorted(holders.items()):
+        for pid in sorted(pids):
+            if pid in own or pid <= 4:  # never the idle/system pids
+                continue
+            try:
+                proc = psutil.Process(pid)
+                name = proc.name()
+            except psutil.Error:
+                continue
+            for victim in _supervisor_tree(proc, own):
+                try:
+                    victim.kill()
+                    stopped.append(victim.pid)
+                except psutil.Error:
+                    continue
+            warning(f"Stopped {name} (pid {pid}) still holding port {port} ({ports[port]}).")
+    return stopped
+
+
+#: Processes that exist to run another process. Walked through when looking
+#: for the supervisor above a port holder.
+_SUPERVISOR_NAMES = frozenset({
+    "python.exe", "python", "python3", "uv.exe", "uv", "cmd.exe",
+    "node.exe", "node", "taskiq.exe", "npm.cmd", "pwsh.exe", "powershell.exe",
+    "sh", "bash",
+})
+
+
+def _supervisor_tree(proc: psutil.Process, own: set[int]) -> list[psutil.Process]:
+    """*proc*, its supervisor, and everything under that -- children first.
+
+    Killing the process that holds the port is not enough on its own. The
+    backend runs under a reload supervisor, so removing the worker just makes
+    the parent start another one, on the same port, and the reclaim reports
+    failure against a pid that did not exist when it looked. Walk up to the
+    top of the chain that exists only to run this service, then take the
+    whole tree.
+
+    The walk stops at anything outside that set, and at our own chain, so it
+    never climbs out into the operator's session.
+    """
+    top = proc
+    try:
+        for parent in proc.parents():
+            if parent.pid in own or parent.pid <= 4:
+                break
+            if parent.name().lower() not in _SUPERVISOR_NAMES:
+                break
+            top = parent
+    except psutil.Error:
+        pass
+
+    try:
+        # Children first: a supervisor that outlives its workers restarts them.
+        tree = [*reversed(top.children(recursive=True)), top]
+    except psutil.Error:
+        tree = [top]
+    return [p for p in tree if p.pid not in own and p.pid > 4]
+
+
+def _reclaim_workspace(workspace: Path) -> None:
+    """Stop this workspace's services and say what is still in the way."""
+    stopped = _stop_workspace_services(workspace)
+    # Then the shells hosting them, which keep the listening socket alive
+    # after their child is gone.
+    stopped += _stop_service_hosts(workspace)
+    # And the workers those hosts left behind, which hold the port while
+    # appearing to belong to nobody.
+    stopped += _stop_orphaned_workers()
+    if stopped:
+        success(f"Stopped {len(stopped)} process(es) from a previous run.")
+
+    # Sockets linger briefly after the process holding them dies.
+    for _ in range(10):
+        held = _ports_still_held()
+        if not held:
+            return
+        time.sleep(0.5)
+
+    # Still held: stop whatever is on the port, since by now it is not a
+    # socket closing but a process that no filter above recognised.
+    if _stop_port_holders(held):
+        for _ in range(10):
+            held = _ports_still_held()
+            if not held:
+                return
+            time.sleep(0.5)
+
+    for port, name in held.items():
+        warning(
+            f"Port {port} ({name}) is still in use and could not be stopped. "
+            f"That process will keep serving, and the one started below will "
+            f"exit quietly -- so what answers on {port} will not be this build."
+        )
+
+
 def _stop_old_workers() -> None:
     """Kill any stale taskiq worker processes."""
     if platform.system() != "Windows":
@@ -517,6 +940,15 @@ def dev_up(
     if not skip_migrations and not frontend_only and backend_dir.exists():
         from llmport.commands.dev.dev_init import _run_migrations
         _run_migrations(backend_dir)
+
+    # ── Reclaim the workspace ─────────────────────────────────────
+    # Before anything is launched, not after: a service that is already
+    # running keeps its port, so the one started below exits immediately and
+    # the old one carries on serving. Nothing about that looks like a
+    # failure -- ``dev up`` reports success, the logs show a clean start, and
+    # the running system quietly ignores every change made since.
+    console.print("\n[cyan]Stopping anything already running here…[/cyan]")
+    _reclaim_workspace(workspace)
 
     started: list[str] = []
 

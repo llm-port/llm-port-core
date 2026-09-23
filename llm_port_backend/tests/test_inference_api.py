@@ -605,7 +605,7 @@ async def test_environment_apply_plan_endpoint(
     )
     assert apply_r.status_code == 200, apply_r.text
     applied = apply_r.json()
-    resolved = applied["config"]["resolved_fabric"]
+    resolved = applied["observed_status"]["resolved_fabric"]
     assert resolved["fabric_type"] == "roce"
     assert resolved["speed_gbps"] == 200.0
     assert resolved["node_bindings"][str(n1.id)]["ip"] == "10.100.0.1"
@@ -724,3 +724,51 @@ async def test_environment_apply_plan_ignores_tampered_bindings(
     bound = apply_r.json()["observed_status"]["resolved_fabric"]["node_bindings"]
     assert {b["ip"] for b in bound.values()} == {"10.100.0.1", "10.100.0.2"}
     assert all(b["interface"] == "enp1s0f1np1" for b in bound.values())
+
+
+@pytest.mark.anyio()
+async def test_editing_a_cluster_setting_does_not_delete_its_applied_fabric(
+    client: AsyncClient, authed_fapp: FastAPI, dbsession: AsyncSession
+) -> None:
+    """Changing a port must not unbind the interconnect.
+
+    ``config_json`` is operator intent and a PATCH replaces it, which is what
+    a PATCH of intent should do. The resolved fabric used to be mirrored into
+    that same column, so setting ``head_port`` on a bound cluster silently
+    deleted the node bindings -- the next reconcile then had no address to
+    start the head on, and nothing said why.
+    """
+    cp = await make_control_plane(client, name="cp-patch")
+    env = await make_environment(client, cp["id"], name="env-patch")
+    n1 = await make_dgx_node(dbsession, "spark-ts3202", "10.88.10.49", "10.100.0.1")
+    n2 = await make_dgx_node(dbsession, "spark-3201", "10.88.10.71", "10.100.0.2")
+    await client.post(
+        f"{API}/environments/{env['id']}/nodes",
+        json={"node_id": str(n1.id), "role": "head"},
+    )
+    await client.post(
+        f"{API}/environments/{env['id']}/nodes",
+        json={"node_id": str(n2.id), "role": "worker"},
+    )
+
+    plan = (await client.post(f"{API}/environments/{env['id']}/plan")).json()
+    applied = (
+        await client.post(
+            f"{API}/environments/{env['id']}/apply-plan", json={"plan": plan}
+        )
+    ).json()
+    bound = applied["observed_status"]["resolved_fabric"]["node_bindings"]
+    assert set(bound) == {str(n1.id), str(n2.id)}
+
+    # The operator moves the head port, as they would on a machine that
+    # already has something on 6379.
+    patched = (
+        await client.patch(
+            f"{API}/environments/{env['id']}", json={"config": {"head_port": 6390}}
+        )
+    ).json()
+
+    assert patched["config"]["head_port"] == 6390
+    still_bound = patched["observed_status"]["resolved_fabric"]["node_bindings"]
+    assert set(still_bound) == {str(n1.id), str(n2.id)}
+    assert still_bound[str(n1.id)]["ip"] == "10.100.0.1"

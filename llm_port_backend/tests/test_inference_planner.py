@@ -224,15 +224,15 @@ async def test_plan_environment_discovers_dgx_roce(dbsession: AsyncSession) -> N
     applied_env = await planner.apply_plan(env.id, plan)
     assert applied_env.config_json is not None
     assert applied_env.observed_status_json is not None
-    # Authoritative source in observed_status_json per Amendment 1
+    # The observation owns what was resolved.
     resolved_obs = applied_env.observed_status_json.get("resolved_fabric")
     assert resolved_obs is not None
     assert resolved_obs["fabric_type"] == "roce"
     assert resolved_obs["speed_gbps"] == 200.0
-    # Backward compatibility mirror in config_json
-    resolved_cfg = applied_env.config_json.get("resolved_fabric")
-    assert resolved_cfg is not None
-    assert resolved_cfg["fabric_type"] == "roce"
+    # ...and config_json holds only what the operator asked for. A copy of the
+    # resolution used to live here too, which is how a PATCH setting a port
+    # deleted an applied fabric binding.
+    assert applied_env.config_json.get("resolved_fabric") is None
     assert applied_env.config_json.get("interconnect_policy") is not None
 
 

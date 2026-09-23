@@ -30,6 +30,23 @@ from llm_port_node_agent.tls import websockets_ssl
 
 log = logging.getLogger(__name__)
 
+#: How often the control channel checks the backend is still there.
+_PING_INTERVAL_SEC = 20
+
+#: How long a pong may take before the connection is considered dead.
+#:
+#: This was also 20s, which the agent's own work then broke. Pulling a
+#: runtime image streams roughly 15GB down the same link the control channel
+#: uses; on a 1Gb/s connection that saturates it, a pong queues behind the
+#: transfer, and the socket is closed with "keepalive ping timeout" -- killing
+#: the command that started the transfer. The node reconnects seconds later
+#: and looks fine, while the image is half-loaded, the command is stuck in
+#: ``running`` and the cluster sits at "preparing" with nothing to read.
+#:
+#: The control channel must not be collateral damage of the data path it
+#: coordinates. Two minutes still detects a genuinely dead peer quickly.
+_PING_TIMEOUT_SEC = 120
+
 
 class StreamClient:
     """Manage one outbound stream session lifecycle."""
@@ -73,8 +90,8 @@ class StreamClient:
             ws_url,
             additional_headers=headers,
             open_timeout=self._config.request_timeout_sec,
-            ping_interval=20,
-            ping_timeout=20,
+            ping_interval=_PING_INTERVAL_SEC,
+            ping_timeout=_PING_TIMEOUT_SEC,
             close_timeout=10,
             max_size=2**22,
             ssl=websockets_ssl(self._config) if ws_url.startswith("wss://") else None,

@@ -52,8 +52,8 @@
     "pinned": "Fixiert",
     "reset_nav_order": "Navigationsreihenfolge zurücksetzen",
     "security_map": "Datenresidenz",
-    "nodes": "Knoten",
-    "node_profiles": "Knotenprofile",
+    "nodes": "Maschinen",
+    "node_profiles": "Maschinenprofile",
     "scheduler": "Scheduler",
     "utilities_group": "Dienstprogramme",
     "chat_group": "Chat",
@@ -197,7 +197,7 @@
     "show_section": "Abschnitt anzeigen",
     "hide_section": "Abschnitt ausblenden",
     "section_gauges": "Systemanzeigen",
-    "section_node_fleet": "Knotenflotte",
+    "section_node_fleet": "Maschinen",
     "section_stat_cards": "Statistiken",
     "section_grafana": "Grafana",
     "section_dependency_health": "Abhängigkeitsstatus",
@@ -1195,11 +1195,11 @@
     "raw_inventory_utilization": "Rohinventar & Auslastung",
     "inventory": "Inventar",
     "utilization": "Auslastung",
-    "node_not_found": "Knoten nicht gefunden.",
-    "fleet_title": "Knotenflotte",
-    "no_nodes_registered": "Noch keine Knoten registriert.",
+    "node_not_found": "Maschine nicht gefunden.",
+    "fleet_title": "Maschinen",
+    "no_nodes_registered": "Noch keine Maschinen registriert.",
     "search_placeholder": "Host oder Agent-ID suchen",
-    "add_node": "Knoten hinzufügen",
+    "add_node": "Maschine hinzufügen",
     "host": "Host",
     "status": "Status",
     "state": "Zustand",
@@ -1215,7 +1215,10 @@
     "gpu_vram": "GPU VRAM",
     "seen": "Gesehen",
     "cores_logical": "{{physical}} Kerne ({{logical}} logisch)",
-    "bytes_free": "{{bytes}} frei"
+    "bytes_free": "{{bytes}} frei",
+    "review_pending": "Prüfen",
+    "pending_joins_one": "{{count}} Maschine wartet auf Freigabe: {{names}}",
+    "pending_joins_other": "{{count}} Maschinen warten auf Freigabe: {{names}}"
   },
   "rag_lite": {
     "documents_title": "RAG-Dokumente",
@@ -1257,13 +1260,13 @@
     "create_collection": "Neue Sammlung"
   },
   "node_profiles": {
-    "page_title": "Knotenprofile",
-    "create_title": "Knotenprofil erstellen",
-    "edit_title": "Knotenprofil bearbeiten",
+    "page_title": "Maschinenprofile",
+    "create_title": "Maschinenprofil erstellen",
+    "edit_title": "Maschinenprofil bearbeiten",
     "create": "Profil erstellen",
     "name": "Name",
     "description": "Beschreibung",
-    "is_default": "Standardprofil für neue Knoten",
+    "is_default": "Standardprofil für neue Maschinen",
     "configuration": "Konfiguration",
     "profile": "Profil",
     "none": "Kein Profil zugewiesen",
@@ -1271,9 +1274,9 @@
     "runtime": "Laufzeit",
     "gpu_vendor": "GPU-Hersteller",
     "created": "Erstellt",
-    "empty": "Keine Knotenprofile definiert. Erstellen Sie eines, um loszulegen.",
+    "empty": "Keine Maschinenprofile definiert. Erstellen Sie eines, um loszulegen.",
     "search_placeholder": "Profile durchsuchen…",
     "delete_title": "Profil löschen",
-    "delete_confirm": "Profil \"{{name}}\" löschen? Knoten, die dieses Profil verwenden, werden entkoppelt."
+    "delete_confirm": "Profil \"{{name}}\" löschen? Maschinen, die dieses Profil verwenden, werden entkoppelt."
   }
 }

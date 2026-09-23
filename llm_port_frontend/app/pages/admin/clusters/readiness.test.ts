@@ -169,3 +169,48 @@ describe("gpuCount", () => {
     expect(gpuCount({ ...managedNodes[0], capabilities: {} })).toBe(0);
   });
 });
+
+describe("clusterReadiness while a cluster comes up and when it cannot", () => {
+  it("shows what the machine reports during the first start", () => {
+    const starting: InferenceEnvironment = {
+      ...environment,
+      status: "preparing",
+      progress: {
+        message: "Receiving llmport/ray-vllm-gb10: 4.0 GiB of 12.0 GiB (33%) at 21.0 MiB/s",
+        progress_pct: 33,
+        step: "ensure_runtime_image",
+        node_id: "n1",
+        at: null,
+      },
+    };
+    const step = clusterReadiness(starting, environmentNodes, []);
+    expect(step.stage).toBe("starting");
+    expect(step.detail).toContain("4.0 GiB of 12.0 GiB");
+    expect(step.progressPct).toBe(33);
+  });
+
+  it("falls back to the plain sentence when nothing has been reported yet", () => {
+    const starting: InferenceEnvironment = { ...environment, status: "preparing", progress: null };
+    const step = clusterReadiness(starting, environmentNodes, []);
+    expect(step.detail).toContain("fetching the runtime");
+    expect(step.progressPct).toBeNull();
+  });
+
+  it("gives the reason for a failed start, and a way to retry it", () => {
+    const failed: InferenceEnvironment = {
+      ...environment,
+      status: "failed",
+      status_message: "This server holds a different build of the runtime image.",
+    };
+    const step = clusterReadiness(failed, environmentNodes, []);
+    expect(step.stage).toBe("degraded");
+    expect(step.detail).toContain("different build");
+    expect(step.detail).not.toContain("not reporting");
+    expect(step.actionLabel).toBe("Try again");
+  });
+
+  it("offers no retry for a degraded cluster that is still running", () => {
+    const degraded: InferenceEnvironment = { ...environment, status: "degraded" };
+    expect(clusterReadiness(degraded, environmentNodes, []).actionLabel).toBeUndefined();
+  });
+});

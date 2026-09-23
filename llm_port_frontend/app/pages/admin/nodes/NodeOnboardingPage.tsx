@@ -52,15 +52,27 @@ interface NodeOnboardingDrawerProps {
 }
 
 /**
- * Where this browser is talking to, which is also where the machine should.
+ * Where this browser is talking to.
  *
- * Read from the page rather than configured: the operator is already looking
- * at the backend, so asking them to type its address would be asking them to
- * repeat something the app knows.
+ * Only a fallback now. It used to be the whole answer, on the assumption that
+ * the operator and the machine see the backend the same way -- and when they
+ * do not, the console prints an install command that cannot work. In dev the
+ * browser sits on the Vite proxy, so the command said
+ * `curl http://localhost:5173/...`; run on a real machine that fetches from
+ * itself and finds nothing. The backend is asked instead, because it is the
+ * thing that knows its own addresses.
  */
-function backendOrigin(): string {
+function browserOrigin(): string {
   if (typeof window === "undefined") return "http://<backend-host>:8000";
   return window.location.origin;
+}
+
+/** An address a machine being added can actually reach. */
+interface InstallAddress {
+  url: string;
+  seen_as: string;
+  candidates: { url: string; interface: string }[];
+  request_origin_is_reachable: boolean;
 }
 
 function CopyLine({ command }: { command: string }) {
@@ -217,11 +229,28 @@ export default function NodeOnboardingDrawer({
     { initialValue: [] as NodeJoinRequest[] },
   );
 
-  const origin = backendOrigin();
-  const installCommand = [
-    `curl -fsSLO ${origin}/api/install/llmport-agent.sh`,
-    `sudo sh llmport-agent.sh --join ${origin}`,
-  ].join("\n");
+  // Asked of the backend, not inferred from this page. See browserOrigin().
+  const address = useAsyncData<InstallAddress | null>(
+    () =>
+      open
+        ? nodesApi.installAddress().catch(() => null)
+        : Promise.resolve(null),
+    [open],
+    { initialValue: null },
+  );
+
+  const [chosenOrigin, setChosenOrigin] = useState<string | null>(null);
+  const origin = chosenOrigin ?? address.data?.url ?? browserOrigin();
+  const candidates = address.data?.candidates ?? [];
+  // More than one plausible address means we are guessing. Say so, and let
+  // the operator pick, rather than printing one and being confidently wrong.
+  const ambiguous = candidates.length > 1;
+
+  // One paste, not two. Still downloaded to disk before it runs -- `&&` only
+  // chains the download to the run -- so it can be read first as before.
+  const installCommand =
+    `curl -fsSLO ${origin}/api/install/llmport-agent.sh && ` +
+    `sudo sh llmport-agent.sh --join ${origin}`;
 
   async function decide(request: NodeJoinRequest, approve: boolean) {
     setBusyId(request.id);
@@ -262,12 +291,8 @@ export default function NodeOnboardingDrawer({
   }
 
   const tokenCommand = token
-    ? [
-        `curl -fsSLO ${origin}/api/install/llmport-agent.sh`,
-        `sudo sh llmport-agent.sh \\`,
-        `  --backend ${origin} \\`,
-        `  --token ${token.token}`,
-      ].join("\n")
+    ? `curl -fsSLO ${origin}/api/install/llmport-agent.sh && ` +
+      `sudo sh llmport-agent.sh --backend ${origin} --token ${token.token}`
     : "";
 
   return (
@@ -275,7 +300,11 @@ export default function NodeOnboardingDrawer({
       anchor="right"
       open={open}
       onClose={handleClose}
-      PaperProps={{ sx: { width: { xs: "100%", sm: 520 }, p: 3 } }}
+      // The paper is a flex column. Once the panel is taller than the
+      // window its children shrink to fit, and one with overflow hidden -- the
+      // token card -- shrank to nothing: "Skip the approval step" opened a
+      // card 0px tall. Let the paper scroll instead.
+      PaperProps={{ sx: { width: { xs: "100%", sm: 520 }, p: 3, "& > *": { flexShrink: 0 } } }}
       data-tour-id="nodes.onboarding"
     >
       <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
@@ -299,6 +328,47 @@ export default function NodeOnboardingDrawer({
         It will show a short code and wait. Nothing else needs typing there —
         no token, no checksum. The installer verifies what it downloads.
       </Typography>
+      <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: "block" }}>
+        No sudo on that machine? Leave out <code>sudo</code>: it installs into
+        your home directory and runs as a user service, and nothing asks for a
+        password.
+      </Typography>
+
+      {/*
+        The address is the one thing here we cannot know for certain: this
+        server has several, and only the machine being added knows which of
+        them it can reach. Offering the choice beats printing a guess — the
+        guess used to be this browser's own URL, which on a dev proxy or a
+        tunnel is an address no other machine can reach at all.
+      */}
+      {ambiguous && (
+        <Box sx={{ mt: 2 }}>
+          <Typography variant="caption" color="text.secondary" display="block">
+            This server has more than one address. Pick the one the machine can
+            reach:
+          </Typography>
+          <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: "wrap", gap: 1 }}>
+            {candidates.map((candidate) => (
+              <Chip
+                key={candidate.url}
+                label={`${candidate.url.replace(/^https?:\/\//, "")} · ${candidate.interface}`}
+                size="small"
+                variant={candidate.url === origin ? "filled" : "outlined"}
+                color={candidate.url === origin ? "primary" : "default"}
+                onClick={() => setChosenOrigin(candidate.url)}
+                sx={{ fontFamily: "monospace", fontSize: "0.7rem" }}
+              />
+            ))}
+          </Stack>
+        </Box>
+      )}
+      {address.data && !address.data.request_origin_is_reachable && (
+        <Alert severity="info" sx={{ mt: 2 }}>
+          You are viewing this at <code>{address.data.seen_as}</code>, which
+          only means “this machine” on the machine you are adding. The command
+          above uses a reachable address instead.
+        </Alert>
+      )}
 
       <Divider sx={{ my: 3 }} />
 
@@ -343,17 +413,19 @@ export default function NodeOnboardingDrawer({
           first would make the common case look harder than it is. */}
       {!showToken ? (
         <Button size="small" color="inherit" onClick={() => setShowToken(true)}>
-          Provisioning this automatically?
+          Skip the approval step
         </Button>
       ) : (
         <Card variant="outlined">
           <CardContent>
             <Typography variant="subtitle2" gutterBottom>
-              Unattended enrolment
+              One command, nothing to approve
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              For Ansible, cloud-init or an image build, where no one is at a
-              browser to approve. The token is single-use and expires.
+              The command carries a single-use token, so the machine joins on
+              its own — for when you can paste into it, or for Ansible,
+              cloud-init and image builds where no one is at a browser. The
+              token expires, and works once.
             </Typography>
 
             {!token ? (

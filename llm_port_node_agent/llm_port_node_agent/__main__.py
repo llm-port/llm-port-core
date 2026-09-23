@@ -18,18 +18,32 @@ import time
 from pathlib import Path
 from urllib.parse import urlparse
 
+import psutil
+
+from llm_port_node_agent import __version__
 from llm_port_node_agent.config import AgentConfig
 from llm_port_node_agent.service import NodeAgentService
 from llm_port_node_agent.single_instance import AlreadyRunningError, SingleInstanceLock
 
 SERVICE_NAME = "llmport-agent"
+#: Every name the agent runs under: the frozen binary, and the console
+#: script a source install puts in a venv.
+_AGENT_EXE_NAMES = frozenset({"llmport-agent", "llmport-agent.exe"})
+#: Interpreters that run other programs. A shell is never the agent, and on
+#: Windows psutil re-splits its long ``-c`` string into tokens that can land
+#: an agent path next to the word "run" by accident.
+_SHELL_NAMES = frozenset({
+    "sh", "bash", "dash", "zsh", "ksh", "fish", "busybox",
+    "cmd", "cmd.exe", "powershell", "powershell.exe", "pwsh", "pwsh.exe",
+})
 _IS_WINDOWS = platform.system() == "Windows"
 _ENV_PREFIX = "LLM_PORT_NODE_AGENT_"
 
 # Someone has to walk to a browser and click, so wait in human time.
 _JOIN_WAIT_SECONDS = 15 * 60
 _JOIN_POLL_SECONDS = 3.0
-_AGENT_VERSION = "0.1.8"
+# One version, declared in the package. This was a third literal copy.
+_AGENT_VERSION = __version__
 
 # ── Env-file paths (per-platform) ────────────────────────────────
 _LINUX_SYSTEM_ENV_FILE = Path(f"/etc/{SERVICE_NAME}.env")
@@ -885,6 +899,52 @@ _SUDOERS_FILE = Path("/etc/sudoers.d/llmport-agent")
 _SUDOERS_CMDS = ["apt", "fwupdmgr"]
 
 
+def _emit(text: str) -> None:
+    """Print text that may not survive the terminal's encoding.
+
+    A node booted with LANG=C has an ASCII stdout, and the company name in
+    NOTICE is not ASCII -- so a plain print() there raises
+    UnicodeEncodeError and the licence command tracebacks on exactly the
+    machines it exists for. Degrade the characters, never the command.
+    """
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        encoding = getattr(sys.stdout, "encoding", None) or "ascii"
+        sys.stdout.write(text.encode(encoding, "replace").decode(encoding))
+        print()
+
+
+def cmd_license() -> None:
+    """Print the licence and attribution notice this build carries.
+
+    The agent is Apache-2.0 and ships a NOTICE, and section 4(d) requires
+    that notice to accompany the distribution. The binary bundles both
+    files; this is how somebody holding only the binary reads them.
+    """
+    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
+    shown = False
+    for name in ("NOTICE", "LICENSE"):
+        path = base / name
+        if not path.is_file():
+            continue
+        if shown:
+            _emit("")
+        _emit(path.read_text(encoding="utf-8").rstrip())
+        shown = True
+
+    if shown:
+        return
+
+    # Never imply a licence whose text we cannot actually produce.
+    _emit(f"llmport-agent {_AGENT_VERSION}")
+    _emit("Copyright 2026 Emagin8 UG (haftungsbeschraenkt) and contributors.")
+    _emit("Licensed under the Apache License, Version 2.0.")
+    _emit("http://www.apache.org/licenses/LICENSE-2.0")
+    _emit("")
+    _emit("(The full text was not bundled with this build.)")
+
+
 def cmd_init() -> None:
     """One-time host initialisation: sudoers, directories, etc."""
     if _IS_WINDOWS:
@@ -918,6 +978,26 @@ def cmd_init() -> None:
             os.unlink(tmp)
 
     print("\n  Host initialisation complete.")
+
+
+async def _existing_membership(config: AgentConfig) -> dict | None:
+    """The fleet membership this machine already has, if its credential still works."""
+    from llm_port_node_agent.backend_client import BackendClient  # noqa: PLC0415
+    from llm_port_node_agent.state_store import StateStore  # noqa: PLC0415
+
+    try:
+        credential = StateStore(config.state_path).state.credential
+    except Exception:  # noqa: BLE001 - no usable state is simply "not a member"
+        return None
+    if not credential:
+        return None
+    client = BackendClient(config)
+    try:
+        return await client.whoami(credential=credential)
+    except Exception:  # noqa: BLE001 - unreachable: let the join report it
+        return None
+    finally:
+        await client.close()
 
 
 async def _join_flow(config: AgentConfig) -> bool:
@@ -1019,8 +1099,11 @@ async def _join_flow(config: AgentConfig) -> bool:
     return False
 
 
-def cmd_join(backend_url: str | None) -> None:
-    """Enrol this machine by asking, rather than by carrying a token to it."""
+def cmd_join(backend_url: str | None, user: bool | None = None) -> None:
+    """Enrol this machine by asking, rather than by carrying a token to it.
+
+    ``user`` is passed on to ``start``: a user service needs no root.
+    """
     _banner()
 
     merged = _effective_env()
@@ -1053,7 +1136,21 @@ def cmd_join(backend_url: str | None) -> None:
     os.environ[f"{_ENV_PREFIX}BACKEND_URL"] = backend
     os.environ[f"{_ENV_PREFIX}AGENT_ID"] = agent_id
     os.environ[f"{_ENV_PREFIX}HOST"] = host
-    if not asyncio.run(_join_flow(AgentConfig.from_env())):
+    config = AgentConfig.from_env()
+
+    # Already a member? Then this is an upgrade, not a join. Running the same
+    # install line again is how an operator updates the agent, and it used to
+    # file a fresh join request for a machine already in the fleet -- one
+    # more thing to approve, for nothing.
+    member = asyncio.run(_existing_membership(config))
+    if member is not None:
+        _section("Already a member")
+        _ok(f"This machine is '{member.get('agent_id')}' on {backend}; nothing to approve.")
+        _section("Starting the agent")
+        cmd_start(user=user)
+        return
+
+    if not asyncio.run(_join_flow(config)):
         sys.exit(1)
 
     # Persist what the service will need, then hand over to `start`.
@@ -1066,11 +1163,15 @@ def cmd_join(backend_url: str | None) -> None:
     _save_env_file(env)
 
     _section("Starting the agent")
-    cmd_start()
+    cmd_start(user=user)
 
 
-def cmd_start() -> None:
-    """Install and start llmport-agent as a background service."""
+def cmd_start(user: bool | None = None) -> None:
+    """Install and start llmport-agent as a background service.
+
+    ``user`` picks a ``systemd --user`` unit (no privilege needed) over the
+    system unit; ``None`` decides from what this machine allows.
+    """
     _load_env_into_process()
     env_lines = _collect_env_lines()
 
@@ -1088,8 +1189,129 @@ def cmd_start() -> None:
 
     if _IS_WINDOWS:
         _cmd_start_windows(agent_bin, env_lines)
+    elif _choose_user_scope(user):
+        _cmd_start_linux_user(agent_bin, env_lines)
     else:
         _cmd_start_linux(agent_bin, env_lines)
+
+
+# -- the service without root --------------------------------------------------
+
+_USER_UNIT_DIR = Path.home() / ".config" / "systemd" / "user"
+
+
+def _user_unit_path() -> Path:
+    return _USER_UNIT_DIR / f"{SERVICE_NAME}.service"
+
+
+def _system_unit_path() -> Path:
+    return Path(f"/etc/systemd/system/{SERVICE_NAME}.service")
+
+
+def _user_services_available() -> bool:
+    """Whether this user has a running systemd user manager."""
+    try:
+        probe = subprocess.run(  # noqa: S603
+            ["systemctl", "--user", "is-system-running"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return probe.stdout.strip() in {"running", "degraded", "starting"}
+
+
+def _passwordless_sudo() -> bool:
+    if os.getuid() == 0:  # type: ignore[attr-defined]
+        return True
+    try:
+        return subprocess.run(  # noqa: S603
+            ["sudo", "-n", "true"], capture_output=True, timeout=10
+        ).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def _choose_user_scope(requested: bool | None) -> bool:
+    """User unit or system unit.
+
+    Asked for explicitly, that wins. Otherwise a system unit whenever root is
+    to hand -- running as root, or sudo without a password -- and a user unit
+    only when nobody is there to type a password and the user manager runs.
+    That last case is the one that used to fail outright: a non-interactive
+    install on a machine whose sudo needs a password installed the binary,
+    then died writing the unit, leaving an agent that stopped at logout.
+    """
+    if requested is not None:
+        return requested
+    if _IS_WINDOWS or _passwordless_sudo():
+        return False
+    return not sys.stdin.isatty() and _user_services_available()
+
+
+def _build_user_service_content(agent_bin: str, env_file: Path) -> str:
+    return (
+        "[Unit]\n"
+        "Description=LLM.Port node agent (user service)\n"
+        "After=network-online.target\n"
+        "Wants=network-online.target\n"
+        "\n"
+        "[Service]\n"
+        "Type=simple\n"
+        f"EnvironmentFile={env_file}\n"
+        f"ExecStart={agent_bin} run\n"
+        "Restart=always\n"
+        "RestartSec=5\n"
+        "\n"
+        "[Install]\n"
+        "WantedBy=default.target\n"
+    )
+
+
+def _cmd_start_linux_user(agent_bin: str, env_lines: list[str]) -> None:
+    """Run the agent as a ``systemd --user`` service: no sudo anywhere.
+
+    Linger is what makes this a real service rather than a login session's
+    child: without it the user manager, and the agent with it, stops when
+    the last session ends. Enabling it for oneself needs no privilege on
+    DGX OS; where it does, the agent still runs and the operator is told
+    exactly what to ask an administrator for.
+    """
+    _require_linux()
+    env_file = _LINUX_USER_ENV_FILE
+    env_file.parent.mkdir(parents=True, exist_ok=True)
+    env_file.write_text("\n".join(env_lines) + "\n", encoding="utf-8")
+    env_file.chmod(0o600)
+
+    _USER_UNIT_DIR.mkdir(parents=True, exist_ok=True)
+    _user_unit_path().write_text(
+        _build_user_service_content(agent_bin, env_file), encoding="utf-8"
+    )
+
+    if _run_cmd(["systemctl", "--user", "daemon-reload"]) != 0:
+        sys.exit(1)
+    if _run_cmd(["systemctl", "--user", "enable", SERVICE_NAME]) != 0:
+        sys.exit(1)
+    # restart, not "enable --now": that only starts a stopped service, so an
+    # upgrade replaced the binary, reported success, and left the old build
+    # running from the replaced file until the machine next rebooted.
+    if _run_cmd(["systemctl", "--user", "restart", SERVICE_NAME]) != 0:
+        sys.exit(1)
+
+    user = getpass.getuser()
+    lingering = _run_cmd(["loginctl", "enable-linger", user], check=False, quiet=True) == 0
+
+    print(f"\n  {SERVICE_NAME} installed and started as a user service -- no root needed.")
+    print(f"  Running as: {user}")
+    print(f"  View logs:  journalctl --user -u {SERVICE_NAME} -f")
+    print("  Stop:       llmport-agent stop")
+    if not lingering:
+        print(
+            f"\n  NOTE: could not enable linger for {user}, so the agent stops when\n"
+            f"  you log out. An administrator can fix that once with:\n"
+            f"      sudo loginctl enable-linger {user}"
+        )
 
 
 def _agent_binary() -> str | None:
@@ -1149,7 +1371,11 @@ def _cmd_start_linux(agent_bin: str, env_lines: list[str]) -> None:
 
         if _run_cmd([*sudo, "systemctl", "daemon-reload"]) != 0:
             sys.exit(1)
-        if _run_cmd([*sudo, "systemctl", "enable", "--now", SERVICE_NAME]) != 0:
+        if _run_cmd([*sudo, "systemctl", "enable", SERVICE_NAME]) != 0:
+            sys.exit(1)
+        # restart, so an upgrade runs the build it just installed; "enable
+        # --now" leaves an already-running service on the old one.
+        if _run_cmd([*sudo, "systemctl", "restart", SERVICE_NAME]) != 0:
             sys.exit(1)
     finally:
         if tmp_svc:
@@ -1194,6 +1420,120 @@ def _cmd_start_windows(agent_bin: str, env_lines: list[str]) -> None:
     print(f"  Stop:   llmport-agent stop")
 
 
+def _own_process_chain() -> set[int]:
+    """This process and every ancestor of it.
+
+    An ancestor's command line can contain the very pattern we match on --
+    ``sh -c "llmport-agent run"``, or the terminal launched from one -- and
+    killing an ancestor takes this process down with it.  Learned the hard
+    way once already: a workspace reclaim matched a parent process and closed
+    the terminal that had invoked it.
+    """
+    chain = {os.getpid()}
+    try:
+        for parent in psutil.Process().parents():
+            chain.add(parent.pid)
+    except psutil.Error:  # pragma: no cover - platform dependent
+        pass
+    return chain
+
+
+def _running_agents() -> list[psutil.Process]:
+    """Agent processes currently running on this host, excluding our own.
+
+    Matched on the command line rather than a pidfile because the
+    single-instance lock deliberately stores no pid -- the kernel releasing
+    the lock is the whole mechanism, and writing into the locked byte would
+    defeat it.  ``run`` is required so that a concurrent ``llmport-agent
+    stop`` never matches itself.
+    """
+    mine = _own_process_chain()
+    found: list[psutil.Process] = []
+    for proc in psutil.process_iter(["cmdline"]):
+        if proc.pid in mine:
+            continue
+        try:
+            cmdline = proc.info.get("cmdline") or []
+        except psutil.Error:  # pragma: no cover - races with process exit
+            continue
+        if _is_agent_cmdline(cmdline):
+            found.append(proc)
+    return found
+
+
+def _is_agent_cmdline(cmdline: list[str]) -> bool:
+    """Whether *cmdline* is an agent running in the foreground.
+
+    The agent token has to be immediately followed by ``run``.  Testing the
+    two separately is far too loose on Windows, where psutil re-splits the
+    raw command line rather than reporting real argv: a shell invoked with a
+    long ``-c`` string comes back as dozens of tokens, and any such string
+    that mentions the agent path and the word "run" anywhere in it matched.
+    A live check caught exactly that -- the scan found an unrelated shell
+    alongside the process it was meant to find.  Adjacency is the thing that
+    actually distinguishes running the agent from talking about it.
+    """
+    if not cmdline or Path(cmdline[0]).name.lower() in _SHELL_NAMES:
+        return False
+    for index, token in enumerate(cmdline[:-1]):
+        if Path(token).name in _AGENT_EXE_NAMES and cmdline[index + 1] == "run":
+            return True
+    return False
+
+
+def _stop_stray_agents() -> int:
+    """Stop agents no service manager knows about.  Returns how many.
+
+    ``systemctl disable --now`` stops the unit and nothing else, so an agent
+    started by hand -- ``llmport-agent run``, which is exactly what the
+    source install leaves you with -- outlives the uninstall.  It keeps its
+    backend session open and the node keeps reporting healthy long after the
+    binary, the unit and the config file have all been deleted, because it
+    read its configuration at startup and never looks again.
+
+    Seen on a live node: the agent had been "removed", and was still
+    streaming to the backend twelve hours later.
+    """
+    strays = _running_agents()
+    if not strays:
+        return 0
+
+    for proc in strays:
+        print(f"  Stopping agent process {proc.pid} (not managed by a service).")
+        _signal_agent(proc, "terminate")
+
+    _gone, alive = psutil.wait_procs(strays, timeout=10)
+    for proc in alive:
+        _signal_agent(proc, "kill")
+    if alive:
+        psutil.wait_procs(alive, timeout=5)
+
+    remaining = {proc.pid for proc in _running_agents()}
+    if remaining:
+        print(
+            f"  WARNING: could not stop agent process(es) {sorted(remaining)} -- "
+            "stop them by hand, or the node will keep reporting healthy.",
+            file=sys.stderr,
+        )
+    return len(strays) - len(remaining)
+
+
+def _signal_agent(proc: psutil.Process, how: str) -> None:
+    """Terminate or kill *proc*, escalating to sudo when it is not ours."""
+    try:
+        getattr(proc, how)()
+    except psutil.NoSuchProcess:
+        return
+    except psutil.AccessDenied:
+        # Running as a service account. Ask for the privilege rather than
+        # reporting a stop that did not happen.
+        if _IS_WINDOWS:
+            _run_cmd(["taskkill", "/F", "/PID", str(proc.pid)], check=False, quiet=True)
+        else:
+            signal = "-KILL" if how == "kill" else "-TERM"
+            _run_cmd([*_sudo_prefix(), "kill", signal, str(proc.pid)], check=False, quiet=True)
+
+
 def cmd_stop() -> None:
     """Stop and remove the llmport-agent background service."""
     if _IS_WINDOWS:
@@ -1204,9 +1544,19 @@ def cmd_stop() -> None:
 
 def _cmd_stop_linux() -> None:
     _require_linux()
-    sudo = _sudo_prefix()
-    _run_cmd([*sudo, "systemctl", "disable", "--now", SERVICE_NAME], check=False)
-    print(f"{SERVICE_NAME} service stopped and disabled.")
+    if _user_unit_path().exists():
+        _run_cmd(["systemctl", "--user", "disable", "--now", SERVICE_NAME], check=False)
+        _user_unit_path().unlink(missing_ok=True)
+        _run_cmd(["systemctl", "--user", "daemon-reload"], check=False, quiet=True)
+        print(f"{SERVICE_NAME} user service stopped and removed.")
+    # A system unit needs root to remove -- and only then is sudo worth
+    # asking for. It used to be asked for unconditionally, so stopping an
+    # agent that had never been a system service still wanted a password.
+    if _system_unit_path().exists():
+        sudo = _sudo_prefix()
+        _run_cmd([*sudo, "systemctl", "disable", "--now", SERVICE_NAME], check=False)
+        print(f"{SERVICE_NAME} service stopped and disabled.")
+    _stop_stray_agents()
 
 
 def _cmd_stop_windows() -> None:
@@ -1215,6 +1565,9 @@ def _cmd_stop_windows() -> None:
         _run_cmd(["taskkill", "/F", "/PID", str(pid)], check=False, quiet=True)
     # Also try by name in case PID file is stale
     _run_cmd(["taskkill", "/F", "/IM", "llmport-agent.exe"], check=False, quiet=True)
+    # taskkill matches the image name, so it never sees a source install --
+    # that runs as python.exe with the agent as an argument.
+    _stop_stray_agents()
     if _WIN_PID_FILE.exists():
         _WIN_PID_FILE.unlink(missing_ok=True)
     _win_remove_autostart()
@@ -1231,6 +1584,8 @@ def cmd_status() -> None:
 
 def _cmd_status_linux() -> None:
     _require_linux()
+    if _user_unit_path().exists():
+        os.execlp("systemctl", "systemctl", "--user", "status", SERVICE_NAME)
     os.execlp("systemctl", "systemctl", "status", SERVICE_NAME)
 
 
@@ -1333,10 +1688,23 @@ def main() -> None:
         metavar="BACKEND_URL",
         help="Where LLM.Port is, e.g. http://10.88.10.220:8000",
     )
+    p_join.add_argument(
+        "--user",
+        action="store_true",
+        default=None,
+        help="Run as a systemd user service afterwards: no sudo needed",
+    )
     sub.add_parser("run", help="Run agent in the foreground")
-    sub.add_parser("start", help="Install and start as a background service")
+    p_start = sub.add_parser("start", help="Install and start as a background service")
+    p_start.add_argument(
+        "--user",
+        action="store_true",
+        default=None,
+        help="Install a systemd user service instead of a system one: no sudo needed",
+    )
     sub.add_parser("stop", help="Stop and remove the background service")
     sub.add_parser("status", help="Show background service status")
+    sub.add_parser("license", help="Show licence and attribution for this build")
 
     args = parser.parse_args()
 
@@ -1347,7 +1715,7 @@ def main() -> None:
     elif args.command == "scan":
         cmd_scan()
     elif args.command == "join":
-        cmd_join(args.backend)
+        cmd_join(args.backend, user=args.user)
     elif args.command == "init":
         cmd_init()
     elif args.command == "configure":
@@ -1358,11 +1726,13 @@ def main() -> None:
     elif args.command == "run":
         cmd_run()
     elif args.command == "start":
-        cmd_start()
+        cmd_start(user=args.user)
     elif args.command == "stop":
         cmd_stop()
     elif args.command == "status":
         cmd_status()
+    elif args.command == "license":
+        cmd_license()
 
 
 if __name__ == "__main__":

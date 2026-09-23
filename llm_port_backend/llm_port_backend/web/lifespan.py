@@ -524,6 +524,65 @@ async def _run_inference_reconcile_pass(app: FastAPI) -> None:
                 await session.rollback()
 
 
+async def _prepare_runtime_image_exports(app: FastAPI) -> None:
+    """Export each catalogued runtime image once, and drop superseded exports.
+
+    A node asking for the runtime image is served a file with a length, which
+    is what makes the transfer resumable and its progress real. Building that
+    file on the first request meant a silent wait of a minute or two before
+    the first byte moved; doing it at startup means the first request finds
+    it ready. Exports are keyed by image id, so this is a no-op after the
+    first run until the image is rebuilt -- and the rebuild's predecessor,
+    twelve gigabytes of it, is removed here rather than left to accumulate.
+    """
+    from llm_port_backend.services.inference import bundles, image_cache  # noqa: PLC0415
+
+    catalogued = [
+        bundle
+        for bundle in (
+            getattr(bundles, "CERTIFIED_DGX_SPARK_BUNDLE", None),
+            getattr(bundles, "GENERIC_X86_NVIDIA_BUNDLE", None),
+        )
+        if bundle is not None
+    ]
+    docker = getattr(app.state, "docker", None)
+    keep: set[str] = set()
+    for bundle in catalogued:
+        ref = bundle.container.image
+        try:
+            info = await docker.client.images.inspect(ref)
+        except Exception:  # noqa: BLE001 - not held here; nodes get a 404 as before
+            log.info("Runtime image %s is not on this server; nothing to export", ref)
+            continue
+        image_id = str(info.get("Id") or "")
+        if image_id != bundle.container.digest:
+            # The catalogue pins another build. Serving this one would only be
+            # refused by every node, so do not spend the disk on exporting it.
+            log.warning(
+                "Runtime image %s here is %s but the catalogue pins %s; not exporting",
+                ref, image_id, bundle.container.digest,
+            )
+            continue
+        keep.add(image_id)
+        try:
+            await image_cache.ensure_export(
+                docker, ref, image_id, int(info.get("Size") or 0)
+            )
+        except Exception:  # noqa: BLE001 - served live instead, as before
+            log.exception("Could not export runtime image %s", ref)
+    removed = image_cache.prune(keep)
+    if removed:
+        log.info("Removed %d superseded runtime image export(s)", removed)
+
+
+def _start_runtime_image_exports(app: FastAPI) -> None:
+    if broker.is_worker_process:
+        return
+    app.state.runtime_image_exports = asyncio.create_task(
+        _prepare_runtime_image_exports(app), name="runtime_image_exports"
+    )
+
+
 def _start_inference_reconciler(app: FastAPI) -> None:
     """Launch the inference reconciler background task."""
     if broker.is_worker_process:
@@ -745,6 +804,9 @@ async def lifespan_setup(
 
     # ── Start inference reconciler background task ────────────
     _start_inference_reconciler(app)
+
+    # ── Export catalogued runtime images for nodes (background) ──
+    _start_runtime_image_exports(app)
 
     # ── Optional EE plugin bootstrap ─────────────────────────
     if _EE_AVAILABLE:

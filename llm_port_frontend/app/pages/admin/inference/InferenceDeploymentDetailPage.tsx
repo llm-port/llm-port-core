@@ -16,7 +16,7 @@
  * flight. Both are real conditions on the current hardware, and hiding them
  * behind a spinner would make a stuck sync look like a slow one.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router";
 
@@ -66,6 +66,7 @@ import StopIcon from "@mui/icons-material/Stop";
 import SyncIcon from "@mui/icons-material/Sync";
 import TuneIcon from "@mui/icons-material/Tune";
 
+import { suggestChatName } from "../clusters/DeployModelWizard";
 import { nodeLabel, phaseLabel } from "../clusters/presentation";
 import {
   JsonBlock,
@@ -370,6 +371,13 @@ export default function InferenceDeploymentDetailPage() {
   // as soon as it lands rather than as a second stage the page waits through.
   const envId = deployment?.environment_id ?? null;
   const modelId = deployment?.model_id ?? null;
+  // The parts of the page follow the deployment while it is coming up. They
+  // used to be read once, at page load: a deployment opened while its model
+  // was copying went on saying "syncing, on 0 of 2 machines" next to a
+  // health of Serving.
+  const phase = deployment?.phase ?? null;
+  const settling = phase === "pending" || phase === "preparing" || phase === "applying";
+  const followMs = settling ? 10_000 : 0;
 
   const environmentLoad = useAsyncData(
     () => (envId ? inferenceApi.getEnvironment(envId) : Promise.resolve(null)),
@@ -379,7 +387,7 @@ export default function InferenceDeploymentDetailPage() {
   const membersLoad = useAsyncData(
     () => (envId ? inferenceApi.listEnvironmentNodes(envId) : Promise.resolve([])),
     [envId],
-    { initialValue: [] as EnvironmentNode[] },
+    { initialValue: [] as EnvironmentNode[], refreshMs: followMs },
   );
   const artifactsLoad = useAsyncData(
     () =>
@@ -387,12 +395,12 @@ export default function InferenceDeploymentDetailPage() {
         ? inferenceApi.artifactReadiness(envId, modelId)
         : Promise.resolve(null),
     [envId, modelId],
-    { initialValue: null as ArtifactReadiness | null },
+    { initialValue: null as ArtifactReadiness | null, refreshMs: followMs },
   );
   const endpointsLoad = useAsyncData(
     () => (id ? inferenceApi.listEndpoints(id) : Promise.resolve([])),
     [id],
-    { initialValue: [] as InferenceEndpoint[] },
+    { initialValue: [] as InferenceEndpoint[], refreshMs: followMs },
   );
   // The one that hangs when the engine is failing to come up — which is the
   // moment the rest of this page is most worth reading.
@@ -432,13 +440,46 @@ export default function InferenceDeploymentDetailPage() {
       fleet.refresh(),
       allModels.refresh(),
     ]);
+    // Keyed on the loaders themselves, not on ``id``: each one is rebuilt
+    // once the deployment tells it what to ask for. Keyed on ``id`` this kept
+    // the first render's, from before the deployment had loaded, so every
+    // Scale, Stop or Save re-read the cluster, its machines and the model
+    // files as "nothing to ask about" and blanked those cards.
+  }, [
+    refreshDeployment,
+    environmentLoad.refresh,
+    membersLoad.refresh,
+    artifactsLoad.refresh,
+    endpointsLoad.refresh,
+    metricsLoad.refresh,
+    fleet.refresh,
+    allModels.refresh,
+  ]);
+
+  // A change of phase is when the rest changes most -- and reaching Running
+  // is also when the polling above stops, so read everything once more then.
+  const seenPhase = useRef<string | null>(null);
+  useEffect(() => {
+    if (!phase) return;
+    if (seenPhase.current !== null && seenPhase.current !== phase) {
+      void Promise.all([
+        environmentLoad.refresh(),
+        membersLoad.refresh(),
+        artifactsLoad.refresh(),
+        endpointsLoad.refresh(),
+      ]);
+    }
+    seenPhase.current = phase;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  }, [phase]);
 
   const [busy, setBusy] = useState<string | null>(null);
   const [scaleOpen, setScaleOpen] = useState(false);
   const [scaling, setScaling] = useState(false);
   const [replicaInput, setReplicaInput] = useState(1);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatSaving, setChatSaving] = useState(false);
+  const [chatInput, setChatInput] = useState("");
 
   // --- Logs ---------------------------------------------------------------
   const [logSource, setLogSource] = useState<LogSource>("runtime_container");
@@ -451,6 +492,7 @@ export default function InferenceDeploymentDetailPage() {
   const environment = data.environment;
   const observed = asRecord(deployment?.observed_status);
   const observation = asRecord(observed.observation);
+  const chatAlias = asText(asRecord(deployment?.spec?.service).alias) || null;
 
   // The operator's name for the machine, not the address it answers on --
   // same rule as the cluster screens, so the two never disagree.
@@ -554,6 +596,31 @@ export default function InferenceDeploymentDetailPage() {
       setError(err instanceof Error ? err.message : "Scale failed.");
     } finally {
       setScaling(false);
+    }
+  }
+
+  async function handleChatName() {
+    if (!deployment) return;
+    setChatSaving(true);
+    try {
+      // A full replacement, as for scale. Only the alias changes, and the
+      // alias is not part of what the engine runs, so the replicas are not
+      // restarted: the next pass only republishes the deployment.
+      const current = asRecord(deployment.spec.service);
+      const { alias: _previous, ...service } = current;
+      const alias = chatInput.trim();
+      const spec = {
+        ...deployment.spec,
+        service: alias ? { ...service, alias } : service,
+      };
+      await inferenceApi.updateDeployment(deployment.id, { spec });
+      await inferenceApi.reconcileDeployment(deployment.id).catch(() => undefined);
+      setChatOpen(false);
+      await refresh();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Could not change the chat name.");
+    } finally {
+      setChatSaving(false);
     }
   }
 
@@ -735,6 +802,25 @@ export default function InferenceDeploymentDetailPage() {
                   "none reported"
                 }
               />
+            </Grid>
+            <Grid size={{ xs: 12, md: 6 }}>
+              <Typography variant="caption" color="text.secondary" display="block">
+                In chat
+              </Typography>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Typography variant="body2" data-testid="chat-alias">
+                  {chatAlias ? `offered as ${chatAlias}` : "not offered: endpoint only"}
+                </Typography>
+                <Button
+                  size="small"
+                  onClick={() => {
+                    setChatInput(chatAlias ?? suggestChatName(data.model ?? undefined));
+                    setChatOpen(true);
+                  }}
+                >
+                  {chatAlias ? "Change" : "Offer in chat"}
+                </Button>
+              </Stack>
             </Grid>
           </Grid>
         </CardContent>
@@ -1149,6 +1235,30 @@ export default function InferenceDeploymentDetailPage() {
           </Stack>
         </CardContent>
       </Card>
+
+      <FormDialog
+        open={chatOpen}
+        title="Offer in chat"
+        loading={chatSaving}
+        submitLabel="Save"
+        onSubmit={() => void handleChatName()}
+        onClose={() => setChatOpen(false)}
+      >
+        <Stack spacing={2} sx={{ mt: 1 }}>
+          <TextField
+            label="Offer in chat as"
+            value={chatInput}
+            autoFocus
+            fullWidth
+            onChange={(e) => setChatInput(e.target.value)}
+          />
+          <Typography variant="caption" color="text.secondary">
+            The name people pick in chat and use at the API. Deployments that
+            share a name share the traffic. Leave it empty to serve this one by
+            its endpoint only. The model keeps running while this changes.
+          </Typography>
+        </Stack>
+      </FormDialog>
 
       <FormDialog
         open={scaleOpen}

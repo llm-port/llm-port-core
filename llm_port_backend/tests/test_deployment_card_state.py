@@ -20,10 +20,12 @@ it:
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
 
 import pytest
 
 from llm_port_backend.db.models.inference import (
+    DeploymentPhase,
     InferenceControlPlane,
     InferenceDeployment,
     InferenceEnvironment,
@@ -183,3 +185,43 @@ def test_a_partial_is_a_warning_unless_it_says_otherwise() -> None:
     that went wrong far more often than not, so silence is the wrong default.
     """
     assert MetricsPartial(tier="serve", reason="probe failed").severity == "warning"
+
+
+def test_a_stopped_deployment_reports_no_copies() -> None:
+    """Stopping must clear the replica counts, not leave the serving ones.
+
+    ``_observe`` only writes the counts it is given, and the stop path gave it
+    none -- so a deployment whose Serve application had been deleted kept the
+    numbers from when it was running. The detail page then read "Copies
+    (ready / wanted) 1 / 1" for a cluster with no Serve application on it,
+    which is the one screen an operator checks to confirm a stop worked.
+    """
+    from llm_port_backend.services.inference.drivers.ray.deployment import (
+        RayDeploymentManager,
+    )
+
+    manager = RayDeploymentManager()
+    deployment = SimpleNamespace(
+        id=uuid.uuid4(),
+        generation=2,
+        observed_generation=1,
+        phase=DeploymentPhase.RUNNING.value,
+        phase_message="running",
+        observed_status_json={},
+        ready_replicas=1,
+        total_replicas=1,
+    )
+
+    manager._observe(
+        deployment,
+        DeploymentPhase.STOPPED,
+        "serve.delete(app) ok",
+        True,
+        observed={"reconciled": True, "action": "stop"},
+        ready_replicas=0,
+        total_replicas=0,
+    )
+
+    assert deployment.phase == DeploymentPhase.STOPPED.value
+    assert deployment.ready_replicas == 0
+    assert deployment.total_replicas == 0

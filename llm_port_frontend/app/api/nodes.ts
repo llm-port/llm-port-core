@@ -129,7 +129,10 @@ interface IssueNodeCommandPayload {
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
+  // A leading "/api/" means the caller named a full path: the install
+  // endpoints sit outside the admin/system tree.
+  const url = path.startsWith("/api/") ? path : `${BASE}${path}`;
+  const res = await fetch(url, {
     ...init,
     headers: {
       "Content-Type": "application/json",
@@ -155,6 +158,22 @@ export const nodesApi = {
 
   list() {
     return request<ManagedNode[]>("/nodes");
+  },
+
+  /**
+   * Where a machine being added should be pointed.
+   *
+   * The backend answers from its own interfaces. This browser's URL is not
+   * the same question: the operator may be on a proxy, a tunnel or
+   * localhost, none of which another machine can reach.
+   */
+  installAddress() {
+    return request<{
+      url: string;
+      seen_as: string;
+      candidates: { url: string; interface: string }[];
+      request_origin_is_reachable: boolean;
+    }>("/api/install/address");
   },
 
   /** Machines that have asked to join and are waiting for a decision. */

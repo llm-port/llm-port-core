@@ -97,6 +97,21 @@ class BackendClient:
             raise RuntimeError("Invalid join-collect response payload.")
         return payload
 
+    async def whoami(self, *, credential: str) -> dict[str, Any] | None:
+        """The machine this credential belongs to, or ``None`` if it no longer works."""
+        try:
+            res = await self._client.get(
+                "/api/node-files/whoami",
+                headers={"Authorization": f"Bearer {credential}"},
+            )
+        except Exception:  # noqa: BLE001 - unreachable is not "not a member"
+            raise
+        if res.status_code in (401, 403, 404):
+            return None
+        res.raise_for_status()
+        payload = res.json()
+        return payload if isinstance(payload, dict) else None
+
     async def rotate_credential(self, *, credential: str) -> dict[str, Any]:
         """Rotate active credential using bearer auth."""
         res = await self._client.post(

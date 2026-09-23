@@ -11,6 +11,7 @@ import {
 import { ConfirmDialog } from "~/components/ConfirmDialog";
 import { DataTable, type ColumnDef } from "~/components/DataTable";
 import { useAsyncData } from "~/lib/useAsyncData";
+import { usePendingJoins } from "~/lib/usePendingJoins";
 import NodeOnboardingDrawer from "./NodeOnboardingPage";
 
 import Alert from "@mui/material/Alert";
@@ -67,6 +68,7 @@ export default function NodeFleetPage() {
   );
   const [actionBusyKey, setActionBusyKey] = useState<string | null>(null);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const pendingJoins = usePendingJoins();
   const [deleteTarget, setDeleteTarget] = useState<ManagedNode | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [nodeRuntimes, setNodeRuntimes] = useState<Runtime[]>([]);
@@ -207,6 +209,7 @@ export default function NodeFleetPage() {
             <Tooltip title={t("nodes.details")}>
               <IconButton
                 size="small"
+                aria-label={t("nodes.details")}
                 onClick={(event) => {
                   event.stopPropagation();
                   navigate(`/admin/nodes/${row.id}`);
@@ -225,6 +228,11 @@ export default function NodeFleetPage() {
               <span>
                 <IconButton
                   size="small"
+                  aria-label={
+                    row.maintenance_mode
+                      ? t("nodes.disable_maintenance")
+                      : t("nodes.enable_maintenance")
+                  }
                   onClick={(event) => {
                     event.stopPropagation();
                     runAction(maintenanceKey, async () => {
@@ -250,6 +258,7 @@ export default function NodeFleetPage() {
               <span>
                 <IconButton
                   size="small"
+                  aria-label={row.draining ? t("nodes.disable_drain") : t("nodes.enable_drain")}
                   onClick={(event) => {
                     event.stopPropagation();
                     runAction(drainKey, async () => {
@@ -266,6 +275,7 @@ export default function NodeFleetPage() {
               <span>
                 <IconButton
                   size="small"
+                  aria-label={t("nodes.refresh_inventory")}
                   onClick={(event) => {
                     event.stopPropagation();
                     runAction(invKey, async () => {
@@ -281,12 +291,16 @@ export default function NodeFleetPage() {
               </span>
             </Tooltip>
             <Tooltip
-              title={t("nodes.delete_node", { defaultValue: "Delete node" })}
+              title={t("nodes.delete_node", { defaultValue: "Delete machine" })}
             >
               <span>
+                {/* The Tooltip labels the span it wraps, not this button, so
+                    without its own label the button had no accessible name:
+                    five identical unnamed buttons per row to a screen reader. */}
                 <IconButton
                   size="small"
                   color="error"
+                  aria-label={t("nodes.delete_node", { defaultValue: "Delete machine" })}
                   onClick={(event) => {
                     event.stopPropagation();
                     void openDeleteDialog(row);
@@ -304,6 +318,32 @@ export default function NodeFleetPage() {
 
   return (
     <>
+      {/* A machine that ran the install is waiting on this screen, and this
+          screen used to give no sign of it: the request only appeared inside
+          the Add a machine panel, which reads like starting something new
+          rather than finishing what was started. */}
+      {pendingJoins.length > 0 && (
+        <Alert
+          severity="warning"
+          variant="outlined"
+          sx={{ mb: 2, alignItems: "center" }}
+          data-testid="pending-joins"
+          action={
+            <Button color="inherit" size="small" variant="outlined" onClick={() => setOnboardingOpen(true)}>
+              {t("nodes.review_pending", { defaultValue: "Review" })}
+            </Button>
+          }
+        >
+          {t("nodes.pending_joins", {
+            count: pendingJoins.length,
+            defaultValue:
+              pendingJoins.length === 1
+                ? "{{count}} machine is waiting for approval: {{names}}"
+                : "{{count}} machines are waiting for approval: {{names}}",
+            names: pendingJoins.map((r) => `${r.agent_id} (${r.code})`).join(", "),
+          })}
+        </Alert>
+      )}
       <DataTable
         title={t("nodes.fleet_title")}
         rows={data}
@@ -333,12 +373,12 @@ export default function NodeFleetPage() {
       />
       <ConfirmDialog
         open={!!deleteTarget}
-        title={t("nodes.delete_node_title", { defaultValue: "Delete Node" })}
+        title={t("nodes.delete_node_title", { defaultValue: "Delete this machine?" })}
         message={
           <>
             <Typography>
               {t("nodes.delete_node_confirm", {
-                defaultValue: `This will permanently remove the node "{{host}}" and all its sessions, inventory snapshots, commands, and events. This action cannot be undone.`,
+                defaultValue: `This will permanently remove the machine "{{host}}" and all its sessions, inventory snapshots, commands, and events. This action cannot be undone.`,
                 host: deleteTarget?.host,
               })}
             </Typography>
@@ -358,7 +398,7 @@ export default function NodeFleetPage() {
             {!loadingAssociations && nodeRuntimes.length > 0 && (
               <Box sx={{ mt: 2 }}>
                 <Alert severity="warning" variant="outlined" sx={{ mb: 1.5 }}>
-                  This node has {nodeRuntimes.length} runtime
+                  This machine has {nodeRuntimes.length} runtime
                   {nodeRuntimes.length > 1 ? "s" : ""} and{" "}
                   {nodeProviders.length} provider
                   {nodeProviders.length > 1 ? "s" : ""} deployed on it.
@@ -395,7 +435,7 @@ export default function NodeFleetPage() {
                     color="text.secondary"
                     sx={{ display: "block", pl: 4 }}
                   >
-                    Runtimes will be unassigned from this node but kept in the
+                    Runtimes will be unassigned from this machine but kept in the
                     system.
                   </Typography>
                 )}

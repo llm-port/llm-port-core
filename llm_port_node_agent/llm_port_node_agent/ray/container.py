@@ -79,12 +79,44 @@ def compute_rootfs_digest(layer_diff_ids: list[str]) -> str:
     return "sha256:" + hashlib.sha256("\n".join(layer_diff_ids).encode()).hexdigest()
 
 
+def _match(identity: dict[str, Any], spec: "RuntimeBundleSpec") -> str | None:
+    """How a local image satisfies the pin, or ``None`` if it does not.
+
+    Content identity first: two nodes can hold byte-identical copies of the
+    same image under different config IDs when one was side-loaded, and
+    rejecting the certified bits over a rewritten config would be a false
+    alarm that blocks every deployment on that node.
+    """
+    if not identity.get("present"):
+        return None
+    local_id = str(identity.get("id") or "")
+    repo_digests = [str(d) for d in identity.get("repo_digests") or []]
+    layers = [str(x) for x in identity.get("rootfs_layers") or []]
+    local_rootfs = compute_rootfs_digest(layers) if layers else None
+    if spec.rootfs_digest and local_rootfs == spec.rootfs_digest:
+        return "rootfs_digest"
+    if local_id and local_id == spec.digest:
+        return "image_id"
+    if spec.repo_digest and any(d.endswith(spec.repo_digest) for d in repo_digests):
+        return "repo_digest"
+    return None
+
+
 class RuntimeImageMissing(ContainerRuntimeError):
     """The pinned image is not present locally and could not be made present."""
 
+    error_code = "runtime_image_missing"
+
 
 class RuntimeDigestMismatch(ContainerRuntimeError):
-    """A locally present image does not match the digest the bundle pins."""
+    """A locally present image does not match the digest the bundle pins.
+
+    Permanent for as long as the pin and the image stay as they are: asking
+    again returns the same answer, which is what the backend needs to know
+    to stop asking.
+    """
+
+    error_code = "runtime_image_mismatch"
 
 
 @dataclass
@@ -229,8 +261,17 @@ class RayContainerRuntime:
         handler = self._handler(spec)
         identity = await handler.image_identity(spec.image)
 
-        if not identity.get("present") and loader is not None:
-            log.info("Runtime image %s absent; loading from backend", spec.image)
+        # Absent, or present under the right name but the wrong build: either
+        # way the answer is the pinned build, and the loader is how to get it.
+        # A wrong build used to be a dead end -- the node failed the check and
+        # never asked the server, even when the server held the right image,
+        # so a machine with a stale copy could not recover on its own. The
+        # loader passes the pin along, and a server holding the wrong build
+        # too refuses before sending anything.
+        needs_load = not identity.get("present") or _match(identity, spec) is None
+        if needs_load and loader is not None:
+            reason = "absent" if not identity.get("present") else "a different build"
+            log.info("Runtime image %s is %s; loading from backend", spec.image, reason)
             if emit_progress is not None:
                 await emit_progress(
                     {"phase": "loading_image", "message": f"Loading runtime image {spec.image}"}
@@ -247,18 +288,7 @@ class RayContainerRuntime:
         layers = [str(x) for x in identity.get("rootfs_layers") or []]
         local_rootfs = compute_rootfs_digest(layers) if layers else None
 
-        # Content identity first: two nodes can hold byte-identical copies of
-        # the same image under different config IDs when one was side-loaded,
-        # and rejecting the certified bits over a rewritten config would be a
-        # false alarm that blocks every deployment on that node.
-        matched_by = None
-        if spec.rootfs_digest and local_rootfs == spec.rootfs_digest:
-            matched_by = "rootfs_digest"
-        elif local_id and local_id == spec.digest:
-            matched_by = "image_id"
-        elif spec.repo_digest and any(d.endswith(spec.repo_digest) for d in repo_digests):
-            matched_by = "repo_digest"
-
+        matched_by = _match(identity, spec)
         if matched_by is None:
             self.last_error = (
                 f"runtime image {spec.image} is id={local_id or 'unknown'} "

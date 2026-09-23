@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 
 from collections.abc import Callable
 from typing import Any
@@ -111,6 +112,11 @@ class NodeAgentService:
             state_store=self._state_store,
             events=events,
             http=self._client.http,
+            image_download_dir=(
+                Path(self._config.image_download_dir)
+                if self._config.image_download_dir
+                else Path(self._config.state_path).parent / "images"
+            ),
         )
         self._ray_manager = ray_manager
 

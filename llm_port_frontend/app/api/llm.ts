@@ -251,9 +251,12 @@ export interface ScanLocalResult {
 
 export interface DownloadResponse {
   model: Model;
-  job: DownloadJob;
+  /** Null when the repo is already kept and available: nothing to fetch. */
+  job: DownloadJob | null;
   dispatched: boolean;
   dispatch_error: string | null;
+  /** The request was answered with a model that already existed. */
+  already_kept?: boolean;
 }
 
 export interface CreateRuntimePayload {

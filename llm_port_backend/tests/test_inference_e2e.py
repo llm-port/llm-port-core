@@ -275,13 +275,13 @@ async def test_end_to_end_zero_config_multi_node_flow(
     )
     assert apply_resp.status_code == 200
     applied_env = apply_resp.json()
-    resolved = applied_env["config"]["resolved_fabric"]
+    resolved = applied_env["observed_status"]["resolved_fabric"]
     assert resolved["fabric_type"] == "roce"
     assert resolved["speed_gbps"] == 200.0
     assert resolved["node_bindings"][str(node_head.id)]["ip"] == "10.100.0.1"
     assert resolved["node_bindings"][str(node_worker.id)]["ip"] == "10.100.0.2"
-    # Authoritative resolution stored in observed_status per Amendment 1
-    assert applied_env["observed_status"]["resolved_fabric"]["fabric_type"] == "roce"
+    # config_json is operator intent; the resolution is not mirrored into it.
+    assert "resolved_fabric" not in (applied_env["config"] or {})
 
     # 6. Ray Environment Reconciliation over 200 Gb/s RoCE Interconnect
     fake_node_control = _FakeNodeControl()

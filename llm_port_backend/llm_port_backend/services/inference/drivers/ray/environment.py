@@ -76,13 +76,57 @@ _LIFECYCLE_WAIT_SEC = 150.0
 
 _SUCCEEDED = NodeCommandStatus.SUCCEEDED.value
 
+#: Port a member serves the runtime image to its peers on, over the fabric.
+#: Outside Ray's default worker-port range (10002-19999) and clear of its
+#: fixed ports, and only open while a transfer is under way.
+_IMAGE_SEED_PORT = 8271
+
+#: How long a seeding member keeps serving before giving up on its peers.
+_IMAGE_SEED_TIMEOUT_SEC = 3600
+
+#: Probe answers meaning "not here yet" rather than "something is broken".
+_IMAGE_ABSENT = frozenset({"runtime_image_missing", "runtime_image_mismatch"})
+
 # One runtime container per node; the head/worker split is decided by which
 # ``ray start`` the agent execs inside it.
 _RUNTIME_CONTAINER_NAME = "llm-port-ray-runtime"
 
 
+#: Failures that come back identically however often they are retried, for
+#: as long as the inputs stay as they are. A pinned image that does not match
+#: is still not matching on the ninetieth attempt.
+_PERMANENT_FAILURES = frozenset({
+    "runtime_image_mismatch",
+    "server_image_mismatch",
+    "no_certified_runtime",
+})
+
+#: Retry spacing for a cluster that keeps failing: doubling from a minute.
+_RETRY_BASE_SEC = 60
+#: Transient failures are tried again at least this often.
+_RETRY_CAP_SEC = 30 * 60
+#: Permanent ones are re-checked this often in case something outside the
+#: fingerprint changed (the server's own copy of the image, say), and at once
+#: when anything inside it does.
+_PERMANENT_RECHECK_SEC = 60 * 60
+
+
 class _LifecycleFailed(RuntimeError):
-    """A lifecycle command reached a terminal failure on the agent."""
+    """A lifecycle command reached a terminal failure on the agent.
+
+    ``code`` is the agent's error code when there is one; ``detail`` is its
+    message on its own, without the command-and-node prefix, which is the
+    part worth showing an operator.
+    """
+
+    def __init__(self, message: str, *, code: str | None = None, detail: str | None = None) -> None:
+        super().__init__(message)
+        self.code = code
+        self.detail = detail or message
+
+    @property
+    def permanent(self) -> bool:
+        return self.code in _PERMANENT_FAILURES
 
 
 class _LifecycleUnobserved(RuntimeError):
@@ -179,6 +223,15 @@ class RayEnvironmentManager:
         head_host = (head_binding or {}).get("ip") or await self._host_of(session, head.node_id)
         head_address = f"{head_host}:{config.head_port}" if head_host else config.dashboard_host
 
+        fingerprint = await self._inputs_fingerprint(session, environment, nodes)
+        waiting = self._held_back(environment, fingerprint)
+        if waiting is not None:
+            # Nothing has changed since the last failure and the backoff has
+            # not run out: asking again would get the same answer. The status
+            # and message the failure left stay as they are.
+            log.info("Environment %s held back: %s", environment.id, waiting)
+            return
+
         try:
             # Refuse a re-bind before issuing anything: the agent tolerates an
             # already-running head, so a second apply against a new address
@@ -207,6 +260,7 @@ class RayEnvironmentManager:
             return
         except _LifecycleFailed as exc:
             log.warning("Environment %s reconcile action failed: %s", environment.id, exc)
+            message = self._record_failure(environment, exc, fingerprint)
             self._observe(
                 environment,
                 EnvironmentStatus.FAILED,
@@ -214,9 +268,12 @@ class RayEnvironmentManager:
                 expected_nodes=len(nodes),
                 address=head_address,
                 version=config.ray_version,
-                reason=str(exc),
+                reason=message,
             )
             return
+
+        # Got through: whatever was holding this cluster back no longer is.
+        self._clear_failure(environment)
 
         # 6. Verify cluster membership by probing the head.
         status = await self._verify_cluster(session, head, gateway)
@@ -231,6 +288,308 @@ class RayEnvironmentManager:
             address=status.cluster_address or head_address,
             version=status.version or config.ray_version,
         )
+
+
+
+    # ------------------------------------------------------------------
+    # Runtime image: from the server once, then machine to machine
+    # ------------------------------------------------------------------
+
+    async def _ensure_images(self, environment, *, gateway, nodes, bundles, payloads) -> None:
+        """Make the pinned runtime image present on every member.
+
+        Every member used to pull it from this server at once. On the DGX
+        pair that was two 12 GB transfers sharing a 1 Gb/s management link,
+        while the machines sat next to each other on a 200 Gb/s fabric. Now:
+
+        1. ask every member whether it has the image, fetching nothing;
+        2. if none does, one fetches it from the server;
+        3. members that still lack it get it from a peer holding the same
+           build, over the fabric address the plan bound them to;
+        4. any member a peer could not serve falls back to the server.
+
+        Every step is keyed on the generation, so a pass that runs out of
+        time waiting resumes the same commands on the next pass.
+        """
+        gen = environment.generation
+
+        def key(step: str, node_id: Any) -> str:
+            return f"inference-env:{environment.id}:{gen}:{step}:{node_id}"
+
+        def body(node, **extra: Any) -> dict[str, Any]:
+            return {"runtime_bundle": payloads[node.node_id], "ensure_container": True, **extra}
+
+        # 1. Who already has it.
+        probes = []
+        for node in nodes:
+            probes.append((node, await self._issue(
+                gateway,
+                node_id=node.node_id,
+                command_type=NodeCommandType.ENSURE_RUNTIME_IMAGE.value,
+                payload=body(node, fetch=False),
+                key=key("image-probe", node.node_id),
+            )))
+        have, need = [], []
+        for node, cmd in probes:
+            final = await self._await_final(gateway, cmd, what=f"image check on node {node.node_id}")
+            if final.status == _SUCCEEDED and (final.result_json or {}).get("verified"):
+                have.append(node)
+            elif final.error_code in _IMAGE_ABSENT:
+                need.append(node)
+            else:
+                detail = final.error_message or final.error_code or final.status
+                raise _LifecycleFailed(
+                    f"image check on node {node.node_id} failed: {detail}",
+                    code=final.error_code,
+                    detail=str(detail),
+                )
+        if not need:
+            return
+
+        bindings = (self._get_resolved_fabric(environment) or {}).get("node_bindings", {}) or {}
+
+        def fabric_ip(node) -> str | None:
+            return (bindings.get(str(node.node_id)) or {}).get("ip")
+
+        def build_of(node) -> str | None:
+            bundle = bundles[node.node_id][0]
+            return getattr(getattr(bundle, "container", None), "digest", None)
+
+        # 2. Nobody has it: one member fetches it from the server first.
+        if not have:
+            first = need.pop(0)
+            await self._image_from_server(gateway, first, body(first), key("image-from-server", first.node_id))
+            have.append(first)
+        if not need:
+            return
+
+        # 3. Pair each member that lacks it with a peer holding the same build.
+        seeders = [node for node in have if fabric_ip(node)]
+        plan: dict[Any, list] = {}
+        direct = []
+        for node in need:
+            peer = next(
+                (s for s in seeders if build_of(s) == build_of(node) and fabric_ip(node)),
+                None,
+            )
+            if peer is None:
+                direct.append(node)
+            else:
+                plan.setdefault(peer.node_id, [peer, []])[1].append(node)
+
+        fetching = []
+        for peer, receivers in plan.values():
+            token = self._seed_token(environment, peer.node_id)
+            await self._issue(
+                gateway,
+                node_id=peer.node_id,
+                command_type=NodeCommandType.SERVE_RUNTIME_IMAGE.value,
+                payload={
+                    "runtime_bundle": payloads[peer.node_id],
+                    "bind_ip": fabric_ip(peer),
+                    "port": _IMAGE_SEED_PORT,
+                    "token": token,
+                    "expected_peers": len(receivers),
+                    "timeout_sec": _IMAGE_SEED_TIMEOUT_SEC,
+                },
+                key=key("image-seed", peer.node_id),
+            )
+            for node in receivers:
+                fetching.append((node, await self._issue(
+                    gateway,
+                    node_id=node.node_id,
+                    command_type=NodeCommandType.ENSURE_RUNTIME_IMAGE.value,
+                    payload=body(node, source={
+                        "peer_url": f"http://{fabric_ip(peer)}:{_IMAGE_SEED_PORT}/image",
+                        "token": token,
+                    }),
+                    key=key("image-from-peer", node.node_id),
+                )))
+
+        # Members with no suitable peer go to the server, in parallel.
+        server_cmds = []
+        for node in direct:
+            server_cmds.append((node, await self._issue(
+                gateway,
+                node_id=node.node_id,
+                command_type=NodeCommandType.ENSURE_RUNTIME_IMAGE.value,
+                payload=body(node),
+                key=key("image-from-server", node.node_id),
+            )))
+
+        for node, cmd in fetching:
+            final = await self._await_final(gateway, cmd, what=f"image from peer on node {node.node_id}")
+            if final.status == _SUCCEEDED and (final.result_json or {}).get("verified"):
+                continue
+            # 4. A peer that could not serve is not the end of it.
+            log.warning(
+                "Node %s could not get the runtime image from its peer (%s); using the server",
+                node.node_id, final.error_message or final.error_code,
+            )
+            server_cmds.append((node, await self._issue(
+                gateway,
+                node_id=node.node_id,
+                command_type=NodeCommandType.ENSURE_RUNTIME_IMAGE.value,
+                payload=body(node),
+                key=key("image-from-server", node.node_id),
+            )))
+
+        for node, cmd in server_cmds:
+            self._require_verified(
+                await self._await_result(gateway, cmd, what=f"ensure_runtime_image on node {node.node_id}"),
+                node,
+                bundles,
+            )
+
+    async def _image_from_server(self, gateway, node, payload, idem_key) -> None:
+        cmd = await self._issue(
+            gateway,
+            node_id=node.node_id,
+            command_type=NodeCommandType.ENSURE_RUNTIME_IMAGE.value,
+            payload=payload,
+            key=idem_key,
+        )
+        result = await self._await_result(gateway, cmd, what=f"ensure_runtime_image on node {node.node_id}")
+        if not result.get("verified"):
+            raise _LifecycleFailed(
+                f"Runtime image not verified on node {node.node_id}: "
+                f"{result.get('error') or 'digest mismatch'}"
+            )
+
+    @staticmethod
+    def _require_verified(result: dict[str, Any], node, bundles) -> None:
+        if not result.get("verified"):
+            bundle = bundles[node.node_id][0]
+            raise _LifecycleFailed(
+                f"Runtime image {bundle.container.image} "
+                f"({bundle.container.digest}) not verified on node {node.node_id}: "
+                f"{result.get('error') or 'digest mismatch'}"
+            )
+
+    @staticmethod
+    def _seed_token(environment, node_id: Any) -> str:
+        """The one-off secret a seeding member and its receivers share.
+
+        Derived rather than random so a reconcile pass that resumes these
+        commands arrives at the same value: a fresh random token on the
+        second pass would disagree with the one already sent to the peer.
+        Keyed on the server's master key, so it cannot be worked out from
+        the ids it mixes in.
+        """
+        import hashlib  # noqa: PLC0415
+        import hmac  # noqa: PLC0415
+
+        from llm_port_backend.settings import settings  # noqa: PLC0415
+
+        message = f"image-seed:{environment.id}:{environment.generation}:{node_id}".encode()
+        return hmac.new(settings.settings_master_key.encode(), message, hashlib.sha256).hexdigest()
+
+    async def _await_final(self, gateway: NodeCommandGateway, command: Any, *, what: str) -> Any:
+        """Wait for *command* to finish and return it, failed or not."""
+        final = await gateway.wait(command.id, budget_sec=_LIFECYCLE_WAIT_SEC)
+        if final is None:
+            raise _LifecycleUnobserved(f"{what}: no result within {_LIFECYCLE_WAIT_SEC:.0f}s")
+        return final
+
+    # ------------------------------------------------------------------
+    # Failure memory: not asking the same question twice
+    # ------------------------------------------------------------------
+
+    async def _inputs_fingerprint(self, session, environment, nodes) -> str:
+        """What a retry would depend on, as one comparable string.
+
+        The generation (any operator change bumps it) and, per member, the
+        image the catalogue pins for that machine. A rebuild changes the pin,
+        an edit changes the generation; either means a retry could now come
+        out differently, and either resets the backoff.
+        """
+        import hashlib  # noqa: PLC0415
+
+        parts = [f"gen={environment.generation}"]
+        try:
+            bundles = await self._bundles_for(session, nodes)
+        except _LifecycleFailed:
+            parts.append("bundles=none")
+        else:
+            for node in sorted(nodes, key=lambda n: str(n.node_id)):
+                bundle = bundles[node.node_id][0]
+                container = getattr(bundle, "container", None)
+                parts.append(
+                    f"{node.node_id}={getattr(container, 'digest', None)}"
+                    f"/{getattr(container, 'rootfs_digest', None)}"
+                )
+        return hashlib.sha256("|".join(parts).encode()).hexdigest()[:32]
+
+    @staticmethod
+    def _held_back(environment, fingerprint: str) -> str | None:
+        """Why this pass should not issue anything, or ``None`` to proceed."""
+        from datetime import UTC, datetime  # noqa: PLC0415
+
+        retry = (environment.observed_status_json or {}).get("retry")
+        if not isinstance(retry, dict):
+            return None
+        if retry.get("fingerprint") != fingerprint:
+            return None  # something it depended on has changed
+        due = retry.get("next_attempt_at")
+        if not due:
+            return None
+        try:
+            due_at = datetime.fromisoformat(due)
+        except (TypeError, ValueError):
+            return None
+        if datetime.now(tz=UTC) >= due_at:
+            return None
+        return f"retrying after {due} ({retry.get('code') or 'failure'}, attempt {retry.get('attempts')})"
+
+    @staticmethod
+    def _record_failure(environment, exc: "_LifecycleFailed", fingerprint: str) -> str:
+        """Remember the failure and when to try again; return what to show.
+
+        Every failed cluster used to be revisited on every reconciler tick --
+        303 identical attempts in three hours for a digest that could not
+        match. Repeats now back off, and a failure that cannot change until
+        its inputs do says so, so the operator knows it is waiting on them.
+        """
+        from datetime import UTC, datetime, timedelta  # noqa: PLC0415
+
+        observed = dict(environment.observed_status_json or {})
+        previous = observed.get("retry") if isinstance(observed.get("retry"), dict) else {}
+        same = previous.get("fingerprint") == fingerprint and previous.get("code") == exc.code
+        attempts = int(previous.get("attempts") or 0) + 1 if same else 1
+
+        if exc.permanent:
+            wait = _PERMANENT_RECHECK_SEC
+        else:
+            wait = min(_RETRY_BASE_SEC * 2 ** (attempts - 1), _RETRY_CAP_SEC)
+        now = datetime.now(tz=UTC)
+        observed["retry"] = {
+            "code": exc.code,
+            "permanent": exc.permanent,
+            "fingerprint": fingerprint,
+            "attempts": attempts,
+            "last_failed_at": now.isoformat(),
+            "next_attempt_at": (now + timedelta(seconds=wait)).isoformat(),
+        }
+        environment.observed_status_json = observed
+
+        if exc.permanent:
+            return (
+                f"{exc.detail} This will not change by retrying, so LLM.Port is "
+                f"not retrying it on its own until the runtime image or the "
+                f"cluster changes; it re-checks every hour. Use Try again once "
+                f"you have fixed it."
+            )
+        minutes = max(1, round(wait / 60))
+        return (
+            f"{exc.detail} Trying again in about {minutes} minute"
+            f"{'' if minutes == 1 else 's'} (attempt {attempts})."
+        )
+
+    @staticmethod
+    def _clear_failure(environment) -> None:
+        observed = dict(environment.observed_status_json or {})
+        if observed.pop("retry", None) is not None:
+            environment.observed_status_json = observed
 
     # ------------------------------------------------------------------
     # Helpers
@@ -332,7 +691,11 @@ class RayEnvironmentManager:
             raise _LifecycleUnobserved(f"{what}: no result within {_LIFECYCLE_WAIT_SEC:.0f}s")
         if final.status != _SUCCEEDED:
             detail = final.error_message or final.error_code or final.status
-            raise _LifecycleFailed(f"{what} failed: {detail}")
+            raise _LifecycleFailed(
+                f"{what} failed: {detail}",
+                code=final.error_code,
+                detail=str(detail),
+            )
         return dict(final.result_json or {})
 
     async def _bundles_for(self, session, nodes) -> "dict[Any, Any]":
@@ -363,7 +726,8 @@ class RayEnvironmentManager:
                 f"{'node' if len(unsupported) == 1 else 'nodes'} "
                 f"{', '.join(unsupported)}. A node joins a cluster on the "
                 "strength of its platform, so one with no bundle for its "
-                "CPU architecture and accelerator cannot be a member."
+                "CPU architecture and accelerator cannot be a member.",
+                code="no_certified_runtime",
             )
         return resolved
 
@@ -398,29 +762,9 @@ class RayEnvironmentManager:
         # before anything tries to run out of it.  The agent verifies the
         # pinned identity locally and, when absent, side-loads it from the
         # backend — never from a public registry.
-        image_cmds = []
-        for node in nodes:
-            image_cmds.append((node, await self._issue(
-                gateway,
-                node_id=node.node_id,
-                command_type=NodeCommandType.ENSURE_RUNTIME_IMAGE.value,
-                payload={
-                    "runtime_bundle": payloads[node.node_id],
-                    "ensure_container": True,
-                },
-                key=f"inference-env:{environment.id}:{environment.generation}:ensure-image:{node.node_id}",
-            )))
-        for node, cmd in image_cmds:
-            result = await self._await_result(
-                gateway, cmd, what=f"ensure_runtime_image on node {node.node_id}"
-            )
-            if not result.get("verified"):
-                bundle = bundles[node.node_id][0]
-                raise _LifecycleFailed(
-                    f"Runtime image {bundle.container.image} "
-                    f"({bundle.container.digest}) not verified on node {node.node_id}: "
-                    f"{result.get('error') or 'digest mismatch'}"
-                )
+        await self._ensure_images(
+            environment, gateway=gateway, nodes=nodes, bundles=bundles, payloads=payloads
+        )
 
         issued = []
         for node in nodes:
@@ -535,11 +879,14 @@ class RayEnvironmentManager:
 
     @staticmethod
     def _get_resolved_fabric(environment) -> dict[str, Any] | None:
-        """Read resolved fabric from observed_status_json, with fallback to config_json."""
-        return (
-            (environment.observed_status_json or {}).get("resolved_fabric")
-            or (environment.config_json or {}).get("resolved_fabric")
-        )
+        """The fabric apply-plan resolved, from the observation that owns it.
+
+        No fallback to ``config_json``: it used to hold a copy, and reading
+        one meant a stale binding could outlive the observation that replaced
+        it -- the environment would then be started against an address nobody
+        had resolved for it.
+        """
+        return (environment.observed_status_json or {}).get("resolved_fabric")
 
     async def _start_head(
         self, session, environment, head, credential_ref, config, gateway: NodeCommandGateway
@@ -755,6 +1102,15 @@ class RayEnvironmentManager:
             "conditions": build_environment_conditions(cluster, expected_nodes),
         })
         environment.observed_status_json = observed
+        # The cluster page shows ``status_message`` when a cluster needs
+        # attention and falls back to "Some machines are not reporting" when
+        # it is empty. It was never written, so a cluster refused for a
+        # mismatched image digest -- with the machine reporting perfectly
+        # well -- told the operator the one thing that was not wrong.
+        if status in (EnvironmentStatus.FAILED, EnvironmentStatus.DEGRADED):
+            environment.status_message = reason
+        elif status in (EnvironmentStatus.READY, EnvironmentStatus.STOPPED):
+            environment.status_message = None
         if address:
             environment.address = address
         if version:

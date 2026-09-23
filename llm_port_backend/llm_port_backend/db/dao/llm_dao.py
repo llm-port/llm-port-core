@@ -248,6 +248,31 @@ class ModelDAO:
         )
         return result.scalar_one_or_none() is not None
 
+    async def find_by_repo(
+        self,
+        hf_repo_id: str,
+        hf_revision: str | None = None,
+    ) -> LLMModel | None:
+        """The record already kept for this repo and revision, if any.
+
+        An absent revision and ``main`` are the same thing. Where several
+        records exist (older installs made one per download) the most usable
+        wins: available, then downloading, then failed.
+        """
+        result = await self.session.execute(
+            select(LLMModel)
+            .where(
+                LLMModel.hf_repo_id == hf_repo_id,
+                LLMModel.status != ModelStatus.DELETING,
+            )
+            .order_by(LLMModel.created_at.desc()),
+        )
+        wanted = hf_revision or "main"
+        same = [m for m in result.scalars().all() if (m.hf_revision or "main") == wanted]
+        rank = {ModelStatus.AVAILABLE: 0, ModelStatus.DOWNLOADING: 1, ModelStatus.FAILED: 2}
+        same.sort(key=lambda m: rank.get(m.status, 3))
+        return same[0] if same else None
+
     async def find_by_display_name(
         self,
         display_name: str,
@@ -540,6 +565,19 @@ class DownloadJobDAO:
             return None
         job.status = DownloadJobStatus.CANCELED
         return job
+
+    async def active_for_model(self, model_id: uuid.UUID) -> DownloadJob | None:
+        """The queued or running job for a model, if one is under way."""
+        result = await self.session.execute(
+            select(DownloadJob)
+            .where(
+                DownloadJob.model_id == model_id,
+                DownloadJob.status.in_([DownloadJobStatus.QUEUED, DownloadJobStatus.RUNNING]),
+            )
+            .order_by(DownloadJob.created_at.desc())
+            .limit(1),
+        )
+        return result.scalar_one_or_none()
 
     async def cancel_active_for_model(self, model_id: uuid.UUID) -> int:
         """Cancel all QUEUED / RUNNING jobs for a model. Returns count affected."""

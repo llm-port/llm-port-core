@@ -46,6 +46,7 @@ class NodeCommandType(enum.StrEnum):
 
     # --- Runtime bundle readiness (Phase 4B) ---
     ENSURE_RUNTIME_IMAGE = "ensure_runtime_image"
+    SERVE_RUNTIME_IMAGE = "serve_runtime_image"
 
 
 class CommandResult(TypedDict, total=False):

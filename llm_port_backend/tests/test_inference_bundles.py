@@ -10,11 +10,11 @@ from pydantic import ValidationError
 
 from llm_port_backend.db.models.node_control import InfraNode
 from llm_port_backend.services.inference.bundles import (  # noqa: PLC0415
-    _CERTIFIED_DGX_SPARK_RUNTIME_MANIFEST,
     CERTIFIED_DGX_SPARK_BUNDLE,
     ContainerSpec,
     RuntimeBundleManifest,
     RuntimeBundleRegistry,
+    _load_runtime_manifest,
     compute_rootfs_digest,
 )
 
@@ -36,39 +36,53 @@ def test_certified_dgx_spark_bundle_valid() -> None:
 
 
 def test_certified_bundle_identity_matches_the_deployed_image() -> None:
-    """The catalog entry must agree with the image that is actually deployed.
+    """The catalogue entry is the manifest the image build wrote -- nothing else.
 
-    Repinned on 2026-09-21 to the image rebuilt on spark-ts3202, which carries
-    the metrics stack and the helper's Serve write verbs.  A digest-pinned
-    deployment is the integrity mechanism the air-gap direction rests on, so a
-    constant that has drifted from the hardware is worse than no constant at
-    all -- the agent refuses to start a container whose identity does not
-    match, which is exactly what happened before this repin.
+    This used to assert a literal digest, which made it a third hand-kept copy
+    of a fact the build already records: the catalogue dict, this test and the
+    manifest file each held an image id, and they drifted apart. The catalogue
+    went on pinning an image that no longer existed anywhere, and every cluster
+    start was refused by the integrity check -- correctly -- 303 times.
 
-    Identity is *derived* from ``rootfs_layers`` rather than transcribed, so
-    this asserts the derivation rather than a second hand-copied digest.
+    So assert the derivation instead. Whatever the last build produced, the
+    catalogue must pin exactly that, and derive its content identity from the
+    same layers.
     """
+    manifest = _load_runtime_manifest("runtime-manifest.json")
     bundle = CERTIFIED_DGX_SPARK_BUNDLE
-    assert bundle.container.image == "llmport/ray-vllm-gb10:ray2.58-nv26.08"
-    # spark-ts3202's config id.  A save/load transfer changes this but not the
-    # layer diff IDs, which is why rootfs_digest is the primary check.
-    assert bundle.container.digest == (
-        "sha256:0fa7782c83f57f60f09aae1329fb21c82a32112bf6b4b5ad49a54055e24c63bd"
-    )
+
+    assert bundle.container.image == manifest["release_tag"]
+    assert bundle.container.digest == manifest["image_id"]
     assert bundle.container.rootfs_digest == compute_rootfs_digest(
-        list(_CERTIFIED_DGX_SPARK_RUNTIME_MANIFEST["rootfs_layers"])
+        list(manifest["rootfs_layers"])
     )
 
+    # The stack is read from the helper inside the image; these pin the
+    # platform the DGX pair is qualified on, and would move with a real
+    # upgrade rather than with a rebuild.
     matrix = bundle.compatibility_matrix
     assert matrix.ray_version == "2.58.0"
-    # Reported by the in-container helper (``vllm.__version__``), which is the
-    # same source the agent and system_fingerprint read.
-    assert matrix.vllm_version == "0.27.1+93523f72.dev"
+    assert matrix.vllm_version == manifest["stack_components"]["vllm"]
     assert matrix.cuda_version == "13.4"
     assert matrix.python_version == "3.12.3"
     assert matrix.torch_version == "2.14.0a0+4fdf77b940.nv26.08"
-    assert matrix.nccl_version == "2.30.7"
-    assert matrix.triton_version == "3.6.0"
+
+
+def test_the_catalogue_is_not_transcribed_beside_the_manifest() -> None:
+    """There must be no second, hand-kept copy for the two to disagree with."""
+    from llm_port_backend.services.inference import bundles
+
+    assert not hasattr(bundles, "_CERTIFIED_DGX_SPARK_RUNTIME_MANIFEST")
+
+
+def test_a_build_time_manifest_records_nccl() -> None:
+    """NCCL's version needs the library, not a GPU.
+
+    The in-image helper only asked when a GPU was visible, and a build never
+    has one -- so every manifest written at build time recorded nccl as None,
+    and the catalogue quietly lost a version it used to show.
+    """
+    assert CERTIFIED_DGX_SPARK_BUNDLE.compatibility_matrix.nccl_version
 
 
 def test_certification_status_is_not_inherited_across_a_rebuild() -> None:

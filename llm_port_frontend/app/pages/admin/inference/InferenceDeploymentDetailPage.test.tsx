@@ -90,7 +90,10 @@ describe("InferenceDeploymentDetailPage", () => {
 
     // 3. environment
     expect(screen.getByText("Cluster")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "dgx-pair" })).toBeInTheDocument();
+    // The cluster arrives in a second request, after the deployment names it;
+    // the heading only proves the first one landed. Wait for it rather than
+    // racing it -- the synchronous lookup passed or failed on scheduling.
+    expect(await screen.findByRole("button", { name: "dgx-pair" })).toBeInTheDocument();
 
     // 4. participating nodes -- scoped, because the hosts also appear in the
     // artifact-readiness table.
@@ -210,6 +213,43 @@ describe("InferenceDeploymentDetailPage", () => {
       api_version: "inference.llmport.ai/v1alpha1",
       scale: { replicas: 3 },
     });
+  });
+
+  it("offers the deployment in chat by setting the alias, and nothing else", async () => {
+    const update = vi
+      .spyOn(inferenceApi, "updateDeployment")
+      .mockResolvedValue(deployment);
+    vi.spyOn(inferenceApi, "reconcileDeployment").mockResolvedValue(deployment);
+    await renderDetail();
+
+    expect(screen.getByTestId("chat-alias")).toHaveTextContent("not offered");
+    await userEvent.click(screen.getByRole("button", { name: "Offer in chat" }));
+    // Proposed from the model, so the operator only has to confirm it.
+    const field = await screen.findByLabelText("Offer in chat as");
+    expect(field).toHaveValue("qwen3-8b");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(update).toHaveBeenCalled());
+    const [, payload] = update.mock.calls[0];
+    expect(payload.spec).toEqual({
+      ...deployment.spec,
+      service: { ...(deployment.spec.service as object), alias: "qwen3-8b" },
+    });
+  });
+
+  it("keeps the cluster and its machines after an action refreshes the page", async () => {
+    // The refresh after an action used to re-run the first render's loaders,
+    // which had no cluster to ask about, and blanked these cards.
+    vi.spyOn(inferenceApi, "updateDeployment").mockResolvedValue(deployment);
+    const getEnvironment = vi.mocked(inferenceApi.getEnvironment);
+    await renderDetail();
+    await screen.findByText("dgx-pair");
+    getEnvironment.mockClear();
+
+    await userEvent.click(screen.getByRole("button", { name: "Stop" }));
+
+    await waitFor(() => expect(getEnvironment).toHaveBeenCalledWith(deployment.environment_id));
+    expect(screen.getByText("dgx-pair")).toBeInTheDocument();
   });
 
   it("stops a running deployment through desired state", async () => {

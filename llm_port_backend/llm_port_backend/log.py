@@ -94,8 +94,30 @@ def configure_logging() -> None:  # pragma: no cover
 
     # set logs output, level and format
     logger.remove()
+    _use_utf8_stdout()
     logger.add(
         sys.stdout,
         level=settings.log_level.value,
         format=record_formatter,  # type: ignore
     )
+
+
+def _use_utf8_stdout() -> None:
+    """Let stdout carry the characters this service actually logs.
+
+    Windows gives a redirected stdout the cp1252 codec, and plenty of log
+    lines here contain an arrow or a box rule. Each one raised
+    UnicodeEncodeError inside loguru's sink, which swallowed it as
+    "--- End of logging error ---" and dropped the line -- so the log was
+    missing exactly the messages that described what was happening, and only
+    when running headless, which is when the log is the only thing there is.
+
+    ``errors="replace"`` because a degraded character beats a lost line.
+    """
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if reconfigure is None:  # pragma: no cover - a wrapper without it
+        return
+    try:
+        reconfigure(encoding="utf-8", errors="replace")
+    except (OSError, ValueError):  # pragma: no cover - already detached
+        pass

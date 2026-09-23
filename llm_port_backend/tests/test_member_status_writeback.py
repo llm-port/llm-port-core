@@ -80,8 +80,12 @@ async def _environment(
         control_plane_id=control_plane.id,
         name=f"env-{uuid.uuid4().hex[:6]}",
         desired_state="running",
-        config_json={"resolved_fabric": {"node_bindings": bindings or {}}},
-        observed_status_json={"cluster": {"alive": True, "nodes": ray_nodes}},
+        # Both live in the observation: the fabric apply-plan resolved, and
+        # the cluster the reconciler last saw.
+        observed_status_json={
+            "resolved_fabric": {"node_bindings": bindings or {}},
+            "cluster": {"alive": True, "nodes": ray_nodes},
+        },
     )
     session.add(env)
     await session.flush()

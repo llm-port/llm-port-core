@@ -22,7 +22,8 @@ import { expect, test } from "@playwright/test";
  * spec sets `service.alias`.
  */
 
-const ALIAS = process.env.E2E_MODEL_ALIAS ?? "qwen2.5-0.5b";
+// What the deploy wizard proposes for Qwen/Qwen2.5-0.5B-Instruct.
+const ALIAS = process.env.E2E_MODEL_ALIAS ?? "qwen2.5-0.5b-instruct";
 
 /** Wait until the picker has actually settled on a model. */
 async function waitForModel(page: import("@playwright/test").Page) {

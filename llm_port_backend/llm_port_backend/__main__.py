@@ -51,6 +51,13 @@ def main() -> None:
         reload=settings.reload,
         log_level=settings.log_level.value.lower(),
         factory=True,
+        # The node agents' control channel is a websocket, pinged from both
+        # ends. uvicorn's default gives a pong 20s, and a machine unpacking a
+        # 38 GB runtime image does not always answer that fast: the server
+        # dropped the stream mid-load, failing the command that was loading
+        # it. The agent already allows 120s for the same reason; match it.
+        ws_ping_interval=20.0,
+        ws_ping_timeout=120.0,
     )
 
 

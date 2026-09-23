@@ -427,8 +427,12 @@ class RayDriver(InferenceDriver):
         # maps our node UUIDs to the very addresses Ray advertises.
         by_fabric_ip: dict[str, str] = {}
         bindings = (
-            ((getattr(environment, "config_json", None) or {}).get("resolved_fabric") or {})
-            .get("node_bindings")
+            (
+                (getattr(environment, "observed_status_json", None) or {}).get(
+                    "resolved_fabric"
+                )
+                or {}
+            ).get("node_bindings")
             or {}
         )
         for node_uuid, binding in bindings.items():

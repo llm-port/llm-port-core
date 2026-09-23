@@ -13,6 +13,13 @@ _CPU_COUNT = os.cpu_count() or 1
 
 TEMP_DIR = Path(gettempdir())
 
+#: Default location for deployment-owned copies of the node agent.
+#:
+#: Named rather than inlined so the install endpoint can tell "an operator
+#: chose this directory" from "nobody set one" -- only in the second case is
+#: it free to prefer a source checkout's build output.
+DEFAULT_AGENT_BINARY_DIR = "/srv/llm-port/agent-binaries"
+
 
 def _default_model_store_root() -> str:
     """Default model store: the standard HuggingFace hub cache location.
@@ -102,9 +109,14 @@ class Settings(BaseSettings):
     rabbit_pool_size: int = 2
     rabbit_channel_pool_size: int = 10
 
-    # This variable is used to define
-    # multiproc_dir. It's required for [uvi|guni]corn projects.
-    prometheus_dir: Path = TEMP_DIR / "prom"
+    # Where prometheus-client keeps its per-process metric files.
+    #
+    # Named per service, not the template's shared ``prom``. The API gateway
+    # has the same setting and both defaulted to the same directory; since
+    # each clears this directory on startup and prometheus-client counts
+    # every ``.db`` file it finds there, sharing one meant each service
+    # deleting the other's metrics.
+    prometheus_dir: Path = TEMP_DIR / "prom-backend"
 
     # Sentry's configuration.
     sentry_dsn: str | None = None
@@ -132,6 +144,24 @@ class Settings(BaseSettings):
     # own the store; containerized deployments override it via
     # ``LLM_PORT_BACKEND_MODEL_STORE_ROOT``.
     model_store_root: str = _default_model_store_root()
+
+    # Where this deployment keeps its own copies of the node agent, served by
+    # /api/install/binary/<platform>. A node with no internet downloads the
+    # agent from here instead of the published release, with the same command
+    # and the same digest check.
+    #
+    # Read through ``getattr`` before this existed, so it silently could not
+    # be configured: an air-gapped site that put its binaries somewhere else
+    # got the hardcoded path, found nothing, and was sent to GitHub.
+    agent_binary_dir: str = DEFAULT_AGENT_BINARY_DIR
+
+    # Where runtime images are exported once for nodes to download. A file
+    # has a length and can be resumed; a live ``docker save`` has neither.
+    # Empty means a directory under the system temp dir. Each export is the
+    # size of the image on the wire -- about 12GB for the DGX runtime -- so
+    # point this at a disk with room.
+    image_cache_dir: str = ""
+
     hf_token: str | None = None
     # Absolute path to a host-mounted HuggingFace cache directory.
     # When set (e.g. via the GPU compose overlay), auto_import_hf_cache

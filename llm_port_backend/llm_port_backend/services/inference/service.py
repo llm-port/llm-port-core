@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from llm_port_backend.services.inference.planner import InferenceEnvironmentPlan
 
 from fastapi import Depends
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -217,6 +218,10 @@ def _queue_for_reconcile(row: Any) -> None:
 # ---------------------------------------------------------------------------
 
 
+#: Statuses in which a cluster may have Ray running on its machines.
+_RUNNING_STATUSES = frozenset({"ready", "running", "degraded", "preparing"})
+
+
 class EnvironmentService:
     """Environment lifecycle (Phase 1: desired state only, no live actions)."""
 
@@ -352,9 +357,85 @@ class EnvironmentService:
             )
         await self.node_dao.remove_node(environment_id, node_id)
 
+    async def lifecycle_progress(self, environment_id: uuid.UUID) -> dict[str, Any] | None:
+        """What each member machine last reported while this cluster comes up.
+
+        Keyed on the command idempotency keys the Ray driver issues
+        (``inference-env:<id>:...``), so it covers every member and every
+        lifecycle step without the driver having to publish anything.
+
+        Per machine, not just the newest event overall: a two-machine cluster
+        receives its runtime image on both at once, and a single "latest"
+        line would flick between them every few seconds.
+        """
+        from llm_port_backend.db.models.node_control import (  # noqa: PLC0415
+            InfraNodeCommand,
+            InfraNodeCommandEvent,
+            NodeCommandStatus,
+        )
+
+        in_flight = [
+            NodeCommandStatus.DISPATCHED.value,
+            NodeCommandStatus.ACKED.value,
+            NodeCommandStatus.RUNNING.value,
+        ]
+        rows = (
+            await self.session.execute(
+                select(
+                    InfraNodeCommandEvent.message,
+                    InfraNodeCommandEvent.payload_json,
+                    InfraNodeCommandEvent.created_at,
+                    InfraNodeCommand.command_type,
+                    InfraNodeCommand.node_id,
+                )
+                .join(InfraNodeCommand, InfraNodeCommand.id == InfraNodeCommandEvent.command_id)
+                .where(
+                    InfraNodeCommand.idempotency_key.like(f"inference-env:{environment_id}:%"),
+                    InfraNodeCommand.status.in_(in_flight),
+                    InfraNodeCommandEvent.phase == "progress",
+                )
+                # ``seq`` breaks ties: events written in one transaction share
+                # a timestamp, and "newest" must not be a coin toss.
+                .order_by(
+                    InfraNodeCommandEvent.created_at.desc(),
+                    InfraNodeCommandEvent.seq.desc(),
+                )
+                .limit(200)
+            )
+        ).all()
+        if not rows:
+            return None
+
+        machines: dict[str, dict[str, Any]] = {}
+        for row in rows:  # newest first: keep the first seen per machine
+            node = str(row.node_id)
+            if node in machines:
+                continue
+            payload = row.payload_json if isinstance(row.payload_json, dict) else {}
+            pct = payload.get("progress_pct")
+            machines[node] = {
+                "node_id": node,
+                "message": row.message,
+                "progress_pct": pct if isinstance(pct, (int, float)) else None,
+                "step": row.command_type,
+                "at": row.created_at.isoformat() if row.created_at else None,
+            }
+
+        newest = next(iter(machines.values()))
+        return {**newest, "machines": sorted(machines.values(), key=lambda m: m["node_id"])}
+
     async def request_reconcile(self, environment_id: uuid.UUID) -> InferenceEnvironment:
-        """Queue the environment for the reconciler (observed state untouched)."""
+        """Queue the environment for the reconciler, now.
+
+        Observed state is left alone except for the failure backoff: a person
+        pressing Try again has usually just fixed whatever it was waiting on,
+        and making them wait out an hour-long recheck to find out would be
+        the reconciler overruling the one party who knows something changed.
+        """
         environment = await self.get(environment_id)
+        observed = dict(environment.observed_status_json or {})
+        if observed.pop("retry", None) is not None:
+            environment.observed_status_json = observed
         _queue_for_reconcile(environment)
         await self.session.flush()
         await self.session.refresh(environment)
@@ -374,13 +455,45 @@ class EnvironmentService:
         await self.session.refresh(environment)
         return environment
 
-    async def delete(self, environment_id: uuid.UUID) -> None:
-        """Delete an environment, refused while deployments exist."""
+    async def delete(self, environment_id: uuid.UUID, *, force: bool = False) -> None:
+        """Delete an environment, refused while deployments exist or it runs.
+
+        ``force`` deletes a running cluster anyway, but only when none of its
+        machines is reachable -- the one case where stopping it is impossible
+        rather than merely skipped. What was left on them is replaced the
+        next time that machine starts a cluster.
+
+        Deleting the row does not reach the machines. A cluster deleted while
+        running would leave its Ray head and workers going on the hardware
+        with nothing in LLM.Port left to stop them -- so it has to be stopped
+        first, which the console does for the operator before deleting.
+        """
+        environment = await self.get(environment_id)
         deployments = await self.deployment_dao.list_all(environment_id=environment_id)
         if deployments:
             raise ConflictError("environment has deployments; delete them first")
+        running = environment.desired_state == "running" and environment.status in _RUNNING_STATUSES
+        stopping = environment.desired_state == "stopped" and environment.status in _RUNNING_STATUSES
+        if (running or stopping) and not (force and await self._no_member_reachable(environment_id)):
+            raise ConflictError(
+                "the cluster is running on its machines; stop it first so they are "
+                "left clean, then delete it"
+            )
         if not await self.dao.delete(environment_id):
             raise NotFoundError("environment", environment_id)
+
+    async def _no_member_reachable(self, environment_id: uuid.UUID) -> bool:
+        from llm_port_backend.db.models.node_control import InfraNode, NodeHealthStatus  # noqa: PLC0415
+
+        members = await self.node_dao.list_for_environment(environment_id)
+        if not members:
+            return True
+        rows = (
+            await self.session.execute(
+                select(InfraNode.status).where(InfraNode.id.in_([m.node_id for m in members]))
+            )
+        ).scalars().all()
+        return all(status == NodeHealthStatus.OFFLINE.value for status in rows)
 
     async def plan_fabric(
         self,

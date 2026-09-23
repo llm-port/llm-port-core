@@ -1,0 +1,55 @@
+{
+  "release_tag": "llmport-ray-runtime-x86_64:2.58.0",
+  "image_id": "sha256:724ddfe4c49efe8f498916d14100b5c0eb2ea1a1b014b0b50467c7c31f573c15",
+  "rootfs_layers": [
+    "sha256:a6dc765193a52cbaede3c93a9ff48b9540948dd0774bbe7031fcb5847606f9ac",
+    "sha256:7ca599ccfc97fa428fcf941eda7c2d643f066feb947020dcdbbf913cec34d5dc",
+    "sha256:b54011271bdbf69ae643cb5a4af6a5bc2f834ae8bc0833b736b52bbd2396e99f",
+    "sha256:c321a426ca693e386f4df5f198d7f32c2da49e29f53ff77d695ceb02dfb0a421",
+    "sha256:02af6141a7b33188fd44fa6f650a9b1b5378c5c43b600f27e6cf2d459407fd46",
+    "sha256:d42c5e3f14e91e7ed5c8c4c89eec7e13c51f147d03aee7c1bd5c0c1f719a0207",
+    "sha256:8160b6d2a4843f6354b9c22e570ce12123f5739452c7979dc011beffcb8381c2",
+    "sha256:b9b0cbd1ddd63c3b4377db4aad85fb0fe8723ade4e917be769a6449704bc376f",
+    "sha256:a44371bc10993cdac33f04315c2a5084db5b7ff517039772a85d8c81963d9cb6",
+    "sha256:36a04310e974c4e332a2e678d67e4d7e51af1f598fd569338007f3af27759974",
+    "sha256:508d4032f347642aa6a84616ae79514f83bc89e9885576aaad05bc9cb0f5c7ca",
+    "sha256:24e18552bac146660e0e0441beef1d1468579973aa218471faf425dbbb8cdfba",
+    "sha256:ed2fc036e2c171b8c9c0048c26626dded3864a2f4942fc18c5b49df1bd16edbb",
+    "sha256:2a0615aed1bf9cfefd0cb47f25c30a002fb12a2f3f0ac688ac01b398dd71ce69",
+    "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
+    "sha256:54353c1c55f325ec5cb28855c613c81930b5c714f5bba9859dfcb4bc5a97550d"
+  ],
+  "stack_components": {
+    "ray": "2.58.0",
+    "vllm": "0.26.0",
+    "torch": "2.11.0",
+    "cuda": "13.0",
+    "python": "3.12.14",
+    "transformers": "5.17.0",
+    "triton": "3.6.0"
+  },
+  "arch_list": [
+    "sm_75",
+    "sm_80",
+    "sm_86",
+    "sm_90",
+    "sm_100",
+    "sm_120"
+  ],
+  "compute_capabilities": [
+    "7.5",
+    "8.0",
+    "8.6",
+    "9.0",
+    "10.0",
+    "12.0"
+  ],
+  "machine": "x86_64",
+  "certification": {
+    "overall_status": "uncertified",
+    "checks_total": 0,
+    "checks": [],
+    "hardware_target": "generic x86_64 NVIDIA",
+    "detail": "The generic x86_64 NVIDIA runtime: Ray 2.58.0 with ray.serve.llm, vLLM, and the llm-port-ray-runtime control helper the node agent drives the container through. Kernels span sm_75 to sm_120, so it serves every mainstream NVIDIA card since Turing. Not yet certified: a single-node cluster has been started and observed on a TITAN RTX (sm_75), but no two-node run has been recorded against it."
+  }
+}

@@ -36,6 +36,7 @@ from llm_port_backend.db.models.node_control import (
     NodeHealthStatus,
 )
 from llm_port_backend.services.nodes.service import NodeControlService
+from llm_port_backend.settings import settings
 
 PEPPER = "test-pepper"
 
@@ -85,6 +86,19 @@ async def _inflight_command(
 # ── commands ─────────────────────────────────────────────────────────────
 
 
+def _silence_window() -> int:
+    """The silence the service will demand of the command these tests build.
+
+    It scales with the command's own timeout now, rather than being one
+    constant for every command, so the tests ask the service instead of
+    hard-coding a number that would drift away from it.
+    """
+    return max(
+        NodeControlService._REAPER_MIN_SILENCE_SEC,
+        settings.node_command_default_timeout_sec,
+    )
+
+
 @pytest.mark.anyio()
 async def test_a_silent_command_on_a_healthy_node_is_reaped(
     dbsession: AsyncSession,
@@ -96,7 +110,7 @@ async def test_a_silent_command_on_a_healthy_node_is_reaped(
     service = _service(dbsession)
     node = await _node(dbsession, status=NodeHealthStatus.HEALTHY.value)
     command = await _inflight_command(
-        dbsession, node, dispatched_ago_sec=NodeControlService._REAPER_SILENCE_SEC + 600
+        dbsession, node, dispatched_ago_sec=_silence_window() + 600
     )
 
     assert await service.reap_stale_commands() >= 1
@@ -133,7 +147,7 @@ async def test_a_command_still_reporting_progress_is_left_alone(
     dao = NodeControlDAO(dbsession)
     node = await _node(dbsession, status=NodeHealthStatus.HEALTHY.value)
     command = await _inflight_command(
-        dbsession, node, dispatched_ago_sec=NodeControlService._REAPER_SILENCE_SEC + 600
+        dbsession, node, dispatched_ago_sec=_silence_window() + 600
     )
     # ...but it said something just now.
     await dao.append_command_event(
@@ -310,3 +324,246 @@ def test_the_default_memory_fraction_fits_unified_memory() -> None:
         pipeline_parallel_size=None,
     )
     assert override["gpu_memory_utilization"] == 0.95
+
+
+@pytest.mark.anyio()
+async def test_a_short_command_is_not_given_an_image_transfers_patience(
+    dbsession: AsyncSession,
+) -> None:
+    """A 300s command declared dead on a 300s scale, not a 1800s one.
+
+    The silence window used to be one constant sized for the slowest thing a
+    node ever does -- a multi-GB image push. Every short command inherited it,
+    so a `run_serve_app` that died on arrival held its deployment in flight
+    for half an hour while the row reported the phase before it. Nobody
+    watching a deploy waits that long to be told nothing is happening.
+    """
+    service = _service(dbsession)
+    node = await _node(dbsession, status=NodeHealthStatus.HEALTHY.value)
+
+    # Silent for well past its own budget, nowhere near the old flat window.
+    short_budget = 300
+    command = await _inflight_command(
+        dbsession, node, dispatched_ago_sec=short_budget * 3
+    )
+    command.timeout_sec = short_budget
+    await dbsession.flush()
+
+    assert service._silence_budget(command) == short_budget
+    assert await service.reap_stale_commands() >= 1
+    await dbsession.refresh(command)
+    assert command.status == NodeCommandStatus.TIMED_OUT.value
+
+
+@pytest.mark.anyio()
+async def test_a_long_command_keeps_its_longer_window(
+    dbsession: AsyncSession,
+) -> None:
+    """The transfer the old constant existed to protect still is protected."""
+    service = _service(dbsession)
+    node = await _node(dbsession, status=NodeHealthStatus.HEALTHY.value)
+
+    long_budget = 3600
+    command = await _inflight_command(dbsession, node, dispatched_ago_sec=900)
+    command.timeout_sec = long_budget
+    await dbsession.flush()
+
+    assert service._silence_budget(command) == long_budget
+    await dbsession.refresh(command)
+    assert command.status != NodeCommandStatus.TIMED_OUT.value
+
+
+# -- a command dies with the socket that carried it -------------------------
+
+
+async def test_a_command_in_flight_when_the_stream_closes_is_failed_at_once(
+    dbsession: AsyncSession,
+) -> None:
+    """The proof is the disconnect, not the silence that follows it.
+
+    A command runs inside the agent holding the socket. When the socket goes
+    the work goes with it -- the agent resumes nothing on reconnect, so the
+    result frame is never coming.
+
+    Waiting for the reaper was not enough in practice. Pulling a runtime
+    image saturates the link, times out the websocket keepalive and drops the
+    stream carrying the command that started the pull. The node reconnects
+    seconds later, so it is never offline long enough for the offline path,
+    and the command sat in RUNNING for the whole silence budget while the
+    cluster showed "preparing" and explained nothing.
+    """
+    service = _service(dbsession)
+    node = await _node(dbsession, status=NodeHealthStatus.HEALTHY.value)
+    command = await _inflight_command(dbsession, node, dispatched_ago_sec=5)
+    command.status = NodeCommandStatus.RUNNING.value
+    await dbsession.flush()
+
+    failed = await service._fail_commands_lost_with_the_stream(node_id=node.id)
+
+    assert failed == 1
+    await dbsession.refresh(command)
+    assert command.status == NodeCommandStatus.FAILED.value
+    assert command.error_code == "node_stream_lost"
+
+
+async def test_the_reason_tells_the_operator_it_is_safe_to_retry(
+    dbsession: AsyncSession,
+) -> None:
+    """"It failed" without "and nothing is left running" invites a guess."""
+    service = _service(dbsession)
+    node = await _node(dbsession, status=NodeHealthStatus.HEALTHY.value)
+    command = await _inflight_command(dbsession, node, dispatched_ago_sec=5)
+    command.status = NodeCommandStatus.RUNNING.value
+    await dbsession.flush()
+
+    await service._fail_commands_lost_with_the_stream(node_id=node.id)
+    await dbsession.refresh(command)
+
+    assert "connection closed" in (command.error_message or "")
+    assert "try again" in (command.error_message or "")
+
+
+async def test_a_node_with_nothing_in_flight_is_untouched(
+    dbsession: AsyncSession,
+) -> None:
+    service = _service(dbsession)
+    node = await _node(dbsession, status=NodeHealthStatus.HEALTHY.value)
+
+    assert await service._fail_commands_lost_with_the_stream(node_id=node.id) == 0
+
+
+async def test_another_nodes_commands_are_not_collateral(
+    dbsession: AsyncSession,
+) -> None:
+    """One machine losing its stream says nothing about any other."""
+    service = _service(dbsession)
+    mine = await _node(dbsession, status=NodeHealthStatus.HEALTHY.value)
+    theirs = await _node(dbsession, status=NodeHealthStatus.HEALTHY.value)
+    untouched = await _inflight_command(dbsession, theirs, dispatched_ago_sec=5)
+    untouched.status = NodeCommandStatus.RUNNING.value
+    await dbsession.flush()
+
+    await service._fail_commands_lost_with_the_stream(node_id=mine.id)
+
+    await dbsession.refresh(untouched)
+    assert untouched.status == NodeCommandStatus.RUNNING.value
+
+
+async def test_a_killed_agents_commands_are_failed_when_its_session_is_reaped(
+    dbsession: AsyncSession,
+) -> None:
+    """The clean path never runs for an agent that was killed.
+
+    `close_stream_session` fires from the websocket teardown, which a killed
+    agent never reaches. Its commands then stay in flight on a node that
+    looks perfectly healthy as soon as it restarts -- which is how a cluster
+    sat at "preparing" pointing at a command from an agent that no longer
+    existed.
+    """
+    service = _service(dbsession)
+    node = await _node(dbsession, status=NodeHealthStatus.HEALTHY.value)
+
+    dao = NodeControlDAO(dbsession)
+    credential = await dao.create_credential(
+        node_id=node.id, credential_id=uuid.uuid4(), secret_hash="x"
+    )
+    session_row = await dao.create_session(node_id=node.id, credential_id=credential.id)
+    # Silent for long enough that the reaper will take it.
+    session_row.connected_at = datetime.now(tz=UTC) - timedelta(days=1)
+    session_row.last_heartbeat_at = datetime.now(tz=UTC) - timedelta(days=1)
+
+    command = await _inflight_command(dbsession, node, dispatched_ago_sec=5)
+    command.status = NodeCommandStatus.RUNNING.value
+    await dbsession.flush()
+
+    await service.close_stale_sessions()
+
+    await dbsession.refresh(command)
+    assert command.status == NodeCommandStatus.FAILED.value
+    assert command.error_code == "node_stream_lost"
+
+
+async def test_a_live_session_keeps_its_commands(dbsession: AsyncSession) -> None:
+    """A long transfer on a connected agent must not be cut short."""
+    service = _service(dbsession)
+    node = await _node(dbsession, status=NodeHealthStatus.HEALTHY.value)
+
+    dao = NodeControlDAO(dbsession)
+    credential = await dao.create_credential(
+        node_id=node.id, credential_id=uuid.uuid4(), secret_hash="x"
+    )
+    session_row = await dao.create_session(node_id=node.id, credential_id=credential.id)
+    session_row.last_heartbeat_at = datetime.now(tz=UTC)
+
+    command = await _inflight_command(dbsession, node, dispatched_ago_sec=5)
+    command.status = NodeCommandStatus.RUNNING.value
+    await dbsession.flush()
+
+    await service.close_stale_sessions()
+
+    await dbsession.refresh(command)
+    assert command.status == NodeCommandStatus.RUNNING.value
+
+
+async def test_a_killed_agents_machine_goes_offline_when_its_session_is_reaped(
+    dbsession: AsyncSession,
+) -> None:
+    """Only the clean teardown used to mark a machine offline.
+
+    A killed agent -- or one cut off by a backend restart -- never runs it,
+    so its machine read "healthy" with nothing running on it, indefinitely.
+    """
+    service = _service(dbsession)
+    node = await _node(dbsession, status=NodeHealthStatus.HEALTHY.value)
+    dao = NodeControlDAO(dbsession)
+    credential = await dao.create_credential(node_id=node.id, credential_id=uuid.uuid4(), secret_hash="x")
+    session_row = await dao.create_session(node_id=node.id, credential_id=credential.id)
+    session_row.connected_at = datetime.now(tz=UTC) - timedelta(days=1)
+    session_row.last_heartbeat_at = datetime.now(tz=UTC) - timedelta(days=1)
+    await dbsession.flush()
+
+    await service.close_stale_sessions()
+
+    await dbsession.refresh(node)
+    assert node.status == NodeHealthStatus.OFFLINE.value
+
+
+async def test_a_machine_silent_with_no_stream_at_all_goes_offline(dbsession: AsyncSession) -> None:
+    """Sessions already closed some other way are never seen by the reaper again."""
+    service = _service(dbsession)
+    node = await _node(dbsession, status=NodeHealthStatus.HEALTHY.value)
+    node.last_seen = datetime.now(tz=UTC) - timedelta(hours=1)
+    await dbsession.flush()
+
+    await service.close_stale_sessions()
+
+    await dbsession.refresh(node)
+    assert node.status == NodeHealthStatus.OFFLINE.value
+
+
+async def test_a_machine_that_is_still_connected_stays_up(dbsession: AsyncSession) -> None:
+    service = _service(dbsession)
+    node = await _node(dbsession, status=NodeHealthStatus.HEALTHY.value)
+    node.last_seen = datetime.now(tz=UTC) - timedelta(hours=1)
+    dao = NodeControlDAO(dbsession)
+    credential = await dao.create_credential(node_id=node.id, credential_id=uuid.uuid4(), secret_hash="x")
+    live = await dao.create_session(node_id=node.id, credential_id=credential.id)
+    live.last_heartbeat_at = datetime.now(tz=UTC)
+    await dbsession.flush()
+
+    await service.close_stale_sessions()
+
+    await dbsession.refresh(node)
+    assert node.status == NodeHealthStatus.HEALTHY.value
+
+
+async def test_a_sweep_that_only_marks_machines_offline_still_asks_to_be_committed(
+    dbsession: AsyncSession,
+) -> None:
+    """The reaper commits only when this returns non-zero."""
+    service = _service(dbsession)
+    node = await _node(dbsession, status=NodeHealthStatus.HEALTHY.value)
+    node.last_seen = datetime.now(tz=UTC) - timedelta(hours=1)
+    await dbsession.flush()
+
+    assert await service.close_stale_sessions() >= 1

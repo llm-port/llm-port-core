@@ -1,0 +1,59 @@
+# The generic x86_64 NVIDIA runtime image.
+#
+# Same contract as the DGX image next door, different base: that one starts
+# from NVIDIA's aarch64 vLLM container because a GB10 needs NVIDIA's own
+# build, and this one starts from the stock x86_64 Ray/vLLM image, whose
+# kernels already cover sm_75 through sm_120 -- every mainstream NVIDIA card
+# since Turing. One image per platform, not one per card.
+#
+# What makes an image a *runtime* image rather than just a box with Ray in it
+# is the helper below. The node agent never imports Ray: it execs
+# `llm-port-ray-runtime <verb>` inside this container, so the SDK version that
+# answers is always the one the cluster is running. An image without the
+# helper starts a cluster that then reads as dead, because nothing can be
+# asked about it -- which is exactly what the smoke image did.
+FROM llmport-agent-ray-smoke:2.58.0
+
+# Air-gapped runtime defaults and telemetry suppression.
+ENV HF_HUB_OFFLINE=1 \
+    TRANSFORMERS_OFFLINE=1 \
+    HF_DATASETS_OFFLINE=1 \
+    VLLM_NO_USAGE_STATS=1 \
+    VLLM_DO_NOT_TRACK=1 \
+    RAY_DISABLE_USAGE_STATS=1 \
+    DO_NOT_TRACK=1
+
+# Fail the build if the per-node metrics path cannot load.
+#
+# Worker nodes export Prometheus metrics through Ray's dashboard agent, whose
+# `reporter_agent` imports `opencensus` at module scope and pulls in
+# `ray._private.prometheus_exporter`, which needs it too. When that import
+# fails the agent never binds --metrics-export-port, so the head looks healthy
+# while every worker stays silent. Importing the real modules is the only
+# check that catches it.
+RUN pip install --no-cache-dir aiohttp-cors opencensus opentelemetry-exporter-prometheus \
+ && python3 -c "import aiohttp_cors, opencensus; \
+import ray._private.prometheus_exporter as pe; \
+import ray.dashboard.modules.reporter.reporter_agent as ra; \
+print('metrics stack OK:', opencensus.__name__, aiohttp_cors.__name__, pe.__name__, ra.__name__)"
+
+WORKDIR /opt/llm-port/runtime
+COPY setup.py /opt/llm-port/runtime/
+COPY llm_port_ray_runtime /opt/llm-port/runtime/llm_port_ray_runtime/
+COPY fixtures.json test_local_validation.py /opt/llm-port/runtime/
+
+RUN pip install --no-cache-dir /opt/llm-port/runtime && \
+    llm-port-ray-runtime versions
+
+# The helper is the host/runtime control contract: a build whose helper lacks
+# a verb would leave the agent unable to deploy or tear down a Serve
+# application, so the surface is asserted here rather than discovered on a
+# node at deploy time.
+RUN for verb in versions probe cluster-status serve-status run-serve-app delete-serve-app; do \
+        llm-port-ray-runtime "$verb" --help > /dev/null 2>&1 || \
+            { echo "helper is missing verb: $verb"; exit 1; }; \
+    done && echo 'helper control contract OK'
+
+WORKDIR /workspace
+
+CMD ["llm-port-ray-runtime", "versions"]

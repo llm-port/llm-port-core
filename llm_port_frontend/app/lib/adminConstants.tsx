@@ -168,6 +168,8 @@ export interface NavChild {
   module?: string;
   /** When set, only show this item when RAG is in the specified mode. */
   ragMode?: "lite" | "pro";
+  /** A live count to show beside the label, looked up by the sidebar. */
+  badge?: "pendingJoins";
 }
 
 export interface NavGroup {
@@ -290,6 +292,19 @@ export const NAV: NavEntry[] = [
     icon: <DeviceHubIcon />,
     children: [
       {
+        to: "/admin/nodes",
+        labelKey: "nav.nodes",
+        icon: <SettingsRemoteIcon />,
+        permission: "system.nodes:read",
+        badge: "pendingJoins",
+      },
+      {
+        to: "/admin/nodes/profiles",
+        labelKey: "nav.node_profiles",
+        icon: <TuneIcon />,
+        permission: "system.node_profiles:read",
+      },
+      {
         to: "/admin/clusters",
         labelKey: "nav.clusters",
         icon: <WorkspacesIcon />,
@@ -309,18 +324,6 @@ export const NAV: NavEntry[] = [
     labelKey: "nav.utilities_group",
     icon: <BuildIcon />,
     children: [
-      {
-        to: "/admin/nodes",
-        labelKey: "nav.nodes",
-        icon: <SettingsRemoteIcon />,
-        permission: "system.nodes:read",
-      },
-      {
-        to: "/admin/nodes/profiles",
-        labelKey: "nav.node_profiles",
-        icon: <TuneIcon />,
-        permission: "system.node_profiles:read",
-      },
       {
         to: "/admin/scheduler",
         labelKey: "nav.scheduler",
@@ -523,9 +526,9 @@ export function adminPageTitle(
   if (pathname.startsWith("/admin/clusters")) return t("nav.clusters");
   if (pathname.startsWith("/admin/deployments/")) return "Deployment";
   if (pathname.startsWith("/admin/deployments")) return t("nav.deployments");
-  if (pathname.startsWith("/admin/nodes/onboarding")) return "Node Onboarding";
-  if (pathname.startsWith("/admin/nodes/profiles")) return "Node Profiles";
-  if (pathname.startsWith("/admin/nodes")) return "Node Fleet";
+  if (pathname.startsWith("/admin/nodes/onboarding")) return t("nodes.add_node");
+  if (pathname.startsWith("/admin/nodes/profiles")) return t("nav.node_profiles");
+  if (pathname.startsWith("/admin/nodes")) return t("nodes.fleet_title");
   if (pathname.startsWith("/admin/llm/jobs")) return t("scheduler.title");
   if (pathname.startsWith("/admin/scheduler")) return t("scheduler.title");
   if (pathname.startsWith("/admin/llm/endpoint")) return t("nav.endpoint");

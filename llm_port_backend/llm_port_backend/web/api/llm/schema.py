@@ -227,9 +227,12 @@ class DownloadResponseDTO(BaseModel):
     """Response for the download endpoint — includes dispatch status."""
 
     model: ModelDTO
-    job: DownloadJobDTO
+    # None when the repo is already kept and available: nothing to fetch.
+    job: DownloadJobDTO | None = None
     dispatched: bool = True
     dispatch_error: str | None = None
+    # True when the request was answered with a record that already existed.
+    already_kept: bool = False
 
 
 class ArtifactDTO(BaseModel):

@@ -60,6 +60,36 @@ _SECRET_ENDPOINT = "/api/admin/system/nodes/secrets/"
 _DEFAULT_VERSION = "2.58.0"
 
 
+def _writable_token_dir(preferred: Path) -> Path:
+    """The first directory this agent can actually write its cluster token in.
+
+    The fallback used to be a fixed ``/tmp/llm-port/ray``, shared by every
+    user on the machine, and "usable" meant ``mkdir(exist_ok=True)`` did not
+    raise -- which it does not for a directory that already exists, whoever
+    owns it. On a DGX node that directory had been created by Docker, as
+    root, during an earlier run; an agent running as a user service picked
+    it, and ``start_ray_head`` then failed on ``Permission denied`` writing
+    the token. So: check the directory is writable, and fall back only to
+    places that belong to this user.
+    """
+    candidates = [preferred]
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
+    if runtime_dir:
+        candidates.append(Path(runtime_dir) / "llmport-agent" / "ray")
+    candidates.append(Path.home() / ".local" / "share" / "llmport-agent" / "ray")
+    uid = os.getuid() if hasattr(os, "getuid") else 0
+    candidates.append(Path(f"/tmp/llm-port-{uid}/ray"))
+
+    for candidate in candidates:
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            continue
+        if os.access(candidate, os.W_OK):
+            return candidate
+    return candidates[-1]
+
+
 class RayManager:
     """Coordinates Ray lifecycle commands from the backend."""
 
@@ -73,8 +103,10 @@ class RayManager:
         backend_url: str = "http://127.0.0.1:8000",
         token_ttl_sec: int = 300,
         http: httpx.AsyncClient | None = None,
+        image_download_dir: Path | str | None = None,
     ) -> None:
         self._state = state_store
+        self._image_dir = Path(image_download_dir) if image_download_dir else None
         self._events = events
         # Process/bootstrap layer.  Aliased as ``_process`` (the historical
         # attribute name) so existing code/tests that swap ``manager._process``
@@ -82,14 +114,7 @@ class RayManager:
         self._process = RayRuntime(ray_base_path=ray_base_path)
         self._runtime = self._process
         token_env = os.getenv("LLM_PORT_NODE_AGENT_RAY_TOKEN_DIR")
-        if token_env:
-            token_dir = token_env
-        else:
-            try:
-                Path(token_dir).mkdir(parents=True, exist_ok=True)
-            except OSError:
-                token_dir = "/tmp/llm-port/ray"
-        self._token_dir = Path(token_dir)
+        self._token_dir = Path(token_env) if token_env else _writable_token_dir(Path(token_dir))
         # Claim the directory now, whichever branch chose it.  The runtime
         # container bind-mounts this path, and Docker creates a missing
         # bind-mount source as **root** -- which happens during
@@ -266,15 +291,32 @@ class RayManager:
         spec = self._bundle_spec(payload)
         if spec is None:
             raise RuntimeError("ensure_runtime_image requires a runtime_bundle payload")
+        # Where a missing image comes from: the backend by default, a cluster
+        # peer when the backend names one, or nowhere at all when it only
+        # wants to know whether the image is here (``fetch: false``) -- which
+        # is how it finds out which machines can seed the others.
+        source = payload.get("source") if isinstance(payload.get("source"), dict) else None
+        if payload.get("fetch") is False:
+            loader = None
+        elif source and source.get("peer_url"):
+            loader = self._peer_loader(source, emit_progress)
+        else:
+            loader = self._image_loader(emit_progress)
         result = await self._container.ensure_image(
-            spec, loader=self._image_loader(), emit_progress=emit_progress,
+            spec, loader=loader, emit_progress=emit_progress,
         )
         if payload.get("ensure_container"):
             result.update(await self._container.ensure_container(spec))
         return result
 
-    def _image_loader(self) -> Any:
-        """Loader that streams the pinned image from the backend (air-gap path)."""
+    def _image_loader(self, emit_progress: Any = None) -> Any:
+        """Loader that fetches the pinned image from the backend (air-gap path).
+
+        Passes the pin, so a server holding a different build refuses before
+        sending anything, and the progress callback, which it used to drop --
+        the transfer reported progress to nobody, and the cluster page said
+        "Preparing 1 machine" for eleven minutes.
+        """
 
         async def _load(spec: RuntimeBundleSpec) -> None:
             from llm_port_node_agent.image_loader import load_image_from_backend
@@ -290,9 +332,61 @@ class RayManager:
                 credential=credential,
                 image=spec.image,
                 runtime=detect_runtime(preferred=spec.runtime_handler),
+                emit_progress=emit_progress,
+                expect_id=spec.digest,
+                expect_rootfs=spec.rootfs_digest,
+                download_dir=self._image_download_dir(),
             )
 
         return _load
+
+    def _peer_loader(self, source: dict[str, Any], emit_progress: Any = None) -> Any:
+        """Loader that fetches the pinned image from a cluster peer."""
+
+        async def _load(spec: RuntimeBundleSpec) -> None:
+            from llm_port_node_agent.image_seed import fetch_from_peer
+            from llm_port_node_agent.runtimes import detect_runtime
+
+            await fetch_from_peer(
+                url=str(source["peer_url"]),
+                token=str(source.get("token") or ""),
+                image=spec.image,
+                runtime=detect_runtime(preferred=spec.runtime_handler),
+                download_dir=self._image_dir or Path("/tmp/llmport-agent-images"),
+                emit_progress=emit_progress,
+            )
+
+        return _load
+
+    async def serve_runtime_image(
+        self, payload: dict[str, Any], emit_progress: Any = None
+    ) -> dict[str, Any]:
+        """``SERVE_RUNTIME_IMAGE``: hand this node's runtime image to its peers.
+
+        Serves only an image that matches the pin: verified here first, with
+        no loader, so a node that does not hold the right build refuses
+        instead of passing a wrong one along.
+        """
+        from llm_port_node_agent.image_seed import serve_image
+
+        spec = self._bundle_spec(payload)
+        if spec is None:
+            raise RuntimeError("serve_runtime_image requires a runtime_bundle payload")
+        await self._container.ensure_image(spec, loader=None)
+        return await serve_image(
+            image=spec.image,
+            bind_ip=str(payload["bind_ip"]),
+            port=int(payload["port"]),
+            token=str(payload["token"]),
+            expected_peers=int(payload.get("expected_peers") or 1),
+            timeout_sec=float(payload.get("timeout_sec") or 3600),
+            work_dir=self._image_dir or Path("/tmp/llmport-agent-images"),
+            emit_progress=emit_progress,
+        )
+
+    def _image_download_dir(self) -> Path | None:
+        """Where image tars land before loading. ``None`` streams, unresumable."""
+        return self._image_dir
 
     async def ensure_runtime(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Check that a usable Ray runtime is available for the requested version.

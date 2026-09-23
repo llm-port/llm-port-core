@@ -35,7 +35,7 @@ class _Env:
     """Just the fields the translation reads."""
 
     def __init__(self, bindings: dict[str, Any]) -> None:
-        self.config_json = {"resolved_fabric": {"node_bindings": bindings}}
+        self.observed_status_json = {"resolved_fabric": {"node_bindings": bindings}}
 
 
 async def _node(session: AsyncSession, host: str) -> InfraNode:

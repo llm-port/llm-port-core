@@ -1,0 +1,80 @@
+{
+  "fixed_1gpu": {
+    "llm_engine": "vLLM",
+    "model_loading_config": {
+      "model_id": "Qwen2.5-0.5B-Instruct",
+      "model_source": "Qwen/Qwen2.5-0.5B-Instruct"
+    },
+    "engine_kwargs": {
+      "dtype": "bfloat16",
+      "max_model_len": 2048,
+      "enforce_eager": true
+    },
+    "deployment_config": {
+      "num_replicas": 1
+    }
+  },
+  "autoscale_min0": {
+    "llm_engine": "vLLM",
+    "model_loading_config": {
+      "model_id": "Qwen2.5-0.5B-Instruct",
+      "model_source": "Qwen/Qwen2.5-0.5B-Instruct"
+    },
+    "engine_kwargs": {
+      "dtype": "bfloat16",
+      "max_model_len": 2048,
+      "enforce_eager": true
+    },
+    "deployment_config": {
+      "autoscaling_config": {
+        "min_replicas": 0,
+        "max_replicas": 2,
+        "target_ongoing_requests": 8.0,
+        "upscale_delay_s": 5.0
+      }
+    }
+  },
+  "tp2_across_nodes": {
+    "llm_engine": "vLLM",
+    "model_loading_config": {
+      "model_id": "Qwen2.5-0.5B-Instruct",
+      "model_source": "Qwen/Qwen2.5-0.5B-Instruct"
+    },
+    "engine_kwargs": {
+      "dtype": "bfloat16",
+      "max_model_len": 2048,
+      "enforce_eager": true,
+      "tensor_parallel_size": 2
+    },
+    "deployment_config": {
+      "num_replicas": 1
+    },
+    "placement_group_config": {
+      "bundle_per_worker": {
+        "GPU": 1.0
+      },
+      "strategy": "SPREAD"
+    }
+  },
+  "fractional_gpu": {
+    "llm_engine": "vLLM",
+    "model_loading_config": {
+      "model_id": "Qwen2.5-0.5B-Instruct",
+      "model_source": "Qwen/Qwen2.5-0.5B-Instruct"
+    },
+    "engine_kwargs": {
+      "dtype": "bfloat16",
+      "max_model_len": 2048,
+      "enforce_eager": true
+    },
+    "deployment_config": {
+      "num_replicas": 1
+    },
+    "placement_group_config": {
+      "bundle_per_worker": {
+        "GPU": 0.5
+      }
+    }
+  }
+}
+

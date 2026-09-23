@@ -6,6 +6,8 @@ subcommands.  Run ``llmport --help`` for the full command tree.
 
 from __future__ import annotations
 
+import sys
+
 import click
 
 from llmport import __version__
@@ -110,8 +112,32 @@ def register_core_commands(group: click.Group | None = None) -> None:
 register_core_commands()
 
 
+def _use_utf8_output() -> None:
+    """Make the console accept the output this CLI actually produces.
+
+    Windows consoles default to cp1252, and this CLI writes arrows, box rules
+    and check marks -- some 17,000 non-ASCII characters across its sources.
+    Any one of them reaching a cp1252 stream raises UnicodeEncodeError, so
+    ``llmport dev up --help`` ended in a traceback instead of printing help,
+    and redirecting any command to a file did the same.
+
+    ``errors="replace"`` rather than a hard switch: where a terminal genuinely
+    cannot represent a glyph, a degraded character is a far better outcome
+    than a stack trace standing in for the output.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:  # pytest capture, or a plain wrapper
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (OSError, ValueError):  # pragma: no cover - already detached
+            pass
+
+
 def main() -> None:
     """Package entry point."""
+    _use_utf8_output()
     cli()
 
 

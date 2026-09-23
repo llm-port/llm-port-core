@@ -40,6 +40,8 @@ export interface NextStep {
   /** Label for the button, when there is something to press. */
   actionLabel?: string;
   tone: ReadinessTone;
+  /** How far along a step in progress is, when the machine says. */
+  progressPct?: number | null;
 }
 
 /** Cluster statuses that mean "converging, nothing for the operator to do". */
@@ -139,16 +141,27 @@ export function clusterReadiness(
       detail:
         cluster.status_message ??
         "Some machines are not reporting. Open Advanced below for the full status.",
+      // A failed start is retried on a backoff, and not at all while nothing
+      // it depends on has changed. The operator who has just fixed it should
+      // not have to wait for the next scheduled look.
+      actionLabel: cluster.status === "failed" ? "Try again" : undefined,
       tone: "warning",
     };
   }
 
   if (IN_PROGRESS.has(cluster.status)) {
+    // The first start moves a ~12 GB runtime image to every machine. What the
+    // machine reports about it is the only honest answer to "is anything
+    // happening?", so show that rather than a fixed sentence.
+    const reported = cluster.progress?.message;
     return {
       stage: "starting",
       title: "Starting the cluster",
-      detail: `Preparing ${members.length} machine${members.length === 1 ? "" : "s"}: fetching the runtime, starting the head, joining the others.`,
+      detail:
+        reported ??
+        `Preparing ${members.length} machine${members.length === 1 ? "" : "s"}: fetching the runtime, starting the head, joining the others.`,
       tone: "progress",
+      progressPct: cluster.progress?.progress_pct ?? null,
     };
   }
 

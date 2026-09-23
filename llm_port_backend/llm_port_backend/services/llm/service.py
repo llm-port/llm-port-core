@@ -198,20 +198,38 @@ class LLMService:
         hf_revision: str | None = None,
         display_name: str | None = None,
         tags: list[str] | None = None,
-    ) -> tuple[LLMModel, DownloadJob]:
+    ) -> tuple[LLMModel, DownloadJob | None]:
         """Create a model record + download job and dispatch the Taskiq task.
 
         Returns (model, job). If dispatch fails, job.error_message is set
         to the dispatch error string (model & job are still persisted).
+
+        A repo that is already kept is not kept twice. Every download used
+        to make a new record, so the deploy picker offered the same model
+        three times -- one of them a failed download, indistinguishable from
+        the others. Now an available copy is returned as it is (job is None:
+        there is nothing to fetch), one already downloading is joined, and a
+        failed one is retried in place.
         """
-        model = await model_dao.create(
-            display_name=display_name or hf_repo_id,
-            source=ModelSource.HUGGINGFACE,
-            hf_repo_id=hf_repo_id,
-            hf_revision=hf_revision,
-            tags=tags,
-            status=ModelStatus.DOWNLOADING,
-        )
+        existing = await model_dao.find_by_repo(hf_repo_id, hf_revision)
+        if existing is not None and existing.status == ModelStatus.AVAILABLE:
+            return existing, None
+        if existing is not None and existing.status == ModelStatus.DOWNLOADING:
+            active = await job_dao.active_for_model(existing.id)
+            if active is not None:
+                return existing, active
+        if existing is not None:
+            existing.status = ModelStatus.DOWNLOADING
+            model = existing
+        else:
+            model = await model_dao.create(
+                display_name=display_name or hf_repo_id,
+                source=ModelSource.HUGGINGFACE,
+                hf_repo_id=hf_repo_id,
+                hf_revision=hf_revision,
+                tags=tags,
+                status=ModelStatus.DOWNLOADING,
+            )
         job = await job_dao.create(model.id)
 
         # Files land in the standard HF cache layout directly under

@@ -357,6 +357,8 @@ class RayDeploymentManager:
                     deployment, converged_phase,
                     f"no head node bound; nothing to {action_name}", True,
                     observed={"reconciled": True, "action": f"no-op-{action_name}"},
+                    ready_replicas=0,
+                    total_replicas=0,
                 )
                 return
             try:
@@ -378,6 +380,13 @@ class RayDeploymentManager:
                 f"serve.delete({app_name}) {'ok' if ok else 'failed'}",
                 ok,
                 observed={"reconciled": ok, "action": action_name, "app": app_name},
+                # Nothing is serving once the application is gone. Without
+                # this the row kept the counts it had while it was running,
+                # so a stopped deployment's page read "Copies (ready /
+                # wanted) 1 / 1" over a cluster with no Serve application on
+                # it at all -- and the screen an operator checks to confirm a
+                # stop told them it had not happened.
+                **({"ready_replicas": 0, "total_replicas": 0} if ok else {}),
             )
             if ok:
                 await self._retire_endpoints(session, deployment.id)
@@ -498,8 +507,6 @@ class RayDeploymentManager:
                 )
                 return
 
-            cannot_reach = bool(readiness.failed_node_ids or readiness.blockers)
-
             # Always give the coordinator a chance to act.  It self-throttles:
             # in-flight syncs are left alone and a failed node is only retried
             # after a backoff.  Short-circuiting on the first failure meant a
@@ -508,7 +515,43 @@ class RayDeploymentManager:
             # again.
             gateway = _gateway(node_control)
             coordinator = ModelArtifactCoordinator(session, gateway=gateway)
-            await coordinator.ensure(model=facts.model, environment=facts.environment)
+            # Keep what ``ensure`` decided. It is the call that knows whether a
+            # sync could actually be issued, and it refuses with a sentence
+            # naming the model and the directory it looked in -- "this server
+            # has no local copy to send". Discarding it and reporting the
+            # readiness from before the attempt left a deployment sitting on
+            # "Copying the model" for as long as anyone was willing to watch,
+            # with nothing ever copying and nothing saying so.
+            readiness = await coordinator.ensure(
+                model=facts.model,
+                environment=facts.environment,
+                fetch_to_server=offline_only,
+            )
+            facts.artifact_readiness = readiness
+
+            cannot_reach = bool(readiness.failed_node_ids or readiness.blockers)
+
+            if offline_only and readiness.blockers:
+                # Offline-only: nothing else is going to fetch this model, so
+                # the coordinator's refusal is the end of the road and the
+                # operator needs to read it. With remote fetch allowed the
+                # same refusal is not fatal -- the node downloads the model
+                # itself -- and it falls through to that path below.
+                self._observe(
+                    deployment,
+                    DeploymentPhase.FAILED,
+                    f"The model cannot be sent to the cluster and this "
+                    f"environment may not download it: "
+                    f"{'; '.join(readiness.blockers)}",
+                    False,
+                    observed={
+                        "reconciled": False,
+                        "reason": "artifact_unavailable",
+                        "blockers": readiness.blockers,
+                    },
+                    mark_observed=True,
+                )
+                return
 
             if not offline_only and cannot_reach:
                 log.info(
@@ -527,10 +570,16 @@ class RayDeploymentManager:
                 if not offline_only:
                     obs_data["remote_fallback_available"] = True
 
+                if readiness.waiting_on:
+                    obs_data["reason"] = "model_downloading_to_server"
                 self._observe(
                     deployment,
                     DeploymentPhase.PREPARING,
-                    "Artifacts syncing across environment members; waiting for readiness",
+                    # Say what is actually being waited on. "Artifacts
+                    # syncing" while the server was still downloading the
+                    # model described a copy that had not started.
+                    readiness.waiting_on
+                    or "Artifacts syncing across environment members; waiting for readiness",
                     False,
                     observed=obs_data,
                     mark_observed=False,

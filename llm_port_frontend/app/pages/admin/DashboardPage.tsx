@@ -131,7 +131,7 @@ export default function DashboardPage() {
   const SECTION_TITLES: Record<SectionId, string> = {
     gauges: t("dashboard.section_gauges", { defaultValue: "System Gauges" }),
     node_fleet: t("dashboard.section_node_fleet", {
-      defaultValue: "Node Fleet",
+      defaultValue: "Machines",
     }),
     stat_cards: t("dashboard.section_stat_cards", {
       defaultValue: "Statistics",

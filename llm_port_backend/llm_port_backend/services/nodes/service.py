@@ -62,10 +62,20 @@ class NodeControlService:
     _REAPER_OFFLINE_GRACE_SEC = 600
 
     # How long a command on a *reachable* node may make no progress at all
-    # before it is declared dead.  Generous on purpose: it has to sit above
-    # the slowest legitimate gap between progress events (image transfer),
-    # because the cost of being wrong is cancelling real work.
-    _REAPER_SILENCE_SEC = 1800
+    # before it is declared dead.
+    #
+    # Derived from the command's own budget rather than one number for all of
+    # them. A flat 1800s had to sit above the slowest legitimate gap between
+    # progress events -- a multi-GB image push -- and every short command
+    # inherited that patience: a 300s `run_serve_app` that died on arrival
+    # held its deployment for half an hour, and the row went on reporting the
+    # phase before it the whole time. Scaling with the budget keeps the
+    # transfer safe and lets a short command be declared dead on a timescale
+    # somebody is still watching.
+    #
+    # The floor is what stops a brief hiccup -- a slow event write, a
+    # reconnect -- from cancelling real work.
+    _REAPER_MIN_SILENCE_SEC = 300
 
     # A session that has not heartbeated in this long is not connected,
     # whatever its row says.  Well above the agent's heartbeat interval so a
@@ -399,8 +409,85 @@ class NodeControlService:
             # Check if the node has any other active sessions.
             active = await self._dao.count_active_sessions(node_id=node.id)
             if active == 0:
-                node.status = NodeHealthStatus.OFFLINE
-                await self._demote_node_runtimes(node_id=node.id)
+                await self._node_lost_its_last_stream(node)
+
+    async def _node_lost_its_last_stream(self, node: InfraNode) -> None:
+        """Everything that follows from a machine having no agent connected.
+
+        One place for it, because there are two ways to find out: the clean
+        websocket teardown, and the stale-session reaper for an agent that
+        died without one. Only the clean path used to do any of this, so a
+        killed agent -- or one cut off by a backend restart -- left its
+        machine reading "healthy" indefinitely, with nothing running on it.
+        """
+        node.status = NodeHealthStatus.OFFLINE
+        await self._demote_node_runtimes(node_id=node.id)
+        await self._fail_commands_lost_with_the_stream(node_id=node.id)
+
+    async def _fail_commands_lost_with_the_stream(self, *, node_id: uuid.UUID) -> int:
+        """Fail commands that were in flight on a stream that has just closed.
+
+        A command runs inside the agent that holds the socket. When the socket
+        goes, so does the work: the agent does not resume anything on
+        reconnect, so the result frame is never coming.
+
+        The reaper alone is not enough here. It waits for a command to go
+        silent past its own timeout, which is right for a long transfer that
+        is still making progress, but the node is usually back within seconds
+        -- so it is never offline long enough for the offline path either, and
+        the command sits in ``running`` for the whole silence budget with
+        nothing to read. Pulling a runtime image saturates the link, times out
+        the keepalive, and drops the very stream carrying the command that
+        started it; the cluster then shows "preparing" and explains nothing.
+
+        Losing the connection is proof the command died, so say so at once
+        rather than inferring it from silence several minutes later.
+        """
+        try:
+            commands = await self._dao.list_inflight_commands(node_id=node_id)
+        except Exception:  # pragma: no cover - defensive
+            log.exception("Could not list in-flight commands for node %s", node_id)
+            return 0
+
+        failed = 0
+        for command in commands:
+            try:
+                await self._dao.set_command_status(
+                    command,
+                    status=NodeCommandStatus.FAILED,
+                    error_code="node_stream_lost",
+                    error_message=(
+                        "The node's connection closed while this command was "
+                        "running, so it did not finish. Nothing is left running "
+                        "on the node; it is safe to try again."
+                    ),
+                )
+                await self._dao.append_command_event(
+                    command_id=command.id,
+                    phase="failed",
+                    message="Node stream closed while the command was in flight.",
+                    payload_json=None,
+                )
+                await self._apply_runtime_side_effect(
+                    command=command,
+                    success=False,
+                    payload={
+                        "success": False,
+                        "error_code": "node_stream_lost",
+                        "error_message": "The node's connection closed mid-command.",
+                    },
+                )
+                failed += 1
+            except Exception:  # pragma: no cover - one bad row must not stop the rest
+                log.exception("Could not fail in-flight command %s", command.id)
+
+        if failed:
+            log.warning(
+                "Failed %d in-flight command(s) on node %s after its stream closed",
+                failed,
+                node_id,
+            )
+        return failed
 
     async def update_stream_offset(self, *, session: InfraNodeSession, offset: int) -> bool:
         if offset <= session.last_rx_offset:
@@ -659,6 +746,18 @@ class NodeControlService:
         anchor = anchor if anchor.tzinfo else anchor.replace(tzinfo=UTC)
         return (datetime.now(tz=UTC) - anchor) > timedelta(seconds=budget)
 
+    def _silence_budget(self, command: InfraNodeCommand) -> int:
+        """How long *this* command may say nothing before it is declared dead.
+
+        Its own timeout, floored: a command that streams progress never
+        accumulates silence at all, so the window only has to outlast the
+        longest gap between events that the command itself justifies.
+        """
+        timeout = command.timeout_sec
+        if not timeout or timeout <= 0:
+            timeout = self._default_command_timeout_sec
+        return max(self._REAPER_MIN_SILENCE_SEC, int(timeout))
+
     async def reap_stale_commands(self) -> int:
         """Mark overdue in-flight commands TIMED_OUT when their node is offline.
 
@@ -713,7 +812,7 @@ class NodeControlService:
                         if offline
                         else (
                             f"Command produced no progress for "
-                            f"{self._REAPER_SILENCE_SEC}s past its {timeout}s limit; "
+                            f"{self._silence_budget(command)}s past its {timeout}s limit; "
                             f"the node is reachable but nothing is answering for this command."
                         )
                     ),
@@ -772,7 +871,7 @@ class NodeControlService:
             last_seen = last_event
         if last_seen is None:
             return False
-        return (now - last_seen) >= timedelta(seconds=self._REAPER_SILENCE_SEC)
+        return (now - last_seen) >= timedelta(seconds=self._silence_budget(command))
 
     async def close_stale_sessions(self) -> int:
         """End stream sessions that stopped heartbeating.
@@ -784,15 +883,74 @@ class NodeControlService:
         to notice.
         """
         try:
+            # Which nodes are about to lose a session, before it is gone: the
+            # rows carry the node id, and the count that comes back does not.
+            stale = await self._dao.list_stale_sessions(
+                silent_for=timedelta(seconds=self._SESSION_STALE_SEC)
+            )
+            affected = {session.node_id for session in stale}
             closed = await self._dao.close_stale_sessions(
                 silent_for=timedelta(seconds=self._SESSION_STALE_SEC)
             )
         except Exception:  # pragma: no cover - defensive
             log.exception("Stale session reaper failed")
             return 0
+
+        # A killed agent never runs the websocket teardown, so the clean path
+        # in close_stream_session never fires for it -- and the commands it
+        # was running stay in flight, on a node that looks perfectly healthy
+        # once it restarts. Close that gap here, where we have just proved
+        # the agent holding them is gone.
+        for node_id in affected:
+            try:
+                if await self._dao.count_active_sessions(node_id=node_id) == 0:
+                    node = await self._dao.get_node_by_id(node_id)
+                    if node is not None:
+                        await self._node_lost_its_last_stream(node)
+            except Exception:  # pragma: no cover - one node must not stop the rest
+                log.exception("Could not mark node %s disconnected", node_id)
+
+        # And machines that read as up with no stream at all: their sessions
+        # were closed some other way (or before this sweep existed), so the
+        # pass above never sees them again.
+        marked = await self._mark_silent_nodes_offline()
+
         if closed:
             log.info("Closed %d stale node stream session(s)", closed)
-        return closed
+        # Counted in the return, because the caller commits only when this is
+        # non-zero: a sweep that marked machines offline without closing a
+        # session was rolled back every pass while logging that it had worked.
+        return closed + marked
+
+    async def _mark_silent_nodes_offline(self) -> int:
+        """Machines not marked offline, silent past the stale window, with no stream."""
+        from sqlalchemy import select as _select  # noqa: PLC0415
+
+        cutoff = datetime.now(tz=UTC) - timedelta(seconds=self._SESSION_STALE_SEC)
+        try:
+            rows = (
+                await self._dao.session.execute(
+                    _select(InfraNode).where(
+                        InfraNode.status != NodeHealthStatus.OFFLINE.value,
+                        InfraNode.last_seen.is_not(None),
+                        InfraNode.last_seen < cutoff,
+                    )
+                )
+            ).scalars().all()
+        except Exception:  # pragma: no cover - defensive
+            log.exception("Could not list silent nodes")
+            return 0
+        marked = 0
+        for node in rows:
+            if await self._dao.count_active_sessions(node_id=node.id) > 0:
+                continue
+            await self._node_lost_its_last_stream(node)
+            marked += 1
+            log.warning(
+                "Node %s (%s) marked offline: silent since %s with no agent connected",
+                node.agent_id, node.host, node.last_seen,
+            )
+        return marked
 
     async def record_command_ack(
         self,

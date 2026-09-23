@@ -265,6 +265,12 @@ class EnvironmentDTO(BaseModel):
     status_message: str | None
     created_at: datetime
     updated_at: datetime
+    #: The latest progress a member machine reported while the cluster is
+    #: coming up -- "Receiving ...: 4.0 GiB of 12.0 GiB (33%) at 21 MiB/s".
+    #: The page used to say "Preparing 1 machine" for the whole eleven-minute
+    #: image transfer, which is the stretch where the operator most wants to
+    #: know whether anything is happening.
+    progress: dict[str, Any] | None = None
 
 
 # ---------------------------------------------------------------------------

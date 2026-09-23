@@ -134,8 +134,9 @@ export default function ModelsPage() {
     if (dlDisplayName) payload.display_name = dlDisplayName;
     try {
       const resp: DownloadResponse = await models.download(payload);
-      // Optimistically add the new model to the list immediately
-      setData((prev) => [resp.model, ...prev]);
+      // Optimistically add the new model to the list immediately. A repo
+      // already kept comes back as the same record, so replace, not append.
+      setData((prev) => [resp.model, ...prev.filter((m) => m.id !== resp.model.id)]);
       setShowAdd(false);
       resetForm();
       if (!resp.dispatched) {

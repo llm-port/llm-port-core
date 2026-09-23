@@ -9,6 +9,50 @@ import uvicorn
 from llm_port_api.settings import settings
 
 
+def _reset_multiproc_dir(directory: Path) -> None:
+    """Leave *directory* existing and empty, or say why it could not be.
+
+    prometheus-client aggregates every ``.db`` file it finds here, so a file
+    left behind by a dead worker is counted as if that worker were still
+    alive. Clearing it on start is therefore not tidiness, it is correctness.
+
+    The old form was ``rmtree(ignore_errors=True)`` followed by a plain
+    ``mkdir``, which had the failure exactly backwards. prometheus-client
+    mmaps these files and Windows will not delete a mapped file, so when a
+    previous gateway was still holding them the removal failed, the flag
+    hid it, and the next line died on ``FileExistsError`` naming the
+    directory -- a message about a directory existing, for a problem about a
+    process still running.
+
+    So: remove the tree, and if it survives, remove what is in it. Anything
+    still there after that is held by something, and the gateway says so
+    rather than starting on top of another instance's metrics.
+    """
+    shutil.rmtree(directory, ignore_errors=True)
+
+    if directory.exists():
+        for leftover in directory.iterdir():
+            try:
+                if leftover.is_dir():
+                    shutil.rmtree(leftover)
+                else:
+                    leftover.unlink()
+            except OSError:  # noqa: PERF203 - reported together below
+                continue
+
+        held = sorted(child.name for child in directory.iterdir())
+        if held:
+            raise RuntimeError(
+                f"Cannot clear the Prometheus multiprocess directory "
+                f"{directory}: {', '.join(held[:5])}"
+                f"{' and more' if len(held) > 5 else ''} could not be removed. "
+                "Another API gateway is probably still running; stop it and "
+                "start again."
+            )
+
+    directory.mkdir(parents=True, exist_ok=True)
+
+
 def set_multiproc_dir() -> None:
     """
     Sets mutiproc_dir env variable.
@@ -24,8 +68,7 @@ def set_multiproc_dir() -> None:
     so I've decided to export all needed variables,
     to avoid undefined behaviour.
     """
-    shutil.rmtree(settings.prometheus_dir, ignore_errors=True)
-    Path(settings.prometheus_dir).mkdir(parents=True)
+    _reset_multiproc_dir(Path(settings.prometheus_dir))
     os.environ["prometheus_multiproc_dir"] = str(  # noqa: SIM112
         settings.prometheus_dir.expanduser().absolute(),
     )

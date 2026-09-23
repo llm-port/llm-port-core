@@ -52,8 +52,8 @@
     "pinned": "Fijado",
     "reset_nav_order": "Restablecer orden de navegación",
     "security_map": "Residencia de datos",
-    "nodes": "Nodos",
-    "node_profiles": "Perfiles de nodo",
+    "nodes": "Máquinas",
+    "node_profiles": "Perfiles de máquina",
     "scheduler": "Planificador",
     "utilities_group": "Utilidades",
     "chat_group": "Chat",
@@ -197,7 +197,7 @@
     "show_section": "Mostrar sección",
     "hide_section": "Ocultar sección",
     "section_gauges": "Indicadores del sistema",
-    "section_node_fleet": "Flota de nodos",
+    "section_node_fleet": "Máquinas",
     "section_stat_cards": "Estadísticas",
     "section_grafana": "Grafana",
     "section_dependency_health": "Salud de dependencias",
@@ -1195,11 +1195,11 @@
     "raw_inventory_utilization": "Inventario y utilización sin procesar",
     "inventory": "Inventario",
     "utilization": "Utilización",
-    "node_not_found": "Nodo no encontrado.",
-    "fleet_title": "Flota de nodos",
-    "no_nodes_registered": "Aún no hay nodos registrados.",
+    "node_not_found": "Máquina no encontrada.",
+    "fleet_title": "Máquinas",
+    "no_nodes_registered": "Aún no hay máquinas registradas.",
     "search_placeholder": "Buscar host o ID de agente",
-    "add_node": "Añadir nodo",
+    "add_node": "Añadir una máquina",
     "host": "Host",
     "status": "Estado",
     "state": "Estado",
@@ -1215,7 +1215,10 @@
     "gpu_vram": "GPU VRAM",
     "seen": "Visto",
     "cores_logical": "{{physical}} núcleos ({{logical}} lógicos)",
-    "bytes_free": "{{bytes}} libre"
+    "bytes_free": "{{bytes}} libre",
+    "review_pending": "Revisar",
+    "pending_joins_one": "{{count}} máquina espera aprobación: {{names}}",
+    "pending_joins_other": "{{count}} máquinas esperan aprobación: {{names}}"
   },
   "rag_lite": {
     "documents_title": "Documentos RAG",
@@ -1257,13 +1260,13 @@
     "create_collection": "Nueva colección"
   },
   "node_profiles": {
-    "page_title": "Perfiles de nodo",
-    "create_title": "Crear perfil de nodo",
-    "edit_title": "Editar perfil de nodo",
+    "page_title": "Perfiles de máquina",
+    "create_title": "Crear perfil de máquina",
+    "edit_title": "Editar perfil de máquina",
     "create": "Crear perfil",
     "name": "Nombre",
     "description": "Descripción",
-    "is_default": "Perfil predeterminado para nodos nuevos",
+    "is_default": "Perfil predeterminado para máquinas nuevas",
     "configuration": "Configuración",
     "profile": "Perfil",
     "none": "Sin perfil asignado",
@@ -1271,9 +1274,9 @@
     "runtime": "Runtime",
     "gpu_vendor": "Fabricante GPU",
     "created": "Creado",
-    "empty": "No hay perfiles de nodo definidos. Cree uno para empezar.",
+    "empty": "No hay perfiles de máquina definidos. Cree uno para empezar.",
     "search_placeholder": "Buscar perfiles…",
     "delete_title": "Eliminar perfil",
-    "delete_confirm": "¿Eliminar el perfil \"{{name}}\"? Los nodos con este perfil quedarán sin asignar."
+    "delete_confirm": "¿Eliminar el perfil \"{{name}}\"? Las máquinas con este perfil quedarán sin asignar."
   }
 }

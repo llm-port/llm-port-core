@@ -95,6 +95,11 @@ class AgentConfig:
     #: forwarder finds nothing rather than failing.
     ray_session_dir: str
     container_runtime: str
+    #: Where a runtime image lands before it is loaded, so a dropped transfer
+    #: resumes instead of starting over. Empty means beside the state file.
+    #: Needs room for one image tar -- about 12GB for the DGX runtime -- and
+    #: falls back to streaming, which cannot resume, when there is not.
+    image_download_dir: str = ""
 
     @classmethod
     def from_env(cls) -> AgentConfig:
@@ -152,6 +157,7 @@ class AgentConfig:
                 "LLM_PORT_NODE_AGENT_RAY_SESSION_DIR", "/var/lib/llm-port/ray"
             ),
             container_runtime=os.getenv("LLM_PORT_NODE_AGENT_CONTAINER_RUNTIME", "auto").strip().lower() or "auto",
+            image_download_dir=os.getenv("LLM_PORT_NODE_AGENT_IMAGE_DOWNLOAD_DIR", ""),
         )
         if not instance.verify_tls:
             log.warning("TLS verification is disabled — connections are vulnerable to MITM.")

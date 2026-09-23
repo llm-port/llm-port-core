@@ -14,6 +14,7 @@ import List from "@mui/material/List";
 import ListItem from "@mui/material/ListItem";
 import ListItemButton from "@mui/material/ListItemButton";
 import ListItemIcon from "@mui/material/ListItemIcon";
+import Badge from "@mui/material/Badge";
 import ListItemText from "@mui/material/ListItemText";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
@@ -25,6 +26,7 @@ import ExpandMore from "@mui/icons-material/ExpandMore";
 import RestartAltIcon from "@mui/icons-material/RestartAlt";
 
 import AppBrand from "~/components/AppBrand";
+import { usePendingJoins } from "~/lib/usePendingJoins";
 
 import {
   DndContext,
@@ -174,6 +176,14 @@ export function AdminSidebar({
   const location = useLocation();
   const navigate = useNavigate();
   const { t } = useTranslation();
+
+  // Live counts shown beside nav items that declare a badge. Only polled when
+  // such an item is actually visible to this user.
+  const wantsJoins = mainVisible
+    .concat(pinnedVisible)
+    .some((e) => e.kind === "group" && e.children.some((c) => c.badge === "pendingJoins"));
+  const pendingJoins = usePendingJoins(wantsJoins);
+  const badges: Record<string, number> = { pendingJoins: pendingJoins.length };
 
   const currentDrawerWidth = drawerOpen
     ? DRAWER_WIDTH_OPEN
@@ -364,7 +374,19 @@ export function AdminSidebar({
                   justifyContent: "center",
                 }}
               >
-                {entry.icon}
+                {/* A collapsed group hides its children's badges, so the
+                    group carries a dot for them. */}
+                <Badge
+                  variant="dot"
+                  color="warning"
+                  invisible={
+                    isGroupExpanded && drawerOpen
+                      ? true
+                      : !entry.children.some((c) => c.badge && (badges[c.badge] ?? 0) > 0)
+                  }
+                >
+                  {entry.icon}
+                </Badge>
               </ListItemIcon>
               {drawerOpen && (
                 <>
@@ -408,6 +430,15 @@ export function AdminSidebar({
                         fontWeight: 500,
                       }}
                     />
+                    {child.badge && (badges[child.badge] ?? 0) > 0 && (
+                      <Badge
+                        badgeContent={badges[child.badge]}
+                        color="warning"
+                        sx={{ mr: 1.5 }}
+                        aria-label={`${badges[child.badge]} waiting`}
+                        data-testid={`nav-badge-${child.badge}`}
+                      />
+                    )}
                   </ListItemButton>
                 </ListItem>
               ))}

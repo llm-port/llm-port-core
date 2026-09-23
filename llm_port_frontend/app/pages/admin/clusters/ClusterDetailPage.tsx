@@ -57,6 +57,7 @@ import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import StopIcon from "@mui/icons-material/Stop";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 
 import {
   JsonBlock,
@@ -123,6 +124,9 @@ const EMPTY: ClusterData = {
  * So each source loads on its own. The identity call is the only one the page
  * frame needs; everything else fills in beside it and fails in its own place.
  */
+
+/** Statuses in which the cluster may have Ray running on its machines. */
+const RUNNING = new Set(["ready", "running", "degraded", "preparing"]);
 
 export default function ClusterDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -203,6 +207,8 @@ export default function ClusterDetailPage() {
   const [networkOpen, setNetworkOpen] = useState(false);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [removeTarget, setRemoveTarget] = useState<EnvironmentNode | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   if (clusterLoading && !cluster) {
@@ -243,6 +249,57 @@ export default function ClusterDetailPage() {
     }
   }
 
+  /**
+   * Stop, wait for the machines to be clean, then delete.
+   *
+   * Deleting the row alone does not reach the machines, so a running
+   * cluster deleted outright would leave Ray going on the hardware with
+   * nothing left to stop it. The backend refuses that; this does the stop
+   * for the operator rather than making them do it and come back.
+   */
+  // Every member offline: a stop can never be confirmed, so do not wait for one.
+  const membersUnreachable =
+    data.members.length > 0 &&
+    data.members.every((m) => (nodeOf(m.node_id)?.status ?? "offline") === "offline");
+
+  async function deleteCluster() {
+    if (!cluster) return;
+    setError(null);
+    try {
+      if (RUNNING.has(cluster.status) && membersUnreachable) {
+        // Nothing can confirm a stop, so waiting for one would only hang.
+        setDeleting("Deleting the cluster…");
+        await inferenceApi.deleteEnvironment(cluster.id, { force: true });
+        navigate("/admin/clusters");
+        return;
+      }
+      if (RUNNING.has(cluster.status)) {
+        setDeleting("Stopping the cluster on its machines…");
+        if (cluster.desired_state === "running") {
+          await inferenceApi.updateEnvironment(cluster.id, { desired_state: "stopped" });
+        }
+        const deadline = Date.now() + 5 * 60_000;
+        for (;;) {
+          const now = await inferenceApi.getEnvironment(cluster.id);
+          if (!RUNNING.has(now.status)) break;
+          if (Date.now() > deadline) {
+            throw new Error(
+              "The machines did not confirm the cluster stopped. Check they are online, then try again.",
+            );
+          }
+          await new Promise((resolve) => window.setTimeout(resolve, 3000));
+        }
+      }
+      setDeleting("Deleting the cluster…");
+      await inferenceApi.deleteEnvironment(cluster.id);
+      navigate("/admin/clusters");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "That did not work.");
+    } finally {
+      setDeleting(null);
+    }
+  }
+
   function handleNextStep() {
     switch (step.stage) {
       case "cluster-empty":
@@ -258,6 +315,10 @@ export default function ClusterDetailPage() {
         break;
       case "ready":
         setDeployOpen(true);
+        break;
+      case "degraded":
+        // Clears the failure backoff and queues a pass straight away.
+        void run(() => inferenceApi.reconcileEnvironment(cluster!.id));
         break;
       default:
         break;
@@ -325,9 +386,30 @@ export default function ClusterDetailPage() {
         >
           Deploy a model
         </Button>
+        {/* There was no way to delete a cluster from the console at all:
+            one built wrong stayed in the list for good. */}
+        <Button
+          size="small"
+          color="error"
+          startIcon={<DeleteOutlineIcon />}
+          disabled={busy || deleting !== null}
+          onClick={() => setDeleteOpen(true)}
+        >
+          Delete
+        </Button>
       </Stack>
+      {deleting && <Alert severity="info">{deleting}</Alert>}
 
-      <NextStepBanner step={step} onAction={handleNextStep} busy={busy} />
+      <NextStepBanner
+        step={step}
+        onAction={handleNextStep}
+        busy={busy}
+        rows={(cluster.progress?.machines ?? []).map((m) => ({
+          label: hostOf(m.node_id),
+          pct: m.progress_pct,
+          message: m.message,
+        }))}
+      />
 
       {/* --- at a glance ------------------------------------------------ */}
       {/* Machines come from one call and the accelerator figures from
@@ -707,6 +789,27 @@ export default function ClusterDetailPage() {
           setDeployOpen(false);
           navigate(`/admin/deployments/${deploymentId}`);
         }}
+      />
+
+      <ConfirmDialog
+        open={deleteOpen}
+        title="Delete this cluster?"
+        message={
+          data.deployments.some((d) => d.desired_state !== "deleted")
+            ? "It still has deployments. Delete them first, so no model is left running on these machines."
+            : RUNNING.has(cluster.status) && membersUnreachable
+              ? "Its machines are offline, so the cluster cannot be stopped from here. It is deleted anyway; whatever it left on a machine is replaced the next time that machine starts a cluster."
+              : RUNNING.has(cluster.status)
+                ? "It is running. It will be stopped first, so nothing is left behind on its machines, and then deleted. The machines stay enrolled."
+                : "The cluster is removed. Its machines stay enrolled and can join another."
+        }
+        confirmLabel="Delete"
+        loading={deleting !== null}
+        onConfirm={() => {
+          setDeleteOpen(false);
+          void deleteCluster();
+        }}
+        onClose={() => setDeleteOpen(false)}
       />
 
       <ConfirmDialog

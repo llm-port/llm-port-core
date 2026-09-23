@@ -417,8 +417,10 @@ def gateway_dev_env_for(shared_env_path: Path) -> dict[str, str]:
     Mirrors :func:`backend_dev_env_for`: DB credentials come from
     ``POSTGRES_USER`` / ``POSTGRES_PASSWORD`` in
     ``llm_port_shared/.env``, the RabbitMQ broker login from
-    ``RABBITMQ_API_USER`` / ``RABBITMQ_API_PASS`` (falling back to the
-    admin pair for pre-per-service-user envs), and the Redis password
+    ``RABBITMQ_API_PASS`` as user ``llmport-api`` (the per-service user
+    that ``definitions.json`` creates; ``RABBITMQ_API_USER`` overrides
+    the name, and the admin pair is used only for pre-per-service-user
+    envs that have no ``RABBITMQ_API_PASS``), and the Redis password
     from ``REDIS_AUTH`` (the key ``dev init`` writes; ``REDIS_PASSWORD``
     is the prod-template alias and is kept as a fallback). Returns
     ``GATEWAY_DEV_ENV`` with the defaults when the shared env does not
@@ -432,10 +434,13 @@ def gateway_dev_env_for(shared_env_path: Path) -> dict[str, str]:
         env["LLM_PORT_API_DB_USER"] = shared["POSTGRES_USER"]
     if shared.get("POSTGRES_PASSWORD"):
         env["LLM_PORT_API_DB_PASS"] = shared["POSTGRES_PASSWORD"]
-    if shared.get("RABBITMQ_API_USER"):
-        env["LLM_PORT_API_RABBIT_USER"] = shared["RABBITMQ_API_USER"]
-        if shared.get("RABBITMQ_API_PASS"):
-            env["LLM_PORT_API_RABBIT_PASS"] = shared["RABBITMQ_API_PASS"]
+    api_pass = shared.get("RABBITMQ_API_PASS")
+    if api_pass:
+        # Env generation never writes RABBITMQ_API_USER — the per-service
+        # user name is fixed by the definitions.json generator, so key off
+        # the password and default the name (as backend_dev_env_for does).
+        env["LLM_PORT_API_RABBIT_USER"] = shared.get("RABBITMQ_API_USER", "llmport-api")
+        env["LLM_PORT_API_RABBIT_PASS"] = api_pass
     elif shared.get("RABBITMQ_ADMIN_USER") and shared.get("RABBITMQ_ADMIN_PASS"):
         env["LLM_PORT_API_RABBIT_USER"] = shared["RABBITMQ_ADMIN_USER"]
         env["LLM_PORT_API_RABBIT_PASS"] = shared["RABBITMQ_ADMIN_PASS"]

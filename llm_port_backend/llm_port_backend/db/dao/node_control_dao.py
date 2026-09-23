@@ -534,6 +534,28 @@ class NodeControlDAO:
         )
         return result.scalar_one_or_none()
 
+    async def list_stale_sessions(self, *, silent_for: timedelta) -> list[InfraNodeSession]:
+        """Sessions that stopped heartbeating, before they are closed.
+
+        The close returns a count, which is enough to log and not enough to
+        act on: the caller needs the nodes so it can fail whatever those
+        agents were running.
+        """
+        cutoff = datetime.now(tz=UTC) - silent_for
+        result = await self.session.execute(
+            select(InfraNodeSession).where(
+                InfraNodeSession.disconnected_at.is_(None),
+                or_(
+                    InfraNodeSession.last_heartbeat_at < cutoff,
+                    and_(
+                        InfraNodeSession.last_heartbeat_at.is_(None),
+                        InfraNodeSession.connected_at < cutoff,
+                    ),
+                ),
+            )
+        )
+        return list(result.scalars().all())
+
     async def close_stale_sessions(self, *, silent_for: timedelta) -> int:
         """Close stream sessions that stopped heartbeating.
 

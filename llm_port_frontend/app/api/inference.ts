@@ -77,6 +77,22 @@ export interface InferenceEnvironment {
   status_message: string | null;
   created_at: string;
   updated_at: string;
+  /** Latest progress a member machine reported while the cluster comes up. */
+  progress?: EnvironmentProgress | null;
+}
+
+/** One progress report from a lifecycle step on a member machine. */
+export interface MachineProgress {
+  message: string;
+  progress_pct: number | null;
+  step: string;
+  node_id: string;
+  at: string | null;
+}
+
+/** The newest report overall, plus the newest from each machine. */
+export interface EnvironmentProgress extends MachineProgress {
+  machines?: MachineProgress[];
 }
 
 export interface EnvironmentCreatePayload {
@@ -557,8 +573,10 @@ export const inferenceApi = {
     });
   },
 
-  deleteEnvironment(id: string) {
-    return request<void>(`/environments/${enc(id)}`, { method: "DELETE" });
+  /** ``force`` deletes a running cluster whose machines are all offline. */
+  deleteEnvironment(id: string, options: { force?: boolean } = {}) {
+    const query = options.force ? "?force=true" : "";
+    return request<void>(`/environments/${enc(id)}${query}`, { method: "DELETE" });
   },
 
   reconcileEnvironment(id: string) {

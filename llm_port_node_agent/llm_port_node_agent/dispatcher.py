@@ -88,9 +88,13 @@ class CommandDispatcher:
                 "result": {},
             }
         except Exception as exc:
+            # An exception may name its own code. "internal_error" for every
+            # failure meant the backend could not tell a transfer that
+            # dropped (try again) from a build that does not match its pin
+            # (trying again changes nothing) -- so it retried both, forever.
             normalized = {
                 "success": False,
-                "error_code": "internal_error",
+                "error_code": getattr(exc, "error_code", None) or "internal_error",
                 "error_message": str(exc),
                 "result": {},
             }
@@ -211,6 +215,10 @@ class CommandDispatcher:
             if not self._ray:
                 raise RuntimeManagerError("Ray manager not available")
             return await self._ray.ensure_runtime_image(payload, emit_progress=emit_progress)
+        if command_type == NodeCommandType.SERVE_RUNTIME_IMAGE.value:
+            if not self._ray:
+                raise RuntimeManagerError("Ray manager not available")
+            return await self._ray.serve_runtime_image(payload, emit_progress=emit_progress)
 
         # --- Fabric planning probes (Phase 4A active validation) ---
         # Handled here rather than in the Ray manager: they are host network

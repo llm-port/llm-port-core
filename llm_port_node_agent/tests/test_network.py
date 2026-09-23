@@ -7,6 +7,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 import psutil
+import socket
+
 import pytest
 
 from llm_port_node_agent.network import (
@@ -328,6 +330,21 @@ def test_speed_error_handling(tmp_path: Path) -> None:
     assert by_name["veth0"].operstate == "down"
 
 
+def _free_port() -> int:
+    """A port the OS has just confirmed is bindable.
+
+    These tests used to hardcode 45474-45479. On a machine running WSL2 with
+    mirrored networking, Hyper-V reserves wide blocks of the ephemeral range
+    -- 45470-45489 entirely, here -- and a reserved port is invisible to
+    netstat, so six tests failed with "only one usage of each socket address"
+    against a port nothing appeared to hold. Asking the OS for a free one
+    removes the guess.
+    """
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()[1]
+
+
 @pytest.mark.asyncio
 async def test_ephemeral_probe_handshake_success() -> None:
     """Test ephemeral active probe listener and connect handshake."""
@@ -335,7 +352,7 @@ async def test_ephemeral_probe_handshake_success() -> None:
     from llm_port_node_agent.network import run_ephemeral_connect, run_ephemeral_listener
 
     # Pick a dynamic high port
-    port = 45479
+    port = _free_port()
     probe_token = "secret-token-123"
 
     listener_task = asyncio.create_task(
@@ -362,7 +379,7 @@ async def test_ephemeral_probe_token_mismatch() -> None:
     import asyncio
     from llm_port_node_agent.network import run_ephemeral_connect, run_ephemeral_listener
 
-    port = 45478
+    port = _free_port()
     listener_task = asyncio.create_task(
         run_ephemeral_listener(ip="127.0.0.1", port=port, timeout_sec=2.0, probe_token="expected-token")
     )
@@ -394,7 +411,7 @@ async def test_validate_fabric_commands_complete_the_challenge() -> None:
     from llm_port_node_agent.models import NodeCommandType
 
     dispatcher = CommandDispatcher.__new__(CommandDispatcher)
-    port = 45477
+    port = _free_port()
     token = "challenge-token"
 
     async def _noop_progress(_payload: dict) -> None:
@@ -462,7 +479,7 @@ async def test_listener_serves_one_probe_per_peer() -> None:
 
     from llm_port_node_agent.network import run_ephemeral_connect, run_ephemeral_listener
 
-    port = 45476
+    port = _free_port()
     token = "multi-peer-token"
     listener = asyncio.create_task(
         run_ephemeral_listener(
@@ -496,7 +513,7 @@ async def test_prober_waits_out_a_listener_that_starts_late() -> None:
         run_ephemeral_listener,
     )
 
-    port = 45475
+    port = _free_port()
     token = "late-listener"
 
     async def _late_listener() -> dict:
@@ -532,7 +549,7 @@ async def test_prober_does_not_retry_a_definitive_rejection() -> None:
         run_ephemeral_listener,
     )
 
-    port = 45474
+    port = _free_port()
     listener = asyncio.create_task(
         run_ephemeral_listener(
             ip="127.0.0.1", port=port, timeout_sec=3.0, probe_token="expected-token",

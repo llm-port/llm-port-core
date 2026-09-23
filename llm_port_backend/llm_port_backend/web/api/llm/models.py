@@ -103,6 +103,7 @@ async def download_model(
     audit_dao: AuditDAO = Depends(),
 ) -> DownloadResponseDTO:
     """Start a background download of a model from Hugging Face."""
+    kept = await model_dao.find_by_repo(body.hf_repo_id, body.hf_revision)
     model, job = await llm_service.start_download(
         model_dao,
         job_dao,
@@ -120,12 +121,13 @@ async def download_model(
         severity="normal",
         audit_dao=audit_dao,
     )
-    dispatched = job.error_message is None
+    dispatched = job is None or job.error_message is None
     return DownloadResponseDTO(
         model=ModelDTO.model_validate(model),
-        job=DownloadJobDTO.model_validate(job),
+        job=DownloadJobDTO.model_validate(job) if job is not None else None,
         dispatched=dispatched,
-        dispatch_error=job.error_message if not dispatched else None,
+        dispatch_error=job.error_message if job is not None and not dispatched else None,
+        already_kept=kept is not None,
     )
 
 

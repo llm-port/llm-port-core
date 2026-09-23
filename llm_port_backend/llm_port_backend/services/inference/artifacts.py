@@ -55,6 +55,10 @@ class ArtifactReadiness(BaseModel):
     blockers: list[str] = Field(default_factory=list)
     root_paths: dict[str, str] = Field(default_factory=dict)  # node_id -> host root path
     all_ready: bool = False
+    #: Something under way that will unblock this by itself -- the server
+    #: downloading the model, say. Not a blocker: nothing is wrong, the
+    #: deployment only has to wait, and saying so is the whole point.
+    waiting_on: str | None = None
 
 
 # A node whose sync already failed is retried, but not on every pass: the
@@ -293,8 +297,15 @@ class ModelArtifactCoordinator:
         model: LLMModel,
         environment: InferenceEnvironment,
         gateway: Any = None,
+        fetch_to_server: bool = False,
     ) -> ArtifactReadiness:
         """Evaluate readiness and issue SYNC_MODEL commands for non-ready nodes.
+
+        ``fetch_to_server`` starts the server-side download of a model the
+        server lacks. Only an offline-only cluster needs that: one that may
+        reach the internet has its machines fetch the model themselves, which
+        is faster than going through the server and must not be replaced by
+        a wait for it.
 
         Idempotent: does not re-issue commands already in flight for the desired digest.
         """
@@ -308,6 +319,25 @@ class ModelArtifactCoordinator:
             return readiness
 
         if not model_sync_carries_files(sync_payload):
+            # Nothing to send because the server does not have it. The
+            # deployment names the model, so fetch it rather than stall.
+            from llm_port_backend.services.inference.server_copy import (  # noqa: PLC0415
+                ensure_server_copy,
+            )
+
+            copy = (
+                await ensure_server_copy(self.session, model)
+                if fetch_to_server
+                else None
+            )
+            if copy is None:
+                pass  # falls through to the refusal below
+            elif copy.waiting is not None:
+                readiness.waiting_on = copy.waiting
+                return readiness
+            elif copy.blocker is not None:
+                readiness.blockers.append(copy.blocker)
+                return readiness
             # Refusing here is the whole point.  Sending it would have every
             # node reject it and be marked FAILED, which reads as "both
             # machines are broken" when the machines are fine and this server

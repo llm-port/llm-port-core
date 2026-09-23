@@ -377,3 +377,52 @@ async def test_preflight_is_quiet_on_an_idle_node(monkeypatch) -> None:
     container = RayContainerRuntime(runtime=_FakeRuntime())
     result = await container.ensure_container(RuntimeBundleSpec.from_payload(_payload()))
     assert result["preflight"]["conflicts"] == []
+
+
+@pytest.mark.anyio()
+async def test_a_stale_build_under_the_right_tag_is_replaced_from_the_backend() -> None:
+    """The node holds the tag, but not the pinned build: fetch the right one.
+
+    This used to be a dead end. A present-but-wrong image failed the check and
+    the loader was never consulted, so a node with a stale copy could not
+    recover even when the server held exactly the build the pin wanted.
+    """
+    runtime = _FakeRuntime(image_id=OTHER_DIGEST, layers=OTHER_LAYERS)
+    container = RayContainerRuntime(runtime=runtime)
+    spec = RuntimeBundleSpec.from_payload(_payload())
+
+    async def _loader(_spec: RuntimeBundleSpec) -> None:
+        runtime._image_id = DIGEST
+        runtime._layers = LAYERS
+        runtime.loaded += 1
+
+    result = await container.ensure_image(spec, loader=_loader)
+
+    assert runtime.loaded == 1
+    assert result["verified"] is True
+    assert result["image_id"] == DIGEST
+
+
+@pytest.mark.anyio()
+async def test_a_right_build_is_not_fetched_again() -> None:
+    runtime = _FakeRuntime()
+    container = RayContainerRuntime(runtime=runtime)
+    spec = RuntimeBundleSpec.from_payload(_payload())
+
+    async def _loader(_spec: RuntimeBundleSpec) -> None:
+        raise AssertionError("an image that already matches must not be re-sent")
+
+    result = await container.ensure_image(spec, loader=_loader)
+    assert result["verified"] is True
+
+
+@pytest.mark.anyio()
+async def test_a_mismatch_reports_a_code_the_backend_can_act_on() -> None:
+    """Permanent until the pin or the image changes -- and saying so is the point."""
+    runtime = _FakeRuntime(image_id=OTHER_DIGEST, layers=OTHER_LAYERS)
+    container = RayContainerRuntime(runtime=runtime)
+    spec = RuntimeBundleSpec.from_payload(_payload())
+
+    with pytest.raises(RuntimeDigestMismatch) as caught:
+        await container.ensure_image(spec)
+    assert caught.value.error_code == "runtime_image_mismatch"

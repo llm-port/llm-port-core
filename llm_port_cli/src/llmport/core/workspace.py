@@ -8,6 +8,7 @@ why the helpers live here instead of being duplicated per command.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 CORE_DIRNAME = "llm-port-core"
@@ -18,6 +19,7 @@ LOG_LABELS = {
     "backend": "llmport-backend.log",
     "worker": "llmport-taskiq-worker.log",
     "frontend": "llmport-frontend.log",
+    "api gateway": "llmport-api-gateway.log",
 }
 
 
@@ -134,8 +136,18 @@ def resolve_shared_compose(workspace: Path) -> Path | None:
 
 
 def log_filename(label: str) -> str:
-    """Log file name for a dev process label (``backend``/``worker``/``frontend``)."""
-    return LOG_LABELS.get(label, f"llmport-{label}.log")
+    """Log file name for a dev process label (``backend``/``worker``/...).
+
+    Unmapped labels are slugified rather than interpolated raw. "api gateway"
+    fell through this fallback and produced ``llmport-api gateway.log`` -- a
+    space in a path every caller then has to quote, and which nothing in the
+    tooling did.
+    """
+    known = LOG_LABELS.get(label)
+    if known is not None:
+        return known
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", label).strip("-").lower() or "process"
+    return f"llmport-{slug}.log"
 
 
 def dev_logs_dir() -> Path:

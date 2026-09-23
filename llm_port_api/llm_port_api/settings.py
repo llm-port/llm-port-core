@@ -79,9 +79,19 @@ class Settings(BaseSettings):
     rabbit_pool_size: int = 2
     rabbit_channel_pool_size: int = 10
 
-    # This variable is used to define
-    # multiproc_dir. It's required for [uvi|guni]corn projects.
-    prometheus_dir: Path = TEMP_DIR / "prom"
+    # Where prometheus-client keeps its per-process metric files.
+    #
+    # Named per service, not the template's shared ``prom``. The backend has
+    # the same setting and both defaulted to the same directory, so starting
+    # the gateway cleared the backend's live metrics: the startup routine
+    # empties this directory, and prometheus-client counts every ``.db`` file
+    # it finds, so sharing one means each service deleting the other's.
+    #
+    # Windows made it visible by refusing to delete files another process has
+    # mapped, which stopped the gateway starting at all. On Linux the removal
+    # would have succeeded and the backend's metrics would simply have
+    # disappeared from /metrics with nothing to say why.
+    prometheus_dir: Path = TEMP_DIR / "prom-api"
 
     # Sentry's configuration.
     sentry_dsn: Optional[str] = None

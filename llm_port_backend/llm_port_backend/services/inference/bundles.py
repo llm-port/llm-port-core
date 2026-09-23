@@ -14,7 +14,7 @@ and platform workarounds from deployment specifications:
   on GB10 unified memory).
 
 Bundle identity is **generated from the build/certification artifacts**
-(``runtime-manifest.json`` / ``build_report.json`` produced by the image build)
+(``runtime-manifest.json`` produced by the image build in ``llm_port_runtime_image``)
 via :meth:`RuntimeBundleManifest.from_runtime_manifest` — never hand-written,
 because a hand-written digest that disagrees with the artifact makes the
 catalog authoritative-looking and wrong at the same time.
@@ -362,120 +362,54 @@ def _opt(value: Any) -> str | None:
 # Built-in certified DGX Spark Blackwell GB10 bundle
 # ---------------------------------------------------------------------------
 #
-# Every value below was read off the images that are actually on the two DGX
-# Spark nodes on 2026-09-20 (``docker image inspect`` + ``importlib.metadata``
-# inside the container), NOT copied from
-# ``llm_port_ray_migration/runtime_image/runtime-manifest.json``.  That
-# artifact describes a build that exists nowhere any more:
-#
-#   runtime-manifest.json image_id : sha256:d5dd2c6a...  (on neither node)
-#   build_report.json     image_id : sha256:7dc13b9a...  (head only)
-#   spark-ts3202 (head)   .Id      : sha256:7dc13b9a...
-#   spark-3201   (worker) .Id      : sha256:d36c047d...
-#   both nodes            RootFS   : 50 identical layer diff IDs
-#
-# The two nodes hold byte-identical content under different config IDs, which
-# is why ``rootfs_digest`` - not ``digest`` - is the identity that verifies on
-# both.  Regenerate this entry with ``from_runtime_manifest`` after the next
-# image build, and include ``rootfs_layers`` in the manifest so the content
-# identity is generated rather than transcribed.
-_CERTIFIED_DGX_SPARK_RUNTIME_MANIFEST: dict[str, Any] = {
-    "release_tag": "llmport/ray-vllm-gb10:ray2.58-nv26.08",
-    "image_id": "sha256:0fa7782c83f57f60f09aae1329fb21c82a32112bf6b4b5ad49a54055e24c63bd",
-    # Generated from `docker image inspect` on the head after the 2026-09-21
-    # rebuild, together with the stack versions the in-container helper
-    # reports.  ``rootfs_digest`` is deliberately absent: ``from_runtime_manifest``
-    # derives it from these layers, so there is no hand-copied digest that can
-    # disagree with the artifact.  Regenerate with
-    # ``llm_port_ray_migration/runtime_image/rebuild_runtime_image.py``.
-    "rootfs_layers": [
-        "sha256:646eea22414270d74b0c9e9d6d3b9550701ae62e658a099825d4d15045a3630b",
-        "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
-        "sha256:b62ae719da325023291d2882dfcf1bff54862385d4cb47202c58b14f56acac22",
-        "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
-        "sha256:50f48a9054b417e1df457e9c233643b89a6405fbd40dc9c524261876b46401fc",
-        "sha256:61ef3360ef86fba1c03e4f83d58d0c31918ddd3e8df8c5eee5537f1280509fb6",
-        "sha256:5b3c5f2d09ae291825acf64501e42c3658d7f6ea2c48908b48948896e9bdb755",
-        "sha256:440999f48460f3302c87f1168d2ee8afa4a18837e41bd6e10f74fb8ff0dde885",
-        "sha256:20a48e40ad48fe502511953248d831019d7c6b3ea42a0cfa36476bc7f02c475f",
-        "sha256:27e63e3e99f954c4b211f13a4ba67fd2aecb981d6219dab173232745b155a4b2",
-        "sha256:4f3d32c1172786ab7e03f2f891e011185327c66d697f04e9a55254839b2ea50f",
-        "sha256:77ccbecc64e3521aa1a86d5d2e54aa2b48d8e93fd7e9d5ed375e148c04235e70",
-        "sha256:a7fb3101ec81ff8af5290444a848f990c1dbdbf04c099f0d2d76e07a05e92d7f",
-        "sha256:907c89e4a12a707fd3d088f42f2d7fbdde57052142878db72ff80070fc9d66ed",
-        "sha256:2f8cbd3a33bb7d1d15d91afb8f292f44f0e2eaeae7cb4f6eb6180e2a41008e0c",
-        "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
-        "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
-        "sha256:1f7e8a6e984a4eb4392a5f6a46c5e12daec7b42a4900f79c4f3f3ed96dbc0d11",
-        "sha256:99f80f53dc9f209a92eabf3a0bce0783cab51edd4903cf3622963f76aeef7684",
-        "sha256:588edcf255ebf51d0524db1cf9ebc9a1b97f001ba0e855cb14da725e5278f8b3",
-        "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
-        "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
-        "sha256:46143ce80d06f0e891ddae985f7f2f867bd1e3cb1726aad15f2902e31b6ab629",
-        "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
-        "sha256:33e7df43658bd96a6b2c4444996f18fec881556e65e9a16d676e2a1dc6800fbe",
-        "sha256:7486744b62e0e0a656228b6a013168367022dd621c61870474553a2ad0654353",
-        "sha256:0513053d657d79c3bc8cac7216b5b062790642d9420ce85bb939001903753ecb",
-        "sha256:7e5a743fdb53a33fac59ddb0664a3b731182f04c6bf68a60b1675574b4adf896",
-        "sha256:7745e9f21b7cce162b3ca091f794cd76e751efb1a389be3c3e95969456fe87b8",
-        "sha256:b3fb88517743060c320aa3115c1d45ffc18b06cf189afa712f64c33cbaf200ae",
-        "sha256:a4f20c59b1f259e8a543a58b86510a786056799dfa40a6aae7834dfcff9215ee",
-        "sha256:241df8b2ba77b834e5ce33cb1e72888f0b355c347c8dc78ad8f2bfed67ee8cff",
-        "sha256:61308c80ba797b5e06312d033f65becf694237f853c8a848de3770b6c06389a2",
-        "sha256:2d940475d95a9e6d9c052a6a6da2ee43224e1ec0b28a5107834d37b134e2fd16",
-        "sha256:7a7bacdce5553ff23e2561833371ce8eae88563e0c50e2c665bf09126cb6cf9e",
-        "sha256:1d4012de3622646eb71e6d1d7010245c967c32b66dbbf4a0931c2718c7babec0",
-        "sha256:d9769af12364092a5516d799f79bc4b0813883aaab4b9d304ea1f1c6098cb375",
-        "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
-        "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
-        "sha256:937b7ac7a1b6102c8a79cbb114c3d1321aeed0c943d253cd4580596caffdc0a7",
-        "sha256:071687548a3cc073f179b077861802c73b364ba554d436b4ced652617587536c",
-        "sha256:2444c059e04c0b4f8e586e1f37035d1b10eac3760fa92ee09344133705032807",
-        "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
-        "sha256:f2b18835f9ce49ebff2fbb14785ea4337201861790a85da28c3938970bff16f0",
-        "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
-        "sha256:34bd926e1ecf14ae9c2e2ab3f1703d2be796a9e5bbb15faa0b24437fb29eeaa6",
-        "sha256:a9b9cb3b77927b8ab38425b32c1c7ab4f869b883b00b9332112ca6b26c03a1fd",
-        "sha256:445394881a389faa449205826c8309a198aed272e0a9b1b544fa735d2a5c49e8",
-        "sha256:c36b2056e1689bb7d4c3f302925d9fe545176ebed48a8512116625840708b6fb",
-        "sha256:c11abb476f7551b445547a1a597f0aa313d42d1308842ddf58417ad62a44f1f2",
-        "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
-        "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
-    ],
-    "stack_components": {
-        "python": "3.12.3",
-        "cuda": "13.4",
-        "nccl": "2.30.7",
-        "torch": "2.14.0a0+4fdf77b940.nv26.08",
-        "vllm": "0.27.1+93523f72.dev",
-        "triton": "3.6.0",
-        "transformers": "5.14.1",
-        "ray": "2.58.0",
-        "pyarrow": "25.0.1",
-    },
-    "certification": {
-        "hardware_target": "NVIDIA DGX Spark / GB10",
-        "timestamp": "2026-09-21T00:00:00Z",
-        "overall_status": "uncertified",
-        "checks_total": 0,
-        "checks": [],
-        "detail": (
-            "Rebuilt on the head with the metrics stack and the helper's write "
-            "verbs asserted at build time.  Re-run remote_certify_2node.py to "
-            "earn a certified status."
-        ),
-    },
-}
+def _load_runtime_manifest(name: str) -> dict[str, Any]:
+    """Read a minted runtime manifest that ships beside the code.
 
+    Kept as a file rather than a literal because it is the build's output,
+    not something a person should be editing: the image reference, its id and
+    its layer digests all have to match the artifact exactly or the pin is a
+    fiction.
+    """
+    here = Path(__file__).resolve()
+    roots = (
+        # Canonical: the runtime image component of this repo.
+        here.parents[4] / "llm_port_runtime_image",
+        # A deployment that vendors the manifests beside the backend.
+        here.parents[3] / "llm_port_runtime_image",
+    )
+    for root in roots:
+        candidate = root / name
+        if candidate.is_file():
+            return json.loads(candidate.read_text(encoding="utf-8"))
+    looked = ", ".join(str(root) for root in roots)
+    raise BundleValidationError(
+        f"runtime manifest {name!r} not found. Looked in: {looked}"
+    )
+
+
+# Read from the manifest the image build writes, not transcribed beside it.
+#
+# This used to be a hand-copied dict "read off the images that are actually on
+# the two DGX Spark nodes". It was accurate the day it was typed, and then it
+# was the only record of an image that lived nowhere else: never pushed to a
+# registry, held only on the two nodes. When the nodes were cleaned, the image
+# went with them, and the catalogue went on pinning an artefact that no longer
+# existed. The backend meanwhile distributed a *different* build -- the one the
+# manifest file described -- which the integrity check then correctly refused,
+# 303 times, on every cluster start.
+#
+# One record makes that impossible. ``rebuild_runtime_image.py`` builds the
+# image and writes ``runtime-manifest.json`` from ``docker image inspect`` and
+# the in-image helper; this reads that file. Rebuild, and the catalogue follows.
 CERTIFIED_DGX_SPARK_BUNDLE = RuntimeBundleManifest.from_runtime_manifest(
-    _CERTIFIED_DGX_SPARK_RUNTIME_MANIFEST,
+    _load_runtime_manifest("runtime-manifest.json"),
     bundle_id="bundle-dgx-spark-gb10-v1",
     display_name="NVIDIA DGX Spark Blackwell GB10 Runtime",
     description=(
-        "Certified Ray 2.58 + vLLM 0.27.1 (NVIDIA nv26.08 build) image with "
+        "Ray 2.58 + vLLM 0.27.1 (NVIDIA nv26.08 build) image with "
         "Blackwell GB10 support over 200 Gb/s RoCE"
     ),
-    report_ref="llm_port_ray_migration/runtime_image/runtime-manifest.json",
+    report_ref="llm_port_runtime_image/runtime-manifest.json",
     target_architecture=TargetArchitecture(
         cpu="aarch64",
         os="linux",
@@ -563,27 +497,6 @@ CERTIFIED_DGX_SPARK_BUNDLE = RuntimeBundleManifest.from_runtime_manifest(
 
 
 
-def _load_runtime_manifest(name: str) -> dict[str, Any]:
-    """Read a minted runtime manifest that ships beside the code.
-
-    Kept as a file rather than a literal because it is the build's output,
-    not something a person should be editing: the image reference, its id and
-    its layer digests all have to match the artifact exactly or the pin is a
-    fiction.
-    """
-    here = Path(__file__).resolve()
-    for root in (
-        # The dev repo sits beside llm-port-core in a full checkout.
-        here.parents[5] / "llm-port-dev" / "llm_port_ray_migration" / "runtime_image",
-        # A slim checkout that vendors the manifests under the backend.
-        here.parents[3] / "llm_port_ray_migration" / "runtime_image",
-    ):
-        candidate = root / name
-        if candidate.is_file():
-            return json.loads(candidate.read_text(encoding="utf-8"))
-    raise BundleValidationError(f"runtime manifest {name!r} not found")
-
-
 #: The generic x86_64 NVIDIA runtime.
 #:
 #: One bundle for the whole platform, not one per card. Its kernels are
@@ -608,7 +521,7 @@ try:
                 "x86_64, from Turing (sm_75) to Blackwell (sm_120)"
             ),
             driver="ray",
-            report_ref="llm_port_ray_migration/runtime_image/runtime-manifest-x86_64.json",
+            report_ref="llm_port_runtime_image/runtime-manifest-x86_64.json",
             target_architecture=TargetArchitecture(
                 cpu="x86_64",
                 os="linux",
