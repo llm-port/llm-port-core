@@ -28,8 +28,8 @@ from llm_port_backend.web.api.admin.rag_lite.schema import (
     RagLiteCollectionDTO,
     RagLiteCollectionUpdate,
     RagLiteConfigDTO,
-    RagLiteDocumentDetailDTO,
     RagLiteDocumentDTO,
+    RagLiteDocumentDetailDTO,
     RagLiteDocumentMoveRequest,
     RagLiteGraphSearchCollectionHit,
     RagLiteGraphSearchRequest,
@@ -37,6 +37,8 @@ from llm_port_backend.web.api.admin.rag_lite.schema import (
     RagLiteHealthResponse,
     RagLiteJobDTO,
     RagLiteJobEventDTO,
+    RagLitePassageChunk,
+    RagLitePassageResponse,
     RagLiteSearchRequest,
     RagLiteSearchResponse,
     RagLiteSearchResult,
@@ -242,6 +244,38 @@ async def get_document(
         file_store_key=doc.file_store_key,
         sha256=doc.sha256,
         metadata_json=doc.metadata_json,
+    )
+
+
+#: The most chunks one passage returns, either side of the one asked for.
+_PASSAGE_MAX_AROUND = 5
+
+
+@router.get("/documents/{document_id}/passage", response_model=RagLitePassageResponse)
+async def get_passage(
+    document_id: uuid.UUID,
+    _user: Annotated[User, Depends(require_permission("rag.search", "read"))],
+    chunk: int = 0,
+    around: int = 2,
+    document_dao: RagLiteDocumentDAO = Depends(),
+    chunk_dao: RagLiteChunkDAO = Depends(),
+) -> RagLitePassageResponse:
+    """The text of a document around one chunk.
+
+    A search returns single chunks; the model's ``knowledge_open`` tool reads
+    what surrounds one, to follow a hit into its section.
+    """
+    doc = await document_dao.get(document_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    around = max(0, min(around, _PASSAGE_MAX_AROUND))
+    chunks = await chunk_dao.passage(document_id, first=max(0, chunk - around), last=chunk + around)
+    return RagLitePassageResponse(
+        document_id=doc.id,
+        filename=doc.filename,
+        collection_id=doc.collection_id,
+        chunk_count=doc.chunk_count or 0,
+        chunks=[RagLitePassageChunk(chunk_index=c.chunk_index, text=c.chunk_text) for c in chunks],
     )
 
 

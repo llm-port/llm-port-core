@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 import uuid
 from collections.abc import AsyncIterator, Awaitable
@@ -15,6 +16,7 @@ from llm_port_api.db.dao.session_dao import SessionDAO
 from llm_port_api.db.models.gateway import ProviderType
 from llm_port_api.services.gateway.audit import AuditService
 from llm_port_api.services.gateway.auth import AuthContext
+from llm_port_api.services.gateway import knowledge
 from llm_port_api.services.gateway.errors import GatewayError
 from llm_port_api.services.gateway.llm_adapter import LLMAdapter
 from llm_port_api.services.gateway.observability import (
@@ -24,7 +26,12 @@ from llm_port_api.services.gateway.mcp_client import MCPClient
 from llm_port_api.services.gateway.mcp_tool_cache import MCP_TOOL_PREFIX, MCPToolCache
 from llm_port_api.services.gateway.pii_client import PIIClient
 from llm_port_api.services.gateway.pii_policy import PIIPolicy, parse_pii_policy
-from llm_port_api.services.gateway.pii_restore import redact_tokens, restore_payload, restore_sse
+from llm_port_api.services.gateway.pii_restore import (
+    redact_tokens,
+    restore_payload,
+    restore_sse,
+    restore_text,
+)
 from llm_port_api.services.gateway.proxy import UpstreamProxy, UpstreamResult
 from llm_port_api.services.gateway.rag_lite_client import RagLiteClient
 from llm_port_api.services.gateway.ratelimit import RateLimiter
@@ -32,6 +39,7 @@ from llm_port_api.services.gateway.routing import RouterService, RoutingDecision
 from llm_port_api.services.gateway.skills_client import ResolvedSkill, SkillsClient
 from llm_port_api.services.gateway.stream import StreamStats, wrap_sse_stream
 from llm_port_api.services.gateway.stream_buffer import StreamBuffer
+from llm_port_api.services.gateway.tool_stream import DONE, ToolCalls, sse, sse_events
 from llm_port_api.services.gateway.usage import (
     estimate_input_tokens,
     usage_from_payload,
@@ -121,15 +129,6 @@ class StreamingGatewayResponse:
     latency_ms: int
     stats: StreamStats
     trace_id: str | None = None
-
-
-@dataclass(slots=True)
-class MCPToolLoopResult:
-    """Result of the MCP tool execution loop with telemetry."""
-
-    result: UpstreamResult
-    tool_calls: list[dict[str, Any]]
-    iterations: int = 0
 
 
 #: What each endpoint can be sent to: the kinds a route declares
@@ -242,6 +241,64 @@ def _last_user_text(payload: dict[str, Any]) -> str:
     return ""
 
 
+def _with_tools(payload: dict[str, Any], tools: list[dict[str, Any]]) -> dict[str, Any]:
+    """*payload* offering *tools* too; one of the same name is not added twice."""
+    present = {(t.get("function") or {}).get("name") for t in payload.get("tools") or []}
+    added = [t for t in tools if t["function"]["name"] not in present]
+    out = {**payload, "tools": [*(payload.get("tools") or []), *added]}
+    out.setdefault("tool_choice", "auto")
+    return out
+
+
+_TOOL_NAME = re.compile(r"^[\w.]+")
+
+
+def _tool_name(call: dict[str, Any]) -> str:
+    """A call's tool name, without what some models append to it."""
+    raw = (call.get("function") or {}).get("name") or ""
+    match = _TOOL_NAME.match(raw)
+    return match.group(0) if match else raw
+
+
+def _tool_arguments(call: dict[str, Any]) -> dict[str, Any]:
+    raw = (call.get("function") or {}).get("arguments") or "{}"
+    try:
+        parsed = json.loads(raw) if isinstance(raw, str) else raw
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _restored(value: Any, mapping: dict[str, str]) -> Any:
+    """*value* with PII tokens put back, in every string it holds."""
+    if isinstance(value, str):
+        return restore_text(value, mapping)
+    if isinstance(value, list):
+        return [_restored(v, mapping) for v in value]
+    if isinstance(value, dict):
+        return {k: _restored(v, mapping) for k, v in value.items()}
+    return value
+
+
+def _assistant_turn(content: str | None, calls: list[dict[str, Any]]) -> dict[str, Any]:
+    """The model's tool-calling turn, as it goes back to the model with the results."""
+    return {"role": "assistant", "content": content, "tool_calls": calls}
+
+
+def _mcp_server(name: str) -> str | None:
+    parts = name.split(".", 2)
+    return parts[1] if len(parts) >= 2 else None
+
+
+def _add_usage(total: dict[str, int], usage: Any) -> None:
+    """Add one round's token usage to the answer's."""
+    if not isinstance(usage, dict):
+        return
+    for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+        if isinstance(usage.get(key), int):
+            total[key] = total.get(key, 0) + usage[key]
+
+
 def _insert_after_system(payload: dict[str, Any], message: dict[str, Any]) -> dict[str, Any]:
     """*payload* with *message* after its leading system messages."""
     messages = list(payload.get("messages") or [])
@@ -281,6 +338,13 @@ class _Prepared:
     rag_context: dict[str, Any] | None = None
     trace_context: Any = None
     released: bool = False
+    #: Whether the knowledge tools were offered to the model.
+    knowledge: bool = False
+    #: The tools the gateway ran, for the audit log, and in how many rounds.
+    tool_calls: list[dict[str, Any]] = field(default_factory=list)
+    tool_iterations: int = 0
+    #: How a streamed answer ended.
+    finish_reason: str | None = None
 
     @property
     def instance_id(self) -> str | None:
@@ -396,9 +460,6 @@ class GatewayService:
         # ── Observability tracking ──────────────────────────────────────
         retry_count = 0
         finish_reason: str | None = None
-        mcp_tool_calls: list[dict[str, Any]] = []
-        mcp_tool_call_count = 0
-        mcp_tool_loop_iterations = 0
         try:
             await self._prepare(
                 req,
@@ -455,22 +516,9 @@ class GatewayService:
                     error_type="server_error",
                     code="upstream_request_failed",
                 )
-            # Tool execution loop (MCP + client-local + server-managed)
-            if endpoint == "/v1/chat/completions" and (self.mcp_client or self.tool_router):
-                mcp_loop_result = await self._run_mcp_tool_loop(
-                    result=result,
-                    egress_payload=req.egress_payload,
-                    adapter=self.adapter,
-                    decision=decision,
-                    tenant_id=auth.tenant_id,
-                    request_id=request_id,
-                    pii_mode_override=self._mcp_pii_mode_override(req.pii_policy, decision),
-                    session_id=req.session_id,
-                )
-                result = mcp_loop_result.result
-                mcp_tool_calls = mcp_loop_result.tool_calls
-                mcp_tool_call_count = len(mcp_tool_calls)
-                mcp_tool_loop_iterations = mcp_loop_result.iterations
+            # The tools the gateway runs: knowledge, MCP, the tool router's.
+            if endpoint == "/v1/chat/completions" and (req.knowledge or self.mcp_client or self.tool_router):
+                result = await self._tool_loop(req, result, auth=auth, request_id=request_id)
 
             # The model is done with this request: its slot is free for the
             # next one while the answer is saved and logged.
@@ -573,9 +621,9 @@ class GatewayService:
                 retry_count=retry_count,
                 skills_used=_skills_used(req.skills),
                 rag_context=req.rag_context,
-                mcp_tool_call_count=mcp_tool_call_count,
-                mcp_tool_loop_iterations=mcp_tool_loop_iterations,
-                tool_calls=mcp_tool_calls,
+                mcp_tool_call_count=len(req.tool_calls),
+                mcp_tool_loop_iterations=req.tool_iterations,
+                tool_calls=req.tool_calls,
             )
 
     async def route_stream_chat(
@@ -608,11 +656,6 @@ class GatewayService:
         stats: StreamStats | None = None
         pre_stream_status_code = 500
         pre_stream_error_code: str | None = None
-        # ── Observability tracking ──────────────────────────────────────
-        stream_finish_reason: str | None = None
-        stream_mcp_tool_calls: list[dict[str, Any]] = []
-        stream_mcp_tool_call_count = 0
-        stream_mcp_tool_loop_iterations = 0
         try:
             await self._prepare(
                 req,
@@ -632,61 +675,13 @@ class GatewayService:
                 for t in (egress_payload.get("tools") or [])
             )
 
-            if mcp_tools_injected and (self.mcp_client or self.tool_router):
-                # When MCP tools are present, use non-streaming to enable the
-                # tool loop, then convert the final response to SSE for the client.
-                logger.info("MCP streaming path: switching to non-streaming for tool loop (request_id=%s)", request_id)
-                from llm_port_api.services.gateway.llm_adapter import CompletionResult  # noqa: PLC0415
-
-                adapter_result = await self.adapter.completion(
-                    **_candidate_adapter_kwargs(decision.candidate),
-                    payload=egress_payload,
-                    stream=False,
-                )
-                assert isinstance(adapter_result, CompletionResult)  # noqa: S101
-                # Propagate upstream errors (e.g. 429 rate-limit) instead of
-                # silently converting them into an empty SSE stream.
-                if adapter_result.status_code >= 400:
-                    err_payload = adapter_result.payload or {}
-                    err_msg = (
-                        err_payload.get("error", {}).get("message")
-                        or f"Upstream error {adapter_result.status_code}"
-                    )
-                    err_type = err_payload.get("error", {}).get("type", "upstream_error")
-                    raise GatewayError(
-                        status_code=adapter_result.status_code,
-                        message=err_msg,
-                        error_type=err_type,
-                        code=err_payload.get("error", {}).get("code"),
-                    )
-                mcp_result = UpstreamResult(
-                    status_code=adapter_result.status_code,
-                    payload=adapter_result.payload,
-                    headers={},
-                )
-                mcp_loop_result = await self._run_mcp_tool_loop(
-                    result=mcp_result,
-                    egress_payload=egress_payload,
-                    adapter=self.adapter,
-                    decision=decision,
-                    tenant_id=auth.tenant_id,
-                    request_id=request_id,
-                    pii_mode_override=self._mcp_pii_mode_override(req.pii_policy, decision),
-                    session_id=req.session_id,
-                )
-                mcp_result = mcp_loop_result.result
-                stream_mcp_tool_calls = mcp_loop_result.tool_calls
-                stream_mcp_tool_call_count = len(stream_mcp_tool_calls)
-                stream_mcp_tool_loop_iterations = mcp_loop_result.iterations
-                # Extract finish_reason from MCP loop result
-                _mcp_choices = (mcp_result.payload or {}).get("choices") or []
-                if _mcp_choices:
-                    stream_finish_reason = _mcp_choices[0].get("finish_reason")
-                mcp_usage = usage_from_payload(mcp_result.payload)
-                wrapped_stream = _nonstream_to_sse(restore_payload(mcp_result.payload, req.token_mapping))
-                stats = StreamStats(
-                    ttft_ms=int((time.perf_counter() - started) * 1000),
-                    usage=mcp_usage,
+            if req.knowledge or (mcp_tools_injected and (self.mcp_client or self.tool_router)):
+                # Rounds: the answer's text streams as it comes, and the tools
+                # run between rounds. With tools, a streamed chat used to be
+                # answered whole and then replayed: nothing reached the client
+                # until every tool had run and the answer was complete.
+                wrapped_stream, stats = await wrap_sse_stream(
+                    self._stream_tool_rounds(req, auth=auth, request_id=request_id),
                 )
             else:
                 raw_stream = self.adapter.completion(
@@ -771,13 +766,13 @@ class GatewayService:
                             if req.decision is not None else None
                         ),
                         session_id=req.session_id or session_id,
-                        finish_reason=stream_finish_reason,
+                        finish_reason=req.finish_reason,
                         retry_count=0,
                         skills_used=_skills_used(req.skills),
                         rag_context=req.rag_context,
-                        mcp_tool_call_count=stream_mcp_tool_call_count,
-                        mcp_tool_loop_iterations=stream_mcp_tool_loop_iterations,
-                        tool_calls=stream_mcp_tool_calls,
+                        mcp_tool_call_count=len(req.tool_calls),
+                        mcp_tool_loop_iterations=req.tool_iterations,
+                        tool_calls=req.tool_calls,
                     )
                     if req.trace_context is not None:
                         self.observability.finalize_stream(
@@ -884,28 +879,33 @@ class GatewayService:
         the session and the PII scans ran -- close to a second with PII on --
         during which the model could have been answering someone else.
 
-        RAG, the session, skills and the MCP tool list do not depend on one
+        The session, skills and the MCP tool list do not depend on one
         another, so they are looked up side by side: the request waits for the
         slowest of them, not for their sum.
         """
         chat = endpoint == "/v1/chat/completions"
         payload = req.payload
+        if "rag" in payload:
+            # Retrieval before the model, on every turn that asked for it, is
+            # gone: the model searches when it needs to (knowledge_search).
+            raise GatewayError(
+                status_code=400,
+                message=(
+                    "The rag field is no longer supported: models search the "
+                    "knowledge base themselves, with the knowledge_search tool."
+                ),
+                error_type="invalid_request_error",
+                code="unsupported_parameter",
+                param="rag",
+            )
         # Read before anything runs: the session step rewrites the messages.
-        rag_config = payload.pop("rag", None)
         question = _last_user_text(payload)
 
-        (rag_message, req.rag_context), (payload, req.session_id), req.skills, mcp_tools = await _together(
-            self._retrieve_rag(rag_config, question, auth),
+        (payload, req.session_id), req.skills, mcp_tools = await _together(
             self._inject_session_context(payload, auth, session_id) if chat else _value((payload, None)),
             self._resolve_skills(question, auth, session_id) if chat else _value([]),
             self.mcp_tool_cache.get_tools(auth.tenant_id) if chat and self.mcp_tool_cache else _value(None),
         )
-        if rag_message is not None:
-            # After the session step, which keeps the client's messages as the
-            # chat's history. Retrieved context belongs to this answer only; put
-            # in before, it was saved into the history as a system message on
-            # every turn.
-            payload = _insert_after_system(payload, rag_message)
         for skill in req.skills:  # each after the last: they keep their order
             payload = _insert_after_system(payload, {
                 "role": "system",
@@ -960,6 +960,9 @@ class GatewayService:
             egress = self._inject_datetime_context(egress)
             if mcp_tools:
                 egress = self._merge_mcp_tools(egress, mcp_tools, auth.tenant_id)
+            if self._offers_knowledge(req.decision.candidate, payload):
+                egress = _with_tools(egress, knowledge.TOOLS)
+                req.knowledge = True
         # Apply skill-based tool constraints (after all tools are merged)
         if req.skills:
             egress = self._apply_skill_tool_constraints(egress, req.skills)
@@ -1190,55 +1193,6 @@ class GatewayService:
             )
             return {"model": payload.get("model"), "_pii_mode": "fallback"}
 
-    async def _retrieve_rag(
-        self,
-        rag_config: dict[str, Any] | None,
-        question: str,
-        auth: AuthContext,
-    ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-        """Search RAG Lite for context to answer *question* with.
-
-        *rag_config* is the request's ``rag`` field, which the caller has
-        removed so the upstream provider does not receive unknown fields.
-        Returns the system message carrying the context -- or ``None`` -- and
-        what was found, for the audit log.
-
-        The search runs as the caller: the backend checks the user's own
-        permission to search. It was called without a token, got a 401 each
-        time, and the answer went out without its context.
-        """
-        if not rag_config or not self.rag_lite_client or not question:
-            return None, None
-
-        results = await self.rag_lite_client.search(
-            query=question,
-            top_k=rag_config.get("top_k", 5),
-            collection_ids=rag_config.get("collection_ids"),
-            api_token=auth.token,
-        )
-
-        if not results:
-            return None, None
-
-        # Build context block from search results
-        context_parts = []
-        for r in results:
-            src = r.get("filename", "unknown")
-            text = r.get("chunk_text", "")
-            context_parts.append(f"[Source: {src}]\n{text}")
-
-        context_block = (
-            "Use the following retrieved context to answer the user's question. "
-            "If the context is not relevant, ignore it.\n\n"
-            + "\n\n---\n\n".join(context_parts)
-        )
-        rag_metadata = {
-            "chunk_count": len(results),
-            "collection_ids": rag_config.get("collection_ids"),
-            "top_k": rag_config.get("top_k", 5),
-        }
-        return {"role": "system", "content": context_block}, rag_metadata
-
     async def _inject_session_context(
         self,
         payload: dict[str, Any],
@@ -1463,252 +1417,265 @@ class GatewayService:
         )
         return payload
 
-    async def _run_mcp_tool_loop(
-        self,
-        *,
-        result: UpstreamResult,
-        egress_payload: dict[str, Any],
-        adapter: LLMAdapter,
-        decision: RoutingDecision,
-        tenant_id: str,
-        request_id: str,
-        pii_mode_override: str | None = None,
-        session_id: str | None = None,
-    ) -> MCPToolLoopResult:
-        """Execute tool calls in a loop, re-calling the LLM each round.
+    # ── Tools the gateway runs ───────────────────────────────────────────────
 
-        When a ``ToolRouter`` is configured, ALL tool calls (MCP, client-local,
-        server-managed) are routed through the router.  Otherwise the legacy
-        MCP-only path is used (calls whose function name starts with
-        ``MCP_TOOL_PREFIX``).
+    def _offers_knowledge(self, candidate: Any, payload: dict[str, Any]) -> bool:
+        """Whether the model gets the knowledge tools.
 
-        The loop runs at most ``settings.mcp_tool_loop_max_iterations``
-        iterations to prevent infinite loops.
-
-        Returns an ``MCPToolLoopResult`` with the final upstream result,
-        per-tool-call telemetry, and iteration count.
+        When RAG Lite is on, the client has not ruled tools out, and the
+        route's model answers with tool calls -- vLLM refuses a request that
+        offers tools otherwise.
         """
-        # Determine whether to use the unified ToolRouter or legacy MCP-only path.
-        import uuid as _uuid  # noqa: PLC0415
-
-        _use_router = False
-        _session_uuid: _uuid.UUID | None = None
-        if self.tool_router is not None and session_id:
-            try:
-                _session_uuid = _uuid.UUID(session_id)
-                _use_router = True
-            except ValueError:
-                pass
-
-        # When using ToolRouter, mcp_client may not be needed directly
-        # as the router dispatches through executors.
-        if not _use_router:
-            assert self.mcp_client is not None  # noqa: S101
-
-        max_iter = settings.mcp_tool_loop_max_iterations
-        all_tool_calls: list[dict[str, Any]] = []
-        iterations_completed = 0
-
-        for _iteration in range(max_iter):
-            _has_passthrough = False
-            choices = result.payload.get("choices") or []
-            if not choices:
-                break
-
-            message = choices[0].get("message", {})
-            tool_calls = message.get("tool_calls")
-            if not tool_calls:
-                break
-
-            if _use_router:
-                # ── Unified routing: dispatch ALL tool calls via ToolRouter ──
-                # Tools whose realm has no executor will get an error result,
-                # which is fine — the LLM can react accordingly.
-                routable_calls = []
-                passthrough_calls = []
-                for tc in tool_calls:
-                    name = (tc.get("function", {}).get("name") or "")
-                    # Strip model-specific suffixes from tool names
-                    import re as _re  # noqa: PLC0415
-                    m = _re.match(r"^[\w.]+", name)
-                    clean_name = m.group(0) if m else name
-                    # Tools with a recognized prefix are routable
-                    if clean_name.startswith(("mcp.", "client.", "server.")):
-                        routable_calls.append(tc)
-                    else:
-                        passthrough_calls.append(tc)
-
-                if not routable_calls:
-                    # All tool calls are for the downstream client — stop
-                    break
-
-                _has_passthrough = len(passthrough_calls) > 0
-                iterations_completed = _iteration + 1
-                messages = list(egress_payload.get("messages", []))
-                messages.append(message)
-
-                assert _session_uuid is not None  # noqa: S101
-                for tc in routable_calls:
-                    func = tc.get("function", {})
-                    raw_name = func.get("name", "")
-                    import re as _re  # noqa: PLC0415
-                    m = _re.match(r"^[\w.]+", raw_name)
-                    qualified_name = m.group(0) if m else raw_name
-                    try:
-                        arguments = json.loads(func.get("arguments", "{}"))
-                    except (json.JSONDecodeError, TypeError):
-                        arguments = {}
-
-                    route_result = await self.tool_router.route(
-                        tool_id=qualified_name,
-                        arguments=arguments,
-                        call_id=tc.get("id", ""),
-                        session_id=_session_uuid,
-                        tenant_id=tenant_id,
-                        request_id=request_id,
-                    )
-
-                    parts = qualified_name.split(".", 2)
-                    mcp_server = parts[1] if len(parts) >= 2 else None
-
-                    all_tool_calls.append({
-                        "iteration": _iteration,
-                        "tool_name": qualified_name,
-                        "mcp_server": mcp_server,
-                        "latency_ms": route_result.latency_ms,
-                        "is_error": route_result.is_error,
-                        "error_message": route_result.content[:500] if route_result.is_error else None,
-                        "realm": route_result.realm,
-                        "executor": route_result.executor,
-                    })
-
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tc.get("id", ""),
-                        "content": route_result.content,
-                    })
-
-            else:
-                # ── Legacy MCP-only routing ─────────────────────────────────
-                # Separate MCP calls from client-side calls
-                mcp_calls = [
-                    tc for tc in tool_calls
-                    if (tc.get("function", {}).get("name") or "").startswith(MCP_TOOL_PREFIX)
-                ]
-                if not mcp_calls:
-                    # All tool calls are for the client — stop the loop
-                    break
-
-                if len(mcp_calls) < len(tool_calls):
-                    # Mixed MCP + non-MCP calls: execute MCP ones, return with
-                    # remaining non-MCP calls for the client.
-                    pass
-
-                iterations_completed = _iteration + 1
-
-                # Build messages list: original messages + assistant message + tool results
-                messages = list(egress_payload.get("messages", []))
-                messages.append(message)
-
-                for tc in mcp_calls:
-                    func = tc.get("function", {})
-                    raw_name = func.get("name", "")
-                    import re as _re  # noqa: PLC0415
-                    m = _re.match(r"^[\w.]+", raw_name)
-                    qualified_name = m.group(0) if m else raw_name
-                    try:
-                        arguments = json.loads(func.get("arguments", "{}"))
-                    except (json.JSONDecodeError, TypeError):
-                        arguments = {}
-
-                    parts = qualified_name.split(".", 2)
-                    mcp_server = parts[1] if len(parts) >= 2 else None
-
-                    tc_started = time.perf_counter()
-                    tc_error = False
-                    tc_error_msg: str | None = None
-                    try:
-                        call_result = await self.mcp_client.call_tool(
-                            qualified_name=qualified_name,
-                            arguments=arguments,
-                            tenant_id=tenant_id,
-                            request_id=request_id,
-                            pii_mode_override=pii_mode_override,
-                        )
-                        tc_error = call_result.is_error
-                        if call_result.is_error:
-                            tc_error_msg = call_result.content[:500]
-                    except Exception as exc:
-                        tc_error = True
-                        tc_error_msg = str(exc)[:500]
-                        call_result = type("_", (), {"content": f"Tool call failed: {exc}"})()
-                    tc_latency = int((time.perf_counter() - tc_started) * 1000)
-
-                    all_tool_calls.append({
-                        "iteration": _iteration,
-                        "tool_name": qualified_name,
-                        "mcp_server": mcp_server,
-                        "latency_ms": tc_latency,
-                        "is_error": tc_error,
-                        "error_message": tc_error_msg,
-                    })
-
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tc.get("id", ""),
-                        "content": call_result.content,
-                    })
-
-            # Re-call the LLM with the extended conversation
-            loop_payload = {**egress_payload, "messages": messages}
-            from llm_port_api.services.gateway.llm_adapter import CompletionResult  # noqa: PLC0415
-
-            adapter_result = await adapter.completion(
-                **_candidate_adapter_kwargs(decision.candidate),
-                payload=loop_payload,
-                stream=False,
-            )
-            assert isinstance(adapter_result, CompletionResult)  # noqa: S101
-            # Propagate upstream errors from tool-loop re-calls
-            if adapter_result.status_code >= 400:
-                err_payload = adapter_result.payload or {}
-                err_msg = (
-                    err_payload.get("error", {}).get("message")
-                    or f"Upstream error {adapter_result.status_code}"
-                )
-                err_type = err_payload.get("error", {}).get("type", "upstream_error")
-                raise GatewayError(
-                    status_code=adapter_result.status_code,
-                    message=err_msg,
-                    error_type=err_type,
-                    code=err_payload.get("error", {}).get("code"),
-                )
-            result = UpstreamResult(
-                status_code=adapter_result.status_code,
-                payload=adapter_result.payload,
-                headers={},
-            )
-
-            # Update egress_payload messages for next iteration
-            egress_payload = loop_payload
-
-            # If we had mixed calls in legacy mode, break after executing MCP ones
-            if not _use_router:
-                mcp_calls = [
-                    tc for tc in tool_calls
-                    if (tc.get("function", {}).get("name") or "").startswith(MCP_TOOL_PREFIX)
-                ]
-                if len(mcp_calls) < len(tool_calls):
-                    break
-            elif _has_passthrough:
-                # Mixed routable + passthrough: break after routing the routable ones
-                break
-
-        return MCPToolLoopResult(
-            result=result,
-            tool_calls=all_tool_calls,
-            iterations=iterations_completed,
+        return (
+            self.rag_lite_client is not None
+            and settings.rag_lite_enabled
+            and not settings.rag_enabled
+            and payload.get("tool_choice") != "none"
+            and knowledge.calls_tools(candidate)
         )
+
+    def _router_session(self, session_id: str | None) -> uuid.UUID | None:
+        """The session the tool router runs tools for, when it is in use."""
+        if self.tool_router is None or not session_id:
+            return None
+        try:
+            return uuid.UUID(session_id)
+        except ValueError:
+            return None
+
+    async def _tool_loop(
+        self, req: _Prepared, result: UpstreamResult, *, auth: AuthContext, request_id: str,
+    ) -> UpstreamResult:
+        """Run the gateway's tools until the model answers (a whole answer).
+
+        Each round the model asks for tools, the gateway runs them and asks
+        again, at most ``mcp_tool_loop_max_iterations`` times. A round that
+        asks for a tool the gateway cannot run -- one the client defined --
+        goes back to the client as it is.
+        """
+        payload = req.egress_payload
+        assert payload is not None  # noqa: S101
+        for iteration in range(settings.mcp_tool_loop_max_iterations):
+            choices = (result.payload or {}).get("choices") or []
+            message = choices[0].get("message") if choices else None
+            if not message or not message.get("tool_calls"):
+                break
+            answers = await self._run_tool_calls(
+                req, message["tool_calls"], iteration=iteration, auth=auth, request_id=request_id,
+            )
+            if answers is None:
+                break
+            req.tool_iterations = iteration + 1
+            turn = _assistant_turn(message.get("content"), message["tool_calls"])
+            payload = {**payload, "messages": [*payload["messages"], turn, *answers]}
+            result = await self._complete(req, payload)
+        return result
+
+    async def _stream_tool_rounds(
+        self, req: _Prepared, *, auth: AuthContext, request_id: str,
+    ) -> AsyncIterator[bytes]:
+        """A streamed answer, with the gateway's tools run between rounds.
+
+        The answer's text reaches the client as it comes, with PII tokens put
+        back. A round that ends in tool calls the gateway runs is not shown:
+        they are run, and the next round streams on. Calls the client defined
+        go to the client, as a streamed answer's tool calls do.
+        """
+        payload = req.egress_payload
+        assert payload is not None and req.decision is not None  # noqa: S101
+        usage: dict[str, int] = {}
+        head: dict[str, Any] = {}
+        for iteration in range(settings.mcp_tool_loop_max_iterations + 1):
+            raw = await self.adapter.completion(
+                **_candidate_adapter_kwargs(req.decision.candidate), payload=payload, stream=True,
+            )
+            calls = ToolCalls()
+            said: list[str] = []
+            ended: dict[str, Any] = {"finish": None, "failed": False}
+
+            async def answer(raw: Any = raw, calls: ToolCalls = calls, said: list[str] = said,
+                             ended: dict[str, Any] = ended) -> AsyncIterator[bytes]:
+                async for event in sse_events(raw):  # type: ignore[arg-type]
+                    if event == DONE:
+                        continue
+                    assert isinstance(event, dict)  # noqa: S101
+                    if "error" in event and not event.get("choices"):
+                        ended["failed"] = True
+                        yield sse(event)
+                        continue
+                    own = {k: event[k] for k in ("id", "object", "created", "model") if k in event}
+                    head.update(own)
+                    _add_usage(usage, event.get("usage"))
+                    for choice in event.get("choices") or []:
+                        delta = choice.get("delta") or {}
+                        if delta.get("tool_calls"):
+                            calls.add(delta["tool_calls"])
+                        if choice.get("finish_reason"):
+                            ended["finish"] = choice["finish_reason"]
+                        if delta.get("content"):
+                            said.append(delta["content"])
+                            yield sse({**own, "choices": [{
+                                "index": choice.get("index", 0),
+                                "delta": {"content": delta["content"]},
+                                "finish_reason": None,
+                            }]})
+
+            async for chunk in restore_sse(answer(), req.token_mapping):
+                yield chunk
+            if ended["failed"]:
+                yield sse(DONE)
+                return
+
+            if calls and iteration < settings.mcp_tool_loop_max_iterations:
+                answers = await self._run_tool_calls(
+                    req, calls.calls(), iteration=iteration, auth=auth, request_id=request_id,
+                )
+                if answers is not None:
+                    req.tool_iterations = iteration + 1
+                    turn = _assistant_turn("".join(said) or None, calls.calls())
+                    payload = {**payload, "messages": [*payload["messages"], turn, *answers]}
+                    continue
+            if calls:
+                # Tools the client defined: its to run, as in any streamed answer.
+                yield sse({**head, "choices": [{
+                    "index": 0, "delta": {"tool_calls": calls.as_deltas()}, "finish_reason": None,
+                }]})
+            req.finish_reason = ended["finish"] or ("tool_calls" if calls else "stop")
+            last: dict[str, Any] = {
+                **head, "choices": [{"index": 0, "delta": {}, "finish_reason": req.finish_reason}],
+            }
+            if usage:
+                last["usage"] = usage
+            yield sse(last)
+            yield sse(DONE)
+            return
+
+    async def _complete(self, req: _Prepared, payload: dict[str, Any]) -> UpstreamResult:
+        """One whole model call; an error from upstream is raised, not answered."""
+        from llm_port_api.services.gateway.llm_adapter import CompletionResult  # noqa: PLC0415
+
+        assert req.decision is not None  # noqa: S101
+        adapter_result = await self.adapter.completion(
+            **_candidate_adapter_kwargs(req.decision.candidate), payload=payload, stream=False,
+        )
+        assert isinstance(adapter_result, CompletionResult)  # noqa: S101
+        if adapter_result.status_code >= 400:
+            error = (adapter_result.payload or {}).get("error", {})
+            raise GatewayError(
+                status_code=adapter_result.status_code,
+                message=error.get("message") or f"Upstream error {adapter_result.status_code}",
+                error_type=error.get("type", "upstream_error"),
+                code=error.get("code"),
+            )
+        return UpstreamResult(
+            status_code=adapter_result.status_code, payload=adapter_result.payload, headers={},
+        )
+
+    async def _run_tool_calls(
+        self,
+        req: _Prepared,
+        calls: list[dict[str, Any]],
+        *,
+        iteration: int,
+        auth: AuthContext,
+        request_id: str,
+    ) -> list[dict[str, Any]] | None:
+        """Run *calls*; the tool messages that answer them, PII-scanned.
+
+        ``None`` when any of them is not the gateway's to run (a tool the
+        client defined): the model's message then goes to the client as it
+        is, rather than half-answered.
+        """
+        router_session = self._router_session(req.session_id)
+
+        def ours(name: str) -> bool:
+            if name in knowledge.NAMES:
+                return req.knowledge
+            if router_session is not None:
+                return name.startswith(("mcp.", "client.", "server."))
+            return self.mcp_client is not None and name.startswith(MCP_TOOL_PREFIX)
+
+        names = [_tool_name(call) for call in calls]
+        if not all(ours(name) for name in names):
+            return None
+
+        answers: list[dict[str, Any]] = []
+        for call, name in zip(calls, names, strict=True):
+            arguments = _tool_arguments(call)
+            started = time.perf_counter()
+            row: dict[str, Any] = {"iteration": iteration, "tool_name": name, "mcp_server": None}
+            if name in knowledge.NAMES:
+                # Searched inside LLM.Port, like the session store: with the
+                # values tokenize mode took out, or it would look for
+                # "[PERSON_1]". A tool elsewhere (MCP) gets the tokens.
+                if req.token_mapping:
+                    arguments = _restored(arguments, req.token_mapping)
+                assert self.rag_lite_client is not None  # noqa: S101
+                tools = knowledge.KnowledgeTools(self.rag_lite_client, token=auth.token)
+                ran = await tools.run(name, arguments)
+                content, is_error = ran.content, ran.is_error
+            elif router_session is not None:
+                assert self.tool_router is not None  # noqa: S101
+                routed = await self.tool_router.route(
+                    tool_id=name, arguments=arguments, call_id=call.get("id", ""),
+                    session_id=router_session, tenant_id=auth.tenant_id, request_id=request_id,
+                )
+                content, is_error = routed.content, routed.is_error
+                row.update(mcp_server=_mcp_server(name), realm=routed.realm, executor=routed.executor)
+            else:
+                assert self.mcp_client is not None  # noqa: S101
+                try:
+                    called = await self.mcp_client.call_tool(
+                        qualified_name=name, arguments=arguments, tenant_id=auth.tenant_id,
+                        request_id=request_id,
+                        pii_mode_override=self._mcp_pii_mode_override(req.pii_policy, req.decision),
+                    )
+                    content, is_error = called.content, called.is_error
+                except Exception as exc:  # noqa: BLE001 - the model is told
+                    content, is_error = f"Tool call failed: {exc}", True
+                row["mcp_server"] = _mcp_server(name)
+            row.update(
+                latency_ms=int((time.perf_counter() - started) * 1000),
+                is_error=is_error,
+                error_message=content[:500] if is_error else None,
+            )
+            req.tool_calls.append(row)
+            answers.append({"role": "tool", "tool_call_id": call.get("id", ""), "content": content})
+        return await self._scan_tool_results(req, answers)
+
+    async def _scan_tool_results(self, req: _Prepared, answers: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Tool results pass through PII like the rest of what leaves.
+
+        In tokenize mode they continue the request's mapping, so a name in a
+        search result is the token the question already used for it.
+        """
+        if (
+            self.pii_client is None
+            or req.decision is None
+            or req.pii_policy is None
+            or not _needs_scan(req.pii_policy, req.decision.candidate)
+        ):
+            return answers
+        try:
+            scanned = await self.pii_client.sanitize(
+                payload={"messages": answers},
+                policy=req.pii_policy,
+                mode=req.pii_policy.egress.mode,
+                token_mapping=req.token_mapping,
+            )
+        except Exception:
+            if req.pii_policy.egress.fail_action == "allow":
+                logger.warning("PII scan of tool results failed; fail_action=allow, sending them as they are")
+                return answers
+            raise GatewayError(
+                status_code=502,
+                message="PII service unavailable: tool results were not sent to the model.",
+                error_type="server_error",
+                code="pii_service_unavailable",
+            ) from None
+        if scanned.token_mapping:
+            req.token_mapping = scanned.token_mapping
+        return scanned.sanitized_payload.get("messages", answers)
 
     async def _persist_assistant_response(
         self,
@@ -1831,91 +1798,6 @@ def _accumulate_stream_content(chunk: bytes, acc: list[str]) -> None:
             delta_content = choice.get("delta", {}).get("content")
             if delta_content:
                 acc.append(delta_content)
-
-
-async def _nonstream_to_sse(payload: dict[str, Any]) -> AsyncIterator[bytes]:
-    """Convert a non-streaming ChatCompletion response into SSE bytes.
-
-    Used when the MCP tool loop runs in non-streaming mode but the client
-    expects a streaming SSE response.
-    """
-    # Surface upstream errors as SSE error events
-    if "error" in payload and not payload.get("choices"):
-        err_evt = {
-            "error": payload["error"],
-        }
-        yield f"data: {json.dumps(err_evt)}\n\n".encode()
-        yield b"data: [DONE]\n\n"
-        return
-
-    choices = payload.get("choices", [])
-    content = ""
-    tool_calls = None
-    finish_reason = "stop"
-    if choices:
-        msg = choices[0].get("message", {})
-        content = msg.get("content", "") or ""
-        tool_calls = msg.get("tool_calls") or None
-        finish_reason = choices[0].get("finish_reason") or ("tool_calls" if tool_calls else "stop")
-    completion_id = payload.get("id", f"chatcmpl-mcp-{int(time.time())}")
-    model = payload.get("model", "unknown")
-
-    # Role delta
-    role_evt = {
-        "id": completion_id,
-        "object": "chat.completion.chunk",
-        "model": model,
-        "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}],
-    }
-    yield f"data: {json.dumps(role_evt)}\n\n".encode()
-
-    # Content deltas (chunked for a smoother streaming feel)
-    chunk_size = 24
-    for i in range(0, max(len(content), 1), chunk_size):
-        text_piece = content[i : i + chunk_size]
-        if text_piece:
-            content_evt = {
-                "id": completion_id,
-                "object": "chat.completion.chunk",
-                "model": model,
-                "choices": [{"index": 0, "delta": {"content": text_piece}, "finish_reason": None}],
-            }
-            yield f"data: {json.dumps(content_evt)}\n\n".encode()
-
-    # Tool-call deltas (OpenAI streaming format)
-    if tool_calls:
-        for idx, tc in enumerate(tool_calls):
-            tc_evt = {
-                "id": completion_id,
-                "object": "chat.completion.chunk",
-                "model": model,
-                "choices": [{
-                    "index": 0,
-                    "delta": {
-                        "tool_calls": [{
-                            "index": idx,
-                            "id": tc.get("id", ""),
-                            "type": "function",
-                            "function": tc.get("function", {}),
-                        }],
-                    },
-                    "finish_reason": None,
-                }],
-            }
-            yield f"data: {json.dumps(tc_evt)}\n\n".encode()
-
-    # Finish delta with optional usage
-    finish_evt: dict[str, Any] = {
-        "id": completion_id,
-        "object": "chat.completion.chunk",
-        "model": model,
-        "choices": [{"index": 0, "delta": {}, "finish_reason": finish_reason}],
-    }
-    usage = payload.get("usage")
-    if usage:
-        finish_evt["usage"] = usage
-    yield f"data: {json.dumps(finish_evt)}\n\n".encode()
-    yield b"data: [DONE]\n\n"
 
 
 def _resolve_pii_policy(

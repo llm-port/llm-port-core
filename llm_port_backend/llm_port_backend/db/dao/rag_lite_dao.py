@@ -273,6 +273,25 @@ class RagLiteChunkDAO:
         await self.session.flush()
         return len(objs)
 
+    async def passage(
+        self,
+        document_id: uuid.UUID,
+        *,
+        first: int,
+        last: int,
+    ) -> list[RagLiteChunk]:
+        """The chunks of a document from *first* to *last*, in order."""
+        result = await self.session.execute(
+            select(RagLiteChunk)
+            .where(
+                RagLiteChunk.document_id == document_id,
+                RagLiteChunk.chunk_index >= first,
+                RagLiteChunk.chunk_index <= last,
+            )
+            .order_by(RagLiteChunk.chunk_index),
+        )
+        return list(result.scalars().all())
+
     async def delete_by_document(self, document_id: uuid.UUID) -> int:
         stmt = sa_delete(RagLiteChunk).where(
             RagLiteChunk.document_id == document_id,

@@ -1,7 +1,7 @@
-"""HTTP client for calling the RAG Lite search endpoint on the backend.
+"""HTTP client for RAG Lite on the backend: search, and read a passage.
 
-Used by the gateway pipeline to retrieve context before sending a chat
-completion request to the upstream LLM.
+Used by the knowledge tools the model calls (``knowledge.py``), as the user
+who asked.
 """
 
 from __future__ import annotations
@@ -42,16 +42,40 @@ class RagLiteClient:
         if api_token:
             headers["Authorization"] = f"Bearer {api_token}"
 
-        try:
-            resp = await self._http.post(
-                f"{self._base}/api/admin/rag/search",
-                json=body,
-                timeout=15.0,
-                headers=headers,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            return data.get("results", [])
-        except Exception:
-            logger.exception("RAG Lite search call failed — skipping context injection")
-            return []
+        # Raises on failure. The model is told the search failed; answered
+        # with an empty list, it took "nothing found" for an answer.
+        resp = await self._http.post(
+            f"{self._base}/api/admin/rag/search",
+            json=body,
+            timeout=15.0,
+            headers=headers,
+        )
+        resp.raise_for_status()
+        return resp.json().get("results", [])
+
+    async def passage(
+        self,
+        *,
+        document_id: str,
+        chunk: int,
+        around: int = 2,
+        api_token: str | None = None,
+    ) -> dict[str, Any]:
+        """Call ``GET /api/admin/rag/documents/{id}/passage`` on the backend.
+
+        The text of a document around one chunk: ``filename``, ``chunk_count``
+        and ``chunks`` (``chunk_index``, ``text``). Raises on failure: the
+        model is told, rather than handed an empty passage.
+        """
+        headers = {"Authorization": f"Bearer {api_token}"} if api_token else {}
+        resp = await self._http.get(
+            f"{self._base}/api/admin/rag/documents/{document_id}/passage",
+            params={"chunk": chunk, "around": around},
+            timeout=15.0,
+            headers=headers,
+        )
+        if resp.status_code == 404:
+            raise LookupError(f"No document {document_id}.")
+        resp.raise_for_status()
+        return resp.json()
+

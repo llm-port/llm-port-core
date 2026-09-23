@@ -73,6 +73,7 @@ async def test_reconcile_publication_published_endpoint(mock_session, mock_gatew
         backend_provider_type="vllm",
         health_status="healthy",
         is_routable=True,
+        tools=False,  # no engine config: vLLM's tool calls are off
     )
 
 
@@ -114,6 +115,7 @@ async def test_reconcile_publication_degraded_deployment_with_ready_replica(mock
         backend_provider_type="vllm",
         health_status="healthy",
         is_routable=True,
+        tools=False,  # no engine config: vLLM's tool calls are off
     )
 
 

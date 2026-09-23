@@ -69,6 +69,21 @@ class RagLiteSearchResponse(BaseModel):
     query: str
 
 
+class RagLitePassageChunk(BaseModel):
+    chunk_index: int
+    text: str
+
+
+class RagLitePassageResponse(BaseModel):
+    """A stretch of one document: what a model reads after a search hit."""
+
+    document_id: uuid.UUID
+    filename: str
+    collection_id: uuid.UUID | None
+    chunk_count: int
+    chunks: list[RagLitePassageChunk]
+
+
 # -----------------------------------------------------------------------
 # Collections
 # -----------------------------------------------------------------------

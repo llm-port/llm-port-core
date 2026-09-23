@@ -99,6 +99,16 @@ class PIISanitizeRequest(BaseModel):
     language: str | None = Field(default=None)
     entities: list[str] | None = Field(default=None)
     score_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
+    token_mapping: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Tokenize mode: the mapping of an earlier call in the same "
+            "conversation. A value already in it keeps its token, and new "
+            "tokens are numbered after it, so later text -- a tool result -- "
+            "uses the same tokens as the question. The response returns the "
+            "whole mapping, old and new."
+        ),
+    )
 
 
 class PIISanitizeResponse(BaseModel):

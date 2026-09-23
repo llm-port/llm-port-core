@@ -201,6 +201,7 @@ async def sanitize_payload(
         language=body.language,
         entities=body.entities,
         score_threshold=body.score_threshold,
+        token_mapping=body.token_mapping,
     )
     type_counts: dict[str, int] = {}
     for e in result.pii_report:

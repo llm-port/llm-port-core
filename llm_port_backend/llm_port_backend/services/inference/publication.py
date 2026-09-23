@@ -22,6 +22,7 @@ from llm_port_backend.db.models.inference import (
     InferenceEndpoint,
 )
 from llm_port_backend.db.models.llm import LLMProvider, ProviderTarget, ProviderType
+from llm_port_backend.services.llm.kinds import deployment_calls_tools
 
 #: Marks a provider row as owned by a deployment.  The same string the
 #: gateway stamps on ``llm_provider_instance``, so ownership reads the same
@@ -137,6 +138,7 @@ class InferencePublicationCoordinator:
                 backend_provider_type="vllm",
                 health_status=health_status,
                 is_routable=is_routable,
+                tools=deployment_calls_tools(deployment.spec_json),
             )
         elif primary_endpoint.status in (EndpointStatus.FAILED, EndpointStatus.RETIRED) or ready_replicas == 0:
             # Endpoint is unhealthy or has 0 ready replicas

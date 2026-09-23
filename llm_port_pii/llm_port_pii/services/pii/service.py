@@ -214,6 +214,7 @@ class PIIService:
         language: str | None = None,
         entities: list[str] | None = None,
         score_threshold: float | None = None,
+        token_mapping: dict[str, str] | None = None,
     ) -> SanitizeResult:
         """Sanitize all text-bearing fields in an OpenAI-shaped payload.
 
@@ -259,11 +260,11 @@ class PIIService:
 
         if mode == "tokenize":
             # Shared mutable state for building the token mapping.
-            token_counters: dict[str, int] = {}
-            token_mapping: dict[str, str] = {}
-            # Cache: original text → token so repeated occurrences get
-            # the same surrogate across the whole payload.
-            value_to_token: dict[str, str] = {}
+            # Continued from an earlier call when given one: a value it has
+            # keeps its token, and new tokens are numbered after its own.
+            token_mapping = dict(token_mapping or {})
+            value_to_token = {value: token for token, value in token_mapping.items()}
+            token_counters = _counters(token_mapping)
 
             async def _tokenize_text(text: str) -> str:
                 results = next(analyses)
@@ -568,3 +569,13 @@ class _AnalysisCache:
         self._entries.move_to_end(key)
         while len(self._entries) > self._size:
             self._entries.popitem(last=False)
+
+
+def _counters(token_mapping: dict[str, str]) -> dict[str, int]:
+    """The highest number used per entity type in *token_mapping*."""
+    counters: dict[str, int] = {}
+    for token in token_mapping:
+        entity, _, number = token.strip("[]").rpartition("_")
+        if entity and number.isdigit():
+            counters[entity] = max(counters.get(entity, 0), int(number))
+    return counters

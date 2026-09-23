@@ -40,6 +40,7 @@ class PIIClient:
         payload: dict[str, Any],
         policy: PIIPolicy,
         mode: str | None = None,
+        token_mapping: dict[str, str] | None = None,
     ) -> SanitizeResult:
         """Call ``POST /api/v1/pii/sanitize`` on the PII service.
 
@@ -67,6 +68,10 @@ class PIIClient:
         }
         if policy.presidio.entities:
             body["entities"] = policy.presidio.entities
+        if token_mapping:
+            # Tokens already given in this conversation: kept, and new ones
+            # numbered after them, so a tool result uses the question's tokens.
+            body["token_mapping"] = token_mapping
 
         try:
             resp = await self._http.post(

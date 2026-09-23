@@ -1,8 +1,9 @@
 # What the gateway does with a chat request
 
-A chat request passes through up to eight steps before it reaches the
-model: limits, routing, RAG, the session's history, skills, PII, tools and
-the model slot. Each step had tests of its own. Run together, which is how
+A chat request passes through up to seven steps before it reaches the
+model: limits, routing, the session's history, skills, PII, tools and the
+model slot. Knowledge is not one of them any more: the model searches it
+itself, with tools the gateway runs. Each step had tests of its own. Run together, which is how
 the chat page uses them, they had bugs no single test could see, and PII
 made every chat close to a second slower.
 
@@ -17,14 +18,14 @@ the DGX pair.
 | # | Step | What it does |
 |---|---|---|
 | 1 | Limits and routing | Checks rate limits, finds the routes for the model name, and refuses a request of the wrong kind (a chat request to an embedding model) |
-| 2 | Four lookups, side by side | **RAG** searches RAG Lite for context, as the user who asked. **Session** loads the chat's history, memory and attachments, and saves the new user message. **Skills** finds the skills that apply. **Tools** fetches the MCP tool list |
-| 3 | Assembly | The retrieved context and the skills are added as system messages, to this request only, so they never become history |
-| 4 | PII | Scans everything that is about to leave: the message, the history, the retrieved context |
+| 2 | Three lookups, side by side | **Session** loads the chat's history, memory and attachments, and saves the new user message. **Skills** finds the skills that apply. **Tools** fetches the MCP tool list |
+| 3 | Assembly | The skills are added as system messages, to this request only, so they never become history |
+| 4 | PII | Scans everything that is about to leave: the message and the history |
 | 5 | Model slot | Taken only now, when nothing else is left to wait for |
+| 6 | Tool rounds | When the model calls a tool the gateway runs (knowledge search, MCP), the gateway runs it, scans the result through PII, and asks the model again |
 
-The four lookups do not depend on one another. They used to run one after
-another; now the request waits for the slowest of them, usually RAG, not
-for their sum.
+The three lookups do not depend on one another. They used to run one after
+another; now the request waits for the slowest of them, not for their sum.
 
 The model slot is taken last. It used to be taken first and held while RAG,
 the session and the PII scans ran, so the model sat idle, reserved for a
@@ -40,12 +41,62 @@ One request, in milliseconds from its start, with every module on:
 | Step | Starts | Takes |
 |---|---|---|
 | Limits, routing | 0 | 7 |
-| RAG | 7 | 49 |
 | Session | 7 | 18 |
 | Skills | 8 | 18 |
 | MCP tool list | 8 | 18 |
-| PII | 58 | 18 |
-| Model slot, then the model | 76 | |
+| PII | 26 | 18 |
+| Model slot, then the model | 44 | |
+
+(Measured with RAG still searched before the model, which started at 7 ms
+and took 49; without it, PII starts as soon as the slowest lookup ends.)
+
+## Knowledge: the model searches
+
+The model gets two tools when RAG Lite is on and its route can take tools:
+
+| Tool | What it does |
+|---|---|
+| `knowledge_search` | Searches the knowledge base with a query the model writes, and returns passages with their source |
+| `knowledge_open` | Reads the text around one result, to follow it into its section |
+
+The gateway runs them as the user who asked: RAG Lite checks that user's
+permission to search. A search that fails is reported to the model as an
+error, not as "nothing found".
+
+Retrieval used to run before the model whenever a request carried a `rag`
+field: the last user message was searched and the results went in as a
+system message on every turn, needed or not. That field is now refused
+(400, `unsupported_parameter`).
+
+**Only models that can call tools get them.** vLLM answers with tool calls
+only when started for it, and refuses a request that offers tools otherwise.
+Each route says whether its model can (`tools` in the gateway's route, from
+the model's vLLM flags). To switch it on for a cluster deployment, set its
+engine config:
+
+```json
+"engine": {"name": "vllm", "config": {"enable_auto_tool_choice": true, "tool_call_parser": "hermes"}}
+```
+
+The parser depends on the model family (`hermes` for Qwen2.5 and Qwen3,
+`llama3_json` for Llama 3). A remote API is taken to support tools.
+
+**Streamed answers stay streamed.** The answer's text reaches the client as
+it comes; a round that ends in a tool call the gateway runs is not shown, the
+tool runs, and the next round streams on. With tools, a streamed chat used
+to be answered whole and then replayed: nothing reached the client until
+every tool had run and the answer was complete. Measured on `qwen-chat` with
+one search round: first text after 437 ms, the whole answer in 1.0 s.
+
+A tool the client defined itself goes back to the client, as in any
+OpenAI-compatible API. When a round asks for both kinds, it goes back to the
+client as it is, rather than half answered.
+
+**PII covers the results too.** Search results pass through PII before they
+reach the model, and in tokenize mode they continue the request's tokens: a
+name the question turned into `[PERSON_1]` is `[PERSON_1]` in the results as
+well. The search itself runs with the real values, inside LLM.Port; an MCP
+tool, outside it, gets the tokens.
 
 ## PII
 
@@ -64,7 +115,7 @@ The chat page always streams. Tokens are put back as the answer streams,
 including a token that arrives split across two pieces (`[PER`, then
 `SON_1]`): text that may be the start of one waits until the rest arrives.
 
-Retrieved context is scanned too. "Munich" in a RAG document leaves as
+Search results are scanned too. "Munich" in a knowledge document leaves as
 `[LOCATION_1]`, and the answer still says Munich.
 
 **What PII costs.** Text is scanned once per request, and the trace's copy
@@ -97,6 +148,8 @@ the RAG search itself: embedding the question and searching the vectors.
 | Assigning a skill failed | The skills service expected `/assign`; the backend sends `/assignments` (405) | The skills service takes `/assignments` |
 | The model was told the wrong placeholders | In redact mode it was told to expect `[REDACTED_PERSON]`; PII writes `<PERSON>` | The instructions name what PII writes |
 | The first chat after PII started was slow | spaCy finished loading on the first request (~0.9 s) | PII warms up when it starts |
+| A streamed chat with tools was not streamed | Answered whole and replayed: no text until every tool had run | Rounds: the text streams, the tools run between rounds |
+| RAG ran before the model on every turn that asked | A search and its results in the prompt, needed or not, searched with the raw user message | The model searches when it needs to, with a query it writes |
 
 ## Every module in the dev environment
 

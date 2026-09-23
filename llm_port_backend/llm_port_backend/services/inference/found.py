@@ -30,6 +30,7 @@ from llm_port_backend.db.models.inference import (
 )
 from llm_port_backend.db.models.llm import LLMProvider, ProviderTarget, ProviderType
 from llm_port_backend.db.models.node_control import InfraNode
+from llm_port_backend.services.llm.kinds import argv_calls_tools
 
 log = logging.getLogger(__name__)
 
@@ -269,6 +270,7 @@ async def route(
         # Unknown stays unknown: a found container that says nothing is not
         # declared chat on LLM.Port's guess.
         task=container.get("task"),
+        tools=argv_calls_tools(container.get("args")),
     )
     log.info("Routing %s on %s as %s -> %s", container_name, node.agent_id, alias, url)
     return adoption

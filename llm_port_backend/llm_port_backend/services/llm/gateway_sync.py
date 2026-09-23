@@ -125,12 +125,15 @@ class GatewaySyncService:
         source_kind: str | None = None,
         source_id: uuid.UUID | None = None,
         task: str | None = None,
+        tools: bool | None = None,
     ) -> None:
         """Create or update gateway routing records for a runtime.
 
         *task* -- ``chat``, ``embeddings``, ``scoring`` -- is what the model is
         for; the gateway lists it with the model and refuses requests of the
         wrong kind up front. ``None`` when it cannot be known (a remote API).
+        *tools* is whether the model answers with tool calls (``kinds``); the
+        gateway offers its own tools only where it does.
 
         Also routes a vLLM container LLM.Port found on a machine rather than
         started (``source_kind='found_container'``, ``source_id`` its adoption):
@@ -145,6 +148,8 @@ class GatewaySyncService:
             return
         if task:
             node_metadata = {**(node_metadata or {}), "task": task}
+        if tools is not None:
+            node_metadata = {**(node_metadata or {}), "tools": tools}
         gateway_type = _map_provider_type(
             backend_provider_type, is_remote=is_remote, litellm_provider=litellm_provider,
         )
@@ -377,6 +382,7 @@ class GatewaySyncService:
         api_key_encrypted: str | None = None,
         capacity_hints: dict[str, Any] | None = None,
         task: str | None = "chat",
+        tools: bool | None = None,
     ) -> uuid.UUID | None:
         """Create or update gateway routing records for an inference deployment.
 
@@ -448,7 +454,9 @@ class GatewaySyncService:
                         "litellm_model": served_model_name,
                         "extra_params": json.dumps(extra_params) if extra_params else None,
                         "capacity_hints": json.dumps(capacity_hints) if capacity_hints else None,
-                        "node_metadata": json.dumps({"task": task}) if task else None,
+                        "node_metadata": json.dumps(
+                            {k: v for k, v in (("task", task), ("tools", tools)) if v is not None},
+                        ) if (task or tools is not None) else None,
                         "dep_id": deployment_id,
                     },
                 )

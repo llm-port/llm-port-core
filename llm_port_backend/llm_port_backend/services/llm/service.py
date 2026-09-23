@@ -15,7 +15,7 @@ from typing import Any
 
 from huggingface_hub import scan_cache_dir
 
-from llm_port_backend.services.llm.kinds import runtime_kind
+from llm_port_backend.services.llm.kinds import runtime_calls_tools, runtime_kind
 from llm_port_backend.db.dao.llm_dao import (
     ArtifactDAO,
     DownloadJobDAO,
@@ -592,6 +592,7 @@ class LLMService:
                     health_status="unknown",
                     litellm_model=model.hf_repo_id or None,
                     task=runtime_kind(runtime),
+                    tools=runtime_calls_tools(runtime),
                 )
         except Exception as exc:
             log.exception("Failed to start runtime container: %s", exc)

@@ -108,3 +108,20 @@ def test_the_cache_keeps_only_the_most_recent() -> None:
     cache.get(("a",))  # used: now the most recent
     cache.put(("c",), ())
     assert ("a",) in cache and ("c",) in cache and ("b",) not in cache
+
+
+@pytest.mark.anyio
+async def test_a_later_call_continues_the_conversations_tokens(service: PIIService) -> None:
+    """A tool result sent back to the model uses the question's tokens."""
+    first = await service.sanitize_payload(_chat("Alice Meyer met Bob Stein."), mode="tokenize")
+    assert first.token_mapping
+    alice = next(t for t, v in first.token_mapping.items() if v == "Alice Meyer")
+
+    later = await service.sanitize_payload(
+        _chat("Alice Meyer and Carol Danvers lead the launch."), mode="tokenize", token_mapping=first.token_mapping,
+    )
+    assert later.token_mapping is not None
+    assert later.payload["messages"][0]["content"].startswith(f"{alice} and ")
+    carol = next(t for t, v in later.token_mapping.items() if v == "Carol Danvers")
+    assert carol not in first.token_mapping, "a new person gets a new number"
+    assert set(first.token_mapping) <= set(later.token_mapping), "the whole mapping comes back"
