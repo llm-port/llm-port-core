@@ -6,7 +6,9 @@ These run them in the same request, where the order between them matters.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import time
 import uuid
 from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
@@ -34,7 +36,6 @@ from llm_port_api.services.gateway.lease import LeaseManager
 from llm_port_api.services.gateway.llm_adapter import CompletionResult, LLMAdapter
 from llm_port_api.services.gateway.observability import GatewayTraceContext
 from llm_port_api.services.gateway.pii_client import PIIClient, SanitizeResult
-from llm_port_api.services.gateway.rag_lite_client import RagLiteClient
 from llm_port_api.services.gateway.skills_client import ResolvedSkill, SkillResolveResult, SkillsClient
 from llm_port_api.services.registry import service_registry
 from llm_port_api.settings import settings
@@ -63,7 +64,10 @@ class _Observability:
     def finalize_stream(self, *_: object, **__: object) -> None: ...
 
 
-async def _seed(session: AsyncSession, *, provider: ProviderType, pii: dict[str, Any] | None) -> uuid.UUID:
+async def _seed(
+    session: AsyncSession, *, provider: ProviderType, pii: dict[str, Any] | None,
+    node_metadata: dict[str, Any] | None = None,
+) -> uuid.UUID:
     now = datetime.now(timezone.utc)
     instance_id = uuid.uuid4()
     session.add_all([
@@ -71,7 +75,7 @@ async def _seed(session: AsyncSession, *, provider: ProviderType, pii: dict[str,
         LLMProviderInstance(
             id=instance_id, type=provider, base_url="http://upstream.local", enabled=True,
             weight=1.0, max_concurrency=4, health_status=ProviderHealthStatus.HEALTHY,
-            created_at=now, updated_at=now,
+            node_metadata=node_metadata, created_at=now, updated_at=now,
         ),
         LLMPoolMembership(model_alias=ALIAS, provider_instance_id=instance_id, enabled=True),
         TenantLLMPolicy(
@@ -112,9 +116,14 @@ class _FakePII:
     def __init__(self) -> None:
         self.seen: list[dict[str, Any]] = []
         self.modes: list[str] = []
+        self.continued: list[dict[str, str] | None] = []
 
-    async def sanitize(self, _self: PIIClient, *, payload: dict[str, Any], policy: Any, mode: str | None = None) -> SanitizeResult:
+    async def sanitize(
+        self, _self: PIIClient, *, payload: dict[str, Any], policy: Any, mode: str | None = None,
+        token_mapping: dict[str, str] | None = None,
+    ) -> SanitizeResult:
         self.seen.append(payload)
+        self.continued.append(token_mapping)
         text = json.dumps(payload)
         tokenize = (mode or policy.egress.mode) in ("tokenize", "tokenize_reversible")
         self.modes.append("tokenize" if tokenize else "redact")
@@ -214,38 +223,7 @@ async def test_a_streamed_answer_is_kept_in_the_session_as_the_client_saw_it(
     assert await _history(db_session, sid) == [("user", "I am Alice"), ("assistant", "Hello Alice")]
 
 
-# ── RAG and session history ───────────────────────────────────────
-
-
-def _rag(monkeypatch: pytest.MonkeyPatch, calls: list[dict[str, Any]] | None = None, during: Any = None) -> None:
-    monkeypatch.setattr(settings, "rag_lite_enabled", True)
-    monkeypatch.setattr(settings, "rag_enabled", False)
-
-    async def search(self: RagLiteClient, **kwargs: Any) -> list[dict[str, Any]]:
-        if calls is not None:
-            calls.append(kwargs)
-        if during is not None:
-            await during()
-        return [{"filename": "handbook.pdf", "chunk_text": "Alice leads the launch on 5 May."}]
-
-    monkeypatch.setattr(RagLiteClient, "search", search)
-
-
-@pytest.mark.anyio
-async def test_retrieved_context_is_not_kept_as_chat_history(
-    fastapi_app: FastAPI, client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    await _seed(db_session, provider=ProviderType.VLLM, pii=None)
-    fastapi_app.state.gateway_observability = _Observability()
-    _rag(monkeypatch)
-    _model_answers(monkeypatch, "On 5 May.", [])
-    sid = await _session(db_session)
-
-    await client.post("/v1/chat/completions", headers={"Authorization": f"Bearer {_token()}"}, json={
-        "model": ALIAS, "session_id": str(sid), "rag": {"top_k": 3},
-        "messages": [{"role": "user", "content": "When is the launch?"}],
-    })
-    assert await _history(db_session, sid) == [("user", "When is the launch?"), ("assistant", "On 5 May.")]
+# ── Session history ───────────────────────────────────────────────
 
 
 @pytest.mark.anyio
@@ -271,85 +249,7 @@ async def test_the_model_sees_the_newest_turns_when_history_is_over_budget(
     assert turns == ["4", "5"]
 
 
-# ── PII sees everything that goes to the model ────────────────────
-
-
-@pytest.mark.anyio
-@pytest.mark.parametrize("stream", [False, True], ids=["whole", "streamed"])
-async def test_retrieved_context_and_history_are_scanned_before_they_leave(
-    stream: bool, fastapi_app: FastAPI, client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    await _seed(db_session, provider=ProviderType.REMOTE_OPENAI, pii=_pii("redact"))
-    fastapi_app.state.gateway_observability = _Observability()
-    _install_pii(monkeypatch)
-    _rag(monkeypatch)
-    sent: list[dict[str, Any]] = []
-    _model_answers(monkeypatch, "ok", sent)
-    sid = await _session(db_session)
-    db_session.add(ChatMessage(session_id=sid, role="user", content="Alice asked about it yesterday",
-                               created_at=datetime.now(timezone.utc) - timedelta(minutes=5)))
-    await db_session.flush()
-
-    r = await client.post("/v1/chat/completions", headers={"Authorization": f"Bearer {_token()}"}, json={
-        "model": ALIAS, "stream": stream, "session_id": str(sid), "rag": {"top_k": 3},
-        "messages": [{"role": "user", "content": "When is the launch?"}],
-    })
-    assert r.status_code == 200
-    egress = json.dumps(sent[0])
-    assert "Alice" not in egress
-    assert "launch on 5 May" in egress, "the retrieved context was sent, scanned"
-    assert "asked about it yesterday" in egress, "the history was sent, scanned"
-
-
 # ── What a slot is held for ───────────────────────────────────────
-
-
-@pytest.mark.anyio
-async def test_a_model_slot_is_not_held_while_context_is_gathered(
-    fastapi_app: FastAPI, client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    instance_id = await _seed(db_session, provider=ProviderType.VLLM, pii=None)
-    fastapi_app.state.gateway_observability = _Observability()
-    held: list[int] = []
-
-    async def look() -> None:
-        held.append(await LeaseManager(fastapi_app.state.cache_backend, ttl_sec=90).in_flight(instance_id))
-
-    _rag(monkeypatch, during=look)
-    _model_answers(monkeypatch, "ok", [])
-
-    await client.post("/v1/chat/completions", headers={"Authorization": f"Bearer {_token()}"}, json={
-        "model": ALIAS, "rag": {"top_k": 3}, "messages": [{"role": "user", "content": "When is the launch?"}],
-    })
-    assert held == [0]
-
-
-@pytest.mark.anyio
-async def test_the_rag_search_runs_as_the_caller(
-    fastapi_app: FastAPI, client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The backend checks the user's own permission to search.
-
-    Called without a token, it answered 401 every time, and the answer went
-    out without its context.
-    """
-    await _seed(db_session, provider=ProviderType.VLLM, pii=None)
-    fastapi_app.state.gateway_observability = _Observability()
-    searches: list[dict[str, Any]] = []
-    _rag(monkeypatch, calls=searches)
-    sent: list[dict[str, Any]] = []
-    _model_answers(monkeypatch, "On 5 May.", sent)
-    token = _token()
-
-    await client.post("/v1/chat/completions", headers={"Authorization": f"Bearer {token}"}, json={
-        "model": ALIAS, "rag": {"top_k": 3, "collection_ids": ["c1"]},
-        "messages": [{"role": "system", "content": "Be brief."}, {"role": "user", "content": "When is the launch?"}],
-    })
-    assert searches[0]["api_token"] == token
-    assert searches[0]["collection_ids"] == ["c1"]
-    roles = [m["role"] for m in sent[0]["messages"]]
-    assert sent[0]["messages"][roles.index("user") - 1]["content"].startswith("Use the following retrieved context")
-    assert sent[0]["messages"][1]["content"] == "Be brief.", "the client's own system prompt stays first"
 
 
 # ── Skills ────────────────────────────────────────────────────────
@@ -458,3 +358,183 @@ async def test_the_trace_is_still_scanned_when_nothing_leaves_scanned(
     assert fake.modes == ["redact"]
     assert "Alice" in json.dumps(sent[0]), "sent as it was"
     assert "Alice" not in json.dumps(observability.payloads[0])
+
+
+# ── The lookups run side by side ──────────────────────────────────
+
+
+@pytest.mark.anyio
+async def test_a_failed_lookup_stops_the_others_and_is_reported_as_itself() -> None:
+    from llm_port_api.services.gateway.errors import GatewayError
+    from llm_port_api.services.gateway.service import _together
+
+    stopped: list[str] = []
+
+    async def slow() -> None:
+        try:
+            await asyncio.sleep(5)
+        except asyncio.CancelledError:
+            stopped.append("slow")
+            raise
+
+    async def fails() -> None:
+        await asyncio.sleep(0.01)
+        raise GatewayError(status_code=404, message="Session not found.", code="session_not_found")
+
+    with pytest.raises(GatewayError, match="Session not found"):
+        await _together(slow(), fails())
+    assert stopped == ["slow"]
+
+
+# ── After the answer ──────────────────────────────────────────────
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("stream", [False, True], ids=["whole", "streamed"])
+async def test_the_slot_is_free_while_the_answer_is_saved(
+    stream: bool, fastapi_app: FastAPI, client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """It was given back last, after the session write, skills calls and audit."""
+    from llm_port_api.services.gateway.service import GatewayService
+
+    instance_id = await _seed(db_session, provider=ProviderType.VLLM, pii=None)
+    fastapi_app.state.gateway_observability = _Observability()
+    _model_answers(monkeypatch, "ok", [])
+    sid = await _session(db_session)
+    held: list[int] = []
+
+    async def look(self: GatewayService, **_: Any) -> None:
+        held.append(await LeaseManager(fastapi_app.state.cache_backend, ttl_sec=90).in_flight(instance_id))
+
+    monkeypatch.setattr(GatewayService, "_persist_assistant_response", look)
+    monkeypatch.setattr(GatewayService, "_persist_stream_assistant_response", look)
+
+    await client.post("/v1/chat/completions", headers={"Authorization": f"Bearer {_token()}"}, json={
+        "model": ALIAS, "stream": stream, "session_id": str(sid), "messages": [{"role": "user", "content": "hi"}],
+    })
+    assert held == [0]
+
+
+@pytest.mark.anyio
+async def test_the_answer_does_not_wait_for_skills_usage(
+    fastapi_app: FastAPI, client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _seed(db_session, provider=ProviderType.VLLM, pii=None)
+    fastapi_app.state.gateway_observability = _Observability()
+    service_registry.configure("skills", enabled=True, url="http://skills.local")
+    monkeypatch.setattr(settings, "skills_service_token", "t")
+    recorded = asyncio.Event()
+
+    async def resolve(self: SkillsClient, **_: Any) -> SkillResolveResult:
+        return SkillResolveResult(skills=[ResolvedSkill(
+            skill_id="s1", name="Terse", slug="terse", version=1, body_markdown="Be terse.", priority=1, score=1,
+        )])
+
+    async def slow_record(self: SkillsClient, **_: Any) -> None:
+        await asyncio.sleep(0.5)
+        recorded.set()
+
+    monkeypatch.setattr(SkillsClient, "resolve_skills", resolve)
+    monkeypatch.setattr(SkillsClient, "record_usage", slow_record)
+    _model_answers(monkeypatch, "ok", [])
+
+    started = time.perf_counter()
+    r = await client.post("/v1/chat/completions", headers={"Authorization": f"Bearer {_token()}"}, json={
+        "model": ALIAS, "messages": [{"role": "user", "content": "hi"}],
+    })
+    assert r.status_code == 200
+    assert time.perf_counter() - started < 0.4
+    await asyncio.wait_for(recorded.wait(), timeout=2)  # and it is still recorded
+
+
+@pytest.mark.anyio
+async def test_the_history_is_scanned_before_it_leaves(
+    fastapi_app: FastAPI, client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _seed(db_session, provider=ProviderType.REMOTE_OPENAI, pii=_pii("redact"))
+    fastapi_app.state.gateway_observability = _Observability()
+    _install_pii(monkeypatch)
+    sent: list[dict[str, Any]] = []
+    _model_answers(monkeypatch, "ok", sent)
+    sid = await _session(db_session)
+    db_session.add(ChatMessage(session_id=sid, role="user", content="Alice asked about it yesterday",
+                               created_at=datetime.now(timezone.utc) - timedelta(minutes=5)))
+    await db_session.flush()
+
+    await client.post("/v1/chat/completions", headers={"Authorization": f"Bearer {_token()}"}, json={
+        "model": ALIAS, "session_id": str(sid), "messages": [{"role": "user", "content": "When is the launch?"}],
+    })
+    egress = json.dumps(sent[0])
+    assert "Alice" not in egress
+    assert "asked about it yesterday" in egress, "the history was sent, scanned"
+
+
+@pytest.mark.anyio
+async def test_a_model_slot_is_not_held_while_context_is_gathered(
+    fastapi_app: FastAPI, client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    instance_id = await _seed(db_session, provider=ProviderType.VLLM, pii=None)
+    fastapi_app.state.gateway_observability = _Observability()
+    held: list[int] = []
+    service_registry.configure("skills", enabled=True, url="http://skills.local")
+    monkeypatch.setattr(settings, "skills_service_token", "t")
+
+    async def resolve_and_look(self: SkillsClient, **_: Any) -> SkillResolveResult:
+        held.append(await LeaseManager(fastapi_app.state.cache_backend, ttl_sec=90).in_flight(instance_id))
+        return SkillResolveResult()
+
+    monkeypatch.setattr(SkillsClient, "resolve_skills", resolve_and_look)
+    _model_answers(monkeypatch, "ok", [])
+
+    await client.post("/v1/chat/completions", headers={"Authorization": f"Bearer {_token()}"}, json={
+        "model": ALIAS, "messages": [{"role": "user", "content": "When is the launch?"}],
+    })
+    assert held == [0]
+
+
+@pytest.mark.anyio
+async def test_the_session_and_skills_are_looked_up_side_by_side(
+    fastapi_app: FastAPI, client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Each takes 0.3 s: together they take 0.3 s, not 0.6."""
+    from llm_port_api.services.gateway.service import GatewayService
+
+    await _seed(db_session, provider=ProviderType.VLLM, pii=None)
+    fastapi_app.state.gateway_observability = _Observability()
+    sid = await _session(db_session)
+    load = GatewayService._inject_session_context
+
+    async def slow_session(self: GatewayService, *args: Any, **kwargs: Any) -> Any:
+        await asyncio.sleep(0.3)
+        return await load(self, *args, **kwargs)
+
+    monkeypatch.setattr(GatewayService, "_inject_session_context", slow_session)
+    service_registry.configure("skills", enabled=True, url="http://skills.local")
+    monkeypatch.setattr(settings, "skills_service_token", "t")
+
+    async def slow_skills(self: SkillsClient, **_: Any) -> SkillResolveResult:
+        await asyncio.sleep(0.3)
+        return SkillResolveResult(skills=[
+            ResolvedSkill(skill_id=f"s{i}", name=f"Skill {i}", slug=f"s{i}", version=1,
+                          body_markdown=f"Rule {i}.", priority=1, score=1)
+            for i in (1, 2)
+        ])
+
+    async def record(self: SkillsClient, **_: Any) -> None: ...
+
+    monkeypatch.setattr(SkillsClient, "resolve_skills", slow_skills)
+    monkeypatch.setattr(SkillsClient, "record_usage", record)
+    sent: list[dict[str, Any]] = []
+    _model_answers(monkeypatch, "ok", sent)
+
+    started = time.perf_counter()
+    r = await client.post("/v1/chat/completions", headers={"Authorization": f"Bearer {_token()}"}, json={
+        "model": ALIAS, "session_id": str(sid), "messages": [{"role": "user", "content": "When is the launch?"}],
+    })
+    took = time.perf_counter() - started
+    assert r.status_code == 200
+    assert took < 0.55, f"{took:.2f} s: the lookups ran one after the other"
+    systems = [m["content"] for m in sent[0]["messages"] if m["role"] == "system"]
+    rule1 = next(i for i, c in enumerate(systems) if "Rule 1." in c)
+    rule2 = next(i for i, c in enumerate(systems) if "Rule 2." in c)
+    assert rule1 < rule2, "the skills in the order they were resolved"

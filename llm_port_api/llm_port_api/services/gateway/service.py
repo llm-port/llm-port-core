@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -183,6 +184,64 @@ def _needs_scan(pii_policy: PIIPolicy | None, candidate: Any) -> bool:
     return pii_policy.egress.enabled_for_local
 
 
+#: Work started for after the response, kept referenced until it is done
+#: (the event loop holds tasks only weakly).
+_BACKGROUND: set[asyncio.Task[Any]] = set()
+
+
+def _in_background(step: Awaitable[Any]) -> None:
+    """Run *step* without waiting for it; a failure is logged, not raised."""
+
+    async def run() -> None:
+        try:
+            await step
+        except Exception:
+            logger.warning("Background step failed", exc_info=True)
+
+    task = asyncio.create_task(run())
+    _BACKGROUND.add(task)
+    task.add_done_callback(_BACKGROUND.discard)
+
+
+async def _together(*steps: Awaitable[Any]) -> list[Any]:
+    """Await *steps* side by side; their results, in order.
+
+    When one fails, the others are cancelled and its own exception is raised
+    -- not an ExceptionGroup, which the routes do not handle.
+    """
+    try:
+        async with asyncio.TaskGroup() as group:
+            tasks = [group.create_task(_awaited(step)) for step in steps]
+    except BaseExceptionGroup as failed:
+        raise failed.exceptions[0] from None
+    return [task.result() for task in tasks]
+
+
+async def _awaited(step: Awaitable[Any]) -> Any:
+    return await step
+
+
+async def _value(value: Any) -> Any:
+    """*value*, as a step that needs no waiting."""
+    return value
+
+
+def _last_user_text(payload: dict[str, Any]) -> str:
+    """The text of the last user message: what RAG and skills look up."""
+    for msg in reversed(payload.get("messages") or []):
+        if isinstance(msg, dict) and msg.get("role") == "user":
+            content = msg.get("content", "")
+            if isinstance(content, str):
+                return content
+            if isinstance(content, list):
+                return " ".join(
+                    p.get("text", "") for p in content
+                    if isinstance(p, dict) and p.get("type") == "text"
+                )
+            return ""
+    return ""
+
+
 def _insert_after_system(payload: dict[str, Any], message: dict[str, Any]) -> dict[str, Any]:
     """*payload* with *message* after its leading system messages."""
     messages = list(payload.get("messages") or [])
@@ -221,6 +280,7 @@ class _Prepared:
     skills: list[ResolvedSkill] = field(default_factory=list)
     rag_context: dict[str, Any] | None = None
     trace_context: Any = None
+    released: bool = False
 
     @property
     def instance_id(self) -> str | None:
@@ -412,6 +472,10 @@ class GatewayService:
                 mcp_tool_call_count = len(mcp_tool_calls)
                 mcp_tool_loop_iterations = mcp_loop_result.iterations
 
+            # The model is done with this request: its slot is free for the
+            # next one while the answer is saved and logged.
+            await self._release(req)
+
             # Extract finish_reason from the final result
             _choices = (result.payload or {}).get("choices") or []
             if _choices:
@@ -448,10 +512,8 @@ class GatewayService:
                 trace_id=req.trace_id,
             )
 
-            # Record skills usage telemetry
-            await self._record_skills_usage(
-                req.skills, auth, session_id=req.session_id,
-            )
+            # Best effort, and the client need not wait for it.
+            _in_background(self._record_skills_usage(req.skills, auth, session_id=req.session_id))
 
             return GatewayResponse(
                 status_code=result.status_code,
@@ -485,8 +547,7 @@ class GatewayService:
             )
             raise
         finally:
-            if req.decision is not None:
-                await self.router.release(req.decision)
+            await self._release(req)
             await self.audit.log(
                 request_id=request_id,
                 trace_id=req.trace_id,
@@ -669,6 +730,10 @@ class GatewayService:
                     # Response has already started; terminate stream gracefully.
                     yield b"data: [DONE]\n\n"
                 finally:
+                    # The model is done: its slot first, then what is saved.
+                    # It was given back last, after the session write, the
+                    # skills calls and the audit row.
+                    await self._release(req)
                     # Persist the assistant response in the session
                     if req.session_id and accumulated_content:
                         try:
@@ -682,18 +747,9 @@ class GatewayService:
                             )
                         except Exception:
                             logger.warning("Failed to persist streamed assistant response", exc_info=True)
-                    # Record skills usage telemetry
-                    if req.skills:
-                        try:
-                            await self._record_skills_usage(
-                                req.skills, auth,
-                                session_id=req.session_id,
-                            )
-                        except Exception:
-                            logger.debug("Failed to record stream skills usage", exc_info=True)
+                    # Best effort, and nothing need wait for it.
+                    _in_background(self._record_skills_usage(req.skills, auth, session_id=req.session_id))
                     final_error_code = stream_error_code or req.fallback_error_code
-                    if req.decision is not None:
-                        await self.router.release(req.decision)
                     await self.audit.log(
                         request_id=request_id,
                         trace_id=req.trace_id,
@@ -772,8 +828,7 @@ class GatewayService:
             raise
         finally:
             if not stream_started:
-                if req.decision is not None:
-                    await self.router.release(req.decision)
+                await self._release(req)
                 await self.audit.log(
                     request_id=request_id,
                     trace_id=req.trace_id,
@@ -828,25 +883,38 @@ class GatewayService:
         The slot is taken last. It used to be taken first and held while RAG,
         the session and the PII scans ran -- close to a second with PII on --
         during which the model could have been answering someone else.
+
+        RAG, the session, skills and the MCP tool list do not depend on one
+        another, so they are looked up side by side: the request waits for the
+        slowest of them, not for their sum.
         """
         chat = endpoint == "/v1/chat/completions"
         payload = req.payload
+        # Read before anything runs: the session step rewrites the messages.
+        rag_config = payload.pop("rag", None)
+        question = _last_user_text(payload)
 
-        rag_message, req.rag_context = await self._retrieve_rag(payload, auth)
-        if chat:
-            payload, req.session_id = await self._inject_session_context(
-                payload, auth, session_id,
-            )
+        (rag_message, req.rag_context), (payload, req.session_id), req.skills, mcp_tools = await _together(
+            self._retrieve_rag(rag_config, question, auth),
+            self._inject_session_context(payload, auth, session_id) if chat else _value((payload, None)),
+            self._resolve_skills(question, auth, session_id) if chat else _value([]),
+            self.mcp_tool_cache.get_tools(auth.tenant_id) if chat and self.mcp_tool_cache else _value(None),
+        )
         if rag_message is not None:
             # After the session step, which keeps the client's messages as the
             # chat's history. Retrieved context belongs to this answer only; put
             # in before, it was saved into the history as a system message on
             # every turn.
             payload = _insert_after_system(payload, rag_message)
-        if chat:
-            payload, req.skills = await self._inject_skills(
-                payload, auth, session_id=req.session_id,
-            )
+        for skill in req.skills:  # each after the last: they keep their order
+            payload = _insert_after_system(payload, {
+                "role": "system",
+                "content": (
+                    f"=== ACTIVE SKILL: {skill.name} (v{skill.version}) ===\n"
+                    f"{skill.body_markdown}\n"
+                    f"=== END SKILL ==="
+                ),
+            })
         req.payload = payload
 
         req.pii_policy = _resolve_pii_policy(
@@ -866,10 +934,6 @@ class GatewayService:
                     pii_policy=req.pii_policy,
                     request_id=request_id,
                 )
-        mcp_tools = (
-            await self.mcp_tool_cache.get_tools(auth.tenant_id)
-            if chat and self.mcp_tool_cache else None
-        )
 
         # Everything that waits on another service is done: now the slot.
         req.decision = await self._lease(req, candidates=candidates, request_id=request_id)
@@ -900,6 +964,12 @@ class GatewayService:
         if req.skills:
             egress = self._apply_skill_tool_constraints(egress, req.skills)
         req.egress_payload = egress
+
+    async def _release(self, req: _Prepared) -> None:
+        """Give the request's model slot back, once."""
+        if req.decision is not None and not req.released:
+            req.released = True
+            await self.router.release(req.decision)
 
     async def _session_pii_override(self, session_id: str | None, auth: AuthContext) -> Any | None:
         """The PII settings a user chose for this chat session, if any."""
@@ -1122,37 +1192,26 @@ class GatewayService:
 
     async def _retrieve_rag(
         self,
-        payload: dict[str, Any],
+        rag_config: dict[str, Any] | None,
+        question: str,
         auth: AuthContext,
     ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-        """Search RAG Lite for context to answer the last user message with.
+        """Search RAG Lite for context to answer *question* with.
 
-        Looks for a ``rag`` dict in the payload, which is always removed so
-        the upstream provider does not receive unknown fields. Returns the
-        system message carrying the context -- or ``None`` -- and what was
-        found, for the audit log.
+        *rag_config* is the request's ``rag`` field, which the caller has
+        removed so the upstream provider does not receive unknown fields.
+        Returns the system message carrying the context -- or ``None`` -- and
+        what was found, for the audit log.
 
         The search runs as the caller: the backend checks the user's own
         permission to search. It was called without a token, got a 401 each
         time, and the answer went out without its context.
         """
-        rag_config = payload.pop("rag", None)
-        if not rag_config or not self.rag_lite_client:
-            return None, None
-
-        # Extract search query from the last user message
-        user_query = ""
-        for msg in reversed(payload.get("messages", [])):
-            if msg.get("role") == "user":
-                content = msg.get("content", "")
-                user_query = content if isinstance(content, str) else str(content)
-                break
-
-        if not user_query:
+        if not rag_config or not self.rag_lite_client or not question:
             return None, None
 
         results = await self.rag_lite_client.search(
-            query=user_query,
+            query=question,
             top_k=rag_config.get("top_k", 5),
             collection_ids=rag_config.get("collection_ids"),
             api_token=auth.token,
@@ -1293,65 +1352,26 @@ class GatewayService:
 
     # ── Skills helpers ───────────────────────────────────────────────────────
 
-    async def _inject_skills(
+    async def _resolve_skills(
         self,
-        payload: dict[str, Any],
+        question: str,
         auth: AuthContext,
         session_id: str | None = None,
-    ) -> tuple[dict[str, Any], list[ResolvedSkill]]:
-        """Resolve active skills and inject their body as system messages.
+    ) -> list[ResolvedSkill]:
+        """The skills that apply to *question*, for ``_prepare`` to put in.
 
-        Returns the (possibly modified) payload and the list of resolved
-        skills so callers can apply tool constraints and record usage later.
+        Resolved while the session loads, so the session id is the one the
+        request named; the skills service does not use it to resolve.
         """
         if not self.skills_client:
-            return payload, []
-
-        # Extract user query from last user message
-        user_query: str | None = None
-        for msg in reversed(payload.get("messages", [])):
-            if msg.get("role") == "user":
-                content = msg.get("content", "")
-                if isinstance(content, str):
-                    user_query = content
-                elif isinstance(content, list):
-                    user_query = " ".join(
-                        p.get("text", "") for p in content
-                        if isinstance(p, dict) and p.get("type") == "text"
-                    )
-                break
-
+            return []
         result = await self.skills_client.resolve_skills(
             tenant_id=auth.tenant_id,
             user_id=auth.user_id,
             session_id=session_id,
-            user_query=user_query,
+            user_query=question or None,
         )
-        if not result.skills:
-            return payload, []
-
-        # Inject each skill body as a system message after existing system messages
-        messages = list(payload.get("messages", []))
-        insert_idx = 0
-        for i, msg in enumerate(messages):
-            if msg.get("role") == "system":
-                insert_idx = i + 1
-            else:
-                break
-
-        for skill in reversed(result.skills):
-            skill_msg = {
-                "role": "system",
-                "content": (
-                    f"=== ACTIVE SKILL: {skill.name} (v{skill.version}) ===\n"
-                    f"{skill.body_markdown}\n"
-                    f"=== END SKILL ==="
-                ),
-            }
-            messages.insert(insert_idx, skill_msg)
-
-        payload = {**payload, "messages": messages}
-        return payload, result.skills
+        return result.skills
 
     def _apply_skill_tool_constraints(
         self,

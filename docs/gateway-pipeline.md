@@ -17,20 +17,35 @@ the DGX pair.
 | # | Step | What it does |
 |---|---|---|
 | 1 | Limits and routing | Checks rate limits, finds the routes for the model name, and refuses a request of the wrong kind (a chat request to an embedding model) |
-| 2 | RAG | Searches RAG Lite for context, as the user who asked |
-| 3 | Session | Loads the chat's history, memory and attachments, and saves the new user message |
-| 4 | Retrieved context | Added to this request only, after the session step, so it never becomes history |
-| 5 | Skills | Adds the skills that apply, as system messages |
-| 6 | PII | Scans everything that is about to leave: the message, the history, the retrieved context |
-| 7 | Tools | Fetches the MCP tool list |
-| 8 | Model slot | Taken only now, when nothing else is left to wait for |
+| 2 | Four lookups, side by side | **RAG** searches RAG Lite for context, as the user who asked. **Session** loads the chat's history, memory and attachments, and saves the new user message. **Skills** finds the skills that apply. **Tools** fetches the MCP tool list |
+| 3 | Assembly | The retrieved context and the skills are added as system messages, to this request only, so they never become history |
+| 4 | PII | Scans everything that is about to leave: the message, the history, the retrieved context |
+| 5 | Model slot | Taken only now, when nothing else is left to wait for |
 
-The answer then comes back through PII (tokens back to names, streamed or
-whole), is saved to the session, and is written to the audit log.
+The four lookups do not depend on one another. They used to run one after
+another; now the request waits for the slowest of them, usually RAG, not
+for their sum.
 
 The model slot is taken last. It used to be taken first and held while RAG,
 the session and the PII scans ran, so the model sat idle, reserved for a
 request that was still gathering its context.
+
+After the answer, the slot is given back first. Then the answer comes back
+through PII (tokens back to names, streamed or whole), is saved to the
+session, and is written to the audit log. Recording which skills were used is
+done in the background: nothing waits for it.
+
+One request, in milliseconds from its start, with every module on:
+
+| Step | Starts | Takes |
+|---|---|---|
+| Limits, routing | 0 | 7 |
+| RAG | 7 | 49 |
+| Session | 7 | 18 |
+| Skills | 8 | 18 |
+| MCP tool list | 8 | 18 |
+| PII | 58 | 18 |
+| Model slot, then the model | 76 | |
 
 ## PII
 
@@ -61,10 +76,11 @@ scanned again on every turn: only the new message is.
 | On a 10-turn chat | Before | After |
 |---|---|---|
 | PII scans per request | 2 | 1 |
-| PII time per turn | 162 ms, growing to 444 ms by turn 10 | 30–50 ms, flat |
-| Time the gateway adds per turn | 345–591 ms | 140–210 ms |
+| PII time per turn | 162 ms, growing to 444 ms by turn 10 | 20–40 ms, flat |
+| Time the gateway adds per turn | 345–591 ms | about 100 ms |
 
-The model's own time is not in these figures.
+The model's own time is not in these figures. Of the 100 ms, about half is
+the RAG search itself: embedding the question and searching the vectors.
 
 ## Found and fixed
 
@@ -107,9 +123,11 @@ backend, so no request is sent to a port nothing listens on.
   It starts their containers, which the host-run gateway cannot reach.
   RAG Lite has no container: enable it there.
 
-## Next
+## What is left
 
-Once the slot is no longer held, the steps before the model can run side by
-side: RAG, the session and skills do not depend on each other. That would
-save about 100 ms per request. The other remaining item is the gateway's
-own routing lookups, which it makes against the database on every request.
+- The routing lookups (policy, routes) go to the database on every request:
+  about 6 ms. Kept in memory they would save that, at the cost of a route
+  change taking effect a few seconds late. Not done: too little to gain.
+- The audit row is written before a streamed response ends, about 3 ms
+  after the last chunk. It is kept that way: the audit log is a record, and
+  a background write could be lost.
