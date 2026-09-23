@@ -51,6 +51,26 @@ came up on the way.
 | Step 6 | Scale, Stop or Save blanked the cluster, machines and model files on the deployment page | The page's refresh used the first render's loaders; it now uses the current ones |
 | Step 7 | A deployment made from the wizard served and never appeared in chat: publication needs an alias, never invents one, and the wizard never set one | The wizard asks **Offer in chat as**, prefilled from the model; an existing deployment has **Offer in chat** on its page, which does not restart it |
 
+### Found scaling the model, and fixed
+
+Scaling the chat deployment from one copy to two from the console, then to
+three on a cluster with two accelerators, then back to one.
+
+| What happened | What changed |
+|---|---|
+| After **Apply** nothing happened for 93 s, while the page still read "1 / 1": the reconciler only looked every 30 s, and each pass waited up to 60 s for a scaling app to report RUNNING | A committed change wakes the reconciler; a serving app is reported at once and followed pass by pass. The change now starts within about 12 s |
+| "wanted" in **Copies (ready / wanted)** was ready + pending, so a request for 3 read "2 / 2" | It is the number asked for, shown the moment Apply is pressed |
+| For the whole scale-up the deployment read **Starting**, "app application DEPLOYING:", while its first copy served throughout | It stays **Serving**: "Serving on 1 of 2 copies; 1 more starting." |
+| Three copies on a two-accelerator cluster read the same, forever, with no reason | "1 cannot start: each copy needs 1 accelerator, and this cluster has 2, so 2 fit. Scale to 2, or add a machine" -- and the dialog warns before Apply |
+| The Scale dialog said "Replicas" and "replaces the spec's scale block … on the next reconcile pass" | "Copies", what they are for, and how many fit on this cluster |
+| The number being typed in the dialog was reset by the page's 10 s refresh | It is set when the dialog opens |
+| "Last checked: pending (gen 3, observed 2)"; a **Reconcile** button | "checking now"; **Check now**, as on the cluster page |
+| A reached count still settling read "Serving on 1 of 1 copies; 0 more starting." | "Serving on 1 copy; finishing the change." |
+
+Not shown: which machine each copy is on. Ray's status reports copy counts
+per deployment, not placement, and adding it means changing the runtime
+image.
+
 Still open: a join request shows the machine's hostname as its address, not
 the IP it connected from; and the gateway still holds an alias
 (`qwen2.5-0.5b`) and a disabled instance for a deployment that no longer

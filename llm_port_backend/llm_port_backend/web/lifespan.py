@@ -434,11 +434,15 @@ async def _inference_reconciler_loop(app: FastAPI) -> None:
     """
     from sqlalchemy import text  # noqa: PLC0415
 
+    from llm_port_backend.services.inference.wakeup import wait_for_work  # noqa: PLC0415
+
     interval_sec = 30
     lock_sql = "hashtext('llmport.inference_reconciler')"
     while True:
         try:
-            await asyncio.sleep(interval_sec)
+            # Sleeps the interval, or less when a change commits: a scale
+            # request waited out the whole tick before anything happened.
+            await wait_for_work(interval_sec)
             if broker.is_worker_process:
                 return
 

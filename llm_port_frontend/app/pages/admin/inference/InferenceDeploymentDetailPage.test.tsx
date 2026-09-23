@@ -8,7 +8,7 @@
  *     errors, not as spinners. That is the difference between an operator
  *     seeing "the worker exports no metrics port" and seeing "0 GPUs".
  */
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -201,7 +201,7 @@ describe("InferenceDeploymentDetailPage", () => {
     await renderDetail();
 
     await userEvent.click(screen.getByRole("button", { name: /Scale/ }));
-    const input = await screen.findByLabelText("Replicas");
+    const input = await screen.findByLabelText("Copies");
     fireEvent.change(input, { target: { value: "3" } });
     await userEvent.click(screen.getByRole("button", { name: "Apply" }));
 
@@ -250,6 +250,57 @@ describe("InferenceDeploymentDetailPage", () => {
 
     await waitFor(() => expect(getEnvironment).toHaveBeenCalledWith(deployment.environment_id));
     expect(screen.getByText("dgx-pair")).toBeInTheDocument();
+  });
+
+  it("asks for the change to be acted on at once, not at the next tick", async () => {
+    vi.spyOn(inferenceApi, "updateDeployment").mockResolvedValue(deployment);
+    const reconcile = vi.spyOn(inferenceApi, "reconcileDeployment").mockResolvedValue(deployment);
+    await renderDetail();
+
+    await userEvent.click(screen.getByRole("button", { name: /Scale/ }));
+    fireEvent.change(await screen.findByLabelText("Copies"), { target: { value: "2" } });
+    await userEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    await waitFor(() => expect(reconcile).toHaveBeenCalledWith(DEPLOYMENT_ID));
+  });
+
+  it("keeps the number being typed when the page refreshes", async () => {
+    // The field was reset from every 10 s poll of the deployment, wiping
+    // what the operator had typed.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const getDeployment = vi.mocked(inferenceApi.getDeployment);
+      await renderDetail();
+      await userEvent.click(screen.getByRole("button", { name: /Scale/ }));
+      // A number no stored count could reset it to.
+      fireEvent.change(await screen.findByLabelText("Copies"), { target: { value: "7" } });
+
+      const polls = getDeployment.mock.calls.length;
+      getDeployment.mockResolvedValue({ ...deployment }); // a new object, as a poll brings
+      await act(async () => {
+        vi.advanceTimersByTime(11_000);
+      });
+      await waitFor(() => expect(getDeployment.mock.calls.length).toBeGreaterThan(polls));
+
+      expect(screen.getByLabelText("Copies")).toHaveValue(7);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says how many copies fit, and warns past that", async () => {
+    vi.spyOn(nodesApi, "list").mockResolvedValue(
+      managedNodes.map((n) => ({ ...n, capabilities: { gpu_count: 1 } })) as never,
+    );
+    await renderDetail();
+    await userEvent.click(screen.getByRole("button", { name: /Scale/ }));
+
+    const capacity = await screen.findByTestId("scale-capacity");
+    expect(capacity).toHaveTextContent("This cluster has 2, so up to 2 copies fit");
+    expect(screen.queryByTestId("scale-over-capacity")).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Copies"), { target: { value: "3" } });
+    expect(await screen.findByTestId("scale-over-capacity")).toHaveTextContent("Only 2 fit");
   });
 
   it("stops a running deployment through desired state", async () => {

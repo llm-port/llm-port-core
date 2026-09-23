@@ -231,7 +231,10 @@ def _app_deployment_readiness(app: dict[str, Any], *, want_active: bool) -> tupl
     if want_active:
         if status != "RUNNING":
             # DEPLOYING / DEPLOY_FAILED / UNHEALTHY / DELETING / ...
-            return False, f"application {status or 'UNKNOWN'}: {message}".strip()
+            detail = message or _failure_detail(app) or ""
+            if status == "DEPLOYING" and not detail:
+                return False, "Starting the first copy."
+            return False, f"Ray reports the application {status or 'UNKNOWN'}{': ' + detail if detail else ''}."
         if ready < 1:
             dep_messages = [
                 f"{name}={(dep.get('status') or '').upper()} {dep.get('message', '')}".strip()
@@ -239,7 +242,7 @@ def _app_deployment_readiness(app: dict[str, Any], *, want_active: bool) -> tupl
             ]
             detail = "; ".join(m for m in dep_messages if m) or "no ready replicas yet"
             return False, f"waiting for ready replicas: {detail}"
-        return True, f"running ({ready} ready replica(s))"
+        return True, f"Serving on {_plural(ready, 'copy')}."
 
     # want_active is False: converged when the app is gone or has no replicas.
     if not (app.get("deployments") or {}):
@@ -247,6 +250,83 @@ def _app_deployment_readiness(app: dict[str, Any], *, want_active: bool) -> tupl
     if ready == 0:
         return True, "scaled to zero"
     return False, f"application still {status or 'active'} with {ready} ready replica(s)"
+
+
+def _copies_wanted(spec_data: dict[str, Any] | None) -> tuple[int, bool]:
+    """(copies asked for, autoscaled?) from a deployment spec."""
+    scale = (spec_data or {}).get("scale") or {}
+    autoscale = scale.get("autoscale")
+    if autoscale:
+        return int(autoscale.get("min_replicas") or 1), True
+    return int(scale.get("replicas") or 1), False
+
+
+def _gpus_per_copy(spec_data: dict[str, Any] | None) -> float:
+    replica = (((spec_data or {}).get("resources") or {}).get("replica")) or {}
+    try:
+        return float(replica.get("gpus", 1) or 0)
+    except (TypeError, ValueError):
+        return 1.0
+
+
+def _settled(app: dict[str, Any], ready: int, wanted: int, *, autoscaled: bool) -> bool:
+    """Has the app reached the number of copies asked for?"""
+    if (app.get("status") or "").upper() != "RUNNING":
+        return False
+    return ready >= wanted if autoscaled else ready == wanted
+
+
+def _plural(n: int | float, word: str) -> str:
+    if n == 1:
+        return f"{n} {word}"
+    return f"{n} {word[:-1]}ies" if word.endswith("y") else f"{n} {word}s"
+
+
+def _scaling_message(
+    *,
+    ready: int,
+    wanted: int,
+    autoscaled: bool,
+    gpus_per_copy: float,
+    cluster_gpus: float,
+    app: dict[str, Any] | None,
+) -> str:
+    """What a deployment that is serving, but not yet at its count, says.
+
+    It used to say "app application DEPLOYING:" -- the application's status
+    with its empty message, prefixed twice -- while the page showed "Starting"
+    for a model that was serving throughout. Asked for more copies than the
+    cluster has accelerators, it said the same thing forever.
+    """
+    if autoscaled:
+        return f"Serving on {_plural(ready, 'copy')}; scaling toward at least {wanted}."
+    if ready > wanted:
+        return f"Serving on {_plural(ready, 'copy')}; stopping {ready - wanted} to reach {wanted}."
+    missing = wanted - ready
+    if missing <= 0:
+        # The count is reached; Ray is still settling (a copy it stopped, or
+        # its own status not yet back to RUNNING).
+        return f"Serving on {_plural(ready, 'copy')}; finishing the change."
+    if gpus_per_copy > 0 and cluster_gpus > 0 and wanted * gpus_per_copy > cluster_gpus:
+        fits = int(cluster_gpus // gpus_per_copy)
+        each = _plural(int(gpus_per_copy) if gpus_per_copy.is_integer() else gpus_per_copy, "accelerator")
+        return (
+            f"Serving on {ready} of {wanted} copies. {wanted - fits} cannot start: each copy "
+            f"needs {each}, and this cluster has {int(cluster_gpus)}, so {fits} fit. "
+            f"Scale to {fits}, or add a machine to the cluster."
+        )
+    message = f"Serving on {ready} of {wanted} copies; {missing} more starting."
+    stuck = [
+        str(dep.get("message") or "").strip()
+        for dep in _model_server_deployments(app or {}).values()
+        if "to be scheduled" in str(dep.get("message") or "")
+    ]
+    if stuck:
+        message += (
+            " Ray has not found room for it yet -- another deployment may be using the "
+            "accelerators it needs."
+        )
+    return message
 
 
 @dataclass
@@ -681,7 +761,7 @@ class RayDeploymentManager:
                 observed={"reconciled": False, "reason": "unhealthy", "app": app_name},
                 mark_observed=False,
                 ready_replicas=ready,
-                total_replicas=total,
+                total_replicas=_copies_wanted(facts.spec_data)[0],
                 config_hash=config_hash,
             )
             return
@@ -705,11 +785,44 @@ class RayDeploymentManager:
             )
             return
 
+        wanted, autoscaled = _copies_wanted(facts.spec_data)
+        if ready >= 1 and not _settled(observed, ready, wanted, autoscaled=autoscaled):
+            # Serving, and still changing size: a scale up or down in
+            # progress, or copies that cannot be placed. It stays Serving --
+            # it is -- and stays queued so the count is followed to the end.
+            cluster = ((facts.environment.observed_status_json or {}).get("cluster") or {}) if facts.environment else {}
+            message = _scaling_message(
+                ready=ready,
+                wanted=wanted,
+                autoscaled=autoscaled,
+                gpus_per_copy=_gpus_per_copy(facts.spec_data),
+                cluster_gpus=float(cluster.get("total_gpus") or 0),
+                app=observed,
+            )
+            self._observe(
+                deployment, DeploymentPhase.RUNNING, message, False,
+                observed={
+                    "reconciled": False,
+                    "action": "scaling",
+                    "app": app_name,
+                    "app_status": (observed or {}).get("status"),
+                    "ready_replicas": ready,
+                },
+                mark_observed=False,
+                ready_replicas=ready,
+                total_replicas=wanted,
+                config_hash=config_hash,
+            )
+            await self._publish_endpoint(
+                session, deployment, facts, app_name, ready_replicas=ready,
+            )
+            return
+
         converged, reason = _app_deployment_readiness(observed, want_active=True)
         if not converged:
             self._observe(
                 deployment, DeploymentPhase.APPLYING,
-                f"app {reason}", False,
+                reason, False,
                 observed={
                     "reconciled": False,
                     "action": "waiting",
@@ -732,7 +845,7 @@ class RayDeploymentManager:
                 "ready_replicas": ready,
             },
             ready_replicas=ready,
-            total_replicas=total,
+            total_replicas=wanted,
             config_hash=config_hash,
         )
         await self._publish_endpoint(
@@ -945,10 +1058,14 @@ class RayDeploymentManager:
                 last = entry
                 ready, total = _replica_counts(entry)
                 app_status = (entry.get("status") or "").upper()
-                if app_status == "RUNNING" and ready >= 1:
-                    return entry, ready, total
                 if app_status in ("DEPLOY_FAILED", "UNHEALTHY"):
                     return entry, ready, total  # decided by the caller; no point polling
+                if ready >= 1:
+                    # Serving. While copies are added Ray reports DEPLOYING, and
+                    # waiting for RUNNING held the whole pass for its full
+                    # budget while a copy was answering requests. The caller
+                    # keeps the row queued until the count is reached.
+                    return entry, ready, total
 
             if asyncio.get_event_loop().time() > deadline:
                 return last, ready, total

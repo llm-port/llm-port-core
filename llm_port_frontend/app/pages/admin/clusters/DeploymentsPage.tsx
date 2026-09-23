@@ -33,7 +33,7 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import StopIcon from "@mui/icons-material/Stop";
 
-import { deploymentPhaseColor } from "../inference/common";
+import { copiesWanted, deploymentPhaseColor } from "../inference/common";
 import { DeployModelWizard } from "./DeployModelWizard";
 import { phaseLabel, shortId } from "./presentation";
 
@@ -205,9 +205,9 @@ export default function DeploymentsPage() {
       render: (row) => (
         <Typography
           variant="body2"
-          color={row.ready_replicas < row.total_replicas ? "warning.main" : "text.primary"}
+          color={row.ready_replicas < copiesWanted(row) ? "warning.main" : "text.primary"}
         >
-          {row.ready_replicas} / {row.total_replicas}
+          {row.ready_replicas} / {copiesWanted(row)}
         </Typography>
       ),
     },

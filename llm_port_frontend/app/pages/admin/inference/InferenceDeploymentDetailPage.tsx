@@ -67,13 +67,16 @@ import SyncIcon from "@mui/icons-material/Sync";
 import TuneIcon from "@mui/icons-material/Tune";
 
 import { suggestChatName } from "../clusters/DeployModelWizard";
+import { gpuCount } from "../clusters/readiness";
 import { nodeLabel, phaseLabel } from "../clusters/presentation";
 import {
   JsonBlock,
   LabeledValue,
   PartialsNotice,
+  acceleratorsPerCopy,
   asRecord,
   asText,
+  copiesWanted,
   deploymentPhaseColor,
   endpointStatusColor,
   environmentStatusColor,
@@ -563,9 +566,6 @@ export default function InferenceDeploymentDetailPage() {
     return () => clearTimeout(timer);
   }, [emptyAndPending, logLoading, logRetries, loadLogs]);
 
-  useEffect(() => {
-    if (deployment) setReplicaInput(deployment.total_replicas || 1);
-  }, [deployment]);
 
   async function runAction(key: string, action: () => Promise<unknown>) {
     setBusy(key);
@@ -579,6 +579,14 @@ export default function InferenceDeploymentDetailPage() {
     }
   }
 
+  const perCopy = deployment ? acceleratorsPerCopy(deployment) : 1;
+  const clusterAccelerators = data.members.reduce((sum, member) => {
+    const node = data.nodes.find((n) => n.id === member.node_id);
+    return sum + (node ? gpuCount(node) : 0);
+  }, 0);
+  const copiesThatFit =
+    clusterAccelerators > 0 && perCopy > 0 ? Math.floor(clusterAccelerators / perCopy) : null;
+
   async function handleScale() {
     if (!deployment) return;
     setScaling(true);
@@ -590,6 +598,8 @@ export default function InferenceDeploymentDetailPage() {
         scale: { replicas: replicaInput },
       };
       await inferenceApi.updateDeployment(deployment.id, { spec });
+      // Act now, not at the reconciler's next tick.
+      await inferenceApi.reconcileDeployment(deployment.id).catch(() => undefined);
       setScaleOpen(false);
       await refresh();
     } catch (err: unknown) {
@@ -674,7 +684,10 @@ export default function InferenceDeploymentDetailPage() {
         <Button
           size="small"
           startIcon={<TuneIcon />}
-          onClick={() => setScaleOpen(true)}
+          onClick={() => {
+            setReplicaInput(copiesWanted(deployment));
+            setScaleOpen(true);
+          }}
         >
           Scale
         </Button>
@@ -688,7 +701,7 @@ export default function InferenceDeploymentDetailPage() {
             )
           }
         >
-          Reconcile
+          Check now
         </Button>
         {deployment.desired_state === "active" ? (
           <Button
@@ -751,7 +764,7 @@ export default function InferenceDeploymentDetailPage() {
             <Grid size={{ xs: 12, sm: 6, md: 3 }}>
               <LabeledValue
                 label="Copies (ready / wanted)"
-                value={`${deployment.ready_replicas} / ${deployment.total_replicas}`}
+                value={`${deployment.ready_replicas} / ${copiesWanted(deployment)}`}
               />
             </Grid>
             <Grid size={{ xs: 12, sm: 6, md: 3 }}>
@@ -1262,7 +1275,7 @@ export default function InferenceDeploymentDetailPage() {
 
       <FormDialog
         open={scaleOpen}
-        title="Scale deployment"
+        title="Scale"
         loading={scaling}
         submitLabel="Apply"
         onSubmit={() => void handleScale()}
@@ -1270,18 +1283,28 @@ export default function InferenceDeploymentDetailPage() {
       >
         <Stack spacing={2} sx={{ mt: 1 }}>
           <TextField
-            label="Replicas"
+            label="Copies"
             type="number"
             value={replicaInput}
             slotProps={{ htmlInput: { min: 1 } }}
+            helperText="More copies serve more requests at once. The model keeps serving while copies are added or removed."
             onChange={(e) =>
               setReplicaInput(Math.max(1, Number(e.target.value) || 1))
             }
           />
-          <Typography variant="caption" color="text.secondary">
-            Replaces the spec's scale block with a fixed replica count. The
-            change takes effect on the next reconcile pass.
-          </Typography>
+          {copiesThatFit !== null && (
+            <Typography variant="body2" color="text.secondary" data-testid="scale-capacity">
+              Each copy uses {perCopy} accelerator{perCopy === 1 ? "" : "s"}. This cluster
+              has {clusterAccelerators}, so up to {copiesThatFit} cop{copiesThatFit === 1 ? "y fits" : "ies fit"}
+              {" "}when nothing else is running on it.
+            </Typography>
+          )}
+          {copiesThatFit !== null && replicaInput > copiesThatFit && (
+            <Alert severity="warning" data-testid="scale-over-capacity">
+              Only {copiesThatFit} fit. The others will wait for an accelerator, and
+              the page will say so. Add a machine to the cluster to run more.
+            </Alert>
+          )}
         </Stack>
       </FormDialog>
     </Stack>

@@ -186,6 +186,35 @@ re-reads them while the deployment comes up and each time its phase changes.
 Pressing Scale, Stop or Save also no longer blanks the cluster, machines and
 model files.
 
+### How many copies can a deployment have?
+
+As many as the cluster has accelerators for. Each copy uses the accelerators
+the deployment asked for (one by default). A pair of DGX Sparks has two, so
+two copies of a one-accelerator model, one on each machine. The **Scale**
+dialog works this out and warns past it:
+
+![The Scale dialog warning past the cluster's capacity](images/faq/scale-dialog-warns-past-capacity.png)
+
+Asked for more anyway, the copies that fit start and serve, and the page
+says why the rest cannot:
+
+![Serving on two of three copies, with the reason](images/faq/scaled-past-the-cluster.png)
+
+Scale back down, or add a machine to the cluster.
+
+### Does scaling interrupt the model?
+
+No. The copies already running are not restarted: the deployment stays
+**Serving** while copies are added or removed, and the page says what is
+left ("Serving on 1 of 2 copies; 1 more starting"). Adding a copy on the DGX
+pair took about two minutes, removing one about twelve seconds.
+
+### The deployment page does not say which machine each copy is on.
+
+It shows how many copies are ready, not where they are. Ray reports copy
+counts per deployment, not placement. On a pair of DGX Sparks with one
+accelerator each, two one-accelerator copies are necessarily one per machine.
+
 ### The deployment says it is downloading the model to the LLM.Port server.
 
 The model was not on the server yet. A cluster that cannot reach the internet

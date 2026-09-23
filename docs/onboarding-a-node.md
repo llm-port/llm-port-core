@@ -417,6 +417,55 @@ curl http://<cluster-address>:8000/<app>/v1/chat/completions \
 
 ---
 
+## Step 8 — Scale it
+
+Each copy of a model runs on its own accelerator and answers many requests at
+once; more copies answer more. On the deployment's page, press **Scale** and
+set **Copies**.
+
+![Scaling to two copies](images/onboarding/13-scale-dialog.png)
+
+The dialog says how many copies fit: each copy uses the accelerators the
+deployment asked for (1 unless you changed **Accelerators per copy** when
+deploying), and a pair of DGX Sparks has one accelerator each, so two copies
+fit, one on each machine. If other deployments on the cluster use
+accelerators too, fewer fit.
+
+Press **Apply**. The page shows the new number at once, as the second half of
+**Copies (ready / wanted)**, and the change starts within seconds. The copies
+already running are not restarted: the deployment stays **Serving**
+throughout, and the message says what is left to do:
+
+![Serving on one copy while the second starts](images/onboarding/14-deployment-scaling.png)
+
+Measured on the DGX pair with Qwen2.5-0.5B-Instruct:
+
+| Change | Took |
+|---|---|
+| 1 → 2 copies | about 2 minutes: the new copy loads the engine and the model |
+| 2 → 1 copy | about 12 seconds |
+
+![Two copies, serving](images/onboarding/15-deployment-scaled.png)
+
+A deployment's copies are one endpoint and one name in chat: requests are
+shared between them, and nothing changes for the people using it.
+
+### Asking for more than fits
+
+Nothing stops you from asking for more copies than the cluster has room for
+(the dialog warns). The copies that fit start, and the rest wait for an
+accelerator, with the reason on the page:
+
+```
+Serving on 2 of 3 copies. 1 cannot start: each copy needs 1 accelerator,
+and this cluster has 2, so 2 fit. Scale to 2, or add a machine to the cluster.
+```
+
+Scale back down, or add a machine to the cluster: the waiting copy starts as
+soon as there is room.
+
+---
+
 ## Taking it down
 
 In **Deployments**, **Stop** a deployment to free the GPU while keeping the
@@ -476,6 +525,11 @@ Something on the machine already holds Ray's port. Change the cluster's ports
 
 **A deployment sits on "Copying the model".**
 The server has no copy to send. Finish the download in **Models** (Step 5).
+
+**A deployment's copies stay below what was asked for.**
+Read the message on its page. "cannot start: each copy needs …" means the
+cluster has no room for more copies (Step 8); anything else is the engine's
+own reason for the copy it could not start.
 
 **A deployment reaches "Starting" and then fails.**
 Read the message on the deployment page — it carries the engine's own reason.

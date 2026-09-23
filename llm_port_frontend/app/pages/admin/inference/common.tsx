@@ -109,10 +109,38 @@ export function reconcileSummary(row: {
   observed_generation: number;
   updated_at: string;
 }): string {
+  // Not "pending (gen 3, observed 2)": the operator's question is whether the
+  // change they just made is being acted on, not the bookkeeping behind it.
   if (row.observed_generation < row.generation) {
-    return `pending (gen ${row.generation}, observed ${row.observed_generation})`;
+    return "checking now";
   }
   return formatTimestamp(row.updated_at);
+}
+
+/**
+ * The copies a deployment is asked to run.
+ *
+ * Read from the spec, which is what the operator changes: it is right the
+ * moment Scale is applied, where the stored count waits for the reconciler.
+ */
+export function copiesWanted(deployment: {
+  spec?: Record<string, unknown> | null;
+  total_replicas: number;
+}): number {
+  const scale = (deployment.spec?.scale ?? {}) as {
+    replicas?: number;
+    autoscale?: { min_replicas?: number };
+  };
+  if (typeof scale.replicas === "number") return scale.replicas;
+  if (typeof scale.autoscale?.min_replicas === "number") return scale.autoscale.min_replicas;
+  return deployment.total_replicas;
+}
+
+/** Accelerators one copy of a deployment asks for (the spec's default is 1). */
+export function acceleratorsPerCopy(deployment: { spec?: Record<string, unknown> | null }): number {
+  const resources = (deployment.spec?.resources ?? {}) as { replica?: { gpus?: number } };
+  const gpus = resources.replica?.gpus;
+  return typeof gpus === "number" ? gpus : 1;
 }
 
 export interface PartialsNoticeProps {

@@ -57,6 +57,7 @@ from llm_port_backend.services.inference.schemas import (
     InferenceDeploymentSpecV1Alpha1,
     parse_inference_deployment_spec,
 )
+from llm_port_backend.services.inference.wakeup import wake_reconciler_after_commit
 
 log = logging.getLogger(__name__)
 
@@ -263,6 +264,7 @@ class EnvironmentService:
         config: dict[str, Any] | None = None,
     ) -> InferenceEnvironment:
         """Create an environment under an existing control plane."""
+        wake_reconciler_after_commit(self.session)  # act now, not at the next tick
         if not await self.control_plane_dao.get(control_plane_id):
             raise NotFoundError("control plane", control_plane_id)
         try:
@@ -305,6 +307,7 @@ class EnvironmentService:
         config: dict[str, Any] | None = ...,
     ) -> InferenceEnvironment:
         """Patch an environment; config/desired-state changes bump ``generation``."""
+        wake_reconciler_after_commit(self.session)  # act now, not at the next tick
         ds: EnvironmentDesiredState | None = ...
         if desired_state is not ...:
             if desired_state is None:
@@ -450,6 +453,7 @@ class EnvironmentService:
         and making them wait out an hour-long recheck to find out would be
         the reconciler overruling the one party who knows something changed.
         """
+        wake_reconciler_after_commit(self.session)  # act now, not at the next tick
         environment = await self.get(environment_id)
         observed = dict(environment.observed_status_json or {})
         if observed.pop("retry", None) is not None:
@@ -627,6 +631,7 @@ class DeploymentService:
         description: str | None = None,
     ) -> InferenceDeployment:
         """Create a deployment from a validated versioned spec."""
+        wake_reconciler_after_commit(self.session)  # act now, not at the next tick
         if not await self.environment_dao.get(environment_id):
             raise NotFoundError("environment", environment_id)
         if not await self.model_dao.get(model_id):
@@ -680,6 +685,7 @@ class DeploymentService:
         description: str | None = ...,
     ) -> InferenceDeployment:
         """Patch a deployment; spec/desired-state changes bump ``generation``."""
+        wake_reconciler_after_commit(self.session)  # act now, not at the next tick
         dds: DeploymentDesiredState | None = ...
         if desired_state is not ...:
             if desired_state is None:
@@ -713,6 +719,7 @@ class DeploymentService:
         A ``failed`` deployment is re-applied on that pass; a ``running`` one
         is only re-observed (its applied config hash is preserved).
         """
+        wake_reconciler_after_commit(self.session)  # act now, not at the next tick
         deployment = await self.get(deployment_id)
         _queue_for_reconcile(deployment)
         await self.session.flush()

@@ -84,7 +84,7 @@ import {
   poolsWorthShowing,
 } from "./presentation";
 import { clusterReadiness, gpuCount } from "./readiness";
-import { deploymentPhaseColor } from "../inference/common";
+import { copiesWanted, deploymentPhaseColor } from "../inference/common";
 
 interface ClusterData {
   cluster: InferenceEnvironment | null;
@@ -593,7 +593,7 @@ export default function ClusterDetailPage() {
                       />
                     </TableCell>
                     <TableCell align="right">
-                      {deployment.ready_replicas} / {deployment.total_replicas}
+                      {deployment.ready_replicas} / {copiesWanted(deployment)}
                     </TableCell>
                   </TableRow>
                 ))}

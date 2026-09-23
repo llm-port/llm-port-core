@@ -460,6 +460,12 @@ class NodeControlService:
             return 0
         for cluster in clusters:
             _queue_for_reconcile(cluster)
+        if clusters:
+            from llm_port_backend.services.inference.wakeup import (  # noqa: PLC0415
+                wake_reconciler_after_commit,
+            )
+
+            wake_reconciler_after_commit(self._dao.session)
         return len(clusters)
 
     async def _fail_commands_lost_with_the_stream(self, *, node_id: uuid.UUID) -> int:
