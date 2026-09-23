@@ -28,6 +28,41 @@ logger = logging.getLogger(__name__)
 _CONNECT_TIMEOUT = 10.0
 _READ_TIMEOUT = 300.0  # 5 min for long generation
 
+# One client per event loop, shared by every chat request.
+#
+# Each request used to build its own ``httpx.AsyncClient`` and never close
+# it. Building one loads the CA bundle into a fresh SSL context -- ~400 ms on
+# the dev workstation, synchronously, on the event loop, even for a plain
+# http:// gateway. The chat page makes eight to ten proxy calls per message,
+# so every send stalled the whole backend for 3-5 s: the completion waited
+# behind them, and everything else the backend serves waited too. Shared, the
+# cost is paid once and connections to the gateway are kept alive.
+#
+# Keyed by loop because a client's connection pool belongs to the loop it was
+# first used on; tests run each case on a new one.
+_shared: dict[int, GatewayChatClient] = {}
+
+
+def shared_client() -> GatewayChatClient:
+    """The process's gateway client for the running event loop."""
+    import asyncio  # noqa: PLC0415
+
+    key = id(asyncio.get_running_loop())
+    client = _shared.get(key)
+    if client is None:
+        client = GatewayChatClient(base_url=settings.gateway_url)
+        _shared[key] = client
+    return client
+
+
+async def close_shared_client() -> None:
+    """Close the running loop's shared client, on shutdown."""
+    import asyncio  # noqa: PLC0415
+
+    client = _shared.pop(id(asyncio.get_running_loop()), None)
+    if client is not None:
+        await client.close()
+
 
 class GatewayChatClient:
     """Thin async proxy for the API gateway chat endpoints."""

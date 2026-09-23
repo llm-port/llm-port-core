@@ -897,6 +897,12 @@ async def lifespan_setup(
     if http_client is not None:
         await http_client.aclose()
 
+    from llm_port_backend.services.chat.gateway_client import (  # noqa: PLC0415
+        close_shared_client,
+    )
+
+    await close_shared_client()
+
     if not broker.is_worker_process:
         await broker.shutdown()
     await app.state.db_engine.dispose()

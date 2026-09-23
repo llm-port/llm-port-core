@@ -20,8 +20,7 @@ from starlette import status as http_status
 
 from llm_port_backend.db.dao.rbac_dao import RbacDAO
 from llm_port_backend.db.models.users import User
-from llm_port_backend.services.chat.gateway_client import GatewayChatClient
-from llm_port_backend.settings import settings
+from llm_port_backend.services.chat.gateway_client import GatewayChatClient, shared_client
 from llm_port_backend.web.api.rbac import require_permission
 
 logger = logging.getLogger(__name__)
@@ -43,7 +42,8 @@ def _jwt_from_cookie(request: Request) -> str:
 
 
 def _client() -> GatewayChatClient:
-    return GatewayChatClient(base_url=settings.gateway_url)
+    # Shared, not built per request: see ``shared_client``.
+    return shared_client()
 
 
 async def _proxy_error(exc: Exception) -> JSONResponse:

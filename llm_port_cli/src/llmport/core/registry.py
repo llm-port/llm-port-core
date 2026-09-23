@@ -193,12 +193,13 @@ BACKEND_DEV_ENV: dict[str, str] = {
     # The dev API gateway runs on the host's port 8001.
     "LLM_PORT_BACKEND_GATEWAY_URL": "http://127.0.0.1:8001",
     "LLM_PORT_BACKEND_RELOAD": "true",
-    "LLM_PORT_BACKEND_DB_HOST": "localhost",
+    # 127.0.0.1, never "localhost": see INFRA_LOOPBACK.
+    "LLM_PORT_BACKEND_DB_HOST": "127.0.0.1",
     "LLM_PORT_BACKEND_DB_PORT": "5432",
     "LLM_PORT_BACKEND_DB_USER": "llm_port_backend",
     "LLM_PORT_BACKEND_DB_PASS": "llm_port_backend",
     "LLM_PORT_BACKEND_DB_BASE": "llm_port_backend",
-    "LLM_PORT_BACKEND_RABBIT_HOST": "localhost",
+    "LLM_PORT_BACKEND_RABBIT_HOST": "127.0.0.1",
     "LLM_PORT_BACKEND_RABBIT_PORT": "5672",
     # Matches the per-service AMQP user created in
     # llm_port_shared/rabbitmq/definitions.json by `llmport dev init`
@@ -208,6 +209,28 @@ BACKEND_DEV_ENV: dict[str, str] = {
     "LLM_PORT_BACKEND_RABBIT_VHOST": "/",
     "LLM_PORT_BACKEND_SETTINGS_MASTER_KEY": "dev-settings-master-key-change-me",
 }
+
+
+#: The address the host-run dev services reach the shared infra on.
+#:
+#: Postgres, Redis and RabbitMQ are published on 127.0.0.1 only
+#: (``llm_port_shared/docker-compose.yaml``). "localhost" resolves to ::1
+#: first on Windows, where nothing listens -- and with WSL mirrored
+#: networking the SYN to ::1 is not refused but dropped, so every new
+#: connection waited out Windows' 21 s connect retry before falling back to
+#: IPv4. The gateway opens connections per worker as bursts need them, so
+#: chat requests stalled 21 s at random: measured 22,065 ms for a 4-token
+#: reply that the engine produced in 90 ms.
+INFRA_LOOPBACK = "127.0.0.1"
+
+#: The keys that carry that address, in the backend and gateway env files.
+INFRA_HOST_KEYS: tuple[str, ...] = (
+    "LLM_PORT_BACKEND_DB_HOST",
+    "LLM_PORT_BACKEND_RABBIT_HOST",
+    "LLM_PORT_API_DB_HOST",
+    "LLM_PORT_API_REDIS_HOST",
+    "LLM_PORT_API_RABBIT_HOST",
+)
 
 
 #: Default env for the API gateway dev process (``llmport dev up``).
@@ -220,11 +243,12 @@ BACKEND_DEV_ENV: dict[str, str] = {
 GATEWAY_DEV_ENV: dict[str, str] = {
     "LLM_PORT_API_HOST": "0.0.0.0",
     "LLM_PORT_API_PORT": "8001",
-    "LLM_PORT_API_DB_HOST": "localhost",
+    # 127.0.0.1, never "localhost": see INFRA_LOOPBACK.
+    "LLM_PORT_API_DB_HOST": "127.0.0.1",
     "LLM_PORT_API_DB_PORT": "5432",
-    "LLM_PORT_API_REDIS_HOST": "localhost",
+    "LLM_PORT_API_REDIS_HOST": "127.0.0.1",
     "LLM_PORT_API_REDIS_PORT": "6379",
-    "LLM_PORT_API_RABBIT_HOST": "localhost",
+    "LLM_PORT_API_RABBIT_HOST": "127.0.0.1",
     "LLM_PORT_API_RABBIT_PORT": "5672",
     "LLM_PORT_API_RAG_LITE_BACKEND_URL": "http://127.0.0.1:8000",
     "LLM_PORT_API_CHAT_FILE_STORE_ROOT": "~/.llmport-dev/chat-files",

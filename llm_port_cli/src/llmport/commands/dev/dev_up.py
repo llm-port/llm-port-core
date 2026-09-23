@@ -292,8 +292,12 @@ def _ensure_backend_env(backend_dir: Path, workspace: Path) -> None:
             k, _, v = s.partition("=")
             current[k.strip()] = v.strip()
 
+    loopback = _loopback_fixes(current)
+    rewrite.update(loopback)
     stale = [k for k, v in rewrite.items() if current.get(k) != v]
-    missing = [k for k in rewrite if k not in current] + [k for k in append if k not in current]
+    missing = [
+        k for k in rewrite if k not in current and k not in loopback
+    ] + [k for k in append if k not in current]
     if not stale and not missing:
         return
 
@@ -313,6 +317,22 @@ def _ensure_backend_env(backend_dir: Path, workspace: Path) -> None:
         fixed.extend(f"{k}={known[k]}" for k in missing)
     env_path.write_text("\n".join(fixed) + "\n", encoding="utf-8")
     info("Backend .env healed to match the current dev defaults.")
+
+
+def _loopback_fixes(current: dict[str, str]) -> dict[str, str]:
+    """Infra host keys still set to "localhost", mapped to 127.0.0.1.
+
+    Files written by older CLIs say "localhost", which costs a 21 s stall on
+    every new connection on Windows (see ``INFRA_LOOPBACK``). Only that exact
+    value is rewritten: a host someone pointed elsewhere is theirs.
+    """
+    from llmport.core.registry import INFRA_HOST_KEYS, INFRA_LOOPBACK
+
+    return {
+        k: INFRA_LOOPBACK
+        for k in INFRA_HOST_KEYS
+        if current.get(k, "").strip().lower() == "localhost"
+    }
 
 
 def _shared_env_path(workspace: Path) -> Path | None:
@@ -398,6 +418,15 @@ def _ensure_gateway_env(api_dir: Path, workspace: Path) -> None:
             k, _, v = s.partition("=")
             existing[k.strip()] = v.strip()
     missing = {k: v for k, v in desired.items() if k not in existing}
+    loopback = _loopback_fixes(existing)
+    if loopback:
+        lines = []
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            s = line.strip()
+            k = s.split("=", 1)[0].strip() if s and not s.startswith("#") and "=" in s else None
+            lines.append(f"{k}={loopback[k]}" if k in loopback else line)
+        env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        info("Gateway .env: infra hosts moved from localhost to 127.0.0.1.")
     if not missing:
         return
     with env_path.open("a", encoding="utf-8") as fh:

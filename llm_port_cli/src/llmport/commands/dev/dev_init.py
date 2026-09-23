@@ -274,7 +274,7 @@ def _run_migrations(backend_dir: Path) -> None:
     db_user, db_pass, db_base = _backend_db_creds(backend_dir)
     env = os.environ.copy()
     # Ensure backend Alembic connects with the right credentials.
-    env.setdefault("LLM_PORT_BACKEND_DB_HOST", "localhost")
+    env.setdefault("LLM_PORT_BACKEND_DB_HOST", "127.0.0.1")  # not localhost: see INFRA_LOOPBACK
     env.setdefault("LLM_PORT_BACKEND_DB_PORT", "5432")
     env.setdefault("LLM_PORT_BACKEND_DB_USER", db_user)
     env.setdefault("LLM_PORT_BACKEND_DB_PASS", db_pass)

@@ -1,5 +1,6 @@
 import enum
 import os
+import sys
 from pathlib import Path
 from tempfile import gettempdir
 from typing import Optional
@@ -8,6 +9,23 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from yarl import URL
 
 _CPU_COUNT = os.cpu_count() or 1
+
+
+def _default_workers() -> int:
+    """How many uvicorn workers to run by default.
+
+    One on Windows. There the workers share the supervisor's listening
+    socket, and some connections are never accepted by any of them: they sit
+    in the supervisor's queue, owned by a process that does not serve, until
+    the client gives up. Measured on the dev workstation with four gateway
+    workers: in every run of 10-15 bursts of 8 requests, some bursts lost 2-7
+    requests outright (no response in 60 s); one worker lost none. An async
+    service loses nothing by running one worker in dev, and Linux deployments,
+    where sharing a socket works, keep the CPU-based default.
+    """
+    if sys.platform == "win32":
+        return 1
+    return min(_CPU_COUNT, 4)
 
 TEMP_DIR = Path(gettempdir())
 
@@ -34,7 +52,7 @@ class Settings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = 8000
     # quantity of workers for uvicorn
-    workers_count: int = min(_CPU_COUNT, 4)
+    workers_count: int = _default_workers()
     # Enable uvicorn reloading
     reload: bool = False
 
