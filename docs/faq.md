@@ -80,6 +80,13 @@ URLs (`/admin/nodes`) and the agent's own messages still say *node*.
 
 ---
 
+### I already run vLLM on this machine. Do I have to start over?
+
+No. Once its agent is 0.1.11 or later, the machine's page lists the vLLM
+containers it runs that LLM.Port did not start, and **Route through
+LLM.Port** puts a running one behind the gateway under a name, as it is. The
+container is not touched. See [vLLM you already run](found-vllm.md).
+
 ## Clusters
 
 ### My cluster says it is restarting itself.

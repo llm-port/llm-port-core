@@ -620,7 +620,9 @@
     "wizard_step_runtime": "Runtime",
     "model_source_sync_requires_download": "Actualmente no hay ningún modelo disponible en este servidor para sincronizar. Primero descargue un modelo en la página de Modelos, o cambie a 'Descargar desde HuggingFace'.",
     "model_source_sync_requires_download_short": "No hay modelo local disponible. Descárguelo primero.",
-    "no_runtime": "Sin runtime"
+    "no_runtime": "Sin runtime",
+    "cluster_ready": "{{name}} está listo. Un modelo en un clúster tiene varias copias, se recupera solo tras un fallo y escala; una sola máquina ejecuta un contenedor.",
+    "deploy_on_cluster": "Desplegar en el clúster"
   },
   "llm_models": {
     "title": "LLM Models",
@@ -1297,5 +1299,32 @@
     "search_placeholder": "Buscar perfiles…",
     "delete_title": "Eliminar perfil",
     "delete_confirm": "¿Eliminar el perfil \"{{name}}\"? Las máquinas con este perfil quedarán sin asignar."
+  },
+  "found": {
+    "title": "vLLM en esta máquina",
+    "intro": "Contenedores con vLLM que LLM.Port no inició. Enrutar uno lo pone detrás de la pasarela con un nombre; el contenedor no se toca.",
+    "none": "No se encontraron contenedores vLLM. La máquina informa lo que ejecuta aproximadamente una vez por minuto.",
+    "not_reported": "Esta máquina no ha informado sus contenedores. Puede que su agente sea anterior a 0.1.11; vuelva a ejecutar la línea de instalación para actualizarlo.",
+    "col_container": "Contenedor",
+    "col_model": "Modelo",
+    "col_state": "Estado",
+    "col_port": "Puerto",
+    "col_route": "Enrutamiento",
+    "task_chat": "Chat",
+    "task_embeddings": "Embeddings",
+    "task_scoring": "Puntuación (rerank)",
+    "task_guessed": "deducido del nombre del modelo",
+    "managed_by": "Iniciado por {{name}}",
+    "managed_by_compose": "Proyecto Docker Compose {{name}}",
+    "answers": "Responde como {{models}}",
+    "not_published": "no publicado",
+    "route": "Enrutar por LLM.Port",
+    "routed_as": "Enrutado como {{alias}}",
+    "release": "Dejar de enrutar",
+    "paused": "No se enruta mientras el contenedor está {{state}}.",
+    "route_title": "Enrutar {{container}} por LLM.Port",
+    "route_explain": "Las solicitudes para este nombre van al contenedor tal como funciona ahora. Nada cambia en la máquina y puede dejar de enrutar cuando quiera.",
+    "name": "Nombre que usan los clientes",
+    "confirm_release": "¿Dejar de enrutar {{alias}}? El contenedor sigue funcionando."
   }
 }

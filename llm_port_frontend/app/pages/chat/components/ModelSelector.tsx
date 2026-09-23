@@ -13,7 +13,7 @@ import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router";
 
-import type { ModelAlias } from "~/api/chatTypes";
+import { isChatModel, type ModelAlias } from "~/api/chatTypes";
 import { chatApi } from "~/api/chatClient";
 import { useAsyncData } from "~/lib/useAsyncData";
 
@@ -34,7 +34,12 @@ export default function ModelSelector({
     data: models,
     loading,
     refresh: refreshModels,
-  } = useAsyncData<ModelAlias[]>(() => chatApi.listModels(), [], {
+  } = useAsyncData<ModelAlias[]>(
+    // Chat models only: the gateway also serves embedding and rerank models,
+    // and choosing one here fails on the first message.
+    () => chatApi.listModels().then((all) => all.filter(isChatModel)),
+    [],
+    {
     initialValue: [],
   });
 

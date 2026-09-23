@@ -71,6 +71,7 @@ def get_gateway_service(
         dao=dao,
         cache=cache,
         lease_manager=lease_manager,
+        capacity_wait_sec=settings.capacity_wait_sec,
     )
     proxy = UpstreamProxy(client=request.app.state.http_client)
     limiter = RateLimiter(cache)

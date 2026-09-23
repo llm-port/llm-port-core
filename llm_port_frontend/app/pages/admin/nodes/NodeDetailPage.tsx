@@ -43,6 +43,7 @@ import RefreshIcon from "@mui/icons-material/Refresh";
 import SystemUpdateAltIcon from "@mui/icons-material/SystemUpdateAlt";
 import VpnKeyIcon from "@mui/icons-material/VpnKey";
 import SystemUpdateDialog from "~/pages/admin/nodes/SystemUpdateDialog";
+import FoundVllmCard from "~/pages/admin/nodes/FoundVllmCard";
 
 import GaugeCard from "~/components/GaugeCard";
 
@@ -887,6 +888,12 @@ llmport-agent run`}
           </CardContent>
         </Card>
       </Stack>
+
+      {/* ── vLLM this machine runs that LLM.Port did not start ──── */}
+      <FoundVllmCard
+        nodeId={node.id}
+        reported={"vllm_containers" in ((node.latest_inventory ?? {}) as Record<string, unknown>)}
+      />
 
       {/* ── System Logs ──────────────────────────────────────────── */}
       <Card variant="outlined">

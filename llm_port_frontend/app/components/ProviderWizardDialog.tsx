@@ -6,6 +6,7 @@
  */
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router";
 import {
   providers,
   runtimes,
@@ -24,6 +25,7 @@ import {
   type PullProgressEvent,
 } from "~/api/admin";
 import { nodesApi, type ManagedNode } from "~/api/nodes";
+import { inferenceApi } from "~/api/inference";
 import { observability } from "~/api/observability";
 import { HfModelSearch } from "~/components/HfModelSearch";
 
@@ -119,6 +121,23 @@ export function ProviderWizardDialog({
   onCreated,
 }: ProviderWizardDialogProps) {
   const { t } = useTranslation();
+
+  const navigate = useNavigate();
+
+  // A cluster that is ready is where a new model should go: several copies,
+  // recovery on its own, scaling. A single machine stays for machines without
+  // one, so the wizard offers the cluster first rather than hiding the rest.
+  const [readyCluster, setReadyCluster] = useState<string | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    inferenceApi
+      .listEnvironments()
+      .then((envs) => {
+        const ready = envs.find((e) => e.status === "ready" && e.desired_state === "running");
+        setReadyCluster(ready ? ready.name : null);
+      })
+      .catch(() => setReadyCluster(null));
+  }, [open]);
 
   // ── Wizard state ─────────────────────────────────────────────────
   const [step, setStep] = useState(0);
@@ -728,6 +747,27 @@ export function ProviderWizardDialog({
                 ))}
               </Select>
             </FormControl>
+
+            {target === "local_docker" && readyCluster && (
+              <Alert
+                severity="info"
+                data-testid="provider-wizard-cluster-hint"
+                action={
+                  <Button
+                    color="inherit"
+                    size="small"
+                    onClick={() => {
+                      onClose();
+                      navigate("/admin/deployments?deploy=1");
+                    }}
+                  >
+                    {t("llm_providers.deploy_on_cluster")}
+                  </Button>
+                }
+              >
+                {t("llm_providers.cluster_ready", { name: readyCluster })}
+              </Alert>
+            )}
 
             {target === "local_docker" && (
               <FormControl fullWidth>

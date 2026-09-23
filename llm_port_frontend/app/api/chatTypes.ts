@@ -71,6 +71,17 @@ export interface ModelAlias {
   alias: string;
   description: string | null;
   enabled: boolean;
+  /**
+   * What it is for, when the gateway knows: "chat", "embeddings", "scoring".
+   * Null for a route that does not say -- treated as chat, which is what
+   * every route was before the gateway could hold other kinds.
+   */
+  kind?: string | null;
+}
+
+/** Whether a model can hold a conversation: an embedding or rerank model cannot. */
+export function isChatModel(model: ModelAlias): boolean {
+  return !model.kind || model.kind === "chat";
 }
 
 export interface Capacity {

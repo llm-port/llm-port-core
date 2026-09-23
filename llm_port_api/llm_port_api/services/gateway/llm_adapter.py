@@ -355,12 +355,21 @@ class LLMAdapter:
                 ),
             )
 
+        # The same mapping as a completion's: an embeddings request to a model
+        # that cannot embed is the caller's mistake (400), not a gateway fault
+        # (502), which is what it was reported as.
         try:
             response = await litellm.aembedding(**kwargs)
             return CompletionResult(
                 status_code=200,
                 payload=response.model_dump(),  # type: ignore[union-attr]
             )
+        except litellm.exceptions.AuthenticationError as exc:
+            return CompletionResult(status_code=401, payload=_error_payload("authentication_error", str(exc)))
+        except litellm.exceptions.RateLimitError as exc:
+            return CompletionResult(status_code=429, payload=_error_payload("rate_limit_error", str(exc)))
+        except litellm.exceptions.BadRequestError as exc:
+            return CompletionResult(status_code=400, payload=_error_payload("invalid_request_error", str(exc)))
         except Exception as exc:
             logger.exception("LiteLLM embedding failed")
             return CompletionResult(

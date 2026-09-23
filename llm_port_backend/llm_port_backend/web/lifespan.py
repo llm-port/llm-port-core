@@ -595,6 +595,23 @@ async def _run_inference_reconcile_pass(app: FastAPI) -> None:
             except Exception:
                 log.exception("Failed to reconcile deployment %s", dep_id)
                 await session.rollback()
+        await _follow_found_containers(session, gateway_sync)
+
+
+async def _follow_found_containers(session: Any, gateway_sync: Any) -> None:
+    """Keep the routes of taken-over vLLM containers in line with the containers.
+
+    A routed container that stopped is taken out of routing, and put back when
+    it runs again; its state comes from the machine's latest inventory.
+    """
+    from llm_port_backend.services.inference.found import follow_containers  # noqa: PLC0415
+
+    try:
+        await follow_containers(session, gateway_sync)
+        await session.commit()
+    except Exception:  # noqa: BLE001 - never takes the reconciler down with it
+        log.exception("Could not follow the routed vLLM containers")
+        await session.rollback()
 
 
 async def _prepare_runtime_image_exports(app: FastAPI) -> None:

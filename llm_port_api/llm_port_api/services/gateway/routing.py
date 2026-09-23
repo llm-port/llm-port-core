@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -28,10 +30,13 @@ class RouterService:
         dao: GatewayDAO,
         cache: CacheBackend,
         lease_manager: LeaseManager,
+        capacity_wait_sec: float = 0.0,
     ) -> None:
         self.dao = dao
         self.cache = cache
         self.lease_manager = lease_manager
+        #: How long a request waits for a free slot before it is refused.
+        self.capacity_wait_sec = capacity_wait_sec
 
     async def resolve_alias(
         self, *, alias: str, tenant_id: str,
@@ -56,8 +61,31 @@ class RouterService:
         """
         Pick least-loaded candidate and acquire lease.
 
-        Falls back across candidates until one can acquire capacity.
+        Falls back across candidates until one can acquire capacity. When
+        every one is full, waits for a slot -- up to ``capacity_wait_sec`` --
+        rather than refusing at once: a burst of requests is the normal case
+        for a model behind a gateway, and each one finishes in moments. A
+        request is refused only after that wait.
         """
+        deadline = time.monotonic() + max(self.capacity_wait_sec, 0.0)
+        delay = 0.05
+        while True:
+            decision = await self._try_candidates(candidates, request_id)
+            if decision is not None:
+                return decision
+            if time.monotonic() >= deadline:
+                raise GatewayError(
+                    status_code=503,
+                    message="No provider instance has free capacity for the requested model.",
+                    error_type="server_error",
+                    code="no_capacity",
+                )
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 0.5)
+
+    async def _try_candidates(
+        self, candidates: list[RoutedInstance], request_id: str,
+    ) -> RoutingDecision | None:
         active_counts = await self._active_counts(candidates)
         ordered = sorted(
             candidates,
@@ -75,12 +103,7 @@ class RouterService:
             )
             if acquired:
                 return RoutingDecision(candidate=candidate, request_id=request_id)
-        raise GatewayError(
-            status_code=503,
-            message="No provider instance has free capacity for the requested model.",
-            error_type="server_error",
-            code="no_capacity",
-        )
+        return None
 
     async def release(self, decision: RoutingDecision) -> None:
         """Release lease associated with routing decision."""
@@ -90,16 +113,7 @@ class RouterService:
         )
 
     async def _active_counts(self, candidates: list[RoutedInstance]) -> dict[str, int]:
-        keys = [self.lease_manager.active_key(c.instance_id) for c in candidates]
-        if not keys:
-            return {}
-        raw = await self.cache.mget(keys)
-        result: dict[str, int] = {}
-        for candidate, value in zip(candidates, raw):
-            try:
-                result[str(candidate.instance_id)] = (
-                    int(value) if value is not None else 0
-                )
-            except (TypeError, ValueError):
-                result[str(candidate.instance_id)] = 0
-        return result
+        return {
+            str(c.instance_id): await self.lease_manager.in_flight(c.instance_id)
+            for c in candidates
+        }

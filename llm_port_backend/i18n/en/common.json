@@ -615,7 +615,9 @@
     "wizard_step_runtime": "Runtime",
     "model_source_sync_requires_download": "No model is currently available on this server for sync. Download a model first in the Models page, or switch to 'Download from HuggingFace'.",
     "model_source_sync_requires_download_short": "No local model available. Download first.",
-    "no_runtime": "No runtime"
+    "no_runtime": "No runtime",
+    "cluster_ready": "{{name}} is ready. A model on a cluster gets several copies, comes back on its own after a failure and scales; a single machine runs one container.",
+    "deploy_on_cluster": "Deploy on the cluster instead"
   },
   "llm_models": {
     "title": "LLM Models",
@@ -1468,5 +1470,32 @@
     "step_check_updates": "Check Updates",
     "step_apply_updates": "Apply Updates",
     "step_done": "Complete"
+  },
+  "found": {
+    "title": "vLLM on this machine",
+    "intro": "Containers running vLLM that LLM.Port did not start. Routing one puts it behind the gateway under a name; the container itself is not touched.",
+    "none": "No vLLM containers found. The machine reports what it runs about once a minute.",
+    "not_reported": "This machine has not reported its containers. Its agent may be older than 0.1.11; re-run the install line to upgrade it.",
+    "col_container": "Container",
+    "col_model": "Model",
+    "col_state": "State",
+    "col_port": "Port",
+    "col_route": "Routing",
+    "task_chat": "Chat",
+    "task_embeddings": "Embeddings",
+    "task_scoring": "Scoring (rerank)",
+    "task_guessed": "guessed from the model's name",
+    "managed_by": "Started by {{name}}",
+    "managed_by_compose": "Docker Compose project {{name}}",
+    "answers": "Answers as {{models}}",
+    "not_published": "not published",
+    "route": "Route through LLM.Port",
+    "routed_as": "Routed as {{alias}}",
+    "release": "Stop routing",
+    "paused": "Not routed while the container is {{state}}.",
+    "route_title": "Route {{container}} through LLM.Port",
+    "route_explain": "Requests for this name go to the container as it runs now. Nothing on the machine changes, and you can stop routing at any time.",
+    "name": "Name clients use",
+    "confirm_release": "Stop routing {{alias}}? The container keeps running."
   }
 }

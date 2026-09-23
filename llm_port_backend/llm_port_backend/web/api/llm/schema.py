@@ -110,6 +110,9 @@ class ManagedByDTO(BaseModel):
     #: through, and the model column read "no runtime" for a deployment that
     #: was serving one.
     model_name: str | None = None
+    #: The machine it runs on, for an owner that is a container found there
+    #: (``kind == "found_container"``): its page is where it is managed.
+    node_id: str | None = None
 
 
 class ProviderDTO(BaseModel):

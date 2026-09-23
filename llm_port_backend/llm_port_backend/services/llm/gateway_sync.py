@@ -122,8 +122,19 @@ class GatewaySyncService:
         node_id: uuid.UUID | str | None = None,
         node_metadata: dict[str, Any] | None = None,
         capacity_hints: dict[str, Any] | None = None,
+        source_kind: str | None = None,
+        source_id: uuid.UUID | None = None,
+        task: str | None = None,
     ) -> None:
         """Create or update gateway routing records for a runtime.
+
+        *task* -- ``chat``, ``embeddings``, ``scoring`` -- is what the model is
+        for; the gateway lists it with the model and refuses requests of the
+        wrong kind up front. ``None`` when it cannot be known (a remote API).
+
+        Also routes a vLLM container LLM.Port found on a machine rather than
+        started (``source_kind='found_container'``, ``source_id`` its adoption):
+        to the gateway it is the same thing, an address that serves a model.
 
         Upserts:
         1. ``llm_model_alias``      (alias → enabled)
@@ -132,6 +143,8 @@ class GatewaySyncService:
         """
         if not self.enabled:
             return
+        if task:
+            node_metadata = {**(node_metadata or {}), "task": task}
         gateway_type = _map_provider_type(
             backend_provider_type, is_remote=is_remote, litellm_provider=litellm_provider,
         )
@@ -194,8 +207,8 @@ class GatewaySyncService:
                         "node_id": node_id,
                         "node_metadata": json.dumps(node_metadata) if node_metadata else None,
                         "capacity_hints": json.dumps(capacity_hints) if capacity_hints else None,
-                        "source_kind": "remote_provider" if is_remote else "runtime",
-                        "source_id": runtime_id,
+                        "source_kind": source_kind or ("remote_provider" if is_remote else "runtime"),
+                        "source_id": source_id or runtime_id,
                     },
                 )
 
@@ -363,8 +376,12 @@ class GatewaySyncService:
         extra_params: dict[str, Any] | None = None,
         api_key_encrypted: str | None = None,
         capacity_hints: dict[str, Any] | None = None,
+        task: str | None = "chat",
     ) -> uuid.UUID | None:
         """Create or update gateway routing records for an inference deployment.
+
+        *task* is what it serves. A deployment is compiled into Ray Serve LLM's
+        OpenAI chat application, so ``chat``.
 
         Ensures exactly one logical LLMProviderInstance exists for the deployment.
         """
@@ -401,7 +418,7 @@ class GatewaySyncService:
                         VALUES
                             (:id, :type, :base_url, :enabled, :weight, :max_concurrency,
                              :health, :api_key, NULL,
-                             :litellm_model, :extra_params, NULL, NULL,
+                             :litellm_model, :extra_params, NULL, :node_metadata,
                              :capacity_hints, 'inference_deployment', :dep_id, NOW(), NOW())
                         ON CONFLICT (id) DO UPDATE
                             SET base_url        = EXCLUDED.base_url,
@@ -414,6 +431,7 @@ class GatewaySyncService:
                                 litellm_model   = EXCLUDED.litellm_model,
                                 extra_params    = EXCLUDED.extra_params,
                                 capacity_hints  = EXCLUDED.capacity_hints,
+                                node_metadata   = EXCLUDED.node_metadata,
                                 source_kind     = EXCLUDED.source_kind,
                                 source_id       = EXCLUDED.source_id,
                                 updated_at      = NOW()
@@ -430,8 +448,24 @@ class GatewaySyncService:
                         "litellm_model": served_model_name,
                         "extra_params": json.dumps(extra_params) if extra_params else None,
                         "capacity_hints": json.dumps(capacity_hints) if capacity_hints else None,
+                        "node_metadata": json.dumps({"task": task}) if task else None,
                         "dep_id": deployment_id,
                     },
+                )
+
+                # 3a. Memberships under any other alias go. An alias that was
+                # changed or cleared used to stay routed to this instance for
+                # good: a deleted deployment's instance was still the member of
+                # an alias on the dev gateway weeks later, and switching a
+                # migrated model back to its runtime needs the cluster's
+                # membership gone, not merely out of the spec.
+                await session.execute(
+                    text("""
+                        DELETE FROM llm_pool_membership
+                        WHERE provider_instance_id = :instance_id
+                          AND (CAST(:alias AS TEXT) IS NULL OR model_alias <> :alias)
+                    """),
+                    {"instance_id": instance_id, "alias": alias},
                 )
 
                 # 3. Model alias and pool membership (if alias requested)
@@ -474,6 +508,80 @@ class GatewaySyncService:
         except Exception:
             log.exception("Gateway sync: failed to publish inference endpoint for deployment %s", deployment_id)
             return None
+
+    @staticmethod
+    def deployment_instance_id(deployment_id: uuid.UUID) -> uuid.UUID:
+        """The provider instance id a deployment is published under, when new."""
+        return uuid.uuid5(uuid.NAMESPACE_DNS, f"inference_deployment:{deployment_id}")
+
+    async def set_membership_enabled(
+        self, *, alias: str, instance_id: uuid.UUID, enabled: bool,
+    ) -> bool:
+        """Route *alias* to *instance_id*, or stop, leaving every other member alone.
+
+        Returns whether a membership row was there to change. Used to move an
+        alias between a runtime and the deployment replacing it: the runtime's
+        instance stays, so the alias can be switched back to it.
+        """
+        if not self.enabled:
+            return False
+        try:
+            async with self._sf() as session:  # type: ignore[union-attr]
+                result = await session.execute(
+                    text("""
+                        UPDATE llm_pool_membership SET enabled = :enabled
+                        WHERE model_alias = :alias AND provider_instance_id = :iid
+                    """),
+                    {"alias": alias, "iid": instance_id, "enabled": enabled},
+                )
+                if enabled:
+                    await session.execute(
+                        text("UPDATE llm_model_alias SET enabled = TRUE, updated_at = NOW() WHERE alias = :alias"),
+                        {"alias": alias},
+                    )
+                await session.commit()
+                return (result.rowcount or 0) > 0
+        except Exception:
+            log.exception("Gateway sync: failed to set membership %s -> %s", alias, instance_id)
+            return False
+
+    async def remove_membership(self, *, alias: str, instance_id: uuid.UUID) -> None:
+        """Take *instance_id* out of *alias*'s pool."""
+        if not self.enabled:
+            return
+        try:
+            async with self._sf() as session:  # type: ignore[union-attr]
+                await session.execute(
+                    text("""
+                        DELETE FROM llm_pool_membership
+                        WHERE model_alias = :alias AND provider_instance_id = :iid
+                    """),
+                    {"alias": alias, "iid": instance_id},
+                )
+                await session.commit()
+        except Exception:
+            log.exception("Gateway sync: failed to remove membership %s -> %s", alias, instance_id)
+
+    async def members(self, alias: str) -> list[dict[str, Any]]:
+        """The instances in *alias*'s pool, with whether each is enabled."""
+        if not self.enabled:
+            return []
+        try:
+            async with self._sf() as session:  # type: ignore[union-attr]
+                rows = await session.execute(
+                    text("""
+                        SELECT m.provider_instance_id AS instance_id, m.enabled AS member_enabled,
+                               i.enabled AS instance_enabled, i.source_kind, i.source_id, i.health_status
+                        FROM llm_pool_membership m
+                        LEFT JOIN llm_provider_instance i ON i.id = m.provider_instance_id
+                        WHERE m.model_alias = :alias
+                    """),
+                    {"alias": alias},
+                )
+                return [dict(r._mapping) for r in rows]
+        except Exception:
+            log.exception("Gateway sync: failed to read the pool of %s", alias)
+            return []
 
     async def set_source_health(
         self,

@@ -620,7 +620,9 @@
     "wizard_step_runtime": "运行时",
     "model_source_sync_requires_download": "当前此服务器上没有可用于同步的模型。请先在“模型”页面下载模型，或切换为“从 HuggingFace 下载”。",
     "model_source_sync_requires_download_short": "没有可用的本地模型。请先下载。",
-    "no_runtime": "无运行时"
+    "no_runtime": "无运行时",
+    "cluster_ready": "{{name}} 已就绪。部署在集群上的模型有多个副本，故障后会自动恢复并可扩缩；单台机器只运行一个容器。",
+    "deploy_on_cluster": "改为部署到集群"
   },
   "llm_models": {
     "title": "LLM 模型",
@@ -1297,5 +1299,32 @@
     "search_placeholder": "搜索配置文件…",
     "delete_title": "删除配置文件",
     "delete_confirm": "删除配置文件 \"{{name}}\"？使用此配置文件的机器将被取消分配。"
+  },
+  "found": {
+    "title": "此机器上的 vLLM",
+    "intro": "运行 vLLM 但不是由 LLM.Port 启动的容器。路由后，它会以一个名称位于网关之后；容器本身不会被改动。",
+    "none": "未发现 vLLM 容器。机器大约每分钟报告一次其运行内容。",
+    "not_reported": "此机器尚未报告其容器。其代理可能早于 0.1.11；重新运行安装命令即可升级。",
+    "col_container": "容器",
+    "col_model": "模型",
+    "col_state": "状态",
+    "col_port": "端口",
+    "col_route": "路由",
+    "task_chat": "对话",
+    "task_embeddings": "向量嵌入",
+    "task_scoring": "打分（重排）",
+    "task_guessed": "根据模型名称推测",
+    "managed_by": "由 {{name}} 启动",
+    "managed_by_compose": "Docker Compose 项目 {{name}}",
+    "answers": "以 {{models}} 应答",
+    "not_published": "未发布",
+    "route": "通过 LLM.Port 路由",
+    "routed_as": "已路由为 {{alias}}",
+    "release": "停止路由",
+    "paused": "容器处于 {{state}} 状态时不路由。",
+    "route_title": "通过 LLM.Port 路由 {{container}}",
+    "route_explain": "此名称的请求会发往当前运行中的容器。机器上的任何内容都不会改变，您可以随时停止路由。",
+    "name": "客户端使用的名称",
+    "confirm_release": "停止路由 {{alias}}？容器会继续运行。"
   }
 }

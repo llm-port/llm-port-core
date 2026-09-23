@@ -139,6 +139,9 @@ class Settings(BaseSettings):
     # Gateway behavior
     http_timeout_sec: float = 30.0
     lease_ttl_sec: int = 90
+    # How long a request waits for a free slot on its model before it is
+    # refused with 503. 0 refuses at once, as it used to.
+    capacity_wait_sec: float = 30.0
     retry_pre_first_token: int = 1
     request_max_body_bytes: int = 2 * 1024 * 1024
     stream_idle_timeout_sec: float = 60.0

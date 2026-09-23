@@ -620,7 +620,9 @@
     "wizard_step_runtime": "Laufzeit",
     "model_source_sync_requires_download": "Auf diesem Server ist derzeit kein Modell fuer die Synchronisierung verfuegbar. Laden Sie zuerst ein Modell auf der Modelle-Seite herunter oder wechseln Sie zu 'Von HuggingFace herunterladen'.",
     "model_source_sync_requires_download_short": "Kein lokales Modell verfuegbar. Bitte zuerst herunterladen.",
-    "no_runtime": "Keine Laufzeit"
+    "no_runtime": "Keine Laufzeit",
+    "cluster_ready": "{{name}} ist bereit. Ein Modell auf einem Cluster bekommt mehrere Kopien, erholt sich nach Ausfällen selbst und skaliert; eine einzelne Maschine betreibt einen Container.",
+    "deploy_on_cluster": "Stattdessen auf dem Cluster bereitstellen"
   },
   "llm_models": {
     "title": "LLM-Modelle",
@@ -1297,5 +1299,32 @@
     "search_placeholder": "Profile durchsuchen…",
     "delete_title": "Profil löschen",
     "delete_confirm": "Profil \"{{name}}\" löschen? Maschinen, die dieses Profil verwenden, werden entkoppelt."
+  },
+  "found": {
+    "title": "vLLM auf dieser Maschine",
+    "intro": "Container mit vLLM, die LLM.Port nicht gestartet hat. Wird einer geroutet, steht er unter einem Namen hinter dem Gateway; der Container selbst bleibt unberührt.",
+    "none": "Keine vLLM-Container gefunden. Die Maschine meldet etwa einmal pro Minute, was sie ausführt.",
+    "not_reported": "Diese Maschine hat ihre Container nicht gemeldet. Ihr Agent ist vielleicht älter als 0.1.11; führen Sie die Installationszeile erneut aus, um ihn zu aktualisieren.",
+    "col_container": "Container",
+    "col_model": "Modell",
+    "col_state": "Zustand",
+    "col_port": "Port",
+    "col_route": "Routing",
+    "task_chat": "Chat",
+    "task_embeddings": "Embeddings",
+    "task_scoring": "Bewertung (Rerank)",
+    "task_guessed": "aus dem Modellnamen geschätzt",
+    "managed_by": "Gestartet von {{name}}",
+    "managed_by_compose": "Docker-Compose-Projekt {{name}}",
+    "answers": "Antwortet als {{models}}",
+    "not_published": "nicht veröffentlicht",
+    "route": "Über LLM.Port routen",
+    "routed_as": "Geroutet als {{alias}}",
+    "release": "Routing beenden",
+    "paused": "Nicht geroutet, solange der Container {{state}} ist.",
+    "route_title": "{{container}} über LLM.Port routen",
+    "route_explain": "Anfragen für diesen Namen gehen an den Container, so wie er jetzt läuft. Auf der Maschine ändert sich nichts, und Sie können das Routing jederzeit beenden.",
+    "name": "Name für Clients",
+    "confirm_release": "Routing für {{alias}} beenden? Der Container läuft weiter."
   }
 }

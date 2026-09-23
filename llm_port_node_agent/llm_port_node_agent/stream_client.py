@@ -64,6 +64,7 @@ class StreamClient:
         gpu_collector: GpuCollector | None = None,
     ) -> None:
         self._config = config
+        self._runtime = runtime
         self._state = state_store
         self._dispatcher = dispatcher
         self._static_capabilities = static_capabilities
@@ -169,6 +170,7 @@ class StreamClient:
         while True:
             gpu_snapshot = await collect_gpu_snapshot(self._gpu_collector)
             inventory = await collect_inventory(self._static_capabilities, gpu_snapshot=gpu_snapshot)
+            inventory["vllm_containers"] = await self._find_vllm()
             utilization = await collect_utilization(gpu_snapshot=gpu_snapshot)
             await self._send_json(
                 ws,
@@ -184,6 +186,19 @@ class StreamClient:
                 self._inventory_trigger.clear()
             except TimeoutError:
                 pass
+
+    async def _find_vllm(self) -> list[dict[str, Any]]:
+        """vLLM containers this machine runs that LLM.Port did not start.
+
+        Bounded, and never able to hold up the inventory it rides along with.
+        """
+        from llm_port_node_agent.vllm_discovery import discover_vllm  # noqa: PLC0415
+
+        try:
+            return await asyncio.wait_for(discover_vllm(self._runtime), timeout=30)
+        except Exception as exc:  # noqa: BLE001 - an inventory without this is still an inventory
+            log.debug("vLLM discovery skipped: %s", exc)
+            return []
 
     async def _event_flush_loop(self, ws: websockets.WebSocketClientProtocol) -> None:
         while True:

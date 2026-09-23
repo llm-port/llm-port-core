@@ -5,8 +5,8 @@
  * model" rather than `preparing`, "Copies" rather than `replicas`, and the
  * cluster named rather than an environment id.
  */
-import { useCallback, useState } from "react";
-import { useNavigate } from "react-router";
+import { useCallback, useEffect, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router";
 
 import { inferenceApi } from "~/api/inference";
 import type {
@@ -118,6 +118,15 @@ export default function DeploymentsPage() {
   }, []);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
+  // `?deploy=1` opens the wizard: the providers screen sends people here when
+  // a cluster is ready, and landing on a list would make them look for the button.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    if (searchParams.get("deploy") === "1") {
+      setWizardOpen(true);
+      setSearchParams({}, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
   const [deleteTarget, setDeleteTarget] = useState<InferenceDeployment | null>(null);
   const [deleting, setDeleting] = useState(false);
 

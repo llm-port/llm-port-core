@@ -12,6 +12,7 @@ import {
   providers,
   runtimes,
   models as modelApi,
+  ownerPath,
   type Provider,
   type Runtime,
   type Model,
@@ -402,12 +403,14 @@ export default function ProvidersPage() {
                 refuses them too; this is so the operator never reaches for
                 one. */}
             {r.provider.managed_by ? (
-              <Tooltip title={`Managed by deployment ${r.provider.managed_by.name ?? ""}`}>
+              <Tooltip title={r.provider.managed_by.kind === "found_container"
+                ? `Found running as ${r.provider.managed_by.name ?? ""}; routed as it is`
+                : `Managed by deployment ${r.provider.managed_by.name ?? ""}`}>
                 <IconButton
                   size="small"
                   onClick={(e) => {
                     e.stopPropagation();
-                    navigate(`/admin/deployments/${r.provider.managed_by!.id}`);
+                    navigate(ownerPath(r.provider.managed_by!));
                   }}
                 >
                   <OpenInNewIcon fontSize="small" />
@@ -481,7 +484,7 @@ export default function ProvidersPage() {
               onOpenOwner={
                 r.provider.managed_by
                   ? () =>
-                      navigate(`/admin/deployments/${r.provider.managed_by!.id}`)
+                      navigate(ownerPath(r.provider.managed_by!))
                   : undefined
               }
             />

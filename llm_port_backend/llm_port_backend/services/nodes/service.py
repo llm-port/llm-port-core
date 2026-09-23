@@ -1672,6 +1672,8 @@ class NodeControlService:
             model.status = ModelStatus.AVAILABLE
 
     async def _publish_runtime_to_gateway(self, *, runtime: LLMRuntime) -> None:
+        from llm_port_backend.services.llm.kinds import runtime_kind  # noqa: PLC0415
+
         if self._gateway_sync is None or not runtime.endpoint_url:
             return
         provider_res = await self._dao.session.execute(select(LLMProvider).where(LLMProvider.id == runtime.provider_id))
@@ -1701,6 +1703,7 @@ class NodeControlService:
             capacity_hints={
                 "node_id": str(runtime.assigned_node_id) if runtime.assigned_node_id else None,
             },
+            task=runtime_kind(runtime),
         )
 
     _STALE_THRESHOLD = timedelta(minutes=2)

@@ -87,6 +87,30 @@ class GatewayDAO:
         result = await self.session.execute(query.order_by(LLMModelAlias.alias.asc()))
         return list(result.scalars().all())
 
+    async def alias_kinds(self, aliases: list[str]) -> dict[str, str | None]:
+        """What each alias serves -- ``chat``, ``embeddings``, ``scoring`` -- or ``None``.
+
+        Read from its enabled instances' ``node_metadata["task"]``, which is set
+        for what LLM.Port knows the kind of (a vLLM container it found). With
+        several kinds behind one alias there is no single answer, so ``None``.
+        """
+        if not aliases:
+            return {}
+        rows = await self.session.execute(
+            select(LLMPoolMembership.model_alias, LLMProviderInstance.node_metadata)
+            .join(LLMProviderInstance, LLMProviderInstance.id == LLMPoolMembership.provider_instance_id)
+            .where(
+                LLMPoolMembership.model_alias.in_(aliases),
+                LLMPoolMembership.enabled.is_(True),
+                LLMProviderInstance.enabled.is_(True),
+            )
+        )
+        seen: dict[str, set[str | None]] = {}
+        for alias, metadata in rows.all():
+            task = (metadata or {}).get("task") if isinstance(metadata, dict) else None
+            seen.setdefault(alias, set()).add(task)
+        return {alias: next(iter(kinds)) if len(kinds) == 1 else None for alias, kinds in seen.items()}
+
     async def get_tenant_policy(self, tenant_id: str) -> TenantLLMPolicy | None:
         """Fetch tenant policy."""
         result = await self.session.execute(

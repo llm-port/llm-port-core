@@ -615,7 +615,9 @@
     "wizard_step_runtime": "Environnement d'exécution",
     "model_source_sync_requires_download": "Aucun modèle n'est actuellement disponible sur ce serveur pour la synchronisation. Téléchargez d'abord un modèle depuis la page Modèles, ou passez à 'Télécharger depuis HuggingFace'.",
     "model_source_sync_requires_download_short": "Aucun modèle local disponible. Téléchargez-en un d'abord.",
-    "no_runtime": "Aucun environnement"
+    "no_runtime": "Aucun environnement",
+    "cluster_ready": "{{name}} est prêt. Un modèle sur un cluster a plusieurs copies, se rétablit seul après une panne et passe à l'échelle ; une seule machine exécute un conteneur.",
+    "deploy_on_cluster": "Déployer plutôt sur le cluster"
   },
   "llm_models": {
     "title": "Modèles LLM",
@@ -1413,5 +1415,32 @@
     "search_placeholder": "Rechercher des profils…",
     "delete_title": "Supprimer le profil",
     "delete_confirm": "Supprimer le profil \"{{name}}\" ? Les machines utilisant ce profil seront désaffectées."
+  },
+  "found": {
+    "title": "vLLM sur cette machine",
+    "intro": "Conteneurs exécutant vLLM que LLM.Port n'a pas démarrés. En router un le place derrière la passerelle sous un nom ; le conteneur lui-même n'est pas touché.",
+    "none": "Aucun conteneur vLLM trouvé. La machine signale ce qu'elle exécute environ une fois par minute.",
+    "not_reported": "Cette machine n'a pas signalé ses conteneurs. Son agent est peut-être antérieur à 0.1.11 ; relancez la ligne d'installation pour le mettre à jour.",
+    "col_container": "Conteneur",
+    "col_model": "Modèle",
+    "col_state": "État",
+    "col_port": "Port",
+    "col_route": "Routage",
+    "task_chat": "Chat",
+    "task_embeddings": "Embeddings",
+    "task_scoring": "Notation (rerank)",
+    "task_guessed": "déduit du nom du modèle",
+    "managed_by": "Démarré par {{name}}",
+    "managed_by_compose": "Projet Docker Compose {{name}}",
+    "answers": "Répond en tant que {{models}}",
+    "not_published": "non publié",
+    "route": "Router via LLM.Port",
+    "routed_as": "Routé comme {{alias}}",
+    "release": "Arrêter le routage",
+    "paused": "Non routé tant que le conteneur est {{state}}.",
+    "route_title": "Router {{container}} via LLM.Port",
+    "route_explain": "Les requêtes pour ce nom vont au conteneur tel qu'il tourne maintenant. Rien ne change sur la machine, et vous pouvez arrêter le routage à tout moment.",
+    "name": "Nom utilisé par les clients",
+    "confirm_release": "Arrêter le routage de {{alias}} ? Le conteneur continue de tourner."
   }
 }

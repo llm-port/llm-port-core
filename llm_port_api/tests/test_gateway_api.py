@@ -367,7 +367,13 @@ async def test_embeddings_passthrough(
             },
         )
 
-    monkeypatch.setattr(LLMAdapter, "completion", fake_embedding)
+    async def not_the_chat_path(self: LLMAdapter, **kwargs: object) -> CompletionResult:  # noqa: ARG001
+        raise AssertionError("embeddings were sent through the chat completions API")
+
+    # It was patched onto ``completion`` before, which is how embeddings going
+    # to the chat path -- and so never reaching an embedding model -- passed.
+    monkeypatch.setattr(LLMAdapter, "embedding", fake_embedding)
+    monkeypatch.setattr(LLMAdapter, "completion", not_the_chat_path)
     response = await client.post(
         "/v1/embeddings",
         headers={"Authorization": f"Bearer {token}"},

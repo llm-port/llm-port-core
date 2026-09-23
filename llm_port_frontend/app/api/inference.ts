@@ -462,6 +462,60 @@ export interface EnvironmentMetrics {
 }
 
 // ---------------------------------------------------------------------------
+// vLLM the machines already run, found by their agents (Phase 8)
+// ---------------------------------------------------------------------------
+
+/** One vLLM container as the machine's agent described it. */
+export interface FoundContainer {
+  name: string;
+  id: string;
+  image: string;
+  state: string;
+  started_at: string | null;
+  finished_at: string | null;
+  model: string | null;
+  served_model_names: string[];
+  port: number;
+  host_port: number | null;
+  /** "chat" | "embeddings" | "scoring", or null when nothing says. */
+  task: string | null;
+  /** Whether the task came from its flags or was guessed from the model's name. */
+  task_from: "flags" | "name" | null;
+  api_key_required: boolean;
+  /** The tool that started it, as its labels say: `compose:<project>`, `spark`, ... */
+  managed_by: string | null;
+  gpus: string | null;
+  settings: Record<string, unknown>;
+  args: string[];
+}
+
+export interface FoundAdoption {
+  id: string;
+  node_id: string | null;
+  container: string;
+  alias: string;
+  served_model_name: string;
+  base_url: string;
+  task: string | null;
+  state: string;
+  container_state: string | null;
+  provider_id: string | null;
+  routed_at: string | null;
+  released_at: string | null;
+}
+
+export interface FoundEntry {
+  node: { id: string; name: string; host: string | null; status: string };
+  reported_at: string | null;
+  container: FoundContainer;
+  base_url: string | null;
+  adoption: FoundAdoption | null;
+  can_route: boolean;
+  reason: string | null;
+  check: { ok: boolean; models: string[]; needs_key: boolean; error: string | null } | null;
+}
+
+// ---------------------------------------------------------------------------
 // Transport
 // ---------------------------------------------------------------------------
 
@@ -705,5 +759,22 @@ export const inferenceApi = {
     return request<RuntimeMonitoring>(
       `/deployments/${enc(id)}/monitoring-stats`,
     );
+  },
+
+  // -- vLLM the machines already run ---------------------------------------
+
+  found(nodeId?: string, check = true) {
+    const params = new URLSearchParams({ check: String(check) });
+    if (nodeId) params.set("node_id", nodeId);
+    return request<FoundEntry[]>(`/found?${params.toString()}`);
+  },
+  routeFound(nodeId: string, container: string, alias: string) {
+    return request<FoundAdoption>("/found/route", {
+      method: "POST",
+      body: JSON.stringify({ node_id: nodeId, container, alias }),
+    });
+  },
+  releaseFound(adoptionId: string) {
+    return request<FoundAdoption>(`/found/${enc(adoptionId)}/release`, { method: "POST" });
   },
 };

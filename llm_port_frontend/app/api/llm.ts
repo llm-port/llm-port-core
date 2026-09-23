@@ -70,6 +70,20 @@ export interface ManagedBy {
   state: string | null;
   /** What it serves: a derived provider has no runtime row to join through. */
   model_name: string | null;
+  /** For a vLLM container found on a machine: the machine it runs on. */
+  node_id?: string | null;
+}
+
+/**
+ * Where an owned provider is managed: a deployment's page, or -- for a vLLM
+ * container LLM.Port found and routes as it is -- the page of the machine
+ * running it.
+ */
+export function ownerPath(owner: ManagedBy): string {
+  if (owner.kind === "found_container") {
+    return owner.node_id ? `/admin/nodes/${owner.node_id}` : "/admin/nodes";
+  }
+  return `/admin/deployments/${owner.id}`;
 }
 
 export interface Provider {

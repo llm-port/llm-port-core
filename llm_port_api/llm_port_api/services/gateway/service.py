@@ -133,6 +133,44 @@ class MCPToolLoopResult:
     iterations: int = 0
 
 
+#: What each endpoint can be sent to: the kinds a route declares
+#: (``node_metadata["task"]``), plus routes that declare none.
+_ENDPOINT_KINDS: dict[str, set[str | None]] = {
+    "/v1/chat/completions": {"chat", None},
+    "/v1/embeddings": {"embeddings", None},
+}
+
+_KIND_ADVICE = {
+    "chat": "is a chat model: send it to /v1/chat/completions",
+    "embeddings": "is an embeddings model: send it to /v1/embeddings",
+    "scoring": "is a scoring (rerank) model, which the gateway does not serve requests for yet",
+}
+
+
+def _check_kind(endpoint: str, alias: str, candidates: list[Any]) -> None:
+    """Refuse a request no route behind *alias* can serve, before sending it anywhere.
+
+    With models of several kinds behind one gateway, a chat request to an
+    embedding model went all the way to vLLM and came back as LiteLLM's
+    "does not support Chat Completions API". The route says what it is; the
+    gateway can say so first, in plain words, and not spend a slot on it.
+    """
+    allowed = _ENDPOINT_KINDS.get(endpoint)
+    if allowed is None:
+        return
+    kinds = {(getattr(c, "node_metadata", None) or {}).get("task") for c in candidates}
+    if not kinds or kinds & allowed:
+        return
+    kind = next(k for k in kinds if k is not None)
+    raise GatewayError(
+        status_code=400,
+        message=f"{alias} {_KIND_ADVICE.get(kind, f'serves {kind} requests, not this endpoint')}.",
+        error_type="invalid_request_error",
+        code="model_kind_mismatch",
+        param="model",
+    )
+
+
 class GatewayService:
     """Core shared pipeline for chat + embeddings + models."""
 
@@ -174,6 +212,11 @@ class GatewayService:
 
     async def list_models(self, auth: AuthContext) -> dict[str, Any]:
         aliases = await self.dao.list_enabled_aliases_for_tenant(auth.tenant_id)
+        # What each one is for, so a chat screen offers chat models and a
+        # retrieval setting embedding ones. With models of several kinds behind
+        # one gateway, a list that did not say offered an embedding model as a
+        # chat model, and picking it failed.
+        kinds = await self.dao.alias_kinds([a.alias for a in aliases])
         return {
             "object": "list",
             "data": [
@@ -185,6 +228,7 @@ class GatewayService:
                     "owned_by": "llm-port",
                     "description": alias.description,
                     "enabled": alias.enabled,
+                    "kind": kinds.get(alias.alias),
                 }
                 for alias in aliases
             ],
@@ -214,6 +258,7 @@ class GatewayService:
         candidates = await self.router.resolve_alias(
             alias=model_alias, tenant_id=auth.tenant_id,
         )
+        _check_kind(endpoint, model_alias, candidates)
         decision: RoutingDecision | None = await self.router.pick_and_lease(
             candidates=candidates, request_id=request_id,
         )
@@ -341,11 +386,21 @@ class GatewayService:
 
             for attempt in range(settings.retry_pre_first_token + 1):
                 try:
-                    adapter_result = await self.adapter.completion(
-                        **_candidate_adapter_kwargs(decision.candidate),
-                        payload=egress_payload,
-                        stream=False,
-                    )
+                    if endpoint == "/v1/embeddings":
+                        # Embeddings go to the embeddings API. They were sent
+                        # through the chat path, which an embedding model
+                        # refuses ("does not support Chat Completions API"),
+                        # so /v1/embeddings could not reach one at all.
+                        adapter_result = await self.adapter.embedding(
+                            **_candidate_adapter_kwargs(decision.candidate),
+                            payload=egress_payload,
+                        )
+                    else:
+                        adapter_result = await self.adapter.completion(
+                            **_candidate_adapter_kwargs(decision.candidate),
+                            payload=egress_payload,
+                            stream=False,
+                        )
                     from llm_port_api.services.gateway.llm_adapter import CompletionResult  # noqa: PLC0415
                     assert isinstance(adapter_result, CompletionResult)  # noqa: S101
                     result = UpstreamResult(
@@ -553,6 +608,7 @@ class GatewayService:
         candidates = await self.router.resolve_alias(
             alias=model_alias, tenant_id=auth.tenant_id,
         )
+        _check_kind("/v1/chat/completions", model_alias, candidates)
         decision: RoutingDecision | None = await self.router.pick_and_lease(
             candidates=candidates, request_id=request_id,
         )

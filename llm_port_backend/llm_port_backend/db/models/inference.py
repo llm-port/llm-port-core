@@ -517,6 +517,102 @@ class InferenceEndpoint(Base):
 
 
 # ---------------------------------------------------------------------------
+# Taking over vLLM a machine already runs (Phase 8)
+# ---------------------------------------------------------------------------
+
+
+class AdoptionState(enum.StrEnum):
+    """Where taking over a found vLLM container stands.
+
+    ``routed`` and ``released`` are routing it as it is (8.2). The rest are
+    moving it into a cluster (8.3): a deployment is started beside it, checked
+    with a real request, and the name moves over, with a way back.
+    """
+
+    ROUTED = "routed"
+    RELEASED = "released"
+    DEPLOYING = "deploying"
+    VERIFIED = "verified"
+    VERIFY_FAILED = "verify_failed"
+    SWITCHED = "switched"
+    SWITCHED_BACK = "switched_back"
+    FINISHED = "finished"
+    ABANDONED = "abandoned"
+
+
+#: States in which LLM.Port routes, or is moving, the container: one per container.
+OPEN_ADOPTION_STATES = frozenset({
+    AdoptionState.ROUTED.value,
+    AdoptionState.DEPLOYING.value,
+    AdoptionState.VERIFIED.value,
+    AdoptionState.VERIFY_FAILED.value,
+    AdoptionState.SWITCHED.value,
+    AdoptionState.SWITCHED_BACK.value,
+})
+
+
+class InferenceAdoption(Base):
+    """A vLLM container LLM.Port found on a machine and took over.
+
+    Found by the agent (``vllm_containers`` in the inventory), not started by
+    LLM.Port. Its own table rather than columns on a provider or deployment:
+    the reconciler rewrites a deployment's observed state every pass, and a
+    second writer there would lose updates. Foreign keys are ``SET NULL`` so
+    the record outlives the machine, the provider and the deployment.
+    """
+
+    __tablename__ = "inference_adoptions"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    node_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("infra_node.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    container_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    #: The name clients call it by at the gateway.
+    alias: Mapped[str] = mapped_column(String(256), nullable=False, index=True)
+    #: The model name the container itself answers to.
+    served_model_name: Mapped[str] = mapped_column(String(512), nullable=False)
+    base_url: Mapped[str] = mapped_column(Text, nullable=False)
+    task: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    provider_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("llm_providers.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    deployment_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("inference_deployments.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    state: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=AdoptionState.ROUTED.value, index=True
+    )
+    detail_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+    routed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    switched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    switched_back_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Model availability
 # ---------------------------------------------------------------------------
 

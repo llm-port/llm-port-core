@@ -194,33 +194,56 @@ async def _resolve_owners(
     lookups are two answers that can disagree, and this is exactly where they
     would be seen together.
     """
-    wanted = [
-        str(p.source_id)
-        for p in providers
-        if p.source_kind == "inference_deployment" and p.source_id
-    ]
-    if not wanted:
-        return {}
-    try:
-        ids = [uuid.UUID(value) for value in wanted]
-    except (ValueError, TypeError):
-        return {}
+    def ids_of(kind: str) -> list[uuid.UUID]:
+        out = []
+        for p in providers:
+            if p.source_kind == kind and p.source_id:
+                try:
+                    out.append(uuid.UUID(str(p.source_id)))
+                except (ValueError, TypeError):
+                    continue
+        return out
 
-    rows = await session.execute(
-        select(InferenceDeployment, LLMModel)
-        .outerjoin(LLMModel, LLMModel.id == InferenceDeployment.model_id)
-        .where(InferenceDeployment.id.in_(ids))
-    )
-    return {
-        str(dep.id): ManagedByDTO(
-            kind="inference_deployment",
-            id=str(dep.id),
-            name=dep.name,
-            state=str(dep.phase or "") or None,
-            model_name=(model.display_name if model is not None else None),
+    owners: dict[str, ManagedByDTO] = {}
+    deployment_ids = ids_of("inference_deployment")
+    if deployment_ids:
+        rows = await session.execute(
+            select(InferenceDeployment, LLMModel)
+            .outerjoin(LLMModel, LLMModel.id == InferenceDeployment.model_id)
+            .where(InferenceDeployment.id.in_(deployment_ids))
         )
-        for dep, model in rows.all()
-    }
+        for dep, model in rows.all():
+            owners[str(dep.id)] = ManagedByDTO(
+                kind="inference_deployment",
+                id=str(dep.id),
+                name=dep.name,
+                state=str(dep.phase or "") or None,
+                model_name=(model.display_name if model is not None else None),
+            )
+
+    # A vLLM container LLM.Port found on a machine and routes as it is: the
+    # container is the owner, and whether it runs is its state.
+    found_ids = ids_of("found_container")
+    if found_ids:
+        from llm_port_backend.db.models.inference import InferenceAdoption  # noqa: PLC0415
+        from llm_port_backend.db.models.node_control import InfraNode  # noqa: PLC0415
+
+        rows = await session.execute(
+            select(InferenceAdoption, InfraNode)
+            .outerjoin(InfraNode, InfraNode.id == InferenceAdoption.node_id)
+            .where(InferenceAdoption.id.in_(found_ids))
+        )
+        for adoption, node in rows.all():
+            machine = node.agent_id if node is not None else "a machine"
+            owners[str(adoption.id)] = ManagedByDTO(
+                kind="found_container",
+                id=str(adoption.id),
+                name=f"{adoption.container_name} on {machine}",
+                state=(adoption.detail_json or {}).get("container_state"),
+                model_name=adoption.served_model_name,
+                node_id=str(adoption.node_id) if adoption.node_id else None,
+            )
+    return owners
 
 
 async def _probe_first_model(
