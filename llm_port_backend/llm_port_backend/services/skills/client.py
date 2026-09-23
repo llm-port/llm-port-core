@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from starlette import status
 
 from llm_port_backend.settings import settings
+from llm_port_backend.services.tls import default_httpx_verify
 
 
 class SkillsServiceClient:
@@ -42,7 +43,7 @@ class SkillsServiceClient:
             "Content-Type": "application/json",
         }
         url = f"{self.base_url}{path}"
-        async with httpx.AsyncClient(timeout=self.timeout_sec) as client:
+        async with httpx.AsyncClient(verify=default_httpx_verify(), timeout=self.timeout_sec) as client:
             try:
                 response = await client.request(
                     method=method,

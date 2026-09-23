@@ -26,6 +26,7 @@ from llm_port_backend.web.api.admin.dashboard.schema import (
     GrafanaPanelsDTO,
 )
 from llm_port_backend.web.api.admin.dependencies import get_docker, require_superuser
+from llm_port_backend.services.tls import default_httpx_verify
 
 router = APIRouter()
 
@@ -397,7 +398,7 @@ async def health(
     grafana_detail: str | None = None
     if settings.grafana_url:
         try:
-            async with httpx.AsyncClient(timeout=2.0) as client:
+            async with httpx.AsyncClient(verify=default_httpx_verify(), timeout=2.0) as client:
                 resp = await client.get(str(settings.grafana_url))
                 grafana_status = "up" if resp.status_code < 500 else "degraded"
                 grafana_detail = f"http {resp.status_code}"

@@ -11,6 +11,7 @@ import uuid
 from typing import Any
 
 import httpx
+from llm_port_backend.services.tls import default_httpx_verify
 
 log = logging.getLogger(__name__)
 
@@ -56,7 +57,7 @@ class CompletionClient:
                 timeout=self.timeout,
             )
         else:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with httpx.AsyncClient(verify=default_httpx_verify(), timeout=self.timeout) as client:
                 resp = await client.post(
                     f"{self.base_url}/chat/completions",
                     json=payload,

@@ -42,6 +42,12 @@ interface Props {
   executionMode: ExecutionMode;
   localOverrides?: Map<string, boolean>;
   onLocalOverride?: (toolId: string, enabled: boolean) => void;
+  /**
+   * Whether the panel is on screen. It lives in a drawer kept mounted while
+   * closed, so without this it fetched the tool catalogue on every session
+   * change -- three times per new chat, while the first message was sending.
+   */
+  active?: boolean;
 }
 
 // ── Source / realm visuals ──────────────────────────────────────
@@ -115,6 +121,7 @@ export default function ToolPanel({
   executionMode,
   localOverrides,
   onLocalOverride,
+  active = true,
 }: Props) {
   const { t } = useTranslation();
   const [catalog, setCatalog] = useState<ToolAvailabilityResponse | null>(null);
@@ -138,8 +145,8 @@ export default function ToolPanel({
   }, [sessionId, executionMode]);
 
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    if (active) void refresh();
+  }, [refresh, active]);
 
   // ── Derived state ──
 

@@ -327,6 +327,10 @@ async def test_a_backend_restart_does_not_wipe_a_clusters_targets(
     stack: the cluster's two targets were present, the backend reloaded, and
     they were gone.
     """
+    from llm_port_backend.db.models.inference import (
+        InferenceControlPlane,
+        InferenceEnvironment,
+    )
     from llm_port_backend.services.llm.monitoring import MonitoringProvisioner
 
     targets_file = tmp_path / "targets.json"
@@ -337,7 +341,16 @@ async def test_a_backend_restart_does_not_wipe_a_clusters_targets(
         targets_file=str(targets_file), dashboard_dir=str(dash_dir)
     )
 
-    env_id = uuid.uuid4()
+    # A cluster that exists: the rebuild keeps only those.
+    control_plane = InferenceControlPlane(name=f"cp-{uuid.uuid4().hex[:6]}", driver="ray")
+    dbsession.add(control_plane)
+    await dbsession.flush()
+    env = InferenceEnvironment(
+        control_plane_id=control_plane.id, name="dgx-pair", desired_state="running",
+    )
+    dbsession.add(env)
+    await dbsession.flush()
+    env_id = env.id
     await prov.sync_ray_targets(
         environment_id=env_id,
         environment_name="dgx-pair",

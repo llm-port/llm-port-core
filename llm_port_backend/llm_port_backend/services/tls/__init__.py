@@ -5,6 +5,7 @@ from llm_port_backend.services.tls.connection_ssl import (
     build_asyncpg_ssl,
     build_httpx_verify,
     build_redis_ssl_kwargs,
+    default_httpx_verify,
     rewrite_amqp_url_for_tls,
 )
 
@@ -13,5 +14,6 @@ __all__ = [
     "build_asyncpg_ssl",
     "build_httpx_verify",
     "build_redis_ssl_kwargs",
+    "default_httpx_verify",
     "rewrite_amqp_url_for_tls",
 ]

@@ -471,6 +471,16 @@ async def _sync_prometheus_targets(
         if provisioner is None:
             return
 
+        # Stopped, failed, or on its way down: nothing is serving metrics, and
+        # the ports it had will not be reused. Keeping them left Prometheus
+        # dialling dead addresses for as long as the file lived.
+        if environment.desired_state != "running" or str(environment.status) in (
+            "stopped",
+            "failed",
+        ):
+            await provisioner.remove_ray_targets(environment.id)
+            return
+
         stored = (environment.observed_status_json or {}).get("cluster") or {}
         raw_targets = ((stored.get("metrics") or {}).get("targets")) or []
         if not raw_targets:

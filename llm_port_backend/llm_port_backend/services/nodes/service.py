@@ -423,6 +423,44 @@ class NodeControlService:
         node.status = NodeHealthStatus.OFFLINE
         await self._demote_node_runtimes(node_id=node.id)
         await self._fail_commands_lost_with_the_stream(node_id=node.id)
+        await self._recheck_member_clusters(node_id=node.id)
+
+    async def _recheck_member_clusters(self, *, node_id: uuid.UUID) -> int:
+        """Queue every running cluster this machine belongs to for a fresh look.
+
+        The reconciler only revisits a cluster when something about it
+        changes. A machine vanishing is not a change to the cluster row, so a
+        cluster whose only machine had been offline since the night before
+        still read "ready" -- with Prometheus still scraping it. A machine
+        leaving, or coming back, is exactly when its clusters need looking at.
+        """
+        from llm_port_backend.db.models.inference import (  # noqa: PLC0415
+            InferenceEnvironment,
+            InferenceEnvironmentNode,
+        )
+        from llm_port_backend.services.inference.service import (  # noqa: PLC0415
+            _queue_for_reconcile,
+        )
+
+        try:
+            rows = await self._dao.session.execute(
+                select(InferenceEnvironment)
+                .join(
+                    InferenceEnvironmentNode,
+                    InferenceEnvironmentNode.environment_id == InferenceEnvironment.id,
+                )
+                .where(
+                    InferenceEnvironmentNode.node_id == node_id,
+                    InferenceEnvironment.desired_state == "running",
+                ),
+            )
+            clusters = list(rows.scalars().unique())
+        except Exception:  # pragma: no cover - defensive
+            log.exception("Could not list the clusters of node %s", node_id)
+            return 0
+        for cluster in clusters:
+            _queue_for_reconcile(cluster)
+        return len(clusters)
 
     async def _fail_commands_lost_with_the_stream(self, *, node_id: uuid.UUID) -> int:
         """Fail commands that were in flight on a stream that has just closed.
@@ -540,6 +578,7 @@ class NodeControlService:
             node.host = host
         if capabilities is not None:
             capabilities = self._merge_projected_capabilities(node, capabilities)
+        was_offline = node.status == NodeHealthStatus.OFFLINE
         updated = await self._dao.update_node_heartbeat(
             node,
             status=status,
@@ -547,6 +586,10 @@ class NodeControlService:
             version=version,
         )
         await self._dao.sync_legacy_infra_agent(node=updated)
+        if was_offline and updated.status != NodeHealthStatus.OFFLINE:
+            # Back: its clusters were marked as missing it; look again now
+            # rather than whenever something else happens to change.
+            await self._recheck_member_clusters(node_id=updated.id)
         return self.serialize_node(updated)
 
     # Tier-2-only keys: the raw per-interface detail stays in the snapshot

@@ -13,6 +13,7 @@ from typing import Any
 import httpx
 
 from llm_port_backend.db.models.rag_lite import MAX_EMBEDDING_DIM
+from llm_port_backend.services.tls import default_httpx_verify
 
 log = logging.getLogger(__name__)
 
@@ -64,7 +65,7 @@ class EmbeddingClient:
                     timeout=10.0,
                 )
             else:
-                async with httpx.AsyncClient(timeout=10.0) as client:
+                async with httpx.AsyncClient(verify=default_httpx_verify(), timeout=10.0) as client:
                     resp = await client.get(
                         f"{self.base_url}/models",
                         headers=self._headers(),
@@ -219,7 +220,7 @@ class EmbeddingClient:
                 timeout=self.timeout,
             )
         else:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with httpx.AsyncClient(verify=default_httpx_verify(), timeout=self.timeout) as client:
                 resp = await client.post(
                     f"{self.base_url}/embeddings",
                     json=payload,

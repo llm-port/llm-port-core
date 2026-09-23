@@ -23,6 +23,7 @@ from typing import Any
 import httpx
 
 from llm_port_backend.settings import settings
+from llm_port_backend.services.tls import default_httpx_verify
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,7 @@ class DoclingClient:
 
     async def __aenter__(self) -> "DoclingClient":
         self._client = httpx.AsyncClient(
+            verify=default_httpx_verify(),
             base_url=self._base_url,
             timeout=httpx.Timeout(
                 connect=_CONNECT_TIMEOUT,
@@ -64,6 +66,7 @@ class DoclingClient:
     def _ensure_client(self) -> httpx.AsyncClient:
         if self._client is None:
             self._client = httpx.AsyncClient(
+                verify=default_httpx_verify(),
                 base_url=self._base_url,
                 timeout=httpx.Timeout(
                     connect=_CONNECT_TIMEOUT,

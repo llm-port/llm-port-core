@@ -517,11 +517,19 @@ class MonitoringProvisioner:
         # Ray clusters: keep their targets and re-render their dashboards.
         # Their entries are keyed by ``environment_id`` where a runtime's are
         # keyed by ``runtime_id``, so the two never collide.
+        #
+        # Only clusters that still exist. Carrying every cluster-keyed entry
+        # across kept deleted clusters' targets forever: Prometheus went on
+        # dialling their random metrics ports, each a connection that never
+        # answers.
+        environments = await self._monitored_environments(session)
+        existing_ids = {str(env_id) for env_id, _ in environments}
         for existing in self._read_targets():
-            if existing.get("labels", {}).get("environment_id"):
+            env_id = existing.get("labels", {}).get("environment_id")
+            if env_id and env_id in existing_ids:
                 entries.append(existing)
 
-        for env_id, env_name in await self._monitored_environments(session):
+        for env_id, env_name in environments:
             path, data = self._render_dashboard(
                 runtime_id=env_id,
                 title=f"Ray cluster · {env_name}",
@@ -693,6 +701,31 @@ class MonitoringProvisioner:
         _atomic_write_json_inplace(self._targets_file, kept)
         self._schedule_reload()
         return len([t for t in kept if t.get("labels", {}).get("environment_id") == env_key])
+
+    async def remove_ray_targets(
+        self, environment_id: uuid.UUID | str, *, drop_dashboard: bool = False
+    ) -> int:
+        """Stop scraping a Ray cluster: it was stopped, failed, or deleted.
+
+        Ray picks new metrics ports every time a cluster starts, so a stopped
+        cluster's targets never come back; the next start registers fresh
+        ones. The dashboard is kept unless the cluster itself is gone, so its
+        history stays browsable. Returns the number of targets removed.
+        """
+        env_key = str(environment_id)
+        targets = self._read_targets()
+        kept = [t for t in targets if t.get("labels", {}).get("environment_id") != env_key]
+        removed = len(targets) - len(kept)
+        if removed:
+            _atomic_write_json_inplace(self._targets_file, kept)
+        dash = self.dashboard_path(env_key)
+        dropped = drop_dashboard and dash.exists()
+        if dropped:
+            dash.unlink()
+        if removed or dropped:
+            self._schedule_reload()
+            log.info("monitoring: removed %d target(s) of cluster %s", removed, env_key)
+        return removed
 
     # ── debounced reload ───────────────────────────────────────────────
     def _schedule_reload(self) -> None:

@@ -22,6 +22,7 @@ from llm_port_backend.db.dao.system_settings_dao import SystemSettingsDAO
 from llm_port_backend.db.models.users import User
 from llm_port_backend.settings import settings
 from llm_port_backend.web.api.admin.dependencies import require_superuser
+from llm_port_backend.services.tls import default_httpx_verify
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,7 @@ _pii_proxy_client: httpx.AsyncClient | None = None
 def _get_pii_client() -> httpx.AsyncClient:
     global _pii_proxy_client
     if _pii_proxy_client is None:
-        _pii_proxy_client = httpx.AsyncClient(timeout=15.0)
+        _pii_proxy_client = httpx.AsyncClient(verify=default_httpx_verify(), timeout=15.0)
     return _pii_proxy_client
 
 _PII_BASE: str = ""

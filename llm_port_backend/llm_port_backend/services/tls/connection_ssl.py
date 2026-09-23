@@ -19,6 +19,7 @@ Design notes
 from __future__ import annotations
 
 import enum
+import functools
 import ssl
 from typing import Any
 
@@ -65,18 +66,44 @@ def build_asyncpg_ssl(mode: str | SSLMode, ca_bundle: str | None = None) -> Any:
     return _ctx_for_mode(m, ca_bundle)
 
 
+@functools.cache
+def default_httpx_verify() -> ssl.SSLContext:
+    """The trust httpx uses by default, built once for the process.
+
+    Pass it as ``httpx.AsyncClient(verify=default_httpx_verify())``. With the
+    default ``verify=True`` every client builds its own SSL context and loads
+    the CA bundle into it -- ~400 ms on the Windows dev workstation, done
+    synchronously on the event loop, even for a plain http:// URL. A client
+    made per request therefore froze the whole backend for that long, each
+    time. Nothing modifies the context once built, so clients share it.
+    """
+    import httpx  # noqa: PLC0415
+
+    return httpx.create_ssl_context()
+
+
+@functools.cache
+def _bundle_httpx_verify(ca_bundle: str) -> ssl.SSLContext:
+    import httpx  # noqa: PLC0415
+
+    return httpx.create_ssl_context(verify=ca_bundle)
+
+
 def build_httpx_verify(verify: bool, ca_bundle: str | None) -> Any:
     """Return the value for ``httpx.AsyncClient(verify=...)``.
 
     * ``verify=False`` → ``False`` (disabled, MITM-vulnerable).
-    * ``verify=True`` + ``ca_bundle`` set → bundle path (custom trust).
-    * ``verify=True`` + no bundle → ``True`` (system trust store).
+    * ``verify=True`` + ``ca_bundle`` set → a context trusting that bundle.
+    * ``verify=True`` + no bundle → the shared default context.
+
+    Contexts are built once per bundle, for the reason given on
+    :func:`default_httpx_verify`.
     """
     if not verify:
         return False
     if ca_bundle:
-        return ca_bundle
-    return True
+        return _bundle_httpx_verify(ca_bundle)
+    return default_httpx_verify()
 
 
 def build_redis_ssl_kwargs(enabled: bool, ca_bundle: str | None) -> dict[str, Any]:

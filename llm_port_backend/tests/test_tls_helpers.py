@@ -11,6 +11,7 @@ from llm_port_backend.services.tls import (
     build_asyncpg_ssl,
     build_httpx_verify,
     build_redis_ssl_kwargs,
+    default_httpx_verify,
     rewrite_amqp_url_for_tls,
 )
 
@@ -49,11 +50,27 @@ class TestBuildHttpxVerify:
     def test_disabled(self) -> None:
         assert build_httpx_verify(False, None) is False
 
-    def test_default_trust_store(self) -> None:
-        assert build_httpx_verify(True, None) is True
+    def test_default_trust_store_is_one_shared_context(self) -> None:
+        # Built once: each build loads the CA bundle, ~400 ms on Windows,
+        # on the event loop.
+        ctx = build_httpx_verify(True, None)
+        assert isinstance(ctx, ssl.SSLContext)
+        assert ctx is default_httpx_verify() is build_httpx_verify(True, None)
+        assert ctx.verify_mode == ssl.CERT_REQUIRED
+        assert ctx.get_ca_certs(), "the default trust store is loaded"
 
-    def test_custom_bundle(self) -> None:
-        assert build_httpx_verify(True, "/etc/ssl/custom.pem") == "/etc/ssl/custom.pem"
+    def test_custom_bundle_is_trusted_and_built_once(self) -> None:
+        import certifi
+
+        ctx = build_httpx_verify(True, certifi.where())
+        assert isinstance(ctx, ssl.SSLContext)
+        assert ctx.verify_mode == ssl.CERT_REQUIRED
+        assert ctx is build_httpx_verify(True, certifi.where())
+        assert ctx is not default_httpx_verify()
+
+    def test_a_missing_bundle_fails_loudly(self) -> None:
+        with pytest.raises((FileNotFoundError, OSError)):
+            build_httpx_verify(True, "/nonexistent/custom.pem")
 
 
 class TestBuildRedisSslKwargs:

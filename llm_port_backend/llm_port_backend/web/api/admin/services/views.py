@@ -29,6 +29,7 @@ from llm_port_backend.settings import settings
 from llm_port_backend.web.api.admin.system.views import get_system_settings_service
 from llm_port_backend.web.api.admin.dependencies import get_docker
 from llm_port_backend.web.api.rbac import require_permission
+from llm_port_backend.services.tls import default_httpx_verify
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +97,7 @@ async def _run_compose(
 async def _probe_health(url: str) -> str:
     """Return ``"healthy"`` or ``"unhealthy"`` for a single URL."""
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with httpx.AsyncClient(verify=default_httpx_verify(), timeout=5.0) as client:
             resp = await client.get(url)
             return "healthy" if resp.status_code < 400 else "unhealthy"
     except Exception:

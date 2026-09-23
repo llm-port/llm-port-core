@@ -103,16 +103,22 @@ export default function ChatWindow({
   // loadHistory which fetches persisted messages from the server.
   useEffect(() => {
     const state = location.state as InitialMessageState | undefined;
-    if (state?.initialMessage && !initialSentRef.current) {
-      initialSentRef.current = true;
-      send(state.initialMessage, state.initialModel, state.initialFiles);
-      // Clear navigation state so a page refresh won't re-send the message.
-      // Preserve React Router's internal history keys while removing user state.
-      const { usr: _usr, ...rest } = (window.history.state ?? {}) as Record<
-        string,
-        unknown
-      >;
-      window.history.replaceState(rest, "");
+    if (state?.initialMessage) {
+      // Sent once. A second run of this effect (React runs it twice in
+      // development) must not fall through to loadHistory: that found the
+      // stream this window had just started, "reconnected" to it, and read
+      // the reply twice, alongside the send.
+      if (!initialSentRef.current) {
+        initialSentRef.current = true;
+        send(state.initialMessage, state.initialModel, state.initialFiles);
+        // Clear navigation state so a page refresh won't re-send the message.
+        // Preserve React Router's internal history keys while removing user state.
+        const { usr: _usr, ...rest } = (window.history.state ?? {}) as Record<
+          string,
+          unknown
+        >;
+        window.history.replaceState(rest, "");
+      }
       return;
     }
     loadHistory();

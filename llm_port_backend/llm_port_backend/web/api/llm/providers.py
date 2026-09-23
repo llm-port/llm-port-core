@@ -42,6 +42,7 @@ from llm_port_backend.web.api.llm.schema import (
     TestEndpointResponse,
 )
 from llm_port_backend.web.api.rbac import require_permission
+from llm_port_backend.services.tls import default_httpx_verify
 
 log = logging.getLogger(__name__)
 
@@ -97,7 +98,7 @@ async def _test_litellm_provider(
         params["key"] = api_key
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(verify=default_httpx_verify(), timeout=30.0) as client:
             resp = await client.get(health_url, headers=headers, params=params)
     except httpx.ConnectError:
         return TestEndpointResponse(
@@ -235,7 +236,7 @@ async def _probe_first_model(
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with httpx.AsyncClient(verify=default_httpx_verify(), timeout=5.0) as client:
             resp = await client.get(f"{url}/models", headers=headers)
         if resp.status_code >= 400:
             return None
@@ -282,7 +283,7 @@ async def test_endpoint(
         headers["Authorization"] = f"Bearer {body.api_key}"
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(verify=default_httpx_verify(), timeout=30.0) as client:
             resp = await client.get(f"{url}/models", headers=headers)
     except httpx.ConnectError:
         return TestEndpointResponse(

@@ -12,10 +12,11 @@ export default [
   route("/reset-password", "routes/reset-password.tsx"),
   // Standalone chat UI
   layout("routes/chat.tsx", [
-    route("/chat", "pages/chat/ChatPage.tsx"),
-    route("/chat/:sessionId", "pages/chat/ChatPage.tsx", {
-      id: "chat-session",
-    }),
+    // One route, not two: as separate entries, starting a chat (/chat ->
+    // /chat/:id) unmounted and remounted the whole page, which re-fetched
+    // the sidebar, languages, policies and models in the same instant the
+    // first message went out -- ten requests competing with the reply.
+    route("/chat/:sessionId?", "pages/chat/ChatPage.tsx"),
   ]),
   layout("routes/admin.tsx", [
     route("/admin", "pages/admin/AdminRouteRedirectPage.tsx"),

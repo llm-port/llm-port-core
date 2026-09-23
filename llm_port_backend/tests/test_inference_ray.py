@@ -475,11 +475,11 @@ async def probe_env(
 
     nodes = [
         InfraNode(
-            agent_id=f"ray-head-{uuid.uuid4().hex[:8]}", host="10.0.0.1",
+            agent_id=f"ray-head-{uuid.uuid4().hex[:8]}", host="10.0.0.1", status="healthy",
             capabilities_json=dict(DGX_SPARK_PLATFORM),
         ),
         InfraNode(
-            agent_id=f"ray-worker-{uuid.uuid4().hex[:8]}", host="10.0.0.2",
+            agent_id=f"ray-worker-{uuid.uuid4().hex[:8]}", host="10.0.0.2", status="healthy",
             capabilities_json=dict(DGX_SPARK_PLATFORM),
         ),
     ]
@@ -708,7 +708,7 @@ async def secret_app(
 
     # Enrolled node with a credential the endpoint can verify.
     node = InfraNode(
-        agent_id=f"agent-{uuid.uuid4().hex[:8]}", host="10.0.0.9",
+        agent_id=f"agent-{uuid.uuid4().hex[:8]}", host="10.0.0.9", status="healthy",
         capabilities_json=dict(DGX_SPARK_PLATFORM),
     )
     dbsession.add(node)
@@ -861,7 +861,7 @@ async def deployment_env(dbsession: AsyncSession) -> tuple[InferenceDeployment, 
     dbsession.add(cp)
     await dbsession.flush()
     node = InfraNode(
-        agent_id=f"ray-head-{uuid.uuid4().hex[:8]}", host="10.0.0.1",
+        agent_id=f"ray-head-{uuid.uuid4().hex[:8]}", host="10.0.0.1", status="healthy",
         capabilities_json=dict(DGX_SPARK_PLATFORM),
     )
     dbsession.add(node)

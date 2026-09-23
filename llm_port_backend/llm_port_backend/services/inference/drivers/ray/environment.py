@@ -43,6 +43,7 @@ from llm_port_backend.db.models.node_control import (
     InfraNode,
     NodeCommandStatus,
     NodeCommandType,
+    NodeHealthStatus,
 )
 from llm_port_backend.services.inference.drivers.ray.client import RayClusterClient
 from llm_port_backend.services.inference.drivers.ray.commands import NodeCommandGateway
@@ -80,6 +81,9 @@ _SUCCEEDED = NodeCommandStatus.SUCCEEDED.value
 #: Outside Ray's default worker-port range (10002-19999) and clear of its
 #: fixed ports, and only open while a transfer is under way.
 _IMAGE_SEED_PORT = 8271
+#: How long a machine may be offline before its cluster is told so. A backend
+#: restart disconnects every agent at once; they are back well inside this.
+_OFFLINE_GRACE_SEC = 120
 
 #: How long a seeding member keeps serving before giving up on its peers.
 _IMAGE_SEED_TIMEOUT_SEC = 3600
@@ -222,6 +226,38 @@ class RayEnvironmentManager:
         head_binding = node_bindings.get(str(head.node_id))
         head_host = (head_binding or {}).get("ip") or await self._host_of(session, head.node_id)
         head_address = f"{head_host}:{config.head_port}" if head_host else config.dashboard_host
+
+        # A member with no agent connected cannot take a command, and asking
+        # anyway reads as "the agent is slow" for as long as it stays away.
+        # Say which machine is gone instead, and wait: it is checked again
+        # the moment it reconnects.
+        gone, reconnecting = await self._offline_members(session, nodes)
+        if reconnecting and not gone:
+            # Dropped moments ago -- a backend restart drops every agent at
+            # once, and they are back within the minute. Declaring the cluster
+            # failed meanwhile showed a healthy cluster as failed after every
+            # restart. Leave it as it is and look again on the next pass.
+            log.info(
+                "Environment %s: %s reconnecting; checking again next pass",
+                environment.id, ", ".join(sorted(reconnecting.values())),
+            )
+            return
+        if gone:
+            offline = {**gone, **reconnecting}
+            names = ", ".join(sorted(offline.values()))
+            verb = "is" if len(offline) == 1 else "are"
+            head_gone = head.node_id in offline
+            self._observe(
+                environment,
+                EnvironmentStatus.FAILED if head_gone else EnvironmentStatus.DEGRADED,
+                RayClusterStatus(alive=False, observed=False),
+                expected_nodes=len(nodes),
+                reason=(
+                    f"{names} {verb} offline: no agent connected. "
+                    "The cluster is checked again when it reconnects."
+                ),
+            )
+            return
 
         fingerprint = await self._inputs_fingerprint(session, environment, nodes)
         waiting = self._held_back(environment, fingerprint)
@@ -594,6 +630,31 @@ class RayEnvironmentManager:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    async def _offline_members(session, nodes) -> tuple[dict, dict]:
+        """Members with no agent connected, as (gone, reconnecting).
+
+        Each maps node id -> name. *Reconnecting* is offline but heard from
+        within ``_OFFLINE_GRACE_SEC``: the normal state of every machine for
+        the minute after a backend restart.
+        """
+        from datetime import UTC, datetime, timedelta  # noqa: PLC0415
+
+        ids = [n.node_id for n in nodes]
+        if not ids:
+            return {}, {}
+        rows = await session.execute(select(InfraNode).where(InfraNode.id.in_(ids)))
+        cutoff = datetime.now(tz=UTC) - timedelta(seconds=_OFFLINE_GRACE_SEC)
+        gone: dict = {}
+        reconnecting: dict = {}
+        for node in rows.scalars():
+            if node.status != NodeHealthStatus.OFFLINE:
+                continue
+            name = node.agent_id or node.host or str(node.id)
+            recent = node.last_seen is not None and node.last_seen >= cutoff
+            (reconnecting if recent else gone)[node.id] = name
+        return gone, reconnecting
 
     async def _resolve_members(self, session, environment):
         """Return (head, workers, all_nodes).

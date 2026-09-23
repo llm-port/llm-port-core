@@ -18,6 +18,7 @@ request field to ``...`` so the two never clash.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import TYPE_CHECKING, Any
 
@@ -56,6 +57,8 @@ from llm_port_backend.services.inference.schemas import (
     InferenceDeploymentSpecV1Alpha1,
     parse_inference_deployment_spec,
 )
+
+log = logging.getLogger(__name__)
 
 
 class InferenceError(Exception):
@@ -198,6 +201,21 @@ class ControlPlaneService:
             _queue_for_reconcile(environment)
         await self.session.flush()
         return control_plane
+
+
+
+async def _forget_cluster_metrics(environment_id: uuid.UUID) -> None:
+    """Drop a deleted cluster's scrape targets and dashboard (best-effort)."""
+    try:
+        from llm_port_backend.services.llm.monitoring import (  # noqa: PLC0415
+            get_monitoring_provisioner,
+        )
+
+        provisioner = get_monitoring_provisioner()
+        if provisioner is not None:
+            await provisioner.remove_ray_targets(environment_id, drop_dashboard=True)
+    except Exception:  # noqa: BLE001 - monitoring never blocks a delete
+        log.warning("Could not remove metrics for deleted cluster %s", environment_id, exc_info=True)
 
 
 def _queue_for_reconcile(row: Any) -> None:
@@ -481,6 +499,7 @@ class EnvironmentService:
             )
         if not await self.dao.delete(environment_id):
             raise NotFoundError("environment", environment_id)
+        await _forget_cluster_metrics(environment_id)
 
     async def _no_member_reachable(self, environment_id: uuid.UUID) -> bool:
         from llm_port_backend.db.models.node_control import InfraNode, NodeHealthStatus  # noqa: PLC0415

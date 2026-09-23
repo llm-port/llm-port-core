@@ -28,6 +28,7 @@ from llm_port_backend.services.llm.base import (
     ProviderAdapter,
 )
 from llm_port_backend.services.llm.registry import register_adapter
+from llm_port_backend.services.tls import default_httpx_verify
 
 log = logging.getLogger(__name__)
 
@@ -65,7 +66,7 @@ class CloudAdapter(ProviderAdapter):
         if not runtime.endpoint_url:
             return HealthStatus(healthy=False, detail="No endpoint URL configured")
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
+            async with httpx.AsyncClient(verify=default_httpx_verify(), timeout=5.0) as client:
                 resp = await client.get(runtime.endpoint_url)
                 if resp.status_code >= 500:
                     return HealthStatus(

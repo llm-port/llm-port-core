@@ -35,6 +35,7 @@ from llm_port_backend.web.api.admin.auth_providers.schema import (
     UpdateAuthProviderRequest,
 )
 from llm_port_backend.web.api.admin.dependencies import require_superuser
+from llm_port_backend.services.tls import default_httpx_verify
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,7 @@ _auth_proxy_client: httpx.AsyncClient | None = None
 def _get_auth_client() -> httpx.AsyncClient:
     global _auth_proxy_client
     if _auth_proxy_client is None:
-        _auth_proxy_client = httpx.AsyncClient(timeout=_AUTH_API_TIMEOUT)
+        _auth_proxy_client = httpx.AsyncClient(verify=default_httpx_verify(), timeout=_AUTH_API_TIMEOUT)
     return _auth_proxy_client
 
 
@@ -433,13 +434,13 @@ async def oauth_callback(
     try:
         userinfo_url = provider.userinfo_url
         if not userinfo_url and provider.provider_type == "oidc" and provider.discovery_url:
-            async with httpx.AsyncClient() as http:
+            async with httpx.AsyncClient(verify=default_httpx_verify()) as http:
                 disc = await http.get(provider.discovery_url)
                 disc_data = disc.json()
                 userinfo_url = disc_data.get("userinfo_endpoint")
 
         if userinfo_url:
-            async with httpx.AsyncClient() as http:
+            async with httpx.AsyncClient(verify=default_httpx_verify()) as http:
                 resp = await http.get(
                     userinfo_url,
                     headers={"Authorization": f"Bearer {access_token}"},

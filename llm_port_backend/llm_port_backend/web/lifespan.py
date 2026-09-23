@@ -48,6 +48,7 @@ from llm_port_backend.services.system_settings.runtime_mapping import (
 from llm_port_backend.services.tls import build_asyncpg_ssl
 from llm_port_backend.settings import settings
 from llm_port_backend.tkq import broker
+from llm_port_backend.services.tls import default_httpx_verify
 
 log = logging.getLogger(__name__)
 
@@ -314,7 +315,7 @@ def _extract_setting_value(value_json: object) -> object:
 
 async def _start_notification_runtime(app: FastAPI) -> None:
     """Start background notification dispatcher and gateway alert monitor."""
-    http_client = httpx.AsyncClient()
+    http_client = httpx.AsyncClient(verify=default_httpx_verify())
     try:
         mailer_client = MailerClient(http_client=http_client)
         dispatcher = NotificationDispatcher(
@@ -770,6 +771,7 @@ async def lifespan_setup(
     setup_prometheus(app)
     app.state.docker = DockerService()
     app.state.http_client = httpx.AsyncClient(
+        verify=default_httpx_verify(),
         timeout=httpx.Timeout(connect=10.0, read=120.0, write=30.0, pool=10.0),
         limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
     )

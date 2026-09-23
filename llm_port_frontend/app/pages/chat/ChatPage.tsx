@@ -340,6 +340,7 @@ export default function ChatPage() {
                 />
               </Box>
               <ToolPanel
+                active={toolDrawerOpen}
                 sessionId={sessionId ?? null}
                 executionMode={executionMode}
                 localOverrides={localToolOverrides}

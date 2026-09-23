@@ -25,6 +25,7 @@ from llm_port_backend.services.llm.base import (
 )
 from llm_port_backend.services.llm.registry import register_adapter
 from llm_port_backend.settings import settings
+from llm_port_backend.services.tls import default_httpx_verify
 
 log = logging.getLogger(__name__)
 
@@ -305,7 +306,7 @@ class VLLMAdapter(ProviderAdapter):
         if not runtime.endpoint_url:
             return HealthStatus(healthy=False, detail="No endpoint URL configured")
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
+            async with httpx.AsyncClient(verify=default_httpx_verify(), timeout=5.0) as client:
                 resp = await client.get(f"{runtime.endpoint_url}/health")
                 if resp.status_code == 200:
                     return HealthStatus(healthy=True)

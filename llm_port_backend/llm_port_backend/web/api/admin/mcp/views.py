@@ -20,6 +20,7 @@ from llm_port_backend.db.models.users import User
 from llm_port_backend.services.docker.client import DockerService
 from llm_port_backend.services.mcp.client import MCPServiceClient, get_mcp_client
 from llm_port_backend.web.api.admin.dependencies import get_docker, require_superuser
+from llm_port_backend.services.tls import default_httpx_verify
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -304,7 +305,7 @@ async def _probe_mcp_port(
         "Accept": "application/json, text/event-stream",
     }
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with httpx.AsyncClient(verify=default_httpx_verify(), timeout=timeout) as client:
             resp = await client.post(url, json=payload, headers=headers)
             if resp.status_code != 200:
                 return None
