@@ -8,6 +8,7 @@
  * their own.
  */
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { inferenceApi, type ControlPlane } from "~/api/inference";
 
@@ -46,6 +47,11 @@ export function ControlPlanesDialog({
   onClose,
   onChanged,
 }: ControlPlanesDialogProps) {
+  const { t } = useTranslation();
+  const planeStatus = (status: string) =>
+    ["pending", "connected", "disconnected", "degraded", "failed", "disabled"].includes(status)
+      ? t(`inference.planes.status_${status}`)
+      : status;
   const [planes, setPlanes] = useState<ControlPlane[]>([]);
   const [drivers, setDrivers] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -96,25 +102,24 @@ export function ControlPlanesDialog({
 
   return (
     <Dialog open={open} onClose={busy ? undefined : onClose} maxWidth="md" fullWidth>
-      <DialogTitle>Inference control planes</DialogTitle>
+      <DialogTitle>{t("inference.planes.title")}</DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
           {error && <Alert severity="error">{error}</Alert>}
 
           {planes.length === 0 ? (
             <Typography variant="body2" color="text.secondary">
-              No control plane yet. One is enough to start: it names the driver
-              that will operate every environment created under it.
+              {t("inference.planes.empty")}
             </Typography>
           ) : (
             <Table size="small">
               <TableHead>
                 <TableRow>
-                  <TableCell>Name</TableCell>
-                  <TableCell>Driver</TableCell>
-                  <TableCell>Status</TableCell>
-                  <TableCell align="center">Enabled</TableCell>
-                  <TableCell align="right">Actions</TableCell>
+                  <TableCell>{t("common.name")}</TableCell>
+                  <TableCell>{t("inference.planes.driver")}</TableCell>
+                  <TableCell>{t("common.status")}</TableCell>
+                  <TableCell align="center">{t("common.enabled")}</TableCell>
+                  <TableCell align="right">{t("common.actions")}</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -130,14 +135,14 @@ export function ControlPlanesDialog({
                         }
                       />
                     </TableCell>
-                    <TableCell>{plane.status}</TableCell>
+                    <TableCell>{planeStatus(plane.status)}</TableCell>
                     <TableCell align="center">
                       <Switch
                         size="small"
                         checked={plane.enabled}
                         disabled={busy}
                         slotProps={{
-                          input: { "aria-label": `Enable ${plane.name}` },
+                          input: { "aria-label": t("inference.planes.enable", { name: plane.name }) },
                         }}
                         onChange={(_, checked) =>
                           void run(() =>
@@ -149,12 +154,12 @@ export function ControlPlanesDialog({
                       />
                     </TableCell>
                     <TableCell align="right">
-                      <Tooltip title="Delete">
+                      <Tooltip title={t("common.delete")}>
                         <span>
                           <Button
                             size="small"
                             color="error"
-                            aria-label={`Delete ${plane.name}`}
+                            aria-label={t("inference.planes.delete", { name: plane.name })}
                             disabled={busy}
                             onClick={() =>
                               void run(() =>
@@ -175,16 +180,15 @@ export function ControlPlanesDialog({
 
           <Divider />
 
-          <Typography variant="subtitle2">New control plane</Typography>
+          <Typography variant="subtitle2">{t("inference.planes.new")}</Typography>
           {drivers.length === 0 && (
             <Alert severity="warning">
-              No driver is registered on this server, so a control plane created
-              here would answer 501 to every operation.
+              {t("inference.planes.no_driver")}
             </Alert>
           )}
           <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
             <TextField
-              label="Name"
+              label={t("common.name")}
               size="small"
               value={form.name}
               fullWidth
@@ -192,7 +196,7 @@ export function ControlPlanesDialog({
             />
             <TextField
               select
-              label="Driver"
+              label={t("inference.planes.driver")}
               size="small"
               value={form.driver}
               sx={{ minWidth: 160 }}
@@ -207,7 +211,7 @@ export function ControlPlanesDialog({
             </TextField>
           </Stack>
           <TextField
-            label="Description (optional)"
+            label={t("inference.planes.description")}
             size="small"
             value={form.description}
             fullWidth
@@ -229,14 +233,14 @@ export function ControlPlanesDialog({
                 })
               }
             >
-              Create
+              {t("common.create")}
             </Button>
           </Box>
         </Stack>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} disabled={busy}>
-          Close
+          {t("common.close")}
         </Button>
       </DialogActions>
     </Dialog>

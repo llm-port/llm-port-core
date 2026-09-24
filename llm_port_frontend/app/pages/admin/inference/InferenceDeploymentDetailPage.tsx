@@ -68,7 +68,7 @@ import TuneIcon from "@mui/icons-material/Tune";
 
 import { suggestChatName } from "../clusters/DeployModelWizard";
 import { gpuCount } from "../clusters/readiness";
-import { nodeLabel, phaseLabel } from "../clusters/presentation";
+import { clusterStatusLabel, nodeLabel, phaseLabel } from "../clusters/presentation";
 import {
   JsonBlock,
   LabeledValue,
@@ -194,11 +194,11 @@ function ms(value: number | null): string {
  * would tell an operator their hardware was broken.
  */
 function TrafficRow({ traffic }: { traffic: GatewayTraffic | null }) {
+  const { t } = useTranslation();
   if (traffic === null) {
     return (
       <Typography variant="caption" color="text.disabled" sx={{ mt: 1, display: "block" }}>
-        Nothing is routed to this deployment yet, so there are no per-request
-        figures.
+        {t("inference.detail.traffic_none_routed")}
       </Typography>
     );
   }
@@ -207,7 +207,7 @@ function TrafficRow({ traffic }: { traffic: GatewayTraffic | null }) {
   if (traffic.requests === 0) {
     return (
       <Typography variant="caption" color="text.disabled" sx={{ mt: 1, display: "block" }}>
-        No requests in the last {minutes} minutes.
+        {t("inference.detail.traffic_no_requests", { count: minutes })}
       </Typography>
     );
   }
@@ -215,51 +215,51 @@ function TrafficRow({ traffic }: { traffic: GatewayTraffic | null }) {
   const cards: StatCardItem[] = [
     {
       key: "requests",
-      label: "Requests",
+      label: t("inference.detail.traffic_requests"),
       value: String(traffic.requests),
     },
     {
       key: "speed",
-      label: "Generation speed",
+      label: t("inference.detail.traffic_speed"),
       value:
         traffic.output_tokens_per_sec === null
           ? null
           : `${traffic.output_tokens_per_sec} tok/s`,
-      emptyHint: "Nothing has been generated in this window.",
+      emptyHint: t("inference.detail.traffic_speed_empty"),
     },
     {
       key: "ttft",
-      label: "Time to first token",
+      label: t("inference.detail.traffic_ttft"),
       value: traffic.p50_ttft_ms === null ? null : ms(traffic.p50_ttft_ms),
-      emptyHint: "Only streaming responses have a time to first token.",
+      emptyHint: t("inference.detail.traffic_ttft_empty"),
     },
     {
       key: "ttft95",
-      label: "TTFT p95",
+      label: t("inference.detail.traffic_ttft95"),
       value: traffic.p95_ttft_ms === null ? null : ms(traffic.p95_ttft_ms),
-      emptyHint: "Only streaming responses have a time to first token.",
+      emptyHint: t("inference.detail.traffic_ttft_empty"),
     },
     {
       key: "latency",
-      label: "Request latency",
+      label: t("inference.detail.traffic_latency"),
       value:
         traffic.p50_latency_ms === null ? null : ms(traffic.p50_latency_ms),
     },
     {
       key: "failed",
-      label: "Failed",
+      label: t("inference.detail.traffic_failed"),
       value:
         traffic.error_rate === null
           ? null
           : `${traffic.errors} (${(traffic.error_rate * 100).toFixed(1)}%)`,
-      emptyHint: "A failure rate over no requests is unknown, not zero.",
+      emptyHint: t("inference.detail.traffic_failed_empty"),
     },
   ];
 
   return (
     <>
       <Typography variant="caption" color="text.secondary" sx={{ mt: 2, display: "block" }}>
-        Measured at the gateway, last {minutes} minutes
+        {t("inference.detail.traffic_window", { count: minutes })}
       </Typography>
       <StatCardRow cards={cards} />
     </>
@@ -312,7 +312,7 @@ function EngineRow({ deploymentId }: { deploymentId: string }) {
   return (
     <>
       <Typography variant="caption" color="text.secondary" sx={{ mt: 2, display: "block" }}>
-        Reported by the engine
+        {t("inference.detail.engine_reported")}
       </Typography>
       <StatCardRow
         cards={cards}
@@ -356,7 +356,10 @@ function EngineRow({ deploymentId }: { deploymentId: string }) {
 
 export default function InferenceDeploymentDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const { t } = useTranslation();
   const navigate = useNavigate();
+  const roleLabel = (role: string) =>
+    role === "head" || role === "worker" ? t(`clusters.role.${role}`) : role;
   // The only call the page frame needs.
   const {
     data: deployment,
@@ -573,7 +576,7 @@ export default function InferenceDeploymentDetailPage() {
       await action();
       await refresh();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Action failed.");
+      setError(err instanceof Error ? err.message : t("common.action_failed"));
     } finally {
       setBusy(null);
     }
@@ -603,7 +606,7 @@ export default function InferenceDeploymentDetailPage() {
       setScaleOpen(false);
       await refresh();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Scale failed.");
+      setError(err instanceof Error ? err.message : t("inference.detail.scale_failed"));
     } finally {
       setScaling(false);
     }
@@ -628,7 +631,7 @@ export default function InferenceDeploymentDetailPage() {
       setChatOpen(false);
       await refresh();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Could not change the chat name.");
+      setError(err instanceof Error ? err.message : t("inference.detail.chat_failed"));
     } finally {
       setChatSaving(false);
     }
@@ -645,7 +648,7 @@ export default function InferenceDeploymentDetailPage() {
   if (!deployment) {
     return (
       <Box sx={{ p: 2 }}>
-        <Alert severity="error">{error ?? "Deployment not found."}</Alert>
+        <Alert severity="error">{error ?? t("inference.detail.not_found")}</Alert>
       </Box>
     );
   }
@@ -676,7 +679,7 @@ export default function InferenceDeploymentDetailPage() {
           startIcon={<ArrowBackIcon />}
           onClick={() => navigate("/admin/deployments")}
         >
-          Deployments
+          {t("clusters.deployments.title")}
         </Button>
         <Typography variant="h6" sx={{ flexGrow: 1 }}>
           {deployment.name}
@@ -689,7 +692,7 @@ export default function InferenceDeploymentDetailPage() {
             setScaleOpen(true);
           }}
         >
-          Scale
+          {t("inference.detail.scale")}
         </Button>
         <Button
           size="small"
@@ -701,7 +704,7 @@ export default function InferenceDeploymentDetailPage() {
             )
           }
         >
-          Check now
+          {t("clusters.detail.check_now")}
         </Button>
         {deployment.desired_state === "active" ? (
           <Button
@@ -717,7 +720,7 @@ export default function InferenceDeploymentDetailPage() {
               )
             }
           >
-            Stop
+            {t("common.stop")}
           </Button>
         ) : (
           <Button
@@ -733,7 +736,7 @@ export default function InferenceDeploymentDetailPage() {
               )
             }
           >
-            Start
+            {t("common.start")}
           </Button>
         )}
       </Stack>
@@ -744,7 +747,7 @@ export default function InferenceDeploymentDetailPage() {
           <Grid container spacing={2}>
             <Grid size={{ xs: 12, sm: 6, md: 3 }}>
               <Typography variant="caption" color="text.secondary" display="block">
-                Health
+                {t("inference.detail.health")}
               </Typography>
               <Stack direction="row" spacing={0.5} alignItems="center">
                 <Chip
@@ -756,20 +759,27 @@ export default function InferenceDeploymentDetailPage() {
                   <Chip
                     size="small"
                     variant="outlined"
-                    label={`desired: ${deployment.desired_state}`}
+                    label={t("inference.detail.desired", {
+                      state:
+                        deployment.desired_state === "stopped"
+                          ? t("clusters.phase.stopped")
+                          : deployment.desired_state === "deleted"
+                            ? t("clusters.phase.deleted")
+                            : deployment.desired_state,
+                    })}
                   />
                 )}
               </Stack>
             </Grid>
             <Grid size={{ xs: 12, sm: 6, md: 3 }}>
               <LabeledValue
-                label="Copies (ready / wanted)"
+                label={t("inference.detail.copies")}
                 value={`${deployment.ready_replicas} / ${copiesWanted(deployment)}`}
               />
             </Grid>
             <Grid size={{ xs: 12, sm: 6, md: 3 }}>
               <Typography variant="caption" color="text.secondary" display="block">
-                Cluster
+                {t("clusters.deployments.col_cluster")}
               </Typography>
               {environment ? (
                 <Stack direction="row" spacing={0.5} alignItems="center">
@@ -784,7 +794,7 @@ export default function InferenceDeploymentDetailPage() {
                   </Button>
                   <Chip
                     size="small"
-                    label={environment.status}
+                    label={clusterStatusLabel(environment.status)}
                     color={environmentStatusColor(environment.status)}
                   />
                 </Stack>
@@ -796,33 +806,35 @@ export default function InferenceDeploymentDetailPage() {
             </Grid>
             <Grid size={{ xs: 12, sm: 6, md: 3 }}>
               <LabeledValue
-                label="Model"
+                label={t("clusters.deployments.col_model")}
                 value={data.model?.display_name ?? shortId(deployment.model_id)}
               />
             </Grid>
             <Grid size={{ xs: 12, md: 6 }}>
               <LabeledValue
-                label="Last checked"
+                label={t("inference.detail.last_checked")}
                 value={reconcileSummary(deployment)}
               />
             </Grid>
             <Grid size={{ xs: 12, md: 6 }}>
               <LabeledValue
-                label="Last message"
+                label={t("inference.detail.last_message")}
                 value={
                   deployment.phase_message ??
                   asText(observation.reason) ??
-                  "none reported"
+                  t("clusters.detail.none_reported")
                 }
               />
             </Grid>
             <Grid size={{ xs: 12, md: 6 }}>
               <Typography variant="caption" color="text.secondary" display="block">
-                In chat
+                {t("inference.detail.in_chat")}
               </Typography>
               <Stack direction="row" spacing={1} alignItems="center">
                 <Typography variant="body2" data-testid="chat-alias">
-                  {chatAlias ? `offered as ${chatAlias}` : "not offered: endpoint only"}
+                  {chatAlias
+                    ? t("inference.detail.offered_as", { alias: chatAlias })
+                    : t("inference.detail.not_offered")}
                 </Typography>
                 <Button
                   size="small"
@@ -831,7 +843,7 @@ export default function InferenceDeploymentDetailPage() {
                     setChatOpen(true);
                   }}
                 >
-                  {chatAlias ? "Change" : "Offer in chat"}
+                  {chatAlias ? t("inference.detail.change") : t("inference.detail.offer_in_chat")}
                 </Button>
               </Stack>
             </Grid>
@@ -843,20 +855,20 @@ export default function InferenceDeploymentDetailPage() {
       <Card variant="outlined">
         <CardContent>
           <Typography variant="subtitle2" gutterBottom>
-            Machines
+            {t("clusters.detail.machines")}
           </Typography>
           {data.members.length === 0 ? (
             <Typography variant="body2" color="text.secondary">
-              This cluster has no machines yet.
+              {t("inference.detail.no_machines")}
             </Typography>
           ) : (
             <Table size="small">
               <TableHead>
                 <TableRow>
-                  <TableCell>Machine</TableCell>
-                  <TableCell>Role</TableCell>
-                  <TableCell>Ray status</TableCell>
-                  <TableCell>Joined</TableCell>
+                  <TableCell>{t("inference.detail.col_machine")}</TableCell>
+                  <TableCell>{t("inference.detail.col_role")}</TableCell>
+                  <TableCell>{t("inference.detail.col_ray_status")}</TableCell>
+                  <TableCell>{t("clusters.detail.joined")}</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -870,11 +882,11 @@ export default function InferenceDeploymentDetailPage() {
                     <TableCell>
                       <Chip
                         size="small"
-                        label={member.role}
+                        label={roleLabel(member.role)}
                         color={member.role === "head" ? "primary" : "default"}
                       />
                     </TableCell>
-                    <TableCell>{member.member_status ?? "unknown"}</TableCell>
+                    <TableCell>{member.member_status ?? t("clusters.unknown_machine")}</TableCell>
                     <TableCell>{formatTimestamp(member.joined_at)}</TableCell>
                   </TableRow>
                 ))}
@@ -893,7 +905,7 @@ export default function InferenceDeploymentDetailPage() {
             justifyContent="space-between"
             sx={{ mb: 1 }}
           >
-            <Typography variant="subtitle2">Model files</Typography>
+            <Typography variant="subtitle2">{t("inference.detail.model_files")}</Typography>
             <Button
               size="small"
               startIcon={<SyncIcon />}
@@ -907,12 +919,12 @@ export default function InferenceDeploymentDetailPage() {
                 )
               }
             >
-              Sync
+              {t("inference.detail.sync")}
             </Button>
           </Stack>
           {!artifacts ? (
             <Typography variant="body2" color="text.secondary">
-              We could not check whether the model files are in place.
+              {t("inference.detail.files_unknown")}
             </Typography>
           ) : (
             <>
@@ -922,14 +934,19 @@ export default function InferenceDeploymentDetailPage() {
                   color={artifacts.all_ready ? "success" : "warning"}
                   label={
                     artifacts.all_ready
-                      ? "on every machine"
-                      : `on ${artifacts.ready_node_ids.length} of ${artifactRows.length} machines`
+                      ? t("inference.detail.files_everywhere")
+                      : t("inference.detail.files_on_some", {
+                          ready: artifacts.ready_node_ids.length,
+                          total: artifactRows.length,
+                        })
                   }
                 />
                 <Chip
                   size="small"
                   variant="outlined"
-                  label={`revision ${artifacts.desired_revision ?? "unresolved"}`}
+                  label={t("inference.detail.revision", {
+                    revision: artifacts.desired_revision ?? t("inference.detail.unresolved"),
+                  })}
                 />
               </Stack>
               {/* Per-node state, not a spinner: a node stuck on FAILED must be
@@ -937,9 +954,9 @@ export default function InferenceDeploymentDetailPage() {
               <Table size="small">
                 <TableHead>
                   <TableRow>
-                    <TableCell>Machine</TableCell>
-                    <TableCell>State</TableCell>
-                    <TableCell>Root path</TableCell>
+                    <TableCell>{t("inference.detail.col_machine")}</TableCell>
+                    <TableCell>{t("clusters.deployments.col_state")}</TableCell>
+                    <TableCell>{t("inference.detail.col_root_path")}</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -949,7 +966,7 @@ export default function InferenceDeploymentDetailPage() {
                       <TableCell>
                         <Chip
                           size="small"
-                          label={row.state}
+                          label={t(`inference.detail.file_state_${row.state}`)}
                           color={
                             row.state === "ready"
                               ? "success"
@@ -980,20 +997,20 @@ export default function InferenceDeploymentDetailPage() {
       <Card variant="outlined">
         <CardContent>
           <Typography variant="subtitle2" gutterBottom>
-            Endpoints
+            {t("inference.detail.endpoints")}
           </Typography>
           {data.endpoints.length === 0 ? (
             <Typography variant="body2" color="text.secondary">
-              No address yet. One appears once the first copy is serving.
+              {t("inference.detail.no_endpoint")}
             </Typography>
           ) : (
             <Table size="small">
               <TableHead>
                 <TableRow>
-                  <TableCell>Name</TableCell>
-                  <TableCell>URL</TableCell>
-                  <TableCell>Status</TableCell>
-                  <TableCell>Message</TableCell>
+                  <TableCell>{t("common.name")}</TableCell>
+                  <TableCell>{t("inference.detail.col_url")}</TableCell>
+                  <TableCell>{t("common.status")}</TableCell>
+                  <TableCell>{t("inference.detail.col_message")}</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -1024,41 +1041,41 @@ export default function InferenceDeploymentDetailPage() {
       <Card variant="outlined">
         <CardContent>
           <Typography variant="subtitle2" gutterBottom>
-            Metrics
+            {t("inference.detail.metrics")}
           </Typography>
           {data.metricsError ? (
             <Alert severity="info">
-              Metrics are not available here: {data.metricsError}
+              {t("clusters.detail.metrics_unavailable", { error: data.metricsError })}
             </Alert>
           ) : !data.metrics ? (
             <Typography variant="body2" color="text.secondary">
-              No metrics observed yet.
+              {t("inference.detail.no_metrics")}
             </Typography>
           ) : (
             <>
               <Grid container spacing={2}>
                 <Grid size={{ xs: 6, md: 3 }}>
                   <LabeledValue
-                    label="Application"
-                    value={data.metrics.app_name ?? "not applied"}
+                    label={t("inference.detail.application")}
+                    value={data.metrics.app_name ?? t("inference.detail.not_applied")}
                     mono
                   />
                 </Grid>
                 <Grid size={{ xs: 6, md: 3 }}>
                   <LabeledValue
-                    label="Runtime state"
-                    value={data.metrics.app_status ?? "unknown"}
+                    label={t("inference.detail.runtime_state")}
+                    value={data.metrics.app_status ?? t("clusters.unknown_machine")}
                   />
                 </Grid>
                 <Grid size={{ xs: 6, md: 3 }}>
                   <LabeledValue
-                    label="Copies ready"
+                    label={t("inference.detail.copies_ready")}
                     value={`${data.metrics.replicas_ready} / ${data.metrics.replicas_total}`}
                   />
                 </Grid>
                 <Grid size={{ xs: 6, md: 3 }}>
                   <LabeledValue
-                    label="Observed at"
+                    label={t("inference.detail.observed_at")}
                     value={formatTimestamp(data.metrics.observed_at)}
                   />
                 </Grid>
@@ -1076,11 +1093,11 @@ export default function InferenceDeploymentDetailPage() {
                 <Table size="small" sx={{ mt: 1 }}>
                   <TableHead>
                     <TableRow>
-                      <TableCell>Component</TableCell>
-                      <TableCell>Status</TableCell>
-                      <TableCell align="right">Ready</TableCell>
-                      <TableCell align="right">Pending</TableCell>
-                      <TableCell>Message</TableCell>
+                      <TableCell>{t("inference.detail.col_component")}</TableCell>
+                      <TableCell>{t("common.status")}</TableCell>
+                      <TableCell align="right">{t("inference.detail.col_ready")}</TableCell>
+                      <TableCell align="right">{t("inference.detail.col_pending")}</TableCell>
+                      <TableCell>{t("inference.detail.col_message")}</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -1106,8 +1123,9 @@ export default function InferenceDeploymentDetailPage() {
               {data.metrics.scrape_targets.length > 0 && (
                 <Box sx={{ mt: 1 }}>
                   <Typography variant="caption" color="text.secondary">
-                    Prometheus targets:{" "}
-                    {data.metrics.scrape_targets.map((t) => t.url).join(", ")}
+                    {t("clusters.detail.prometheus_targets", {
+                      targets: data.metrics.scrape_targets.map((target) => target.url).join(", "),
+                    })}
                   </Typography>
                 </Box>
               )}
@@ -1131,38 +1149,38 @@ export default function InferenceDeploymentDetailPage() {
             sx={{ mb: 1 }}
           >
             <Typography variant="subtitle2" sx={{ flexGrow: 1 }}>
-              Logs
+              {t("inference.detail.logs")}
             </Typography>
             <TextField
               select
               size="small"
-              label="Source"
+              label={t("inference.detail.log_source")}
               value={logSource}
               sx={{ minWidth: 180 }}
               onChange={(e) => setLogSource(e.target.value as LogSource)}
             >
-              <MenuItem value="runtime_container">Runtime container</MenuItem>
-              <MenuItem value="serve_replica">Serve replica</MenuItem>
+              <MenuItem value="runtime_container">{t("inference.detail.log_runtime")}</MenuItem>
+              <MenuItem value="serve_replica">{t("inference.detail.log_replica")}</MenuItem>
             </TextField>
             <TextField
               select
               size="small"
-              label="Node"
+              label={t("inference.detail.log_machine")}
               value={logNodeId}
               sx={{ minWidth: 180 }}
               onChange={(e) => setLogNodeId(e.target.value)}
             >
-              <MenuItem value="">Cluster head</MenuItem>
+              <MenuItem value="">{t("inference.detail.log_head")}</MenuItem>
               {data.members.map((member) => (
                 <MenuItem key={member.node_id} value={member.node_id}>
-                  {nodeHost(member.node_id)} ({member.role})
+                  {nodeHost(member.node_id)} ({roleLabel(member.role)})
                 </MenuItem>
               ))}
             </TextField>
             <TextField
               size="small"
               type="number"
-              label="Tail"
+              label={t("inference.detail.log_tail")}
               value={logTail}
               sx={{ width: 110 }}
               slotProps={{ htmlInput: { min: 1, max: 5000 } }}
@@ -1178,7 +1196,7 @@ export default function InferenceDeploymentDetailPage() {
               disabled={logLoading}
               onClick={() => void loadLogs()}
             >
-              Fetch
+              {t("inference.detail.fetch")}
             </Button>
           </Stack>
 
@@ -1192,7 +1210,7 @@ export default function InferenceDeploymentDetailPage() {
             <>
               {logPage.truncated && (
                 <Typography variant="caption" color="text.secondary">
-                  Truncated to the last {logTail} lines.
+                  {t("inference.detail.truncated", { count: logTail })}
                 </Typography>
               )}
               <Box
@@ -1227,7 +1245,7 @@ export default function InferenceDeploymentDetailPage() {
             // An empty page carries its own reason, so "nothing logged" and
             // "the node never answered" never look the same.
             <Typography variant="body2" color="text.secondary">
-              {logPage?.detail ?? "No log lines returned."}
+              {logPage?.detail ?? t("inference.detail.no_log_lines")}
             </Typography>
           )}
         </CardContent>
@@ -1237,72 +1255,71 @@ export default function InferenceDeploymentDetailPage() {
       <Card variant="outlined">
         <CardContent>
           <Typography variant="subtitle2" gutterBottom>
-            Advanced
+            {t("clusters.detail.advanced")}
           </Typography>
           <Stack spacing={1}>
             <JsonBlock
               value={deployment.observed_status}
-              label="Show raw provider status"
+              label={t("clusters.detail.raw_status")}
             />
-            <JsonBlock value={deployment.spec} label="Show deployment spec" />
+            <JsonBlock value={deployment.spec} label={t("inference.detail.show_spec")} />
           </Stack>
         </CardContent>
       </Card>
 
       <FormDialog
         open={chatOpen}
-        title="Offer in chat"
+        title={t("inference.detail.offer_in_chat")}
         loading={chatSaving}
-        submitLabel="Save"
+        submitLabel={t("common.save")}
         onSubmit={() => void handleChatName()}
         onClose={() => setChatOpen(false)}
       >
         <Stack spacing={2} sx={{ mt: 1 }}>
           <TextField
-            label="Offer in chat as"
+            label={t("inference.detail.offer_as_label")}
             value={chatInput}
             autoFocus
             fullWidth
             onChange={(e) => setChatInput(e.target.value)}
           />
           <Typography variant="caption" color="text.secondary">
-            The name people pick in chat and use at the API. Deployments that
-            share a name share the traffic. Leave it empty to serve this one by
-            its endpoint only. The model keeps running while this changes.
+            {t("inference.detail.offer_as_help")}
           </Typography>
         </Stack>
       </FormDialog>
 
       <FormDialog
         open={scaleOpen}
-        title="Scale"
+        title={t("inference.detail.scale")}
         loading={scaling}
-        submitLabel="Apply"
+        submitLabel={t("inference.detail.apply")}
         onSubmit={() => void handleScale()}
         onClose={() => setScaleOpen(false)}
       >
         <Stack spacing={2} sx={{ mt: 1 }}>
           <TextField
-            label="Copies"
+            label={t("clusters.deployments.col_copies")}
             type="number"
             value={replicaInput}
             slotProps={{ htmlInput: { min: 1 } }}
-            helperText="More copies serve more requests at once. The model keeps serving while copies are added or removed."
+            helperText={t("inference.detail.scale_help")}
             onChange={(e) =>
               setReplicaInput(Math.max(1, Number(e.target.value) || 1))
             }
           />
           {copiesThatFit !== null && (
             <Typography variant="body2" color="text.secondary" data-testid="scale-capacity">
-              Each copy uses {perCopy} accelerator{perCopy === 1 ? "" : "s"}. This cluster
-              has {clusterAccelerators}, so up to {copiesThatFit} cop{copiesThatFit === 1 ? "y fits" : "ies fit"}
-              {" "}when nothing else is running on it.
+              {t("inference.detail.scale_capacity", {
+                perCopy: t("inference.detail.accelerators", { count: perCopy }),
+                total: clusterAccelerators,
+                fit: t("inference.detail.copies_fit", { count: copiesThatFit }),
+              })}
             </Typography>
           )}
           {copiesThatFit !== null && replicaInput > copiesThatFit && (
             <Alert severity="warning" data-testid="scale-over-capacity">
-              Only {copiesThatFit} fit. The others will wait for an accelerator, and
-              the page will say so. Add a machine to the cluster to run more.
+              {t("inference.detail.scale_over", { count: copiesThatFit })}
             </Alert>
           )}
         </Stack>

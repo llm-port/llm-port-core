@@ -7,6 +7,8 @@
  * an error would hide the tiers that did report.
  */
 import { useState } from "react";
+import i18n from "i18next";
+import { useTranslation } from "react-i18next";
 
 import Alert from "@mui/material/Alert";
 import AlertTitle from "@mui/material/AlertTitle";
@@ -86,10 +88,11 @@ export function endpointStatusColor(status: string): ChipColor {
 }
 
 export function formatTimestamp(iso: string | null | undefined): string {
-  if (!iso) return "never";
+  if (!iso) return i18n.t("inference.never");
   const parsed = new Date(iso);
   if (Number.isNaN(parsed.getTime())) return iso;
-  return parsed.toLocaleString();
+  // The reader's language, not the browser's default locale.
+  return parsed.toLocaleString(i18n.language || undefined);
 }
 
 /** Short id form for tables. Full ids stay available in tooltips. */
@@ -112,7 +115,7 @@ export function reconcileSummary(row: {
   // Not "pending (gen 3, observed 2)": the operator's question is whether the
   // change they just made is being acted on, not the bookkeeping behind it.
   if (row.observed_generation < row.generation) {
-    return "checking now";
+    return i18n.t("inference.checking_now");
   }
   return formatTimestamp(row.updated_at);
 }
@@ -166,6 +169,7 @@ export function PartialsNotice({
   partials,
   title,
 }: PartialsNoticeProps) {
+  const { t } = useTranslation();
   if (!partials.length) return null;
   // One warning is enough to make the whole notice a warning; otherwise this
   // is information.
@@ -173,7 +177,7 @@ export function PartialsNotice({
     ? "warning"
     : "info";
   const heading =
-    title ?? (severity === "warning" ? "Partial metrics" : "About these figures");
+    title ?? (severity === "warning" ? t("inference.partial_metrics") : t("inference.about_figures"));
   return (
     <Alert severity={severity} variant="outlined" sx={{ mt: 1 }}>
       <AlertTitle>{heading}</AlertTitle>
@@ -227,14 +231,15 @@ export interface JsonBlockProps {
 /** Collapsed raw JSON view for advanced provider status. */
 export function JsonBlock({
   value,
-  label = "Show raw JSON",
+  label,
   maxHeight = 420,
 }: JsonBlockProps) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   return (
     <Box>
       <Button size="small" onClick={() => setOpen((prev) => !prev)}>
-        {open ? "Hide raw JSON" : label}
+        {open ? t("inference.hide_json") : (label ?? t("inference.show_json"))}
       </Button>
       {open && (
         <Box
