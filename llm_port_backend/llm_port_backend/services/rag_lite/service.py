@@ -267,7 +267,7 @@ class RagLiteService:
         collection_ids: list[uuid.UUID] | None = None,
         hybrid: bool = False,
         reranker: RerankClient | None = None,
-        candidates: int = 30,
+        candidates: int = 10,
     ) -> list[dict[str, Any]]:
         """The *top_k* chunks for *query*.
 

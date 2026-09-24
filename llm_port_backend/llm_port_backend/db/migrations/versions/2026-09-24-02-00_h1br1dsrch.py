@@ -3,7 +3,7 @@
 Search was by vector alone: exact terms -- product codes, error numbers,
 names -- that an embedding blurs were easy to miss. ``content_tsv`` is a
 generated full-text column (English: stemmed, stop words out) over the chunk
-and its ``context`` (what the chunk belongs to, set at ingest), with a GIN
+and its ``context`` (what the chunk belongs to; not written yet), with a GIN
 index. ``content_len`` -- its count of distinct words -- is BM25's document
 length. Being generated, both fill themselves for the chunks already stored.
 

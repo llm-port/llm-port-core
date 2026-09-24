@@ -279,8 +279,10 @@ class Settings(BaseSettings):
     #: picks by model name (Qwen3-Reranker needs its instruction template),
     #: "qwen3", or "none".
     rag_lite_rerank_template: str = "auto"
-    #: How many fused candidates the reranker sees.
-    rag_lite_rerank_candidates: int = 30
+    #: How many fused candidates the reranker sees. Its time grows with them:
+    #: on RAGBench 10 ranked as well as 30 (mean MRR 0.878 both) in 40% of
+    #: the time (techqa 444 ms against 1,170 ms on a TITAN RTX).
+    rag_lite_rerank_candidates: int = 10
 
     # Chat & Sessions module settings (gateway feature, managed from backend)
     sessions_enabled: bool = True
