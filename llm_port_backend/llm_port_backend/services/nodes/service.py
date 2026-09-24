@@ -512,15 +512,15 @@ class NodeControlService:
                     message="Node stream closed while the command was in flight.",
                     payload_json=None,
                 )
-                await self._apply_runtime_side_effect(
-                    command=command,
-                    success=False,
-                    payload={
-                        "success": False,
-                        "error_code": "node_stream_lost",
-                        "error_message": "The node's connection closed mid-command.",
-                    },
-                )
+                lost = {
+                    "success": False,
+                    "error_code": "node_stream_lost",
+                    "error_message": "The node's connection closed mid-command.",
+                }
+                await self._apply_runtime_side_effect(command=command, success=False, payload=lost)
+                # A model copy that died with the stream must say so, or its
+                # row reads "syncing" and the deployment waits an hour for it.
+                await self._apply_model_sync_side_effect(command=command, success=False, payload=lost)
                 failed += 1
             except Exception:  # pragma: no cover - one bad row must not stop the rest
                 log.exception("Could not fail in-flight command %s", command.id)
@@ -872,14 +872,13 @@ class NodeControlService:
                     message="Command reaped: node offline with no result in flight.",
                     payload_json=None,
                 )
-                await self._apply_runtime_side_effect(
-                    command=command, success=False,
-                    payload={
-                        "success": False,
-                        "error_code": "command_timed_out",
-                        "error_message": "Command timed out with no node connection (node offline).",
-                    },
-                )
+                timed_out = {
+                    "success": False,
+                    "error_code": "command_timed_out",
+                    "error_message": "Command timed out with no node connection (node offline).",
+                }
+                await self._apply_runtime_side_effect(command=command, success=False, payload=timed_out)
+                await self._apply_model_sync_side_effect(command=command, success=False, payload=timed_out)
                 reaped += 1
                 log.warning(
                     "Reaped stale command %s (%s) on offline node %s",

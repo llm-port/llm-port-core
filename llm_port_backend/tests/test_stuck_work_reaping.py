@@ -438,6 +438,40 @@ async def test_a_command_in_flight_when_the_stream_closes_is_failed_at_once(
     assert command.error_code == "node_stream_lost"
 
 
+async def test_a_model_copy_that_died_with_the_stream_is_retried_not_waited_on(
+    dbsession: AsyncSession,
+) -> None:
+    """Found on the DGX pair: the copy failed, its row still read "syncing".
+
+    The deployment then waited for a copy nothing was doing, until the row
+    went stale an hour later. A failed row is retried after the usual backoff.
+    """
+    from llm_port_backend.db.dao.inference_dao import ModelAvailabilityDAO
+    from llm_port_backend.db.models.inference import ModelAvailabilityStatus
+    from llm_port_backend.db.models.llm import LLMModel, ModelSource, ModelStatus
+
+    service = _service(dbsession)
+    node = await _node(dbsession, status=NodeHealthStatus.HEALTHY.value)
+    model = LLMModel(display_name="Qwen3-0.6B", source=ModelSource.HUGGINGFACE,
+                     status=ModelStatus.AVAILABLE, hf_repo_id="Qwen/Qwen3-0.6B")
+    dbsession.add(model)
+    await dbsession.flush()
+    await ModelAvailabilityDAO(dbsession).mark(model_id=model.id, node_id=node.id,
+                                               status=ModelAvailabilityStatus.SYNCING)
+    command = await _inflight_command(dbsession, node, dispatched_ago_sec=5)
+    command.command_type = NodeCommandType.SYNC_MODEL.value
+    command.payload_json = {"model_id": str(model.id)}
+    command.status = NodeCommandStatus.RUNNING.value
+    await dbsession.flush()
+
+    assert await service._fail_commands_lost_with_the_stream(node_id=node.id) == 1
+
+    row = await ModelAvailabilityDAO(dbsession).get(model.id, node.id)
+    assert row is not None
+    assert row.status == ModelAvailabilityStatus.FAILED.value
+    assert "connection closed" in (row.status_message or "")
+
+
 async def test_the_reason_tells_the_operator_it_is_safe_to_retry(
     dbsession: AsyncSession,
 ) -> None:
