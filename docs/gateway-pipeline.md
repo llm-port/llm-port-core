@@ -96,7 +96,13 @@ client as it is, rather than half answered.
 reach the model, and in tokenize mode they continue the request's tokens: a
 name the question turned into `[PERSON_1]` is `[PERSON_1]` in the results as
 well. The search itself runs with the real values, inside LLM.Port; an MCP
-tool, outside it, gets the tokens.
+tool, outside it, gets the tokens. Each passage is scanned as a text of its
+own: the PII service keeps one analysis per text, so a passage that comes
+back in a later search costs nothing to scan again (~20 ms a round against
+400-900 ms when each answer was scanned as one piece).
+
+How the knowledge base ranks and what a search costs, measured on RAGBench:
+[How RAG Lite searches, and how well](rag-lite-search.md).
 
 **Calls made together run together.** When one message asks for several
 tools the gateway runs -- two searches, a search and an MCP tool -- they run
