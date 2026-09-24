@@ -14,7 +14,7 @@ import uuid
 from typing import Any
 
 from fastapi import Depends
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from llm_port_backend.db.dependencies import get_db_session
@@ -715,25 +715,35 @@ class ModelAvailabilityDAO:
         node_id: uuid.UUID,
         **fields: Any,
     ) -> ModelAvailability:
-        """Create or update the availability row for (model, node)."""
+        """Create or update the availability row for (model, node), in one statement.
+
+        Two writers meet here, each in its own session: the reconciler marking
+        a sync it has just issued, and the agent's report of how it went. Read
+        then insert let both find no row and both insert; the loser raised a
+        unique violation inside the agent's websocket, which closed it, which
+        made the machine "away" -- and every deployment on the cluster waited
+        for it to reconnect, over and over, while two models were syncing.
+        """
+        from sqlalchemy.dialects.postgresql import insert as pg_insert  # noqa: PLC0415
+
+        stmt = pg_insert(ModelAvailability).values(
+            id=uuid.uuid4(), model_id=model_id, node_id=node_id, **fields
+        )
+        updates: dict[str, Any] = {key: getattr(stmt.excluded, key) for key in fields}
+        updates.setdefault("updated_at", func.now())
+        stmt = stmt.on_conflict_do_update(
+            constraint="uq_model_availability_model_node", set_=updates
+        )
+        await self.session.execute(stmt)
         result = await self.session.execute(
-            select(ModelAvailability).where(
+            select(ModelAvailability)
+            .where(
                 ModelAvailability.model_id == model_id,
                 ModelAvailability.node_id == node_id,
-            ),
-        )
-        row = result.scalar_one_or_none()
-        if row is None:
-            row = ModelAvailability(
-                id=uuid.uuid4(), model_id=model_id, node_id=node_id, **fields
             )
-            self.session.add(row)
-        else:
-            for key, value in fields.items():
-                setattr(row, key, value)
-        await self.session.flush()
-        await self.session.refresh(row)
-        return row
+            .execution_options(populate_existing=True),
+        )
+        return result.scalar_one()
 
     async def get(
         self, model_id: uuid.UUID, node_id: uuid.UUID

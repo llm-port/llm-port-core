@@ -83,23 +83,27 @@ async def test_dao_list_for_nodes_queries() -> None:
     session.execute.assert_called_once()
 
 
-@pytest.mark.anyio
-async def test_dao_mark_updates_status_and_timestamps() -> None:
-    """mark() stamps updated_at and sets ready_at on READY transition."""
-    session = AsyncMock()
-    fake_result = MagicMock()
-    model_id = uuid.uuid4()
-    node_id = uuid.uuid4()
-    existing = ModelAvailability(
-        id=uuid.uuid4(),
-        model_id=model_id,
-        node_id=node_id,
-        status=ModelAvailabilityStatus.SYNCING.value,
-    )
-    fake_result.scalar_one_or_none.return_value = existing
-    session.execute.return_value = fake_result
+async def _model_and_node(session) -> tuple[uuid.UUID, uuid.UUID]:
+    from llm_port_backend.db.models.llm import LLMModel, ModelSource, ModelStatus
+    from llm_port_backend.db.models.node_control import InfraNode
 
-    dao = ModelAvailabilityDAO(session)
+    model = LLMModel(display_name="m", source=ModelSource.HUGGINGFACE, status=ModelStatus.AVAILABLE,
+                     hf_repo_id=f"org/m-{uuid.uuid4().hex[:6]}")
+    node = InfraNode(agent_id=f"n-{uuid.uuid4().hex[:6]}", host="10.0.0.9", status="healthy")
+    session.add_all([model, node])
+    await session.flush()
+    return model.id, node.id
+
+
+@pytest.mark.anyio
+async def test_dao_mark_updates_status_and_timestamps(dbsession) -> None:
+    """mark() stamps updated_at and sets ready_at on READY transition."""
+    model_id, node_id = await _model_and_node(dbsession)
+    dao = ModelAvailabilityDAO(dbsession)
+    first = await dao.mark(model_id=model_id, node_id=node_id, status=ModelAvailabilityStatus.SYNCING)
+    assert first.status == ModelAvailabilityStatus.SYNCING.value
+    assert first.ready_at is None
+
     marked = await dao.mark(
         model_id=model_id,
         node_id=node_id,
@@ -107,7 +111,49 @@ async def test_dao_mark_updates_status_and_timestamps() -> None:
         root_path="/models/snapshots/commit1",
     )
 
+    assert marked.id == first.id, "the same row, updated"
     assert marked.status == ModelAvailabilityStatus.READY.value
     assert marked.root_path == "/models/snapshots/commit1"
     assert marked.ready_at is not None
     assert marked.updated_at is not None
+
+
+@pytest.mark.anyio
+async def test_two_writers_marking_the_same_model_do_not_collide(_engine) -> None:
+    """The reconciler and the agent's report, in their own sessions, at once.
+
+    Read-then-insert let both see no row and both insert; the loser raised a
+    unique violation inside the agent's websocket and closed it.
+    """
+    import asyncio
+
+    from sqlalchemy import delete, select
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from llm_port_backend.db.models.llm import LLMModel
+    from llm_port_backend.db.models.node_control import InfraNode
+
+    maker = async_sessionmaker(_engine, expire_on_commit=False)
+    async with maker() as setup:
+        model_id, node_id = await _model_and_node(setup)
+        await setup.commit()
+    try:
+        async def write(status: ModelAvailabilityStatus) -> None:
+            async with maker() as session:
+                await ModelAvailabilityDAO(session).mark(model_id=model_id, node_id=node_id, status=status)
+                await asyncio.sleep(0.05)  # both inserts in flight before either commits
+                await session.commit()
+
+        await asyncio.gather(write(ModelAvailabilityStatus.SYNCING), write(ModelAvailabilityStatus.READY))
+
+        async with maker() as check:
+            rows = (await check.execute(select(ModelAvailability).where(
+                ModelAvailability.model_id == model_id, ModelAvailability.node_id == node_id,
+            ))).scalars().all()
+            assert len(rows) == 1
+    finally:
+        async with maker() as cleanup:
+            await cleanup.execute(delete(ModelAvailability).where(ModelAvailability.model_id == model_id))
+            await cleanup.execute(delete(LLMModel).where(LLMModel.id == model_id))
+            await cleanup.execute(delete(InfraNode).where(InfraNode.id == node_id))
+            await cleanup.commit()
