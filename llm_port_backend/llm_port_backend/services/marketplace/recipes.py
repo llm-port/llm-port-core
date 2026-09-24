@@ -32,6 +32,8 @@ from typing import Any
 
 import httpx
 
+from llm_port_backend.services.tls import default_httpx_verify
+
 log = logging.getLogger(__name__)
 
 BASE_URL = "https://recipes.vllm.ai"
@@ -242,7 +244,7 @@ async def recipe_for(repo_id: str, *, accelerator: str | None = None,
                      client: httpx.AsyncClient | None = None) -> Recipe | None:
     """vLLM's recipe for *repo_id*, or None when it has none (or cannot be reached)."""
     own = client is None
-    client = client or httpx.AsyncClient(follow_redirects=True)
+    client = client or httpx.AsyncClient(follow_redirects=True, verify=default_httpx_verify())
     try:
         index = await _index(client)
         path = (index or {}).get(repo_id.lower())
