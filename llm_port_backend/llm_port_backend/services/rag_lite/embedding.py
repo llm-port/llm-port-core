@@ -21,6 +21,17 @@ log = logging.getLogger(__name__)
 _BATCH_SIZE = 64
 
 
+def api_base(url: str) -> str:
+    """The OpenAI API root (``.../v1``) of a provider URL.
+
+    Providers are stored both ways: a remote endpoint created on the
+    Providers page without ``/v1`` (the gateway adds it), a found container
+    with it. Without it, ``/embeddings`` went to the server's root: 404.
+    """
+    url = url.rstrip("/")
+    return url if url.endswith("/v1") else f"{url}/v1"
+
+
 class EmbeddingClient:
     """Call an OpenAI-compatible ``/v1/embeddings`` endpoint."""
 
@@ -33,7 +44,7 @@ class EmbeddingClient:
         timeout: float = 120.0,
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
-        self.base_url = base_url.rstrip("/")
+        self.base_url = api_base(base_url)
         self.model = model
         self.api_key = api_key
         self.dim = dim
@@ -87,6 +98,7 @@ class EmbeddingClient:
         base_url_override: str | None = None,
         dim: int = 768,
         crypto: Any | None = None,
+        http_client: httpx.AsyncClient | None = None,
     ) -> EmbeddingClient:
         """Build an ``EmbeddingClient`` from an ``LLMProvider`` DB row.
 
@@ -102,6 +114,8 @@ class EmbeddingClient:
             Actual embedding dimension (for zero-padding).
         crypto:
             ``SettingsCrypto`` instance for decrypting the API key.
+        http_client:
+            A shared client, whose connections stay open between calls.
         """
         base_url = base_url_override or provider.endpoint_url or ""
         caps = provider.capabilities or {}
@@ -122,6 +136,7 @@ class EmbeddingClient:
             model=model,
             api_key=api_key,
             dim=dim,
+            http_client=http_client,
         )
 
     @classmethod
@@ -133,6 +148,7 @@ class EmbeddingClient:
         model_override: str | None = None,
         dim: int = 768,
         crypto: Any | None = None,
+        http_client: httpx.AsyncClient | None = None,
     ) -> EmbeddingClient:
         """Auto-detect an embedding provider from DB.
 
@@ -191,6 +207,7 @@ class EmbeddingClient:
             base_url_override=effective_base_url,
             dim=dim,
             crypto=crypto,
+            http_client=http_client,
         )
 
     # ------------------------------------------------------------------

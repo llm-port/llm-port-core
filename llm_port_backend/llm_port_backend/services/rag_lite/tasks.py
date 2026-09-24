@@ -93,6 +93,13 @@ async def _resolve_embedding_client(app, session) -> "EmbeddingClient":
     from llm_port_backend.services.system_settings.crypto import SettingsCrypto  # noqa: PLC0415
     from llm_port_backend.settings import settings  # noqa: PLC0415
 
+    from llm_port_backend.services.system_settings.runtime_mapping import (  # noqa: PLC0415
+        refresh_runtime_values,
+    )
+
+    # This runs in the taskiq worker, which a live settings change does not
+    # reach: read RAG Lite's settings as they are now.
+    await refresh_runtime_values(session, prefix="rag_lite.")
     crypto = SettingsCrypto(settings.settings_master_key)
 
     preferred_id_str = settings.rag_lite_embedding_provider_id

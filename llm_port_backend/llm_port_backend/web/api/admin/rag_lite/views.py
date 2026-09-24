@@ -23,6 +23,7 @@ from llm_port_backend.db.dao.rag_lite_dao import (
 from llm_port_backend.db.models.rag_lite import RagLiteDocumentStatus, RagLiteIngestJob
 from llm_port_backend.db.models.users import User
 from llm_port_backend.services.rag_lite.tasks import rag_lite_ingest_task
+from llm_port_backend.services.system_settings.runtime_mapping import refresh_runtime_values
 from llm_port_backend.web.api.admin.rag_lite.schema import (
     RagLiteCollectionCreate,
     RagLiteCollectionDTO,
@@ -152,7 +153,10 @@ async def upload_file(
         job_dao=job_dao,
     )
 
-    # Dispatch async ingest task
+    # Committed before the task is sent: the request's session commits only
+    # after this returns, and a worker that picked the task up first found no
+    # document or job ("ForeignKeyViolationError" on its first event).
+    await document_dao.session.commit()
     await rag_lite_ingest_task.kiq(str(doc.id), str(job.id))
 
     return RagLiteUploadResponse(
@@ -324,8 +328,9 @@ async def retry_document(
         chunk_count=0,
     )
 
-    # Create a new ingest job and dispatch
+    # Create a new ingest job and dispatch -- committed first, as on upload.
     job = await job_dao.create(document_id)
+    await job_dao.session.commit()
     await rag_lite_ingest_task.kiq(str(document_id), str(job.id))
 
     return {"document_id": str(document_id), "job_id": str(job.id)}
@@ -350,25 +355,42 @@ async def search(
     from llm_port_backend.services.system_settings.crypto import SettingsCrypto  # noqa: PLC0415
     from llm_port_backend.settings import settings  # noqa: PLC0415
 
+    # As they are now, not as this process last heard: with several workers,
+    # a settings change reaches only the one that handled it.
+    await refresh_runtime_values(chunk_dao.session, prefix="rag_lite.")
     crypto = SettingsCrypto(settings.settings_master_key)
     pref_id_str = settings.rag_lite_embedding_provider_id
     pref_id = uuid.UUID(pref_id_str) if pref_id_str else None
 
     session = chunk_dao.session
+    # The app's client: its connections to the embedding and reranking
+    # servers stay open from one search to the next.
+    http_client = getattr(request.app.state, "http_client", None)
     embedding_client = await EmbeddingClient.auto_detect(
         session,
         preferred_provider_id=pref_id,
         model_override=settings.rag_lite_embedding_model or None,
         dim=settings.rag_lite_embedding_dim,
         crypto=crypto,
+        http_client=http_client,
     )
 
+    from llm_port_backend.services.rag_lite.rerank import RerankClient  # noqa: PLC0415
+
+    hybrid = settings.rag_lite_hybrid_search if body.mode is None else body.mode == "hybrid"
+    reranker = (
+        await RerankClient.from_settings(session, crypto=crypto, http_client=http_client)
+        if body.rerank is not False else None
+    )
     results = await rag_service.search(
         body.query,
         chunk_dao=chunk_dao,
         embedding_client=embedding_client,
         top_k=body.top_k,
         collection_ids=body.collection_ids,
+        hybrid=hybrid,
+        reranker=reranker,
+        candidates=settings.rag_lite_rerank_candidates,
     )
     return RagLiteSearchResponse(
         query=body.query,
@@ -656,6 +678,9 @@ async def graph_search(
     from llm_port_backend.services.system_settings.crypto import SettingsCrypto  # noqa: PLC0415
     from llm_port_backend.settings import settings  # noqa: PLC0415
 
+    # As they are now, not as this process last heard: with several workers,
+    # a settings change reaches only the one that handled it.
+    await refresh_runtime_values(chunk_dao.session, prefix="rag_lite.")
     crypto = SettingsCrypto(settings.settings_master_key)
     pref_id_str = settings.rag_lite_embedding_provider_id
     pref_id = uuid.UUID(pref_id_str) if pref_id_str else None

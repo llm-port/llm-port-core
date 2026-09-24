@@ -39,6 +39,10 @@ services:
     image: pgvector/pgvector:pg17
     container_name: llm-port-postgres
     restart: unless-stopped
+    # Parallel index builds (pgvector HNSW) work in shared memory; Docker's
+    # default 64 MB /dev/shm fails them ("could not resize shared memory
+    # segment"). pgvector's README asks for more.
+    shm_size: 1g
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres} # CHANGEME

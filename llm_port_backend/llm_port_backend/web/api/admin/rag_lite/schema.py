@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -54,6 +55,11 @@ class RagLiteSearchRequest(BaseModel):
     query: str = Field(min_length=1)
     top_k: int = Field(default=5, ge=1, le=50)
     collection_ids: list[uuid.UUID] | None = None
+    #: ``hybrid`` (keyword and vector) or ``dense`` (vector alone);
+    #: default: the RAG Lite setting.
+    mode: Literal["hybrid", "dense"] | None = None
+    #: Re-score the candidates with the reranker; default: when one is set.
+    rerank: bool | None = None
 
 
 class RagLiteSearchResult(BaseModel):

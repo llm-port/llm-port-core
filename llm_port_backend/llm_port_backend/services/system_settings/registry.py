@@ -352,6 +352,76 @@ SETTINGS_REGISTRY: list[SettingDefinition] = [
         service_targets=(),
     ),
     SettingDefinition(
+        key="rag_lite.hybrid_search",
+        type="bool",
+        category="modules",
+        group="rag_lite",
+        label="Hybrid Search",
+        description=(
+            "Search by keyword and by vector, and fuse the two rankings. "
+            "Keywords find exact terms (codes, names) an embedding can blur."
+        ),
+        is_secret=False,
+        default=True,
+        apply_scope=SystemApplyScope.LIVE_RELOAD,
+        service_targets=(),
+    ),
+    SettingDefinition(
+        key="rag_lite.rerank_provider_id",
+        type="string",
+        category="modules",
+        group="rag_lite",
+        label="Reranker Provider",
+        description=(
+            "Provider of a reranking (scoring) model. When set, the search "
+            "candidates are re-scored by it. Leave empty for no reranking."
+        ),
+        is_secret=False,
+        default="",
+        apply_scope=SystemApplyScope.LIVE_RELOAD,
+        service_targets=(),
+    ),
+    SettingDefinition(
+        key="rag_lite.rerank_model",
+        type="string",
+        category="modules",
+        group="rag_lite",
+        label="Reranker Model Name",
+        description="Model name for /v1/rerank. Leave empty to use the provider's model.",
+        is_secret=False,
+        default="",
+        apply_scope=SystemApplyScope.LIVE_RELOAD,
+        service_targets=(),
+    ),
+    SettingDefinition(
+        key="rag_lite.rerank_template",
+        type="string",
+        category="modules",
+        group="rag_lite",
+        label="Reranker Prompt Template",
+        description=(
+            "How the query and documents are wrapped for the reranker: 'auto' "
+            "picks by model name, 'qwen3' (Qwen3-Reranker's instruction "
+            "template), or 'none'."
+        ),
+        is_secret=False,
+        default="auto",
+        apply_scope=SystemApplyScope.LIVE_RELOAD,
+        service_targets=(),
+    ),
+    SettingDefinition(
+        key="rag_lite.rerank_candidates",
+        type="int",
+        category="modules",
+        group="rag_lite",
+        label="Reranker Candidates",
+        description="How many search candidates the reranker re-scores.",
+        is_secret=False,
+        default=30,
+        apply_scope=SystemApplyScope.LIVE_RELOAD,
+        service_targets=(),
+    ),
+    SettingDefinition(
         key="rag_lite.embedding_dim",
         type="int",
         category="modules",

@@ -320,25 +320,139 @@ class RagLiteChunkDAO:
         if collection_ids:
             filters = "AND c.collection_id = ANY(CAST(:cids AS uuid[]))"
             params["cids"] = [str(cid) for cid in collection_ids]
+            # When Postgres uses the HNSW index here, it finds the nearest
+            # chunks of all collections and the filter then drops the others'
+            # -- with a small collection among large ones, fewer results than
+            # asked, or none (pgvector's documented filtering limit; at the
+            # sizes measured so far Postgres chose an exact scan instead).
+            # pgvector 0.8 keeps scanning until the filter is met; its
+            # results can come slightly out of order, hence the outer sort.
+            await self.session.execute(text("SET LOCAL hnsw.iterative_scan = relaxed_order"))
 
         sql = text(
             f"""
-            SELECT c.id,
-                   c.chunk_text,
-                   c.chunk_index,
-                   d.filename,
-                   d.id AS document_id,
-                   1 - (c.embedding <=> CAST(:query AS vector)) AS score
-            FROM rag_lite_chunks c
-            JOIN rag_lite_documents d ON d.id = c.document_id
-            WHERE c.embedding IS NOT NULL
-              {filters}
-            ORDER BY c.embedding <=> CAST(:query AS vector)
-            LIMIT :top_k
+            SELECT * FROM (
+                SELECT c.id,
+                       c.chunk_text,
+                       c.chunk_index,
+                       d.filename,
+                       d.id AS document_id,
+                       c.embedding <=> CAST(:query AS vector) AS distance
+                FROM rag_lite_chunks c
+                JOIN rag_lite_documents d ON d.id = c.document_id
+                WHERE c.embedding IS NOT NULL
+                  {filters}
+                ORDER BY c.embedding <=> CAST(:query AS vector)
+                LIMIT :top_k
+            ) nearest
+            ORDER BY distance
             """,
         )
         result = await self.session.execute(sql, params)
         rows = result.mappings().all()
+        return [
+            {
+                "chunk_id": str(r["id"]),
+                "chunk_text": r["chunk_text"],
+                "chunk_index": r["chunk_index"],
+                "filename": r["filename"],
+                "document_id": str(r["document_id"]),
+                "score": 1.0 - float(r["distance"]),
+            }
+            for r in rows
+        ]
+
+    async def search_lexical(
+        self,
+        query: str,
+        top_k: int = 5,
+        collection_ids: list[uuid.UUID] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Keyword search over ``content_tsv``, ranked by BM25.
+
+        The query's words are stemmed like the index (English) and any of
+        them may match: a question rarely shares all its words with the
+        passage that answers it. Ranked by BM25 (k1 = 1.2, b = 0.75) over the
+        searched collections: a rare word counts for more than a common one.
+        Postgres's own ``ts_rank_cd`` has no such weighting; fused with vector
+        search it pulled good results down (RAGBench hit@1 0.92 -> 0.72 on
+        hotpotqa).
+
+        The words go into the query as the lexemes they already are
+        (``simple``, no second stemming). A chunk's length is its count of
+        distinct words -- what a ``tsvector`` keeps (``content_len``). The
+        per-word counts are computed once (``MATERIALIZED``): inlined,
+        Postgres re-ran them for every matched word of every chunk -- 2.2 s
+        for one search.
+
+        Every chunk with a telling word is scored, on the query's words alone:
+        ``setweight`` marks them in the chunk's ``tsvector`` and ``ts_filter``
+        keeps the marked ones, so a chunk is taken apart into a few words, not
+        all of its hundred. Shortlisting the 500 best by ``ts_rank_cd`` first
+        cost more than it saved (techqa: 115 ms against 49 ms) and dropped
+        chunks BM25 ranks in the top ten.
+        """
+        filters = ""
+        params: dict[str, Any] = {"query": query, "top_k": top_k}
+        if collection_ids:
+            filters = "AND c.collection_id = ANY(CAST(:cids AS uuid[]))"
+            params["cids"] = [str(cid) for cid in collection_ids]
+        sql = text(
+            f"""
+            WITH terms AS MATERIALIZED (
+                SELECT DISTINCT lexeme
+                FROM unnest(tsvector_to_array(to_tsvector('english', :query))) AS lexeme
+            ),
+            stats AS MATERIALIZED (
+                SELECT count(*)::float8 AS n, greatest(avg(c.content_len), 1)::float8 AS avgdl
+                FROM rag_lite_chunks c
+                WHERE TRUE {filters}
+            ),
+            df AS MATERIALIZED (
+                SELECT t.lexeme,
+                       (SELECT count(*) FROM rag_lite_chunks c
+                        WHERE c.content_tsv @@ to_tsquery('simple', quote_literal(t.lexeme)) {filters}
+                       )::float8 AS df
+                FROM terms t
+            ),
+            -- Candidates by the words that tell chunks apart: one in more than
+            -- half the collection weighs next to nothing in BM25, yet matched
+            -- nearly every chunk of a large collection, and each was scored.
+            q AS MATERIALIZED (
+                SELECT to_tsquery('simple', string_agg(quote_literal(df.lexeme), ' | ')) AS query,
+                       array_agg(df.lexeme) AS lexemes
+                FROM df, stats
+                WHERE df.df > 0 AND df.df <= stats.n * 0.5
+            ),
+            matches AS MATERIALIZED (
+                SELECT c.id, ts_filter(setweight(c.content_tsv, 'A', q.lexemes), '{{a}}') AS hits,
+                       c.content_len::float8 AS dl
+                FROM rag_lite_chunks c, q
+                WHERE q.query IS NOT NULL AND c.content_tsv @@ q.query {filters}
+            ),
+            scored AS (
+                SELECT m.id,
+                       sum(
+                           ln(1 + (st.n - df.df + 0.5) / (df.df + 0.5))
+                           * (array_length(u.positions, 1) * 2.2)
+                           / (array_length(u.positions, 1) + 1.2 * (0.25 + 0.75 * m.dl / st.avgdl))
+                       ) AS score
+                FROM matches m
+                CROSS JOIN LATERAL unnest(m.hits) AS u(lexeme, positions, weights)
+                JOIN df ON df.lexeme = u.lexeme
+                CROSS JOIN stats st
+                GROUP BY m.id
+                ORDER BY score DESC
+                LIMIT :top_k
+            )
+            SELECT c.id, c.chunk_text, c.chunk_index, d.filename, d.id AS document_id, s.score
+            FROM scored s
+            JOIN rag_lite_chunks c ON c.id = s.id
+            JOIN rag_lite_documents d ON d.id = c.document_id
+            ORDER BY s.score DESC
+            """,
+        )
+        rows = (await self.session.execute(sql, params)).mappings().all()
         return [
             {
                 "chunk_id": str(r["id"]),

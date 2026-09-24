@@ -118,6 +118,8 @@ class Settings(BaseSettings):
     rabbit_user: str = "guest"
     rabbit_pass: str = "guest"  # noqa: S105
     rabbit_vhost: str = "/"
+    #: Tasks a worker process runs at once (RabbitMQ prefetch).
+    taskiq_prefetch: int = 16
     # RabbitMQ TLS — when True, the URL scheme is upgraded to amqps://
     # at connection time. Configure CA bundle path for custom trust roots.
     rabbit_ssl: bool = False
@@ -268,6 +270,17 @@ class Settings(BaseSettings):
     rag_lite_chunk_max_tokens: int = 512
     rag_lite_chunk_overlap_tokens: int = 64
     rag_lite_upload_max_file_mb: int = 20
+    #: Keyword and vector search, fused by rank; vector alone when off.
+    rag_lite_hybrid_search: bool = True
+    #: A reranker re-scores the candidates when a provider is set.
+    rag_lite_rerank_provider_id: str = ""
+    rag_lite_rerank_model: str = ""
+    #: How the query and documents are wrapped for the reranker: "auto"
+    #: picks by model name (Qwen3-Reranker needs its instruction template),
+    #: "qwen3", or "none".
+    rag_lite_rerank_template: str = "auto"
+    #: How many fused candidates the reranker sees.
+    rag_lite_rerank_candidates: int = 30
 
     # Chat & Sessions module settings (gateway feature, managed from backend)
     sessions_enabled: bool = True

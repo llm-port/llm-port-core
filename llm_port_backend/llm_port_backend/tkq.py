@@ -7,9 +7,14 @@ from llm_port_backend.settings import settings
 broker: AsyncBroker = AioPikaBroker(
     str(settings.rabbit_url),
     queue_name="taskiq.backend",
-    # Each worker prefetches only 1 message at a time so that if the worker
-    # crashes, only 1 message is returned to the queue for redelivery.
-    qos=1,
+    # How many messages a worker process takes at once, and so how many tasks
+    # it runs at once. It was 1: documents were ingested one after another,
+    # ~8 a second, each waiting on its own embedding call -- and a model
+    # download held a whole worker for its duration. Messages are acknowledged
+    # after the task has run (taskiq's WHEN_SAVED), so a crash returns every
+    # message in flight to the queue, whatever this is; ingestion replaces a
+    # document's chunks, so running one again is harmless.
+    qos=settings.taskiq_prefetch,
     declare_exchange_kwargs={"durable": True},
 )
 

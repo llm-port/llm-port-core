@@ -5,6 +5,7 @@ Coordinates: upload → store → extract → chunk → embed → persist.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import time
@@ -23,6 +24,7 @@ from llm_port_backend.db.models.rag_lite import (
     RagLiteEventType,
     RagLiteJobStatus,
 )
+from llm_port_backend.services.rag_lite.rerank import RerankClient, fuse
 from llm_port_backend.services.rag_lite.chunker import ChunkerConfig, chunk_text
 from llm_port_backend.services.rag_lite.embedding import EmbeddingClient
 from llm_port_backend.services.rag_lite.file_store import FileStore
@@ -164,7 +166,15 @@ class RagLiteService:
             )
 
             # 3. Chunk
-            chunks = chunk_text(content_text, self.chunker_config)
+            # The sizes as set now (the worker reads the settings per job),
+            # not as they were when this process started.
+            from llm_port_backend.settings import settings  # noqa: PLC0415
+
+            chunker_config = ChunkerConfig(
+                max_tokens=settings.rag_lite_chunk_max_tokens,
+                overlap_tokens=settings.rag_lite_chunk_overlap_tokens,
+            )
+            chunks = chunk_text(content_text, chunker_config)
             await job_dao.add_event(
                 job_id,
                 RagLiteEventType.INFO,
@@ -197,6 +207,9 @@ class RagLiteService:
                 }
                 for c, v in zip(chunks, vectors)
             ]
+            # A document ingested again -- a message redelivered after a
+            # crash, a retry -- replaces its chunks rather than adding to them.
+            await chunk_dao.delete_by_document(document_id)
             inserted = await chunk_dao.bulk_create(chunk_records)
 
             # 6. Update document status
@@ -252,15 +265,52 @@ class RagLiteService:
         embedding_client: EmbeddingClient,
         top_k: int = 5,
         collection_ids: list[uuid.UUID] | None = None,
+        hybrid: bool = False,
+        reranker: RerankClient | None = None,
+        candidates: int = 30,
     ) -> list[dict[str, Any]]:
-        """Embed *query* and run pgvector cosine search."""
-        vectors = await embedding_client.embed_texts([query])
-        query_vector = vectors[0]
-        return await chunk_dao.search_similar(
-            query_vector=query_vector,
-            top_k=top_k,
+        """The *top_k* chunks for *query*.
+
+        By vector alone, or -- *hybrid* -- by vector and by keyword, the two
+        rankings fused by rank. With a *reranker*, the best *candidates* of
+        that are re-scored by it and re-ordered. When the reranker fails, the
+        fused order stands: a search is not failed for want of re-ordering.
+        """
+        pool = max(top_k, candidates) if reranker is not None else top_k
+        # Deeper lists for fusion: a chunk ranked 40th by one and 3rd by the
+        # other should still make it in.
+        depth = max(pool, 50) if hybrid else pool
+        # The keyword search needs no vector: it runs while the query is
+        # being embedded, not after.
+        embedding = asyncio.ensure_future(embedding_client.embed_texts([query]))
+        try:
+            lexical = (
+                await chunk_dao.search_lexical(query, top_k=depth, collection_ids=collection_ids)
+                if hybrid else []
+            )
+            vectors = await embedding
+        finally:
+            embedding.cancel()
+        ranked = await chunk_dao.search_similar(
+            query_vector=vectors[0],
+            top_k=depth,
             collection_ids=collection_ids,
         )
+        if hybrid:
+            ranked = fuse(ranked, lexical)
+        ranked = ranked[:pool]
+        if reranker is not None and ranked:
+            try:
+                scores = await reranker.rerank(query, [r["chunk_text"] for r in ranked])
+            except Exception:
+                log.warning("Reranking failed; keeping the search order", exc_info=True)
+            else:
+                ranked = sorted(
+                    ({**r, "score": s} for r, s in zip(ranked, scores, strict=True)),
+                    key=lambda r: r["score"],
+                    reverse=True,
+                )
+        return ranked[:top_k]
 
     # ------------------------------------------------------------------
     # Delete
