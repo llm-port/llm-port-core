@@ -20,6 +20,7 @@ from llm_port_backend.db.dependencies import get_db_session
 from llm_port_backend.db.models.users import User
 from llm_port_backend.services.marketplace import curated as curated_mod
 from llm_port_backend.services.marketplace import fit as fit_mod
+from llm_port_backend.services.marketplace import recipes as recipes_mod
 from llm_port_backend.services.marketplace import settings as settings_mod
 from llm_port_backend.services.marketplace.hardware import cluster_hardware
 from llm_port_backend.services.marketplace.host import HostError, HostRequest, host
@@ -237,6 +238,15 @@ async def model_detail(
     chosen = _cluster(hardware, cluster_id)
     chosen_fit = fit_mod.plan(needs, chosen, context=context) if chosen is not None else None
     suggestion = settings_mod.suggest(detail, chosen_fit if chosen_fit and chosen_fit.status == "fits" else None)
+    # vLLM's own recipe, when it publishes one: ahead of our family rules,
+    # behind the settings we tested ourselves (curated, below).
+    recipe = None
+    if hub_state == "online":
+        recipe = await recipes_mod.recipe_for(repo_id, accelerator=chosen.accelerator_name if chosen else None)
+    if recipe is not None:
+        for key, value in recipe.config.items():
+            suggestion["config"][key] = value
+            suggestion["reasons"][key] = "recipe"
     if entry is not None and entry.settings:
         suggestion["config"].update(entry.settings)
         suggestion["reasons"].update({k: "curated" for k in entry.settings})
@@ -247,6 +257,7 @@ async def model_detail(
         "cluster_id": chosen.environment_id if chosen else None,
         "fits": fits,
         "suggested": suggestion,
+        "recipe": recipe.to_dict(vllm_version=chosen.vllm_version if chosen else None) if recipe else None,
         "local": local.get(repo_id),
     }
 

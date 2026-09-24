@@ -135,11 +135,12 @@ describe("names", () => {
 
 describe("the sizes a copy can take", () => {
   it("offers sharing a card when the model is small enough, and plans it", () => {
-    const f = fit({ gpus_per_copy: 0.25, shareable: true, suggested_gpu_memory_utilization: 0.25 });
+    const f = fit({ gpus_per_copy: 0.2, copies: 8, shareable: true, suggested_gpu_memory_utilization: 0.2 });
     const choices = gpuChoices(f, PAIR);
-    expect(choices.map((c) => c.value)).toEqual([0.25, 1, 2]);
+    expect(choices.map((c) => c.value)).toEqual([0.2, 1, 2]);
+    // The fit check's count (four 0.2 shares under 0.9 of a card), not 1/0.2 per card.
     expect(choices[0].maxCopies).toBe(8);
-    expect(defaultGpuChoice(f, choices)).toBe(0.25);
+    expect(defaultGpuChoice(f, choices)).toBe(0.2);
   });
 
   it("starts a large model at the split it needs", () => {

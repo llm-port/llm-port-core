@@ -310,6 +310,8 @@ export function formatBytes(bytes: number | null | undefined, digits = 1): strin
   if (bytes == null || !Number.isFinite(bytes)) return "—";
   const gb = bytes / 1e9;
   if (gb >= 1) return `${gb.toFixed(gb >= 100 ? 0 : digits)} GB`;
+  // A README is not "0 MB".
+  if (bytes < 1e6) return `${Math.max(1, Math.round(bytes / 1e3))} KB`;
   return `${Math.round(bytes / 1e6)} MB`;
 }
 

@@ -80,12 +80,17 @@ class ClusterHardware:
     def gpus(self) -> list[Gpu]:
         return [gpu for machine in self.machines for gpu in machine.gpus]
 
+    @property
+    def accelerator_name(self) -> str | None:
+        gpus = self.gpus
+        return gpus[0].name if gpus else None
+
     def to_dict(self) -> dict[str, Any]:
         gpus = self.gpus
         data = asdict(self)
         data["gpu_count"] = len(gpus)
         data["gpu_bytes"] = min((g.total_bytes for g in gpus), default=None)
-        data["accelerator"] = gpus[0].name if gpus else None
+        data["accelerator"] = self.accelerator_name
         return data
 
 

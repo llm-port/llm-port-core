@@ -107,7 +107,16 @@ export function ModelCard({ model, onOpen, onHost, canHost }: ModelCardProps) {
     >
       <CardActionArea
         onClick={() => onOpen(model.repo_id)}
-        sx={{ flexGrow: 1, alignItems: "stretch", display: "flex", flexDirection: "column", p: 2, gap: 1.25 }}
+        // ButtonBase centres its content: top-align it, so cards in a row line up.
+        sx={{
+          flexGrow: 1,
+          alignItems: "stretch",
+          justifyContent: "flex-start",
+          display: "flex",
+          flexDirection: "column",
+          p: 2,
+          gap: 1.25,
+        }}
       >
         <Stack direction="row" spacing={1.5} alignItems="center" sx={{ width: "100%" }}>
           <Avatar variant="rounded" sx={{ width: 36, height: 36, bgcolor: "primary.main", fontSize: 16 }}>

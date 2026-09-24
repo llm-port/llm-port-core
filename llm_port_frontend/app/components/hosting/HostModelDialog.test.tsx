@@ -158,6 +158,46 @@ describe("HostModelDialog", () => {
     expect(sent.engine_config.gpu_memory_utilization).toBeUndefined();
   });
 
+  it("says the suggestions follow vLLM's recipe, and applies an opt-in it offers", async () => {
+    vi.spyOn(marketplaceApi, "clusters").mockResolvedValue([PAIR]);
+    vi.spyOn(marketplaceApi, "detail").mockResolvedValue({
+      ...DETAIL,
+      clusters: [PAIR],
+      recipe: {
+        hf_id: "Qwen/Qwen3-8B",
+        url: "https://recipes.vllm.ai/Qwen/Qwen3-8B",
+        title: "Qwen3",
+        min_vllm_version: "0.8.5",
+        context_length: 40960,
+        config: { tool_call_parser: "hermes" },
+        dropped: [],
+        opt_in: [
+          { name: "text_only", description: "Serve text only", args: ["--language-model-only"], usable: true,
+            config: { language_model_only: true } },
+          { name: "long_context", description: "YaRN to 131K", args: ["--hf-overrides", "{}"], usable: false, config: {} },
+        ],
+        hardware: null,
+        runtime_too_old: false,
+      },
+    });
+    const host = vi.spyOn(marketplaceApi, "host").mockResolvedValue({
+      deployment_id: "dep-4", model_id: "m-1", download: "kept", download_error: null,
+    });
+    vi.spyOn(inferenceApi, "reconcileDeployment").mockResolvedValue({} as InferenceDeployment);
+    renderDialog({ repoId: "Qwen/Qwen3-8B" });
+
+    await screen.findByTestId("host-gpus-0.25");
+    await userEvent.click(screen.getByTestId("host-next"));
+    const notice = screen.getByTestId("recipe-notice");
+    expect(notice).toHaveTextContent("vLLM publishes a recipe for this model");
+    expect(notice).toHaveTextContent("YaRN to 131K");
+    await userEvent.click(screen.getByTestId("recipe-opt-in-text_only"));
+    await userEvent.click(screen.getByTestId("host-next"));
+    await userEvent.click(screen.getByTestId("host-submit"));
+    await waitFor(() => expect(host).toHaveBeenCalled());
+    expect(host.mock.calls[0][0].engine_config).toMatchObject({ language_model_only: true, tool_call_parser: "hermes" });
+  });
+
   it("deploys a model the server keeps from a local path, without asking the Hub", async () => {
     const local: Model = {
       id: "local-1",

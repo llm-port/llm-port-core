@@ -466,6 +466,10 @@
     "unverified": "Unverified",
     "roles": "Roles",
     "no_roles": "No roles",
+    "usage_group": "Usage group",
+    "usage_group_none": "No usage group",
+    "usage_group_help": "Usage is attributed to this group in reports.",
+    "failed_update_usage_group": "Failed to update usage group",
     "permissions": "Permissions",
     "edit_roles": "Edit Roles",
     "empty": "No users found.",
@@ -2099,7 +2103,8 @@
       "embedding_model": "An embedding model: served at /v1/embeddings.",
       "embedding_from_causal_lm": "A chat architecture used for embeddings: vLLM adapts it.",
       "needs_remote_code": "This model ships its own code to load.",
-      "curated": "Recommended for this model."
+      "curated": "Recommended for this model.",
+      "recipe": "From vLLM's own recipe for this model."
     },
     "section": {
       "memory": "Context and memory",
@@ -2424,6 +2429,14 @@
       "gemma": "Google's open model: strong multilingual chat that also understands images.",
       "embedding_small": "A small, fast embedding model for search and knowledge bases.",
       "embedding_large": "A large embedding model: better retrieval, more memory."
+    },
+    "recipe": {
+      "applied": "vLLM publishes a recipe for this model, and its recommended settings are part of the suggestions.",
+      "open": "Open the recipe",
+      "too_old": "The recipe needs vLLM {{version}} or newer, and this cluster runs an older one.",
+      "dropped": "Not used here (it names files from vLLM's source, or JSON options):",
+      "opt_in_title": "Optional, from the recipe:",
+      "opt_in_manual": "The recipe also offers, set by hand if you need it: {{features}}."
     }
   },
   "container_resources": {

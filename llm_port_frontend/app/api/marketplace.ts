@@ -107,6 +107,22 @@ export interface MarketList {
   groups?: string[];
 }
 
+/** vLLM's own recipe for a model (recipes.vllm.ai), as it applies here. */
+export interface VllmRecipe {
+  hf_id: string;
+  url: string;
+  title: string | null;
+  min_vllm_version: string | null;
+  context_length: number | null;
+  /** The settings it turns on by default, already in the suggestions. */
+  config: EngineConfig;
+  /** Arguments it names that cannot be used on this server, as written. */
+  dropped: string[];
+  opt_in: { name: string; description: string; args: string[]; usable: boolean; config: EngineConfig }[];
+  hardware: string | null;
+  runtime_too_old: boolean;
+}
+
 export interface MarketDetail {
   hub: HubState;
   model: MarketModelDetail;
@@ -114,6 +130,7 @@ export interface MarketDetail {
   cluster_id: string | null;
   fits: Record<string, Fit>;
   suggested: { config: EngineConfig; reasons: Record<string, string> };
+  recipe?: VllmRecipe | null;
   local: LocalCopy | null;
 }
 

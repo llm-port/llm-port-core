@@ -59,10 +59,21 @@ copies. The deployment page shows each step. Nothing waits in the dialog.
 The engine settings step, the deployment page (**Engine settings → Change**)
 and the legacy runtime screens all use the same editor.
 
-- **Suggested for this model.** Tool calling and reasoning parsers are chosen
-  for the model family. The context length is set to what fits. On a shared
-  accelerator the memory share is set to the copy's share. Each suggestion
-  says why it was made.
+- **Suggested for this model.** When the vLLM project publishes a recipe for
+  the model on [vLLM Recipes](https://recipes.vllm.ai) (Apache-2.0), its
+  recommended arguments come first: parsers, required flags, and overrides
+  for the accelerator generation when the cluster's cards clearly belong to
+  it. Otherwise tool calling and reasoning parsers are chosen for the model
+  family. The context length is set to what fits. On a shared accelerator the
+  memory share is set to the copy's share. Each suggestion says why it was
+  made.
+
+  Some recipe arguments are not used, and the dialog lists them: paths into
+  vLLM's source tree (they are not in the runtime image), JSON options, and
+  the tensor-parallel size (the fit check decides that). Optional recipe
+  features appear as checkboxes. The server fetches recipes itself and keeps
+  them for a day. A server without internet access has none and falls back to
+  the family rules.
 - **Presets.** *Balanced*, *Long context*, *Many users* and *Low memory*
   change only the settings they are about.
 - **Sections.** Memory, throughput, abilities (tools, reasoning, embeddings)

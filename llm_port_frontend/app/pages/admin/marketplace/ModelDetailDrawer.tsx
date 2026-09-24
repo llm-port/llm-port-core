@@ -26,6 +26,8 @@ import CloseIcon from "@mui/icons-material/Close";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import VerifiedIcon from "@mui/icons-material/Verified";
 
+import { RecipeNotice } from "~/components/hosting/RecipeNotice";
+
 import { CapabilityChips } from "./ModelCard";
 
 const TONE = { success: "success", info: "info", warning: "warning", error: "error", default: "default" } as const;
@@ -153,6 +155,7 @@ function DetailBody({ detail }: { detail: MarketDetail }) {
       )}
       {m.gated && <Alert severity="info">{t("marketplace.detail.gated")}</Alert>}
       {m.needs_remote_code && <Alert severity="warning">{t("marketplace.detail.remote_code")}</Alert>}
+      {detail.recipe && <RecipeNotice recipe={detail.recipe} />}
 
       <Box>
         <Typography variant="subtitle2" gutterBottom>

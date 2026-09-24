@@ -96,15 +96,27 @@ def detect_quantization(name: str, tags: list[str], config: dict[str, Any] | Non
                 return "nvfp4"
             if "fp8" in fmt or "float" in fmt:
                 return "fp8"
-            return "int4" if "pack" in fmt or "int4" in fmt else method
+            if "pack" in fmt or "int4" in fmt:
+                return "int4"
+            # The Hub's list answer carries the method without its algorithm;
+            # "modelopt" names the tool, and the repository name says what it
+            # made ("...-NVFP4").
+            return _quantization_in_names(name, tags) or method
         return method
+    named = _quantization_in_names(name, tags)
+    if named:
+        return named
+    dtypes = {str(d).upper() for d in (safetensors_parameters or {})}
+    if dtypes & {"F8_E4M3", "F8_E5M2"}:
+        return "fp8"
+    return None
+
+
+def _quantization_in_names(name: str, tags: list[str]) -> str | None:
     haystack = " ".join([name.lower(), *[t.lower() for t in tags]])
     for pattern, label in _QUANT_PATTERNS:
         if re.search(pattern, haystack):
             return label
-    dtypes = {str(d).upper() for d in (safetensors_parameters or {})}
-    if dtypes & {"F8_E4M3", "F8_E5M2"}:
-        return "fp8"
     return None
 
 

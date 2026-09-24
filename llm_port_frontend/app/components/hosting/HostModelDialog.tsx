@@ -16,6 +16,7 @@ import { inferenceApi } from "~/api/inference";
 import type { Model } from "~/api/llm";
 import { marketplaceApi, type Fit, type MarketCluster, type MarketDetail } from "~/api/marketplace";
 import { EngineSettingsEditor } from "~/components/engine/EngineSettingsEditor";
+import { RecipeNotice } from "~/components/hosting/RecipeNotice";
 import { formatBytes, parseExtraFlags, type EngineConfig } from "~/lib/engine";
 import {
   DEPLOYMENT_NAME,
@@ -352,6 +353,17 @@ export function HostModelDialog({
               onCopies={setCopies}
               fit={fit}
               chosen={chosen}
+            />
+          )}
+
+          {step === "settings" && detail?.recipe && (
+            <RecipeNotice
+              recipe={detail.recipe}
+              value={config}
+              onChange={(v) => {
+                setEdited(true);
+                setConfig(v);
+              }}
             />
           )}
 

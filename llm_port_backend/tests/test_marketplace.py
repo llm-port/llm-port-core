@@ -17,7 +17,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from llm_port_backend.services.marketplace import facts, fit, hub, settings
+from llm_port_backend.services.marketplace import facts, fit, hub, recipes, settings
 from llm_port_backend.services.marketplace.hardware import gpus_from_utilization
 from llm_port_backend.services.marketplace.host import HostError, HostRequest, build_spec
 
@@ -264,9 +264,14 @@ def fake_hub(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         return {**card, "architecture_facts": arch.to_dict(), "max_context": 40960,
                 "kv_bytes_per_token": arch.kv_bytes_per_token(), "needs_remote_code": False, "files": []}
 
+    async def recipe_for(repo_id: str, *, accelerator: str | None = None, **_: Any) -> Any:
+        data = state.get("recipe")
+        return recipes.parse_recipe(data, accelerator=accelerator) if data else None
+
     monkeypatch.setattr(hub.HubClient, "search", search)
     monkeypatch.setattr(hub.HubClient, "cards_for", cards_for)
     monkeypatch.setattr(hub.HubClient, "detail", detail)
+    monkeypatch.setattr(recipes, "recipe_for", recipe_for)
     return state
 
 
@@ -383,3 +388,112 @@ async def test_hosting_keeps_the_model_and_creates_the_deployment(
         "repo_id": "Qwen/Qwen3-8B", "environment_id": env_id, "name": "Bad Name", "copies": 1, "gpus_per_copy": 1,
     })
     assert r.status_code == 422
+
+
+def test_a_modelopt_checkpoint_is_named_by_what_it_holds() -> None:
+    """The list answer says "modelopt" (the tool) without the algorithm; the name says NVFP4."""
+    config = {"quantization_config": {"quant_method": "modelopt"}}
+    assert facts.detect_quantization("nvidia/Qwen3.8-27B-NVFP4", [], config, None) == "nvfp4"
+    assert facts.detect_quantization("nvidia/Some-Model", [], config, None) == "modelopt"
+
+
+# ── vLLM's own recipes ──────────────────────────────────────────────────
+
+GPT_OSS_RECIPE = {
+    "hf_id": "openai/gpt-oss-120b",
+    "meta": {"title": "GPT-OSS"},
+    "model": {"min_vllm_version": "0.10.1", "context_length": 131072, "base_args": []},
+    "features": {
+        "tool_calling": {"args": ["--tool-call-parser", "openai", "--enable-auto-tool-choice"]},
+        "spec_decoding": {"description": "EAGLE3", "args": [
+            "--speculative-config", '{"model":"nvidia/gpt-oss-120b-Eagle3-v3","num_speculative_tokens":7}']},
+    },
+    "opt_in_features": ["spec_decoding"],
+    "hardware_overrides": {
+        "blackwell": {"extra_args": ["--quantization-config.moe.activation", "mxfp8"]},
+        "hopper": {"extra_args": ["--async-scheduling", "--no-enable-prefix-caching",
+                                  "--max-num-batched-tokens", "8192"]},
+    },
+}
+
+DEEPSEEK_RECIPE = {
+    "hf_id": "deepseek-ai/DeepSeek-R1",
+    "model": {"min_vllm_version": "0.12.0", "base_args": ["--trust-remote-code", "--enable-expert-parallel",
+                                                           "--tensor-parallel-size", "8"]},
+    "features": {
+        "tool_calling": {"args": ["--enable-auto-tool-choice", "--tool-call-parser", "deepseek_v3",
+                                  "--chat-template", "examples/tool_chat_template_deepseekr1.jinja"]},
+        "reasoning": {"args": ["--reasoning-parser", "deepseek_r1"]},
+    },
+    "opt_in_features": [],
+}
+
+
+def test_a_recipe_becomes_settings_this_server_can_use() -> None:
+    recipe = recipes.parse_recipe(DEEPSEEK_RECIPE)
+    assert recipe.config == {
+        "trust_remote_code": True, "enable_expert_parallel": True, "enable_auto_tool_choice": True,
+        "tool_call_parser": "deepseek_v3", "reasoning_parser": "deepseek_r1",
+    }
+    # A path into vLLM's source tree is not in the runtime image; the copy's shape is the fit's.
+    assert recipe.dropped == ["--chat-template examples/tool_chat_template_deepseekr1.jinja"]
+    assert recipe.url == "https://recipes.vllm.ai/deepseek-ai/DeepSeek-R1"
+
+
+def test_hardware_overrides_apply_only_to_the_generation_they_were_written_for() -> None:
+    assert recipes.hardware_generation("NVIDIA H200") == "hopper"
+    assert recipes.hardware_generation("NVIDIA B200") == "blackwell"
+    assert recipes.hardware_generation("NVIDIA GB10") is None, "a DGX Spark is not a B200"
+    assert recipes.hardware_generation("AMD Instinct MI300X") == "amd"
+
+    on_h200 = recipes.parse_recipe(GPT_OSS_RECIPE, accelerator="NVIDIA H200")
+    assert on_h200.hardware == "hopper"
+    assert on_h200.config["enable_prefix_caching"] is False
+    assert on_h200.config["max_num_batched_tokens"] == 8192
+    on_gb10 = recipes.parse_recipe(GPT_OSS_RECIPE, accelerator="NVIDIA GB10")
+    assert on_gb10.hardware is None
+    assert on_gb10.config == {"tool_call_parser": "openai", "enable_auto_tool_choice": True}
+    # An opt-in needing a JSON argument is offered as it is written, not turned into a setting.
+    [spec] = on_gb10.opt_in
+    assert spec.name == "spec_decoding" and not spec.usable and spec.config == {}
+
+
+def test_a_recipe_for_a_newer_vllm_says_so() -> None:
+    recipe = recipes.parse_recipe(DEEPSEEK_RECIPE)
+    assert recipe.to_dict(vllm_version="0.27.1+93523f72.dev")["runtime_too_old"] is False
+    assert recipe.to_dict(vllm_version="0.11.2")["runtime_too_old"] is True
+
+
+@pytest.mark.anyio
+async def test_the_recipe_leads_the_suggestions(authed: FastAPI, client: AsyncClient, dbsession: AsyncSession,
+                                                fake_hub: dict[str, Any]) -> None:
+    env_id = await _dgx_cluster(dbsession)
+    fake_hub["recipe"] = {
+        "hf_id": "Qwen/Qwen3-8B",
+        "model": {"min_vllm_version": "0.8.5", "context_length": 40960, "base_args": []},
+        "features": {"tool_calling": {"args": ["--enable-auto-tool-choice", "--tool-call-parser", "qwen3_xml"]},
+                     "reasoning": {"args": ["--reasoning-parser", "qwen3"]}},
+        "opt_in_features": [],
+    }
+    r = await client.get("/api/llm/marketplace/models/Qwen/Qwen3-8B", params={"cluster_id": env_id})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["suggested"]["config"]["tool_call_parser"] == "qwen3_xml"
+    assert body["suggested"]["reasons"]["tool_call_parser"] == "recipe"
+    assert body["recipe"]["url"] == "https://recipes.vllm.ai/Qwen/Qwen3-8B"
+    assert body["recipe"]["runtime_too_old"] is False
+
+
+@pytest.mark.anyio
+async def test_recipes_offline_are_no_recipe(monkeypatch: pytest.MonkeyPatch) -> None:
+    import httpx
+
+    recipes.clear_cache()
+
+    def refuse(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("no route to host", request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(refuse)) as client:
+        assert await recipes.recipe_for("Qwen/Qwen3-8B", client=client) is None
+    recipes.clear_cache()
+

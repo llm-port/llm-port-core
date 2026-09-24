@@ -471,6 +471,10 @@
     "unverified": "未验证",
     "roles": "角色",
     "no_roles": "无角色",
+    "usage_group": "用量归属组",
+    "usage_group_none": "无用量归属组",
+    "usage_group_help": "报表中的用量将归属于此组。",
+    "failed_update_usage_group": "更新用量归属组失败",
     "permissions": "权限",
     "edit_roles": "编辑角色",
     "empty": "未找到用户。",
@@ -2101,7 +2105,8 @@
       "embedding_model": "嵌入模型：通过 /v1/embeddings 提供服务。",
       "embedding_from_causal_lm": "用于嵌入的聊天架构：由 vLLM 进行适配。",
       "needs_remote_code": "此模型自带加载代码。",
-      "curated": "为此模型推荐。"
+      "curated": "为此模型推荐。",
+      "recipe": "来自 vLLM 官方为此模型提供的配方。"
     },
     "section": {
       "memory": "上下文与内存",
@@ -2426,6 +2431,14 @@
       "gemma": "Google 的开放模型：强大的多语言聊天能力，并能理解图像。",
       "embedding_small": "小巧快速的向量嵌入模型，用于搜索和知识库。",
       "embedding_large": "大型向量嵌入模型：检索效果更好，显存占用更多。"
+    },
+    "recipe": {
+      "applied": "vLLM 为此模型发布了配方，其推荐设置已包含在建议中。",
+      "open": "打开配方",
+      "too_old": "该配方需要 vLLM {{version}} 或更高版本，而此集群运行的版本较旧。",
+      "dropped": "此处未使用（引用了 vLLM 源码中的文件或 JSON 选项）：",
+      "opt_in_title": "配方中的可选项：",
+      "opt_in_manual": "配方还提供以下选项，如有需要请手动设置：{{features}}。"
     }
   },
   "container_resources": {

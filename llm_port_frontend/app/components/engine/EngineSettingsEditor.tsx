@@ -280,7 +280,7 @@ export function EngineSettingsEditor({
                 disabled={disabled}
                 value={context ?? ""}
                 onChange={(e) => set("max_model_len", e.target.value === "" ? undefined : Number(e.target.value))}
-                slotProps={{ htmlInput: { "data-testid": "engine-context" } }}
+                slotProps={{ select: { displayEmpty: true }, htmlInput: { "data-testid": "engine-context" } }}
               >
                 <MenuItem value="">
                   {trained ? t("engine.context.auto_known", { tokens: formatTokens(trained) }) : t("engine.auto")}
@@ -367,6 +367,7 @@ export function EngineSettingsEditor({
                 disabled={disabled}
                 value={value.max_num_seqs ?? ""}
                 onChange={(e) => set("max_num_seqs", e.target.value === "" ? undefined : Number(e.target.value))}
+                slotProps={{ select: { displayEmpty: true } }}
               >
                 <MenuItem value="">{t("engine.auto")}</MenuItem>
                 {[...new Set([...SEQ_STEPS, ...(typeof value.max_num_seqs === "number" ? [value.max_num_seqs] : [])])]
@@ -478,7 +479,7 @@ export function EngineSettingsEditor({
                     disabled={disabled}
                     value={typeof value.reasoning_parser === "string" ? value.reasoning_parser : ""}
                     onChange={(e) => set("reasoning_parser", e.target.value || undefined)}
-                    slotProps={{ htmlInput: { "data-testid": "engine-reasoning" } }}
+                    slotProps={{ select: { displayEmpty: true }, htmlInput: { "data-testid": "engine-reasoning" } }}
                   >
                     <MenuItem value="">{t("engine.reasoning.off")}</MenuItem>
                     {CATALOG.reasoningParsers.map((p) => (
@@ -787,6 +788,7 @@ function FlagRow({
         disabled={disabled}
         value={value === undefined ? "" : value ? "true" : "false"}
         onChange={(e) => onSet(def.key, e.target.value === "" ? undefined : e.target.value === "true")}
+        slotProps={{ select: { displayEmpty: true } }}
       >
         <MenuItem value="">{t("engine.default_is", { value: defaultText })}</MenuItem>
         <MenuItem value="true">{t("engine.on")}</MenuItem>
@@ -802,6 +804,7 @@ function FlagRow({
         disabled={disabled}
         value={value === undefined ? "" : String(value)}
         onChange={(e) => onSet(def.key, e.target.value || undefined)}
+        slotProps={{ select: { displayEmpty: true } }}
       >
         <MenuItem value="">{t("engine.default_is", { value: defaultText })}</MenuItem>
         {def.choices.map((c) => (

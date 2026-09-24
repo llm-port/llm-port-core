@@ -471,6 +471,10 @@
     "unverified": "Nicht verifiziert",
     "roles": "Rollen",
     "no_roles": "Keine Rollen",
+    "usage_group": "Nutzungsgruppe",
+    "usage_group_none": "Keine Nutzungsgruppe",
+    "usage_group_help": "Die Nutzung wird in Auswertungen dieser Gruppe zugeordnet.",
+    "failed_update_usage_group": "Nutzungsgruppe konnte nicht aktualisiert werden",
     "permissions": "Berechtigungen",
     "edit_roles": "Rollen bearbeiten",
     "empty": "Keine Benutzer gefunden.",
@@ -2101,7 +2105,8 @@
       "embedding_model": "Ein Embedding-Modell: bereitgestellt unter /v1/embeddings.",
       "embedding_from_causal_lm": "Eine Chat-Architektur für Embeddings: vLLM passt sie an.",
       "needs_remote_code": "Dieses Modell bringt eigenen Ladecode mit.",
-      "curated": "Für dieses Modell empfohlen."
+      "curated": "Für dieses Modell empfohlen.",
+      "recipe": "Aus vLLMs eigenem Rezept für dieses Modell."
     },
     "section": {
       "memory": "Kontext und Speicher",
@@ -2426,6 +2431,14 @@
       "gemma": "Das offene Modell von Google: starker mehrsprachiger Chat, der auch Bilder versteht.",
       "embedding_small": "Ein kleines, schnelles Embedding-Modell für Suche und Wissensdatenbanken.",
       "embedding_large": "Ein großes Embedding-Modell: bessere Treffer, mehr Speicher."
+    },
+    "recipe": {
+      "applied": "vLLM veröffentlicht ein Rezept für dieses Modell; seine empfohlenen Einstellungen sind in den Vorschlägen enthalten.",
+      "open": "Rezept öffnen",
+      "too_old": "Das Rezept braucht vLLM {{version}} oder neuer, und dieser Cluster verwendet eine ältere Version.",
+      "dropped": "Hier nicht verwendet (verweist auf Dateien aus dem vLLM-Quellcode oder JSON-Optionen):",
+      "opt_in_title": "Optional, aus dem Rezept:",
+      "opt_in_manual": "Das Rezept bietet außerdem an, bei Bedarf von Hand zu setzen: {{features}}."
     }
   },
   "container_resources": {

@@ -124,7 +124,9 @@ export function gpuChoices(fit: Fit | null | undefined, cluster: MarketCluster |
   const choices: GpuChoice[] = [];
   const planned = fit?.status === "fits" ? fit.gpus_per_copy : null;
   if (planned !== null && planned !== undefined && planned < 1) {
-    choices.push({ value: planned, maxCopies: Math.floor(count * Math.floor(1 / planned + 1e-9)) });
+    // The fit check's own count: it keeps each card below the most vLLM may
+    // take (0.9), so four shares of 0.2 fit a card, not five.
+    choices.push({ value: planned, maxCopies: Math.max(1, fit?.copies ?? 1) });
   }
   const smallest = fit?.status === "fits" ? Math.max(1, fit.tensor_parallel ?? 1) : 1;
   for (const size of TP_SIZES) {
