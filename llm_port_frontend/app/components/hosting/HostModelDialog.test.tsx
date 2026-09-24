@@ -87,6 +87,20 @@ const DETAIL: MarketDetail = {
   local: null,
 };
 
+const LOCAL: Model = {
+  id: "local-1",
+  display_name: "my-finetune",
+  source: "local_path",
+  hf_repo_id: null,
+  hf_revision: null,
+  license_ack_required: false,
+  tags: null,
+  status: "available",
+  instances: [],
+  created_at: "2026-09-21T10:24:55Z",
+  updated_at: "2026-09-21T10:24:55Z",
+};
+
 function renderDialog(props: Partial<React.ComponentProps<typeof HostModelDialog>> = {}) {
   const onHosted = vi.fn();
   render(
@@ -198,25 +212,72 @@ describe("HostModelDialog", () => {
     expect(host.mock.calls[0][0].engine_config).toMatchObject({ language_model_only: true, tool_call_parser: "hermes" });
   });
 
-  it("deploys a model the server keeps from a local path, without asking the Hub", async () => {
-    const local: Model = {
-      id: "local-1",
-      display_name: "my-finetune",
-      source: "local_path",
-      hf_repo_id: null,
-      hf_revision: null,
-      license_ack_required: false,
-      tags: null,
-      status: "available",
-      instances: [],
-      created_at: "2026-09-21T10:24:55Z",
-      updated_at: "2026-09-21T10:24:55Z",
+  it("a share set for one cluster does not ride along onto a whole card on another", async () => {
+    const detail: MarketDetail = {
+      ...DETAIL,
+      fits: {
+        [PAIR.environment_id]: fit(),
+        [SMALL.environment_id]: fit({
+          gpus_per_copy: 1, copies: 1, copies_now: 1, shareable: false, suggested_gpu_memory_utilization: null,
+        }),
+      },
     };
+    vi.spyOn(marketplaceApi, "clusters").mockResolvedValue([PAIR, SMALL]);
+    vi.spyOn(marketplaceApi, "detail").mockResolvedValue(detail);
+    const host = vi.spyOn(marketplaceApi, "host").mockResolvedValue({
+      deployment_id: "dep-5", model_id: "m-1", download: "kept", download_error: null,
+    });
+    vi.spyOn(inferenceApi, "reconcileDeployment").mockResolvedValue({} as InferenceDeployment);
+    renderDialog({ repoId: "Qwen/Qwen3-8B" });
+
+    // A quarter of a card on the pair, then an edit: the suggestions no longer follow.
+    await waitFor(() => expect(screen.getByTestId("host-gpus-0.25")).toHaveAttribute("aria-pressed", "true"));
+    await userEvent.click(screen.getByTestId("host-next"));
+    await userEvent.click(screen.getByLabelText("Tool calling"));
+    await userEvent.click(screen.getByRole("button", { name: "Back" }));
+    // A whole card on the workstation: the quarter share must not come along.
+    await userEvent.click(screen.getByTestId(`host-cluster-${SMALL.environment_id}`));
+    await waitFor(() => expect(screen.getByTestId("host-gpus-1")).toHaveAttribute("aria-pressed", "true"));
+    await waitFor(() => expect(screen.getByTestId("host-next")).toBeEnabled());
+    await userEvent.click(screen.getByTestId("host-next"));
+    await userEvent.click(screen.getByTestId("host-next"));
+    await userEvent.click(screen.getByTestId("host-submit"));
+    await waitFor(() => expect(host).toHaveBeenCalled());
+    const sent = host.mock.calls[0][0];
+    expect(sent.environment_id).toBe(SMALL.environment_id);
+    expect(sent.gpus_per_copy).toBe(1);
+    expect(sent.engine_config.gpu_memory_utilization).toBeUndefined();
+    expect(sent.engine_config.enable_auto_tool_choice).toBeUndefined();
+  });
+
+  it("a cluster that has reported no accelerator still takes a kept model", async () => {
+    // The agent has only just joined, or is briefly away: no utilization
+    // snapshot yet. A locked dialog that never enables Next would leave the
+    // cluster page with no way to deploy at all.
+    const quiet: MarketCluster = { ...PAIR, gpu_count: 0, gpu_bytes: null, accelerator: null };
+    vi.spyOn(marketplaceApi, "clusters").mockResolvedValue([quiet]);
+    const create = vi.spyOn(inferenceApi, "createDeployment").mockResolvedValue({ id: "dep-6" } as InferenceDeployment);
+    vi.spyOn(inferenceApi, "reconcileDeployment").mockResolvedValue({} as InferenceDeployment);
+    const { onHosted } = renderDialog({ models: [LOCAL], clusterId: PAIR.environment_id, lockCluster: true });
+
+    await userEvent.click(screen.getByTestId("host-kept-local-1"));
+    await userEvent.click(screen.getByTestId("host-next"));
+    expect(await screen.findByText("No accelerators reported yet")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId("host-gpus-1")).toHaveAttribute("aria-pressed", "true"));
+    await waitFor(() => expect(screen.getByTestId("host-next")).toBeEnabled());
+    await userEvent.click(screen.getByTestId("host-next"));
+    await userEvent.click(screen.getByTestId("host-next"));
+    await userEvent.click(screen.getByTestId("host-submit"));
+    await waitFor(() => expect(onHosted).toHaveBeenCalledWith("dep-6"));
+    expect(create.mock.calls[0][0].spec).toMatchObject({ resources: { replica: { gpus: 1 } } });
+  });
+
+  it("deploys a model the server keeps from a local path, without asking the Hub", async () => {
     vi.spyOn(marketplaceApi, "clusters").mockResolvedValue([PAIR]);
     const detail = vi.spyOn(marketplaceApi, "detail");
     const create = vi.spyOn(inferenceApi, "createDeployment").mockResolvedValue({ id: "dep-3" } as InferenceDeployment);
     vi.spyOn(inferenceApi, "reconcileDeployment").mockResolvedValue({} as InferenceDeployment);
-    const { onHosted } = renderDialog({ models: [local], clusterId: PAIR.environment_id, lockCluster: true });
+    const { onHosted } = renderDialog({ models: [LOCAL], clusterId: PAIR.environment_id, lockCluster: true });
 
     await userEvent.click(screen.getByTestId("host-kept-local-1"));
     await userEvent.click(screen.getByTestId("host-next"));

@@ -14,7 +14,7 @@
  * fully deterministic: schedule when asked, don't when not, refresh without
  * disturbing what is on screen, and clean up on unmount.
  */
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { useAsyncData } from "./useAsyncData";
@@ -133,6 +133,35 @@ describe("useAsyncData", () => {
     // Once it has landed, polling resumes normally.
     void result.current.refresh(true);
     await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(3));
+  });
+
+  it("an older, slower answer cannot land on top of a newer one", async () => {
+    /**
+     * The marketplace: the operator searches "llama", then "qwen", and the
+     * Hub answers the second search first. When the first finally lands it
+     * must not replace the qwen results under the qwen query.
+     */
+    const answers: Record<string, (v: string) => void> = {};
+    const fetcher = vi.fn((q: string) => new Promise<string>((r) => (answers[q] = r)));
+
+    const { result, rerender } = renderHook(
+      ({ q }: { q: string }) => useAsyncData(() => fetcher(q), [q], { initialValue: "" }),
+      { initialProps: { q: "llama" } },
+    );
+    await waitFor(() => expect(answers.llama).toBeDefined());
+    rerender({ q: "qwen" });
+    await waitFor(() => expect(answers.qwen).toBeDefined());
+
+    await act(async () => {
+      answers.qwen("qwen results");
+    });
+    expect(result.current.data).toBe("qwen results");
+    expect(result.current.loading).toBe(false);
+
+    await act(async () => {
+      answers.llama("llama results");
+    });
+    expect(result.current.data).toBe("qwen results");
   });
 
   it("a loud refresh does show its loading state", async () => {

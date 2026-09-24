@@ -368,8 +368,11 @@ class HFTokenStatusDTO(BaseModel):
 class HFTokenSetRequest(BaseModel):
     """Request body for setting the HF token."""
 
-    # SecretStr keeps the value out of reprs and logs.
-    token: SecretStr = Field(..., min_length=1, max_length=512)
+    # SecretStr keeps the value out of reprs and logs. No length bound here:
+    # pydantic answers a failed bound with the offending input in the 422
+    # body, which would echo the token. ``hf_token.normalize`` checks the
+    # length and answers without it.
+    token: SecretStr = Field(..., min_length=1)
 
 
 # -----------------------------------------------------------------------

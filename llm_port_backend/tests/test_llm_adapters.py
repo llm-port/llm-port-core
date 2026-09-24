@@ -235,7 +235,8 @@ def test_vllm_spec_trust_remote_code_enables_network(monkeypatch: pytest.MonkeyP
     "engine_args,expect_present,expect_absent",
     [
         ({"enable-prefix-caching": True}, ["--enable-prefix-caching"], []),  # bool True → bare flag
-        ({"enable-prefix-caching": False}, [], ["--enable-prefix-caching"]),  # bool False → omitted
+        # bool False → the --no- form: vLLM turns prefix caching on by itself, so omitting is not "off"
+        ({"enable-prefix-caching": False}, ["--no-enable-prefix-caching"], ["--enable-prefix-caching"]),
         ({"max-num-seqs": 100}, ["--max-num-seqs", "100"], []),  # value → flag + value
         ({"max_model_len": 4096}, [], []),  # matches existing --max-model-len → dedup (dash vs underscore)
         ({"bad..name": "x"}, [], []),  # invalid flag name → skipped
@@ -258,6 +259,18 @@ def test_vllm_spec_engine_args_passthrough(
         assert token in cmd
     for token in expect_absent:
         assert token not in cmd
+
+
+def test_vllm_spec_legacy_image_has_no_off_form(monkeypatch: pytest.MonkeyPatch) -> None:
+    """v0.6.6 has store_true flags only: absent is off, and --no-<flag> is unknown."""
+    spec = _build(
+        monkeypatch,
+        _inventory(GpuVendor.NVIDIA, has_gpu=False),
+        generic={"max_model_len": 4096},  # enforce_eager defaults on → legacy image
+        provider_cfg={"engine_args": {"enable-prefix-caching": False}},
+    )
+    assert "--no-enable-prefix-caching" not in spec.cmd
+    assert "--enable-prefix-caching" not in spec.cmd
 
 
 @pytest.mark.parametrize("is_legacy", [True, False])

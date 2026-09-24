@@ -85,6 +85,21 @@ async def test_system_settings_update_live_reload_key(
     assert body["apply_scope"] == "live_reload"
 
 
+async def test_the_hugging_face_token_is_not_a_generic_setting(
+    client: AsyncClient,
+    fastapi_app: FastAPI,
+) -> None:
+    """It is checked with the Hub, refused under the published master key and
+    audited, in ``services/llm/hf_token.py``; the generic path knows no such key.
+    """
+    fastapi_app.dependency_overrides[current_active_user] = _override_superuser
+    schema = (await client.get(fastapi_app.url_path_for("system_settings_schema"))).json()
+    assert all(item["key"] != "llm_backend.hf_token" for item in schema)
+    url = fastapi_app.url_path_for("system_settings_update", key="llm_backend.hf_token")
+    response = await client.put(url, json={"value": "hf_anything", "target_host": "local"})
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
 async def test_system_settings_update_protected_key_requires_root_mode(
     client: AsyncClient,
     fastapi_app: FastAPI,

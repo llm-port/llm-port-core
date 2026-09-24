@@ -18,8 +18,6 @@ from llm_port_backend.services.llm import hf_token
 from llm_port_backend.web.api.llm.schema import HFTokenSetRequest, HFTokenStatusDTO
 from llm_port_backend.web.api.rbac import require_permission
 
-HF_TOKEN_KEY = hf_token.HF_TOKEN_KEY
-
 router = APIRouter()
 
 

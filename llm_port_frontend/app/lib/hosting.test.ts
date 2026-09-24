@@ -152,7 +152,8 @@ describe("the sizes a copy can take", () => {
 
   it("offers every whole size when nothing is known", () => {
     expect(gpuChoices(null, PAIR).map((c) => c.value)).toEqual([1, 2]);
-    expect(gpuChoices(null, { ...PAIR, gpu_count: 0 })).toEqual([]);
+    // A cluster that has reported no accelerator still takes one copy of one whole size.
+    expect(gpuChoices(null, { ...PAIR, gpu_count: 0 })).toEqual([{ value: 1, maxCopies: 1 }]);
   });
 });
 

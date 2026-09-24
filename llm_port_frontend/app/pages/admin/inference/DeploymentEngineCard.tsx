@@ -12,7 +12,7 @@ import { useTranslation } from "react-i18next";
 import { inferenceApi, type InferenceDeployment } from "~/api/inference";
 import { marketplaceApi, type MarketDetail } from "~/api/marketplace";
 import { EngineSettingsEditor } from "~/components/engine/EngineSettingsEditor";
-import { toClusterConfig, toFlag, type EngineConfig } from "~/lib/engine";
+import { toClusterConfig, toFlag, type EngineConfig, type EngineValue } from "~/lib/engine";
 
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
@@ -32,20 +32,34 @@ import TuneIcon from "@mui/icons-material/Tune";
 
 import { acceleratorsPerCopy, asRecord } from "./common";
 
-/** The engine settings a deployment's spec carries. */
+function isEngineValue(value: unknown): value is EngineValue {
+  return typeof value === "string" || typeof value === "number" || typeof value === "boolean";
+}
+
+/** The engine settings a deployment's spec carries that the editor can show: one value each. */
 export function engineConfigOf(deployment: InferenceDeployment): EngineConfig {
   const config = asRecord(asRecord(deployment.spec?.engine).config);
   const out: EngineConfig = {};
   for (const [key, value] of Object.entries(config)) {
-    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") out[key] = value;
+    if (isEngineValue(value)) out[key] = value;
   }
   return out;
 }
 
-/** The spec with *config* as its engine settings, and nothing else changed. */
+/**
+ * The spec with *config* as its engine settings, and nothing else changed.
+ *
+ * A setting the editor cannot show -- an object or a list, such as
+ * `speculative_config` set through the API -- stays as it was: the editor
+ * replaces only the settings it edits.
+ */
 export function withEngineConfig(deployment: InferenceDeployment, config: EngineConfig): Record<string, unknown> {
   const engine = asRecord(deployment.spec?.engine);
-  return { ...deployment.spec, engine: { ...engine, name: engine.name ?? "vllm", config } };
+  const kept: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(asRecord(engine.config))) {
+    if (!isEngineValue(value)) kept[key] = value;
+  }
+  return { ...deployment.spec, engine: { ...engine, name: engine.name ?? "vllm", config: { ...kept, ...config } } };
 }
 
 function tensorParallel(deployment: InferenceDeployment): number {
@@ -69,9 +83,14 @@ export function DeploymentEngineCard({ deployment, repoId, onSaved }: Deployment
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState<EngineConfig>(current);
   const [extra, setExtra] = useState("");
-  const [detail, setDetail] = useState<MarketDetail | null>(null);
+  // The model's facts, remembered for the deployment they were fetched for:
+  // the card is reused when the route moves to another deployment.
+  const [facts, setFacts] = useState<{ key: string; detail: MarketDetail } | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const factsKey = `${deployment.id}/${repoId ?? ""}`;
+  const detail = facts?.key === factsKey ? facts.detail : null;
 
   function openEditor() {
     setValue(engineConfigOf(deployment));
@@ -80,9 +99,10 @@ export function DeploymentEngineCard({ deployment, repoId, onSaved }: Deployment
     setOpen(true);
     if (repoId && !detail) {
       // What the model is and what would be suggested here; the editor works without it.
+      const key = factsKey;
       marketplaceApi
         .detail(repoId, deployment.environment_id)
-        .then(setDetail)
+        .then((d) => setFacts({ key, detail: d }))
         .catch(() => undefined);
     }
   }
@@ -93,7 +113,10 @@ export function DeploymentEngineCard({ deployment, repoId, onSaved }: Deployment
     setSaving(true);
     setError(null);
     try {
-      await inferenceApi.updateDeployment(deployment.id, { spec: withEngineConfig(deployment, config) });
+      // The spec as it is now, not as this page last loaded it: a scale or
+      // alias change made elsewhere since then must survive this save.
+      const latest = await inferenceApi.getDeployment(deployment.id);
+      await inferenceApi.updateDeployment(deployment.id, { spec: withEngineConfig(latest, config) });
       await inferenceApi.reconcileDeployment(deployment.id).catch(() => undefined);
       setOpen(false);
       await onSaved();

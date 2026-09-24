@@ -234,6 +234,21 @@ def test_a_shared_card_is_not_over_claimed_by_vllms_default() -> None:
     assert "gpu_memory_utilization" not in whole["engine"]["config"]
 
 
+@pytest.mark.parametrize("edited", [{}, {"gpu_memory_utilization": 0.9}, {"gpu_memory_utilization": "lots"}])
+def test_a_shared_card_stays_capped_after_the_spec_is_edited(edited: dict[str, Any]) -> None:
+    """The cap holds in the compiler, not only in the host form: an engine edit
+    from the deployment page or the API that clears or raises the share is
+    capped all the same, so the copy cannot crowd the others on its card.
+    """
+    from llm_port_backend.services.inference.drivers.ray.compiler import compile_deployment
+
+    spec = build_spec(_request(gpus_per_copy=0.25, engine_config={}))
+    spec["engine"]["config"] = dict(edited)
+    compiled = compile_deployment(spec_data=spec, model_display_name="Qwen3-8B", model_source="huggingface",
+                                  hf_repo_id="Qwen/Qwen3-8B")
+    assert compiled["llm_configs"][0]["engine_kwargs"]["gpu_memory_utilization"] == 0.25
+
+
 def test_host_refuses_impossible_shapes() -> None:
     with pytest.raises(HostError):
         build_spec(_request(gpus_per_copy=1.5))

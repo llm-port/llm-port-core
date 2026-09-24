@@ -118,6 +118,75 @@ async def test_offline_the_token_is_kept_and_marked_unchecked(
 
 
 @pytest.mark.anyio
+async def test_a_hub_that_does_not_answer_is_not_asked_on_every_page(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The settings page, the marketplace chip and every dialog open ask for
+    the status; with the Hub unreachable each ask would wait out the timeout.
+    """
+    asked = _hub_says(monkeypatch, hf_token.Identity(check="offline"))
+    await client.put(URL, json={"token": TOKEN})
+    for _ in range(3):
+        assert (await client.get(URL)).json()["check"] == "offline"
+    assert len(asked) == 1
+
+
+def test_whoami_reads_the_status_code_not_the_text(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A 5xx whose request id happens to contain "401" is an outage, not a bad token."""
+    import httpx
+
+    def hub(status_code: int, body: str | dict) -> None:
+        def handle(request: httpx.Request) -> httpx.Response:
+            assert request.headers["Authorization"] == f"Bearer {TOKEN}"
+            return httpx.Response(status_code, json=body) if isinstance(body, dict) else httpx.Response(status_code, text=body)
+
+        monkeypatch.setattr(
+            hf_token, "_hub_client",
+            lambda: httpx.Client(base_url="https://hub.test", transport=httpx.MockTransport(handle)),
+        )
+
+    hub(503, "Service unavailable. Request ID: Root=1-401abc")
+    assert hf_token._whoami_sync(TOKEN).check == "offline"
+    hub(401, {"error": "Invalid user token"})
+    assert hf_token._whoami_sync(TOKEN).check == "invalid"
+    hub(200, {"name": "sachith", "auth": {"accessToken": {"displayName": "llm-port", "role": "read"}}})
+    assert hf_token._whoami_sync(TOKEN) == hf_token.Identity(
+        check="ok", username="sachith", token_name="llm-port", role="read",
+    )
+
+
+def test_whoami_gives_up_in_time(monkeypatch: pytest.MonkeyPatch) -> None:
+    import httpx
+
+    # The real client carries a deadline at all: HfApi.whoami has none.
+    assert hf_token._hub_client().timeout.read == hf_token._WHOAMI_TIMEOUT
+
+    def hang(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("no answer", request=request)
+
+    monkeypatch.setattr(
+        hf_token, "_hub_client",
+        lambda: httpx.Client(base_url="https://hub.test", transport=httpx.MockTransport(hang)),
+    )
+    assert hf_token._whoami_sync(TOKEN).check == "offline"
+
+
+@pytest.mark.anyio
+async def test_an_overlong_token_is_refused_without_being_echoed(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pydantic's own length check answers with the offending input in the
+    422 body; a token must not come back that way either.
+    """
+    asked = _hub_says(monkeypatch, hf_token.Identity(check="ok"))
+    overlong = "hf_" + "x" * 600
+    response = await client.put(URL, json={"token": overlong})
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    assert "x" * 50 not in response.text
+    assert asked == []
+
+
+@pytest.mark.anyio
 async def test_what_cannot_be_a_token_is_refused_without_asking(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch,
 ) -> None:

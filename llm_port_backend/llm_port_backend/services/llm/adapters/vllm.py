@@ -204,6 +204,12 @@ class VLLMAdapter(ProviderAdapter):
                 if isinstance(value, bool):
                     if value:
                         cmd.append(f"--{flag}")
+                    elif not is_legacy_image:
+                        # An explicit "off" for a flag vLLM turns on by itself
+                        # (prefix caching, chunked prefill).  Every boolean
+                        # since v0.9 takes the --no- form; the legacy image
+                        # has store_true flags only, where absent is off.
+                        cmd.append(f"--no-{flag}")
                 else:
                     cmd += [f"--{flag}", str(value)]
 
@@ -243,7 +249,9 @@ class VLLMAdapter(ProviderAdapter):
             env += ["HF_HUB_OFFLINE=0", "TRANSFORMERS_OFFLINE=0"]
             # Only a container allowed onto the network gets the token: an
             # offline one cannot use it, and a container's environment is
-            # readable by anyone who can inspect it.
+            # readable by anyone who can inspect it. It stays there until the
+            # container is recreated (a stop and a start): a token removed or
+            # replaced under Settings does not reach a running container.
             if hf_token:
                 env.append(f"HF_TOKEN={hf_token}")
             else:

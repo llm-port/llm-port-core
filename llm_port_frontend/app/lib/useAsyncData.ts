@@ -59,6 +59,10 @@ export function useAsyncData<T>(
   const [error, setError] = useState<string | null>(null);
   const mountedRef = useRef(true);
   const inFlightRef = useRef(false);
+  // Which request is the latest. An older, slower answer must not land on
+  // top of a newer one: a search for "llama" that resolves after the search
+  // for "qwen" would otherwise show llama results under the qwen query.
+  const seqRef = useRef(0);
 
   const load = useCallback(async (silent = false) => {
     // Never let a poll overlap the request it is repeating.
@@ -70,6 +74,7 @@ export function useAsyncData<T>(
     // can load until a reload aborts them.  Skipping a tick is the honest
     // behaviour: the data is already on its way.
     if (silent && inFlightRef.current) return;
+    const seq = ++seqRef.current;
     inFlightRef.current = true;
     if (!silent) {
       setLoading(true);
@@ -77,14 +82,17 @@ export function useAsyncData<T>(
     }
     try {
       const result = await fetcher();
-      if (mountedRef.current) setData(result);
+      if (mountedRef.current && seq === seqRef.current) setData(result);
     } catch (err: unknown) {
-      if (mountedRef.current) {
+      if (mountedRef.current && seq === seqRef.current) {
         setError(err instanceof Error ? err.message : String(err));
       }
     } finally {
-      inFlightRef.current = false;
-      if (mountedRef.current && !silent) setLoading(false);
+      // A superseded request leaves the flags to the one that replaced it.
+      if (seq === seqRef.current) {
+        inFlightRef.current = false;
+        if (mountedRef.current && !silent) setLoading(false);
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);

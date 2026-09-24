@@ -32,9 +32,6 @@ import {
   type SystemSettingSchemaItem,
 } from "~/api/systemSettings";
 
-/** Set through its own panel: checked with Hugging Face first, never shown again. */
-const HF_TOKEN_KEY = "llm_backend.hf_token";
-
 type SettingsTab = "general" | "modules";
 
 function getCurrentTab(
@@ -302,6 +299,15 @@ export default function SettingsPage() {
               }}
             />
 
+            {/* Not a generic secret: checked with Hugging Face first, audited, never shown again. */}
+            {(!search.trim() || /hugging|hf|token/i.test(search)) && (
+              <Paper sx={{ p: 2 }}>
+                <Typography variant="subtitle1">{t("hf_access.title")}</Typography>
+                <Divider sx={{ my: 1 }} />
+                <HuggingFaceTokenPanel />
+              </Paper>
+            )}
+
             {loading && <CircularProgress size={20} />}
             {!loading && filtered.size === 0 && (
               <Typography color="text.secondary">
@@ -324,16 +330,7 @@ export default function SettingsPage() {
                   </Typography>
                   <Divider sx={{ my: 1 }} />
                   <Stack spacing={1.5}>
-                    {items.map((item) =>
-                      item.key === HF_TOKEN_KEY ? (
-                        // Checked with Hugging Face before it is kept, and never shown again.
-                        <Box key={item.key}>
-                          <Typography variant="body2" sx={{ mb: 1 }}>
-                            {item.label}
-                          </Typography>
-                          <HuggingFaceTokenPanel />
-                        </Box>
-                      ) : (
+                    {items.map((item) => (
                       <Box key={item.key}>
                         <Stack
                           direction={{ xs: "column", md: "row" }}
@@ -490,8 +487,7 @@ export default function SettingsPage() {
                           </Button>
                         </Stack>
                       </Box>
-                      ),
-                    )}
+                    ))}
                   </Stack>
                 </Paper>
               );

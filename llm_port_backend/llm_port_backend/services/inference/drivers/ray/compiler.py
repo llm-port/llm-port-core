@@ -373,6 +373,7 @@ def _engine_kwargs(
     tensor_parallel_size: int | None,
     pipeline_parallel_size: int | None,
     revision: str | None = None,
+    replica_gpus: float | None = None,
 ) -> dict[str, Any]:
     """Merge spec engine kwargs with topology-derived TP/PP and model revision.
 
@@ -380,6 +381,13 @@ def _engine_kwargs(
     explicit override), but a topology TP/PP that the operator did *not* also
     place in ``engine.config`` is always injected, because vLLM reads TP/PP
     exclusively from ``engine_kwargs``.
+
+    One exception: a copy that shares an accelerator (``replica_gpus`` below
+    1) may use no more of its memory than its share.  vLLM's own default is
+    0.9 and ours 0.80; either would crowd the other copies on the card, and so
+    would a share the operator raised by hand.  The host form writes the same
+    cap into the spec it creates; this is where it holds for a spec edited
+    afterwards, from the deployment page or the API.
     """
     kwargs: dict[str, Any] = dict(engine_config or {})
     if tensor_parallel_size is not None:
@@ -388,7 +396,13 @@ def _engine_kwargs(
         kwargs.setdefault("pipeline_parallel_size", int(pipeline_parallel_size))
     if revision:
         kwargs.setdefault("revision", str(revision))
-    kwargs.setdefault("gpu_memory_utilization", DEFAULT_GPU_MEMORY_UTILIZATION)
+    if replica_gpus is not None and 0 < replica_gpus < 1:
+        share = round(float(replica_gpus), 2)
+        asked = kwargs.get("gpu_memory_utilization")
+        asked_number = isinstance(asked, (int, float)) and not isinstance(asked, bool) and asked > 0
+        kwargs["gpu_memory_utilization"] = min(float(asked), share) if asked_number else share
+    else:
+        kwargs.setdefault("gpu_memory_utilization", DEFAULT_GPU_MEMORY_UTILIZATION)
     kwargs.setdefault("kv_cache_metrics", DEFAULT_KV_CACHE_METRICS)
     return kwargs
 
@@ -594,11 +608,13 @@ def compile_spec(
     pp = topology.pipeline_parallel_size
 
     effective_revision = spec.artifacts.revision or revision
+    replica_gpus = spec.resources.replica.gpus
     engine_kwargs = _engine_kwargs(
         engine_config=spec.engine.config,
         tensor_parallel_size=tp,
         pipeline_parallel_size=pp,
         revision=effective_revision,
+        replica_gpus=float(replica_gpus) if replica_gpus is not None else None,
     )
 
     # Determine the active replica representation.

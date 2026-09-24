@@ -167,18 +167,9 @@ SETTINGS_REGISTRY: list[SettingDefinition] = [
         service_targets=("grafana",),
         protected=True,
     ),
-    SettingDefinition(
-        key="llm_backend.hf_token",
-        type="secret",
-        category="llm",
-        group="huggingface",
-        label="Hugging Face Token",
-        description="Hugging Face Hub access token for model downloads.",
-        is_secret=True,
-        default="",
-        apply_scope=SystemApplyScope.LIVE_RELOAD,
-        service_targets=("llm-port-backend",),
-    ),
+    # The Hugging Face token is not a generic secret. It is checked with the
+    # Hub, refused under the published master key, audited and kept in
+    # ``services/llm/hf_token.py``, behind ``/api/llm/settings/hf-token``.
     # ── PII module settings ─────────────────────────────────────
     SettingDefinition(
         key="llm_port_api.pii_enabled",

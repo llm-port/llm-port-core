@@ -61,6 +61,9 @@ describe("storage", () => {
   it("the preview is the command vLLM would run", () => {
     expect(commandLine("Qwen/Qwen3-8B", { max_model_len: 32768, enable_auto_tool_choice: true }))
       .toBe("vllm serve Qwen/Qwen3-8B --max-model-len 32768 --enable-auto-tool-choice");
+    // Off is the --no- form, whatever vLLM's default: `--flag=false` is not accepted.
+    expect(commandLine("m", { enable_prefix_caching: false, enforce_eager: false }))
+      .toBe("vllm serve m --no-enable-prefix-caching --no-enforce-eager");
   });
 });
 

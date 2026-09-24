@@ -355,11 +355,10 @@ export default function RuntimeDetailPage() {
           if (engineConfig[key] != null) generic_config[key] = engineConfig[key];
         }
         const fields = toContainerFields(engineConfig, editExtraArgs);
-        if (fields.issues.length > 0) {
-          // Nothing half-saved: the editor already points at the bad flags.
-          setError(t("llm_runtime_detail.extra_args_invalid", { issues: fields.issues.join(", ") }));
-          return;
-        }
+        // Save is disabled while the editor points at a bad flag; this only
+        // catches a click that raced the check. Never the page's error state:
+        // that replaces the page, edits and all.
+        if (fields.issues.length > 0) return;
 
         const provider_config: Record<string, unknown> = {
           ...(rt.provider_config ?? {}),
@@ -667,6 +666,8 @@ export default function RuntimeDetailPage() {
   const isRunning = rt.status === "running" || rt.status === "starting";
   const isStopped = rt.status === "stopped" || rt.status === "error";
   const showLogs = !editing && (isRunning || isStopped);
+  // A typed flag the editor refuses (a shell metacharacter, a bare word) keeps Save off.
+  const extraArgsIssues = isRemoteProvider ? [] : toContainerFields(engineConfig, editExtraArgs).issues;
 
   async function refreshLogs() {
     if (!id) return;
@@ -947,7 +948,7 @@ export default function RuntimeDetailPage() {
               size="small"
               variant="contained"
               startIcon={saving ? <CircularProgress size={16} /> : <SaveIcon />}
-              disabled={saving}
+              disabled={saving || extraArgsIssues.length > 0}
               onClick={handleSaveAndRestart}
             >
               {isRemoteProvider

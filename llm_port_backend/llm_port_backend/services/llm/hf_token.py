@@ -4,8 +4,9 @@ The token is stored in ``system_setting_secret`` encrypted with the settings
 master key. No API answers with it: callers learn only whether one is set,
 where it comes from, and whom Hugging Face says it belongs to. It is used by
 the server itself -- Hub search, model details, downloads -- and handed to a
-legacy container only when that container is allowed onto the network.
-Cluster machines never receive it: they get models from this server.
+legacy container only when that container is allowed onto the network, where
+it stays until that container is stopped and started again. Cluster machines
+never receive it: they get models from this server.
 
 ``LLM_PORT_BACKEND_HF_TOKEN`` still works as a fallback for installations that
 set it before the setting existed; a stored token takes precedence.
@@ -30,6 +31,14 @@ ENV_VAR = "LLM_PORT_BACKEND_HF_TOKEN"
 MAX_TOKEN_LENGTH = 512
 _DEV_MASTER_KEY = "dev-settings-master-key-change-me"
 _IDENTITY_TTL = 600.0
+#: An outage is remembered too, briefly. Otherwise every page that shows the
+#: token's status asks the Hub again and, on a network that drops packets,
+#: waits out the whole timeout below each time.
+_OFFLINE_TTL = 60.0
+#: How long one whoami may take. ``HfApi.whoami`` has no timeout at all: on a
+#: firewall that drops packets it waits for the operating system to give up --
+#: about two minutes on Linux -- with the request's database transaction open.
+_WHOAMI_TIMEOUT = 10.0
 
 
 class TokenRejected(ValueError):
@@ -118,36 +127,56 @@ async def resolve(session: Any) -> tuple[str | None, str | None]:
     return (env, "environment") if env else (None, None)
 
 
-def _whoami_sync(token: str) -> Identity:
-    from huggingface_hub import HfApi  # noqa: PLC0415
+def _hub_client() -> Any:
+    """An HTTP client for the Hub with a deadline. Replaced in tests."""
+    import httpx  # noqa: PLC0415
+    from huggingface_hub.constants import ENDPOINT  # noqa: PLC0415
 
-    from llm_port_backend.services.marketplace.hub import _is_network_error  # noqa: PLC0415
+    from llm_port_backend.services.tls import default_httpx_verify  # noqa: PLC0415
+
+    return httpx.Client(base_url=ENDPOINT, timeout=_WHOAMI_TIMEOUT, verify=default_httpx_verify())
+
+
+def _whoami_sync(token: str) -> Identity:
+    """Ask the Hub whom *token* belongs to: ``HfApi.whoami``, with a deadline and read by status code."""
+    import httpx  # noqa: PLC0415
 
     try:
-        info = HfApi().whoami(token=token)
-    except Exception as exc:  # noqa: BLE001
-        if _is_network_error(exc):
-            return Identity(check="offline")
-        status = getattr(getattr(exc, "response", None), "status_code", None)
-        if status in {401, 403} or "401" in str(exc) or "Invalid user token" in str(exc):
-            return Identity(check="invalid")
-        log.info("Hugging Face whoami failed: %s", type(exc).__name__)
+        with _hub_client() as client:
+            response = client.get("/api/whoami-v2", headers={"Authorization": f"Bearer {token}"})
+    except httpx.HTTPError as exc:  # not reached, or not in time
+        log.info("Hugging Face whoami did not answer: %s", type(exc).__name__)
         return Identity(check="offline")
-    access = ((info.get("auth") or {}).get("accessToken") or {}) if isinstance(info, dict) else {}
+    # Only the status says whether the token was refused: a 5xx's body or
+    # request id can contain "401" and must not read as a bad token.
+    if response.status_code in {401, 403}:
+        return Identity(check="invalid")
+    if response.status_code != 200:
+        log.info("Hugging Face whoami answered %s", response.status_code)
+        return Identity(check="offline")
+    try:
+        info = response.json()
+    except ValueError:
+        info = None
+    if not isinstance(info, dict):
+        return Identity(check="offline")
+    access = (info.get("auth") or {}).get("accessToken") or {}
     return Identity(
         check="ok",
-        username=info.get("name") if isinstance(info, dict) else None,
+        username=info.get("name"),
         token_name=access.get("displayName"),
         role=access.get("role"),
     )
 
 
 async def identify(token: str, *, fresh: bool = False) -> Identity:
-    """Ask Hugging Face whom *token* belongs to; remembered for a few minutes."""
+    """Ask Hugging Face whom *token* belongs to; remembered for a few minutes, an outage for one."""
     key = _fingerprint(token)
     cached = _identity_cache.get(key)
-    if cached and not fresh and time.monotonic() - cached[0] < _IDENTITY_TTL and cached[1].check != "offline":
-        return cached[1]
+    if cached and not fresh:
+        ttl = _OFFLINE_TTL if cached[1].check == "offline" else _IDENTITY_TTL
+        if time.monotonic() - cached[0] < ttl:
+            return cached[1]
     identity = await asyncio.to_thread(_whoami_sync, token)
     _identity_cache[key] = (time.monotonic(), identity)
     return identity

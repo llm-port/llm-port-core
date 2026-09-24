@@ -116,19 +116,24 @@ const TP_SIZES = [1, 2, 4, 8, 16];
  * A model that fits one accelerator can also share one when the fit check
  * says it is small enough; a larger one spans the smallest power of two that
  * holds it, or more for speed. With no fit (a local model with no config)
- * every whole size the cluster has is offered.
+ * every whole size the cluster has is offered; with no accelerator reported,
+ * one copy of the smallest whole size.
  */
 export function gpuChoices(fit: Fit | null | undefined, cluster: MarketCluster | null | undefined): GpuChoice[] {
   const count = cluster?.gpu_count ?? 0;
-  if (count === 0) return [];
-  const choices: GpuChoice[] = [];
   const planned = fit?.status === "fits" ? fit.gpus_per_copy : null;
+  const smallest = fit?.status === "fits" ? Math.max(1, fit.tensor_parallel ?? 1) : 1;
+  if (count === 0) {
+    // Nothing reported: a machine that has only just joined, or none with an
+    // accelerator. The size is the operator's call, and the scheduler's to refuse.
+    return [{ value: smallest, maxCopies: 1 }];
+  }
+  const choices: GpuChoice[] = [];
   if (planned !== null && planned !== undefined && planned < 1) {
     // The fit check's own count: it keeps each card below the most vLLM may
     // take (0.9), so four shares of 0.2 fit a card, not five.
     choices.push({ value: planned, maxCopies: Math.max(1, fit?.copies ?? 1) });
   }
-  const smallest = fit?.status === "fits" ? Math.max(1, fit.tensor_parallel ?? 1) : 1;
   for (const size of TP_SIZES) {
     if (size >= smallest && size <= count) choices.push({ value: size, maxCopies: Math.floor(count / size) });
   }

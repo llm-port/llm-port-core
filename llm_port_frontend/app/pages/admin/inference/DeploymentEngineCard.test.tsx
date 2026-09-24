@@ -48,8 +48,23 @@ describe("DeploymentEngineCard", () => {
 
   it("saves the engine settings and nothing else, then asks for a restart", async () => {
     vi.spyOn(marketplaceApi, "detail").mockRejectedValue(new Error("offline"));
-    const update = vi.spyOn(inferenceApi, "updateDeployment").mockResolvedValue(DEPLOYMENT);
-    const reconcile = vi.spyOn(inferenceApi, "reconcileDeployment").mockResolvedValue(DEPLOYMENT);
+    // Since this page loaded, someone scaled the deployment up and set a
+    // setting the editor cannot show. Neither may be lost to this save.
+    const speculative = { method: "ngram", num_speculative_tokens: 3 };
+    const latest = {
+      ...DEPLOYMENT,
+      spec: {
+        ...DEPLOYMENT.spec,
+        engine: {
+          name: "vllm",
+          config: { max_model_len: 32768, enable_auto_tool_choice: true, tool_call_parser: "hermes", speculative_config: speculative },
+        },
+        scale: { replicas: 3 },
+      },
+    } as InferenceDeployment;
+    vi.spyOn(inferenceApi, "getDeployment").mockResolvedValue(latest);
+    const update = vi.spyOn(inferenceApi, "updateDeployment").mockResolvedValue(latest);
+    const reconcile = vi.spyOn(inferenceApi, "reconcileDeployment").mockResolvedValue(latest);
     const onSaved = vi.fn();
     render(<DeploymentEngineCard deployment={DEPLOYMENT} repoId="Qwen/Qwen3-8B" onSaved={onSaved} />);
 
@@ -61,9 +76,21 @@ describe("DeploymentEngineCard", () => {
 
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     const spec = update.mock.calls[0][1].spec as typeof DEPLOYMENT.spec;
-    expect(spec.engine).toEqual({ name: "vllm", config: { max_model_len: 32768 } });
-    expect(spec.scale).toEqual({ replicas: 2 });
+    expect(spec.engine).toEqual({ name: "vllm", config: { max_model_len: 32768, speculative_config: speculative } });
+    expect(spec.scale).toEqual({ replicas: 3 });
     expect(spec.service).toEqual(DEPLOYMENT.spec.service);
     expect(reconcile).toHaveBeenCalledWith("dep-1");
+  });
+
+  it("fetches the model's facts again for another deployment", async () => {
+    const detail = vi.spyOn(marketplaceApi, "detail").mockRejectedValue(new Error("offline"));
+    const { rerender } = render(<DeploymentEngineCard deployment={DEPLOYMENT} repoId="Qwen/Qwen3-8B" onSaved={() => {}} />);
+    await userEvent.click(screen.getByTestId("engine-edit"));
+    await userEvent.click(screen.getByText("Cancel"));
+    rerender(
+      <DeploymentEngineCard deployment={{ ...DEPLOYMENT, id: "dep-2" }} repoId="meta-llama/Llama-3.1-8B" onSaved={() => {}} />,
+    );
+    await userEvent.click(screen.getByTestId("engine-edit"));
+    expect(detail.mock.calls.map((c) => c[0])).toEqual(["Qwen/Qwen3-8B", "meta-llama/Llama-3.1-8B"]);
   });
 });

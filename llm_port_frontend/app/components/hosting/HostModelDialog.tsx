@@ -8,7 +8,7 @@
  * copy, the suggested settings fill the engine form, and the operator sees
  * both before anything starts.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router";
 
@@ -70,6 +70,21 @@ export interface HostModelDialogProps {
 }
 
 const tone = { success: "success", info: "info", warning: "warning", error: "error", default: "default" } as const;
+
+/** The engine settings for a copy of size *value*, given they were set for a copy of size *before*. */
+function sizedConfig(config: EngineConfig, before: number, value: number): EngineConfig {
+  const next = { ...config };
+  if (value < 1) {
+    // A shared card: the copy takes its share and no more.
+    const share = Math.round(value * 100) / 100;
+    const asked = Number(next.gpu_memory_utilization);
+    next.gpu_memory_utilization = Number.isFinite(asked) && asked > 0 ? Math.min(asked, share) : share;
+  } else if (before < 1 && Number(next.gpu_memory_utilization) <= before + 1e-6) {
+    // A whole card again: the share set for sharing would waste it.
+    delete next.gpu_memory_utilization;
+  }
+  return next;
+}
 
 export function HostModelDialog({
   open,
@@ -170,10 +185,17 @@ export function HostModelDialog({
   const maxCopies = choices.find((c) => Math.abs(c.value - gpus) < 1e-6)?.maxCopies ?? 1;
 
   // The planned size follows the cluster; the suggested settings follow until the operator edits them.
+  const gpusRef = useRef(gpus);
+  gpusRef.current = gpus;
   useEffect(() => {
     if (!open) return;
-    setGpus(defaultGpuChoice(fit, choices));
+    const value = defaultGpuChoice(fit, choices);
+    const before = gpusRef.current;
+    setGpus(value);
     setCopies(1);
+    // Edited settings follow the size too: a share set for one cluster must
+    // not ride along onto a whole card on another.
+    setConfig((current) => sizedConfig(current, before, value));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, cluster, fit?.status, fit?.gpus_per_copy, choices.length]);
 
@@ -196,19 +218,7 @@ export function HostModelDialog({
     const before = gpus;
     setGpus(value);
     setCopies((c) => Math.min(c, choices.find((x) => Math.abs(x.value - value) < 1e-6)?.maxCopies ?? 1));
-    setConfig((current) => {
-      const next = { ...current };
-      if (value < 1) {
-        // A shared card: the copy takes its share and no more.
-        const share = Math.round(value * 100) / 100;
-        const asked = Number(next.gpu_memory_utilization);
-        next.gpu_memory_utilization = Number.isFinite(asked) && asked > 0 ? Math.min(asked, share) : share;
-      } else if (before < 1 && Number(next.gpu_memory_utilization) <= before + 1e-6) {
-        // A whole card again: the share set for sharing would waste it.
-        delete next.gpu_memory_utilization;
-      }
-      return next;
-    });
+    setConfig((current) => sizedConfig(current, before, value));
   }
 
   const parsedExtra = parseExtraFlags(extra);
@@ -218,7 +228,7 @@ export function HostModelDialog({
   const fitBlocks = fit?.status === "too_large" || fit?.status === "no_accelerators";
   const canNext: Record<StepId, boolean> = {
     model: Boolean(kept),
-    where: Boolean(chosen) && (chosen?.gpu_count ?? 0) > 0 && !fitBlocks && detailState !== "loading",
+    where: Boolean(chosen) && !fitBlocks && detailState !== "loading",
     settings: extraIssues.length === 0,
     review: nameOk && !busy,
   };
@@ -581,7 +591,9 @@ function WhereStep({
         {shown.map((c) => {
           const f = detail?.fits[c.environment_id] ?? null;
           const summary = hasRepo && detail ? fitSummary(f) : null;
-          const blocked = f?.status === "too_large" || c.gpu_count === 0;
+          // A cluster that has reported no accelerator is not refused: the
+          // agent may have only just joined, and a CPU-only cluster is a choice.
+          const blocked = f?.status === "too_large";
           return (
             <Paper
               key={c.environment_id}

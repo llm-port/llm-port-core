@@ -140,11 +140,10 @@ export function toFlagTokens(config: EngineConfig): string[] {
   for (const [key, value] of Object.entries(config)) {
     const flag = `--${toFlag(key)}`;
     if (value === true) tokens.push(flag);
-    else if (value === false) {
-      const def = flagDef(key);
-      // A boolean vLLM enables by default is turned off with --no-<flag>.
-      tokens.push(def?.default === true ? `--no-${toFlag(key)}` : `${flag}=false`);
-    } else tokens.push(flag, String(value));
+    // Off is --no-<flag>: every vLLM boolean takes that form, and `--flag=false`
+    // is rejected ("ignored explicit argument"). The container adapter renders it the same way.
+    else if (value === false) tokens.push(`--no-${toFlag(key)}`);
+    else tokens.push(flag, String(value));
   }
   return tokens;
 }

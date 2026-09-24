@@ -10,8 +10,6 @@ from llm_port_backend.tkq import broker
 
 log = logging.getLogger(__name__)
 
-HF_TOKEN_KEY = "llm_backend.hf_token"
-
 
 async def _resolve_hf_token() -> str | None:
     """The token this server uses: the stored one, else ``LLM_PORT_BACKEND_HF_TOKEN``, else anonymous."""
