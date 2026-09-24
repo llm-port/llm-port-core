@@ -104,7 +104,7 @@
     "confirm": "Activar"
   },
   "home": {
-    "subtitle": "Gestion de contenedores, despliegue de stacks y auditoria para entornos aislados."
+    "subtitle": "Sirva modelos en sus propias GPU a través de una única pasarela compatible con OpenAI, con chat, control de acceso y monitorización."
   },
   "logs": {
     "title": "Logs",

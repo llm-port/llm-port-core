@@ -104,7 +104,7 @@
     "confirm": "Activer"
   },
   "home": {
-    "subtitle": "Gestion des conteneurs, déploiement de piles et journalisation d'audit pour les environnements isolés."
+    "subtitle": "Servez des modèles sur vos propres GPU via une passerelle unique compatible OpenAI, avec chat, contrôle d'accès et supervision."
   },
   "logs": {
     "title": "Journaux",

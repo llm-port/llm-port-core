@@ -104,7 +104,7 @@
     "confirm": "Activate"
   },
   "home": {
-    "subtitle": "Container management, stack deployments, and audit logging for air-gapped environments."
+    "subtitle": "Serve models on your own GPUs through one OpenAI-compatible gateway, with chat, access control and monitoring."
   },
   "logs": {
     "title": "Logs",
