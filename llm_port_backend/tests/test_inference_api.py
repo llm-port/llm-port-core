@@ -511,6 +511,59 @@ async def test_deployment_delete_204(
     assert r2.status_code == 404
 
 
+async def test_deleting_a_serving_deployment_takes_its_model_off_the_machines_first(
+    client: AsyncClient, authed_fapp: FastAPI, dbsession: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Deleting the row used to be all a delete did; the model went on running.
+
+    Found on the DGX pair: the application kept its share of a GB10 with
+    nothing in LLM.Port left to stop it. A deployment that was applied is now
+    marked deleted -- gone from the lists at once -- and the reconciler takes
+    the application down, then removes the row.
+    """
+    from sqlalchemy import select
+
+    from llm_port_backend.db.models.inference import InferenceDeployment
+    from llm_port_backend.services.inference.reconciliation import ReconciliationContext, reconcile_deployment
+
+    env, model_id = await _seed_env_and_model(client, dbsession, "cp-del-run", "env-del-run")
+    dep = await _create_deploy(client, env, model_id, "del-running")
+    row = (await dbsession.execute(select(InferenceDeployment).where(
+        InferenceDeployment.id == uuid.UUID(dep["id"])))).scalar_one()
+    row.phase = "running"
+    row.observed_status_json = {"applied_config_hash": "abc", "applied_generation": row.generation}
+    generation = row.generation
+    await dbsession.flush()
+
+    r = await client.delete(f"{API}/deployments/{dep['id']}")
+    assert r.status_code == 204
+    await dbsession.refresh(row)
+    assert row.desired_state == "deleted"
+    assert row.generation == generation + 1, "queued for the reconciler"
+    listed = (await client.get(f"{API}/deployments")).json()
+    assert dep["id"] not in {d["id"] for d in listed}
+
+    # The driver takes the application down (its own tests cover how); then
+    # the row goes, and the name is free again.
+    from llm_port_backend.services.inference import reconciliation as reconciliation_mod
+
+    class _Manager:
+        async def reconcile_deployment(self, session: AsyncSession, deployment: InferenceDeployment) -> None:
+            assert deployment.desired_state == "deleted"
+            deployment.phase = "deleted"
+
+    class _Driver:
+        deployment_manager = _Manager()
+
+    monkeypatch.setattr(reconciliation_mod.registry, "get", lambda name: _Driver)
+    context = ReconciliationContext.for_session(dbsession)
+    result = await reconcile_deployment(context, row)
+    assert result["reason"] == "deleted"
+    await dbsession.flush()
+    assert (await client.get(f"{API}/deployments/{dep['id']}")).status_code == 404
+    await _create_deploy(client, env, model_id, "del-running")
+
+
 async def test_deployment_get_missing_404(client: AsyncClient, authed_fapp: FastAPI) -> None:
     r = await client.get(f"{API}/deployments/{uuid.uuid4()}")
     assert r.status_code == 404

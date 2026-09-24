@@ -38,6 +38,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from llm_port_backend.db.models.inference import (
+    DeploymentDesiredState,
+    DeploymentPhase,
     InferenceControlPlane,
     InferenceEnvironment,
     InferenceEnvironmentNode,
@@ -640,6 +642,16 @@ async def reconcile_deployment(
             "Failed to reconcile publication for deployment %s",
             deployment.id,
         )
+
+    # A deployment deleted while its application ran is kept until the
+    # application is gone from the cluster; now it is, the row goes too, so
+    # its name can be used again.
+    if (
+        deployment.desired_state == DeploymentDesiredState.DELETED.value
+        and deployment.phase == DeploymentPhase.DELETED.value
+    ):
+        await context.deployments.delete(deployment.id)
+        return {"id": str(deployment.id), "reconciled": True, "reason": "deleted"}
 
     return {
         "id": str(deployment.id),

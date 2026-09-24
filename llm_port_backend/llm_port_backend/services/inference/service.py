@@ -219,6 +219,20 @@ async def _forget_cluster_metrics(environment_id: uuid.UUID) -> None:
         log.warning("Could not remove metrics for deleted cluster %s", environment_id, exc_info=True)
 
 
+def _may_be_on_the_cluster(deployment: InferenceDeployment) -> bool:
+    """Whether *deployment* may have an application running on its cluster.
+
+    Anything ever applied counts -- a failed start leaves its application in
+    Ray too -- unless it was stopped (which deletes the application) or has
+    already been deleted there.
+    """
+    phase = str(deployment.phase or "")
+    if phase in ("stopped", "deleted"):
+        return False
+    applied = bool((deployment.observed_status_json or {}).get("applied_config_hash"))
+    return applied or phase in ("running", "degraded", "applying")
+
+
 def _queue_for_reconcile(row: Any) -> None:
     """Put *row* back in the reconciler's queue without touching its observed state.
 
@@ -760,8 +774,25 @@ class DeploymentService:
             InferencePublicationCoordinator,
         )
 
+        deployment = await self.dao.get(deployment_id)
+        if deployment is None:
+            raise NotFoundError("deployment", deployment_id)
+
         coordinator = InferencePublicationCoordinator(self.session)
         await coordinator.remove_derived_provider(deployment_id)
+
+        if _may_be_on_the_cluster(deployment):
+            # Deleting the row used to be all this did, and the model went on
+            # running on the machines -- found on the DGX pair, holding its
+            # share of a GB10 with nothing in LLM.Port left to stop it. The
+            # reconciler removes the application for a deployment desired
+            # deleted, and purges the row once it is gone (see
+            # reconciliation.reconcile_deployment). Lists already hide it.
+            deployment.desired_state = DeploymentDesiredState.DELETED.value
+            deployment.generation += 1
+            await self.session.flush()
+            wake_reconciler_after_commit(self.session)
+            return
 
         if not await self.dao.delete(deployment_id):
             raise NotFoundError("deployment", deployment_id)
