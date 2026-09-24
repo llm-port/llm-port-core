@@ -46,6 +46,8 @@ class AssembledContext:
     summary_used: SessionSummary | None = None
     facts_used: list[MemoryFact] = field(default_factory=list)
     attachments_used: list[ChatAttachment] = field(default_factory=list)
+    #: Files too long to include, for the model to search (``attachment_search``).
+    searchable: list[ChatAttachment] = field(default_factory=list)
     total_token_estimate: int = 0
 
 
@@ -78,11 +80,14 @@ class ContextAssembler:
         max_recent_messages: int = 20,
         token_budget: int = 4096,
         file_store: FileStore | None = None,
+        searchable: bool = False,
     ) -> None:
         self.dao = dao
         self.max_recent_messages = max_recent_messages
         self.token_budget = token_budget
         self.file_store = file_store
+        #: Whether a file too long to include can be searched by the model.
+        self.searchable = searchable
 
     async def assemble(
         self,
@@ -225,10 +230,7 @@ class ContextAssembler:
                 text_block = f"[Attached: {att.filename}{truncation_note}]\n{att.extracted_text}"
                 text_tokens = _estimate_tokens(text_block)
                 if text_tokens > budget:
-                    logger.debug(
-                        "Skipping attachment %s: %d tokens exceeds budget %d",
-                        att.filename, text_tokens, budget,
-                    )
+                    budget, total_tokens = self._too_long(result, att, text_tokens, budget, total_tokens)
                     continue
                 result.messages.append({
                     "role": "system",
@@ -263,6 +265,44 @@ class ContextAssembler:
                     )
 
         return budget, total_tokens
+
+    def _too_long(
+        self,
+        result: AssembledContext,
+        att: ChatAttachment,
+        tokens: int,
+        budget: int,
+        total_tokens: int,
+    ) -> tuple[int, int]:
+        """A file too long for the budget: named, and searched or shown in part.
+
+        It used to be left out without a word, and the model answered as if
+        nothing had been attached. A model that can search it is told to; one
+        that cannot gets as much of its beginning as half the budget left
+        holds, marked as cut, so the history still has room.
+        """
+        if self.searchable:
+            note = (
+                f"[Attached: {att.filename}, about {tokens:,} tokens -- too long to include in full. "
+                "Search it with the attachment_search tool.]"
+            )
+            result.searchable.append(att)
+        else:
+            text = att.extracted_text or ""
+            head = text[: max(budget // 2, 0) * 4]
+            if len(head) < len(text) and " " in head:
+                head = head.rsplit(None, 1)[0]  # not mid-word
+            if len(head) >= 400:
+                note = (
+                    f"[Attached: {att.filename} -- the first {len(head) // 4:,} of about {tokens:,} "
+                    f"tokens; the rest did not fit.]\n{head}"
+                )
+                result.attachments_used.append(att)
+            else:
+                note = f"[Attached: {att.filename}, about {tokens:,} tokens -- too long to include.]"
+        note_tokens = _estimate_tokens(note)
+        result.messages.append({"role": "system", "content": note})
+        return budget - note_tokens, total_tokens + note_tokens
 
     async def _collect_facts(
         self,

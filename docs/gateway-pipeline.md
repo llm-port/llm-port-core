@@ -98,6 +98,33 @@ name the question turned into `[PERSON_1]` is `[PERSON_1]` in the results as
 well. The search itself runs with the real values, inside LLM.Port; an MCP
 tool, outside it, gets the tokens.
 
+**Calls made together run together.** When one message asks for several
+tools the gateway runs -- two searches, a search and an MCP tool -- they run
+side by side, and their answers go back in the order asked. They ran one
+after another. Calls through the tool router still run one at a time: some
+run on the user's machine.
+
+## Attached files too long to include
+
+A file attached to a chat goes into the context whole when it fits the
+session's token budget (`session_token_budget`). One that did not fit was
+left out without a word, and the model answered as if nothing had been
+attached. Now it is named to the model, and:
+
+- a model that can call tools gets `attachment_search`, which finds the
+  passages of the session's files that match a query (optionally one file);
+- a model that cannot gets as much of the file's beginning as half the
+  remaining budget holds, marked as cut, so the history keeps room.
+
+The files are searched where they are. Their text is stored encrypted with
+the session, so it is not copied into an index: each file is cut into
+passages at paragraph and sentence ends when it is first searched, kept in
+memory (64 files a process), and ranked by BM25. On RAGBench this in-memory
+BM25 ranks like RAG Lite's keyword search (mean MRR 0.80 over five subsets,
+against 0.81 for vector search) and answers in under 20 ms over thousands of
+files once they are cut. The search runs with the real values of tokenized
+names, like the knowledge tools, and its results pass through PII.
+
 ## PII
 
 With PII in tokenize mode, a name leaves as a token and comes back as the

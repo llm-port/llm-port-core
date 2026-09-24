@@ -16,7 +16,7 @@ from llm_port_api.db.dao.session_dao import SessionDAO
 from llm_port_api.db.models.gateway import ProviderType
 from llm_port_api.services.gateway.audit import AuditService
 from llm_port_api.services.gateway.auth import AuthContext
-from llm_port_api.services.gateway import knowledge
+from llm_port_api.services.gateway import attachment_search, knowledge
 from llm_port_api.services.gateway.errors import GatewayError
 from llm_port_api.services.gateway.llm_adapter import LLMAdapter
 from llm_port_api.services.gateway.observability import (
@@ -340,6 +340,8 @@ class _Prepared:
     released: bool = False
     #: Whether the knowledge tools were offered to the model.
     knowledge: bool = False
+    #: Attached files too long to include, which the model can search.
+    attachments: list[attachment_search.SearchableFile] = field(default_factory=list)
     #: The tools the gateway ran, for the audit log, and in how many rounds.
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     tool_iterations: int = 0
@@ -516,8 +518,11 @@ class GatewayService:
                     error_type="server_error",
                     code="upstream_request_failed",
                 )
-            # The tools the gateway runs: knowledge, MCP, the tool router's.
-            if endpoint == "/v1/chat/completions" and (req.knowledge or self.mcp_client or self.tool_router):
+            # The tools the gateway runs: knowledge, attached files, MCP, the
+            # tool router's.
+            if endpoint == "/v1/chat/completions" and (
+                req.knowledge or req.attachments or self.mcp_client or self.tool_router
+            ):
                 result = await self._tool_loop(req, result, auth=auth, request_id=request_id)
 
             # The model is done with this request: its slot is free for the
@@ -675,7 +680,7 @@ class GatewayService:
                 for t in (egress_payload.get("tools") or [])
             )
 
-            if req.knowledge or (mcp_tools_injected and (self.mcp_client or self.tool_router)):
+            if req.knowledge or req.attachments or (mcp_tools_injected and (self.mcp_client or self.tool_router)):
                 # Rounds: the answer's text streams as it comes, and the tools
                 # run between rounds. With tools, a streamed chat used to be
                 # answered whole and then replayed: nothing reached the client
@@ -901,8 +906,14 @@ class GatewayService:
         # Read before anything runs: the session step rewrites the messages.
         question = _last_user_text(payload)
 
+        # A file too long to include is searched by the model, if every route
+        # the request may take calls tools; told apart before the slot.
+        searchable = chat and payload.get("tool_choice") != "none" and all(
+            knowledge.calls_tools(c) for c in candidates
+        )
         (payload, req.session_id), req.skills, mcp_tools = await _together(
-            self._inject_session_context(payload, auth, session_id) if chat else _value((payload, None)),
+            self._inject_session_context(payload, auth, session_id, req=req if searchable else None)
+            if chat else _value((payload, None)),
             self._resolve_skills(question, auth, session_id) if chat else _value([]),
             self.mcp_tool_cache.get_tools(auth.tenant_id) if chat and self.mcp_tool_cache else _value(None),
         )
@@ -963,6 +974,8 @@ class GatewayService:
             if self._offers_knowledge(req.decision.candidate, payload):
                 egress = _with_tools(egress, knowledge.TOOLS)
                 req.knowledge = True
+            if req.attachments:
+                egress = _with_tools(egress, attachment_search.TOOLS)
         # Apply skill-based tool constraints (after all tools are merged)
         if req.skills:
             egress = self._apply_skill_tool_constraints(egress, req.skills)
@@ -1198,11 +1211,14 @@ class GatewayService:
         payload: dict[str, Any],
         auth: AuthContext,
         session_id_str: str | None,
+        req: _Prepared | None = None,
     ) -> tuple[dict[str, Any], str | None]:
         """Inject session history and memory into the payload.
 
         Returns ``(updated_payload, resolved_session_id_hex)``
         where the session id is ``None`` when sessions are disabled.
+        With *req*, attached files too long to include are left for the model
+        to search, and go on ``req.attachments``.
         """
         if not session_id_str or not self.session_dao:
             return payload, None
@@ -1239,6 +1255,7 @@ class GatewayService:
             max_recent_messages=settings.session_max_recent_messages,
             token_budget=settings.session_token_budget,
             file_store=file_store,
+            searchable=req is not None,
         )
 
         # Current request messages become the "tail" of the assembled context
@@ -1277,6 +1294,11 @@ class GatewayService:
         )
 
         payload["messages"] = assembled.messages
+        if req is not None:
+            req.attachments = [
+                attachment_search.SearchableFile(id=str(a.id), filename=a.filename, text=a.extracted_text or "")
+                for a in assembled.searchable
+            ]
 
         # Persist only genuinely new user/system messages
         for msg in current_messages:
@@ -1591,6 +1613,8 @@ class GatewayService:
         def ours(name: str) -> bool:
             if name in knowledge.NAMES:
                 return req.knowledge
+            if name == attachment_search.NAME:
+                return bool(req.attachments)
             if router_session is not None:
                 return name.startswith(("mcp.", "client.", "server."))
             return self.mcp_client is not None and name.startswith(MCP_TOOL_PREFIX)
@@ -1613,6 +1637,12 @@ class GatewayService:
                 tools = knowledge.KnowledgeTools(self.rag_lite_client, token=auth.token)
                 ran = await tools.run(name, arguments)
                 content, is_error = ran.content, ran.is_error
+            elif name == attachment_search.NAME:
+                # The session's own files, searched in memory, with the values
+                # tokenize mode took out -- as the knowledge tools are.
+                if req.token_mapping:
+                    arguments = _restored(arguments, req.token_mapping)
+                content, is_error = attachment_search.AttachmentSearch(req.attachments).run(arguments)
             elif router_session is not None:
                 assert self.tool_router is not None  # noqa: S101
                 routed = await self.tool_router.route(
