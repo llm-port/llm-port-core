@@ -96,6 +96,18 @@ A backup holds a dump of every database, the `.env`, and the migration
 versions. Keep copies off the server: a backup on the same disk doesn't
 survive losing the disk.
 
+`llmport deploy` offers a nightly backup (at 03:00, keeping the last 7), and
+turns it on with `-y`. To change or stop it:
+
+```bash
+llmport backup schedule --at 01:30 --retain 14
+llmport backup schedule --off
+```
+
+It runs as a systemd user timer (`systemctl --user list-timers`), or from
+your crontab where there is no systemd. The output goes to
+`~/llm-port/backups/backup.log`.
+
 If the server itself is lost, install a new one, restore the backup onto it,
 and re-run the install line on each machine. Clusters that were created
 after the backup keep running on the machines, and the new server can take
