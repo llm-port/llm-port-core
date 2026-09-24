@@ -217,7 +217,14 @@ def test_host_specs_compile_for_ray(gpus: float, extra: dict[str, Any]) -> None:
         assert spec["engine"]["config"]["gpu_memory_utilization"] == 0.3, "a shared card is not over-claimed"
     compiled = compile_deployment(spec_data=spec, model_display_name="Qwen3-8B", model_source="huggingface",
                                   hf_repo_id="Qwen/Qwen3-8B")
-    assert compiled["llm_configs"][0]["engine_kwargs"]["gpu_memory_utilization"] == min(0.5, gpus)
+    llm = compiled["llm_configs"][0]
+    assert llm["engine_kwargs"]["gpu_memory_utilization"] == min(0.5, gpus)
+    env_vars = (llm.get("runtime_env") or {}).get("env_vars") or {}
+    if gpus < 1:
+        # vLLM's Ray executor must ask for the share, or its worker never fits the bundle.
+        assert env_vars["VLLM_RAY_PER_WORKER_GPUS"] == str(gpus)
+    else:
+        assert "VLLM_RAY_PER_WORKER_GPUS" not in env_vars
 
 
 def test_a_shared_card_is_not_over_claimed_by_vllms_default() -> None:

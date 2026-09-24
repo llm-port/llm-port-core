@@ -646,6 +646,16 @@ def compile_spec(
         env_vars = dict(effective_runtime_env.get("env_vars") or {})
         env_vars.update(spec_env_vars)
         effective_runtime_env["env_vars"] = env_vars
+    fraction = spec.resources.replica.gpus
+    if fraction is not None and 0 < float(fraction) < 1:
+        # A copy sharing an accelerator: its placement group reserves the
+        # share, but vLLM's Ray executor asks for a whole GPU per worker
+        # unless told otherwise, and never fits the bundle -- found on the DGX
+        # pair as "resource request {'GPU': 1.0} cannot fit into any bundles
+        # ... [{'CPU': 1.0, 'GPU': 0.1}]". Last, so a spec cannot contradict it.
+        env_vars = dict(effective_runtime_env.get("env_vars") or {})
+        env_vars["VLLM_RAY_PER_WORKER_GPUS"] = str(round(float(fraction), 2))
+        effective_runtime_env["env_vars"] = env_vars
     if effective_runtime_env:
         llm_config["runtime_env"] = effective_runtime_env
 
