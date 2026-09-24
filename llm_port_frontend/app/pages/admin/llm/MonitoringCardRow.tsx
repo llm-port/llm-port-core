@@ -202,7 +202,7 @@ export default function MonitoringCardRow({
                 onOpenOwner();
               }}
             >
-              Open the deployment
+              {t("llm_monitoring.open_deployment")}
             </Button>
           )}
           {dashboardUrl && (

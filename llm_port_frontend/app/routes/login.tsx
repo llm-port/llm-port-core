@@ -80,7 +80,7 @@ export default function LoginPage() {
     // Check for OAuth error in query params
     const oauthError = params.get("error");
     if (oauthError) {
-      setError(`SSO login failed: ${oauthError}`);
+      setError(t("common.sso_failed", { error: oauthError }));
     }
 
     return () => {
@@ -97,7 +97,7 @@ export default function LoginPage() {
       const user = await auth.me();
       navigate(resolvePostLoginPath(user, next), { replace: true });
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Login failed.");
+      setError(err instanceof Error ? err.message : t("common.login_failed"));
     } finally {
       setLoading(false);
     }
@@ -111,7 +111,7 @@ export default function LoginPage() {
       const user = await auth.me();
       navigate(resolvePostLoginPath(user, next), { replace: true });
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Dev login failed.");
+      setError(err instanceof Error ? err.message : t("common.login_failed"));
     } finally {
       setLoading(false);
     }

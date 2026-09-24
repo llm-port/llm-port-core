@@ -495,7 +495,7 @@ export default function RagLiteKnowledgeBasePage() {
       setDocuments(docs);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load");
+      setError(err instanceof Error ? err.message : t("common.load_failed"));
     } finally {
       setLoading(false);
     }
@@ -535,7 +535,7 @@ export default function RagLiteKnowledgeBasePage() {
       else await ragLite.updateDocumentSummary(id, text);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Save failed");
+      setError(err instanceof Error ? err.message : t("common.save_failed"));
     }
   }
 
@@ -551,7 +551,7 @@ export default function RagLiteKnowledgeBasePage() {
           : await ragLite.generateDocumentSummary(id);
       return r.summary;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "AI generation failed");
+      setError(err instanceof Error ? err.message : t("common.action_failed"));
       throw err;
     } finally {
       setGeneratingAI(null);
@@ -564,7 +564,7 @@ export default function RagLiteKnowledgeBasePage() {
       else await ragLite.deleteDocument(id);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Delete failed");
+      setError(err instanceof Error ? err.message : t("common.delete_failed"));
     }
   }
 
@@ -573,7 +573,7 @@ export default function RagLiteKnowledgeBasePage() {
       await ragLite.retryDocument(id);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Retry failed");
+      setError(err instanceof Error ? err.message : t("common.retry_failed"));
     }
   }
 
@@ -595,7 +595,7 @@ export default function RagLiteKnowledgeBasePage() {
       await ragLite.upload(file, uploadColId ?? undefined);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Upload failed");
+      setError(err instanceof Error ? err.message : t("common.upload_failed"));
     } finally {
       setUploading(false);
       setUploadColId(null);
@@ -618,7 +618,7 @@ export default function RagLiteKnowledgeBasePage() {
       setDlgParentId(null);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Create failed");
+      setError(err instanceof Error ? err.message : t("common.create_failed"));
     } finally {
       setCreating(false);
     }
@@ -647,7 +647,7 @@ export default function RagLiteKnowledgeBasePage() {
       else await ragLite.updateCollection(src, { parent_id: tgt });
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Move failed");
+      setError(err instanceof Error ? err.message : t("common.move_failed"));
     }
   }
 

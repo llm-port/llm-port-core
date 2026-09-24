@@ -21,6 +21,8 @@
  * The second is the default, and the first is behind "already have a shell".
  */
 import { useState } from "react";
+import i18n from "i18next";
+import { Trans, useTranslation } from "react-i18next";
 
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
@@ -76,6 +78,7 @@ interface InstallAddress {
 }
 
 function CopyLine({ command }: { command: string }) {
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
 
   async function copy() {
@@ -112,11 +115,11 @@ function CopyLine({ command }: { command: string }) {
       >
         {command}
       </Box>
-      <Tooltip title={copied ? "Copied" : "Copy"}>
+      <Tooltip title={copied ? t("nodes.onboard.copied") : t("common.copy")}>
         <IconButton
           size="small"
           onClick={() => void copy()}
-          aria-label="Copy command"
+          aria-label={t("nodes.onboard.copy_command")}
           sx={{ position: "absolute", top: 4, right: 4 }}
         >
           {copied ? <CheckIcon fontSize="small" /> : <ContentCopyIcon fontSize="small" />}
@@ -136,9 +139,13 @@ function hardwareSummary(capabilities: Record<string, unknown>): string {
 
   const parts: string[] = [];
   if (count > 0) {
-    parts.push(family ? `${count} × ${family}` : `${count} × ${vendor || "accelerator"}`);
+    parts.push(
+      family
+        ? `${count} × ${family}`
+        : `${count} × ${vendor || i18n.t("nodes.onboard.accelerator")}`,
+    );
   } else {
-    parts.push("no accelerators reported");
+    parts.push(i18n.t("clusters.list.no_accelerators"));
   }
   if (arch) parts.push(arch);
   return parts.join(" · ");
@@ -155,6 +162,7 @@ function WaitingMachine({
   onApprove: () => void;
   onReject: () => void;
 }) {
+  const { t } = useTranslation();
   const claimedElsewhere =
     request.source_ip && request.host && request.source_ip !== request.host;
 
@@ -169,14 +177,14 @@ function WaitingMachine({
             </Typography>
             <Typography variant="caption" color="text.secondary" display="block">
               {request.host}
-              {request.version ? ` · agent ${request.version}` : ""}
+              {request.version ? ` · ${t("nodes.onboard.agent_version", { version: request.version })}` : ""}
             </Typography>
             {claimedElsewhere && (
               // Worth showing rather than hiding: a machine claiming one
               // address while calling from another is not necessarily wrong,
               // but it is something to notice before saying yes.
               <Typography variant="caption" color="warning.main" display="block">
-                Asked from {request.source_ip}
+                {t("nodes.onboard.asked_from", { ip: request.source_ip })}
               </Typography>
             )}
           </Box>
@@ -187,7 +195,7 @@ function WaitingMachine({
         </Stack>
 
         <Typography variant="caption" color="text.secondary" sx={{ mt: 1.5, display: "block" }}>
-          Check this code matches the one shown on the machine.
+          {t("nodes.onboard.check_code")}
         </Typography>
 
         <Stack direction="row" spacing={1} sx={{ mt: 1.5 }}>
@@ -198,10 +206,10 @@ function WaitingMachine({
             onClick={onApprove}
             data-tour-id="nodes.join.approve"
           >
-            Approve
+            {t("nodes.onboard.approve")}
           </Button>
           <Button variant="outlined" size="small" color="inherit" disabled={busy} onClick={onReject}>
-            Not this one
+            {t("nodes.onboard.reject")}
           </Button>
         </Stack>
       </CardContent>
@@ -214,6 +222,7 @@ export default function NodeOnboardingDrawer({
   onClose,
   onJoined,
 }: NodeOnboardingDrawerProps) {
+  const { t } = useTranslation();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [showToken, setShowToken] = useState(false);
@@ -264,7 +273,7 @@ export default function NodeOnboardingDrawer({
       }
       await waiting.refresh();
     } catch (err: unknown) {
-      setActionError(err instanceof Error ? err.message : "That did not work.");
+      setActionError(err instanceof Error ? err.message : t("common.error_unexpected"));
     } finally {
       setBusyId(null);
     }
@@ -276,7 +285,7 @@ export default function NodeOnboardingDrawer({
     try {
       setToken(await nodesApi.createEnrollmentToken(note));
     } catch (err: unknown) {
-      setActionError(err instanceof Error ? err.message : "Failed to create a token.");
+      setActionError(err instanceof Error ? err.message : t("nodes.onboard.token_failed"));
     } finally {
       setTokenBusy(false);
     }
@@ -308,8 +317,8 @@ export default function NodeOnboardingDrawer({
       data-tour-id="nodes.onboarding"
     >
       <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-        <Typography variant="h6">Add a machine</Typography>
-        <IconButton onClick={handleClose} size="small" aria-label="close">
+        <Typography variant="h6">{t("clusters.next.no_nodes.action")}</Typography>
+        <IconButton onClick={handleClose} size="small" aria-label={t("common.close")}>
           <CloseIcon />
         </IconButton>
       </Stack>
@@ -321,17 +330,14 @@ export default function NodeOnboardingDrawer({
       )}
 
       <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-        On the machine you want to add, run:
+        {t("nodes.onboard.run_this")}
       </Typography>
       <CopyLine command={installCommand} />
       <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: "block" }}>
-        It will show a short code and wait. Nothing else needs typing there —
-        no token, no checksum. The installer verifies what it downloads.
+        {t("nodes.onboard.what_happens")}
       </Typography>
       <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: "block" }}>
-        No sudo on that machine? Leave out <code>sudo</code>: it installs into
-        your home directory and runs as a user service, and nothing asks for a
-        password.
+        <Trans i18nKey="nodes.onboard.no_sudo" components={{ code: <code /> }} />
       </Typography>
 
       {/*
@@ -344,8 +350,7 @@ export default function NodeOnboardingDrawer({
       {ambiguous && (
         <Box sx={{ mt: 2 }}>
           <Typography variant="caption" color="text.secondary" display="block">
-            This server has more than one address. Pick the one the machine can
-            reach:
+            {t("nodes.onboard.pick_address")}
           </Typography>
           <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: "wrap", gap: 1 }}>
             {candidates.map((candidate) => (
@@ -364,16 +369,18 @@ export default function NodeOnboardingDrawer({
       )}
       {address.data && !address.data.request_origin_is_reachable && (
         <Alert severity="info" sx={{ mt: 2 }}>
-          You are viewing this at <code>{address.data.seen_as}</code>, which
-          only means “this machine” on the machine you are adding. The command
-          above uses a reachable address instead.
+          <Trans
+            i18nKey="nodes.onboard.local_address"
+            values={{ address: address.data.seen_as }}
+            components={{ code: <code /> }}
+          />
         </Alert>
       )}
 
       <Divider sx={{ my: 3 }} />
 
       <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5 }}>
-        <Typography variant="subtitle2">Waiting for approval</Typography>
+        <Typography variant="subtitle2">{t("nodes.onboard.waiting")}</Typography>
         {waiting.loading && <CircularProgress size={14} />}
       </Stack>
 
@@ -383,8 +390,7 @@ export default function NodeOnboardingDrawer({
         </Alert>
       ) : waiting.data.length === 0 ? (
         <Typography variant="body2" color="text.secondary">
-          No machine has asked yet. Run the command above and this list will
-          fill in.
+          {t("nodes.onboard.none_waiting")}
         </Typography>
       ) : (
         <Stack spacing={1.5}>
@@ -402,7 +408,7 @@ export default function NodeOnboardingDrawer({
 
       <Box sx={{ mt: 1.5 }}>
         <Button size="small" onClick={() => void waiting.refresh()} disabled={waiting.loading}>
-          Check again
+          {t("nodes.onboard.check_again")}
         </Button>
       </Box>
 
@@ -413,30 +419,27 @@ export default function NodeOnboardingDrawer({
           first would make the common case look harder than it is. */}
       {!showToken ? (
         <Button size="small" color="inherit" onClick={() => setShowToken(true)}>
-          Skip the approval step
+          {t("nodes.onboard.skip_approval")}
         </Button>
       ) : (
         <Card variant="outlined">
           <CardContent>
             <Typography variant="subtitle2" gutterBottom>
-              One command, nothing to approve
+              {t("nodes.onboard.token_title")}
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              The command carries a single-use token, so the machine joins on
-              its own — for when you can paste into it, or for Ansible,
-              cloud-init and image builds where no one is at a browser. The
-              token expires, and works once.
+              {t("nodes.onboard.token_explain")}
             </Typography>
 
             {!token ? (
               <Stack spacing={1}>
                 <TextField
-                  label="Note"
+                  label={t("nodes.onboard.note")}
                   value={note}
                   onChange={(event) => setNote(event.target.value)}
                   fullWidth
                   size="small"
-                  placeholder="Which machine or rack is this for?"
+                  placeholder={t("nodes.onboard.note_placeholder")}
                   data-tour-id="nodes.onboarding.note"
                 />
                 <Button
@@ -445,18 +448,18 @@ export default function NodeOnboardingDrawer({
                   disabled={tokenBusy}
                   data-tour-id="nodes.onboarding.create"
                 >
-                  {tokenBusy ? "Creating..." : "Create a token"}
+                  {tokenBusy ? t("common.creating") : t("nodes.onboard.create_token")}
                 </Button>
               </Stack>
             ) : (
               <>
                 <Alert severity="warning" sx={{ mb: 2 }}>
-                  Shown once. Expires{" "}
-                  {new Date(token.expires_at).toLocaleTimeString([], {
-                    hour: "2-digit",
-                    minute: "2-digit",
+                  {t("nodes.onboard.token_expires", {
+                    time: new Date(token.expires_at).toLocaleTimeString(i18n.language || [], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    }),
                   })}
-                  .
                 </Alert>
                 <CopyLine command={tokenCommand} />
               </>

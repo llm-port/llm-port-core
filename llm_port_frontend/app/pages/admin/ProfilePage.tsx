@@ -35,13 +35,13 @@ import { auth, type AuthUser } from "~/api/auth";
 
 // ── Token expiry options ─────────────────────────────────────────────
 
-const EXPIRY_OPTIONS: { label: string; value: number | null }[] = [
-  { label: "1 hour", value: 3600 },
-  { label: "24 hours", value: 86400 },
-  { label: "7 days", value: 604800 },
-  { label: "30 days", value: 2592000 },
-  { label: "90 days", value: 7776000 },
-  { label: "No expiry", value: null },
+const EXPIRY_OPTIONS: { key: string; value: number | null }[] = [
+  { key: "profile.expiry_1h", value: 3600 },
+  { key: "profile.expiry_24h", value: 86400 },
+  { key: "profile.expiry_7d", value: 604800 },
+  { key: "profile.expiry_30d", value: 2592000 },
+  { key: "profile.expiry_90d", value: 7776000 },
+  { key: "profile.expiry_never", value: null },
 ];
 
 export default function ProfilePage() {
@@ -299,7 +299,7 @@ export default function ProfilePage() {
               >
                 {EXPIRY_OPTIONS.map((opt) => (
                   <MenuItem key={opt.value ?? "none"} value={opt.value === null ? "none" : String(opt.value)}>
-                    {opt.label}
+                    {t(opt.key)}
                   </MenuItem>
                 ))}
               </Select>

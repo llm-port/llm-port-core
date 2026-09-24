@@ -172,7 +172,9 @@
     "label": "Language"
   },
   "table": {
-    "all": "All"
+    "all": "All",
+    "toggle_columns": "Show or hide columns",
+    "toggle_details": "Show or hide details"
   },
   "dashboard": {
     "title": "Admin Dashboard",
@@ -286,7 +288,19 @@
     "refresh": "Refresh",
     "saving": "Saving…",
     "skip": "Skip",
-    "mode": "Mode"
+    "mode": "Mode",
+    "load_failed": "Could not load the data.",
+    "save_failed": "Could not save.",
+    "publish_failed": "Publishing failed.",
+    "archive_failed": "Archiving failed.",
+    "export_failed": "Export failed.",
+    "refresh_failed": "Refresh failed.",
+    "upload_failed": "Upload failed.",
+    "retry_failed": "Retry failed.",
+    "move_failed": "Move failed.",
+    "copy_failed": "Could not copy to the clipboard.",
+    "login_failed": "Sign-in failed.",
+    "sso_failed": "Single sign-on failed: {{error}}"
   },
   "containers": {
     "title": "Containers",
@@ -605,7 +619,9 @@
     "wizard_pricing_input": "Input Price per 1K tokens",
     "wizard_pricing_output": "Output Price per 1K tokens",
     "model_names_placeholder": "Type to search registered models...",
-    "provider_names_placeholder": "Type to search providers..."
+    "provider_names_placeholder": "Type to search providers...",
+    "chart_cost": "Cost ($)",
+    "chart_latency": "Latency (ms)"
   },
   "llm_providers": {
     "title": "LLM Providers",
@@ -642,7 +658,8 @@
     "model_source_hf_desc": "The machine downloads the model itself (needs internet).",
     "model_source_sync_desc": "Copy the model from this server's cache (for machines without internet).",
     "select_or_type_model": "Select or type a model…",
-    "test_to_discover": "Test the connection to list its models"
+    "test_to_discover": "Test the connection to list its models",
+    "other_openai": "Other (OpenAI-compatible)"
   },
   "llm_models": {
     "title": "LLM Models",
@@ -751,7 +768,8 @@
     "stat.generation_tokens_per_sec": "Generation tok/s",
     "stat.preemption_rate": "Preemptions/s",
     "link": "Monitor",
-    "not_configured": "No live metrics for this provider — expand a row to view"
+    "not_configured": "No live metrics for this provider — expand a row to view",
+    "open_deployment": "Open the deployment"
   },
   "llm_runtime_detail": {
     "failed_load": "Failed to load runtime.",
@@ -804,7 +822,8 @@
     "select_node": "Select a node to inspect metadata.",
     "type": "Type",
     "failed_load": "Failed to load graph topology.",
-    "failed_load_traces": "Failed to load graph trace events."
+    "failed_load_traces": "Failed to load graph trace events.",
+    "waiting_traces": "Waiting for trace events…"
   },
   "rag_runtime": {
     "title": "RAG Runtime Config",
@@ -856,7 +875,8 @@
     "schedule_publish": "Schedule Publish",
     "draft_ops": "Draft Operations",
     "no_draft": "No draft selected.",
-    "no_ops": "No draft operations yet."
+    "no_ops": "No draft operations yet.",
+    "upload_failed_file": "Upload failed for {{name}}: {{status}}"
   },
   "rag_publishes": {
     "title": "RAG Publishes",
@@ -865,7 +885,9 @@
     "empty_publishes": "No publishes yet.",
     "empty_jobs": "No jobs yet.",
     "search_publishes": "Search publishes...",
-    "search_jobs": "Search jobs..."
+    "search_jobs": "Search jobs...",
+    "col_publish": "Publish",
+    "col_scheduled": "Scheduled"
   },
   "rag_search": {
     "title": "RAG Search",
@@ -1046,7 +1068,8 @@
     "entity_breakdown": "Entity Type Breakdown",
     "by_operation": "By Operation",
     "by_source": "By Source",
-    "no_data": "No PII scan data yet. Events will appear as the gateway processes requests with PII policies enabled."
+    "no_data": "No PII scan data yet. Events will appear as the gateway processes requests with PII policies enabled.",
+    "date": "Date"
   },
   "pii_log": {
     "title": "PII Activity Log",
@@ -1078,7 +1101,23 @@
     "effective_preview": "Effective Policy Preview",
     "precedence_hint": "Precedence: tenant override > system default > none.",
     "save_override_success": "Tenant override saved.",
-    "clear_override_success": "Tenant override cleared."
+    "clear_override_success": "Tenant override cleared.",
+    "form": {
+      "telemetry": "Telemetry",
+      "telemetry_enable": "Remove personal data from telemetry",
+      "store_raw": "Store raw payloads",
+      "egress": "Outgoing requests",
+      "egress_cloud": "Protect requests to cloud providers",
+      "egress_local": "Protect requests to local models",
+      "fail_action": "If detection fails",
+      "presidio": "Detection (Presidio)",
+      "language": "Language",
+      "score_threshold": "Score threshold",
+      "entities": "Entities",
+      "legacy_entity": "{{entity}} (no longer supported)",
+      "no_entities": "No entities selected.",
+      "add_entity": "Add entity"
+    }
   },
   "roles": {
     "title": "Role Management",
@@ -1154,7 +1193,8 @@
     "failed_delete": "Failed to delete provider.",
     "test_connection": "Test Connection",
     "test_success": "Connection successful.",
-    "test_failed": "Connection test failed."
+    "test_failed": "Connection test failed.",
+    "keep_secret": "Leave blank to keep the current secret"
   },
   "security_map": {
     "title": "Data Residency Map",
@@ -1224,7 +1264,13 @@
     "generated_token_label": "Your API Token:",
     "copy_token": "Copy to clipboard",
     "copied": "Copied!",
-    "token_warning": "Store this token securely. It will not be shown again after you leave this page."
+    "token_warning": "Store this token securely. It will not be shown again after you leave this page.",
+    "expiry_1h": "1 hour",
+    "expiry_24h": "24 hours",
+    "expiry_7d": "7 days",
+    "expiry_30d": "30 days",
+    "expiry_90d": "90 days",
+    "expiry_never": "No expiry"
   },
   "scheduler": {
     "title": "Scheduler",
@@ -1356,7 +1402,12 @@
     "already_registered": "Already registered",
     "tools_count": "{{count}} tools",
     "provider_settings": "Provider settings",
-    "settings_saved": "Settings saved."
+    "settings_saved": "Settings saved.",
+    "transport_sse": "SSE (legacy HTTP)",
+    "transport_stdio": "Stdio (command)",
+    "pii_allow": "Allow (no filtering)",
+    "pii_redact": "Redact (remove personal data)",
+    "pii_block": "Block (reject if personal data is found)"
   },
   "skills": {
     "list_title": "Skills",
@@ -1403,7 +1454,10 @@
     "target_id": "Target ID",
     "not_found": "Skill not found",
     "back_to_list": "Skills",
-    "priority_hint": "0 = lowest, 100 = highest"
+    "priority_hint": "0 = lowest, 100 = highest",
+    "scope_workspace": "Workspace",
+    "scope_assistant": "Assistant",
+    "scope_user": "User"
   },
   "nodes": {
     "back_to_fleet": "Back to Fleet",
@@ -1476,7 +1530,49 @@
     "delete_node": "Delete machine",
     "delete_node_title": "Delete this machine?",
     "delete_node_confirm": "This permanently removes the machine \"{{host}}\" with its sessions, inventory snapshots, commands and events. It cannot be undone.",
-    "delete_node_type_host": "Type \"{{host}}\" to confirm"
+    "delete_node_type_host": "Type \"{{host}}\" to confirm",
+    "onboard": {
+      "copied": "Copied",
+      "copy_command": "Copy command",
+      "accelerator": "accelerator",
+      "agent_version": "agent {{version}}",
+      "asked_from": "Asked from {{ip}}",
+      "check_code": "Check this code matches the one shown on the machine.",
+      "approve": "Approve",
+      "reject": "Not this one",
+      "token_failed": "Could not create a token.",
+      "run_this": "On the machine you want to add, run:",
+      "what_happens": "It will show a short code and wait. Nothing else needs typing there — no token, no checksum. The installer verifies what it downloads.",
+      "no_sudo": "No sudo on that machine? Leave out <code>sudo</code>: it installs into your home directory and runs as a user service, and nothing asks for a password.",
+      "pick_address": "This server has more than one address. Pick the one the machine can reach:",
+      "local_address": "You are viewing this at <code>{{address}}</code>, which only means “this machine” on the machine you are adding. The command above uses a reachable address instead.",
+      "waiting": "Waiting for approval",
+      "none_waiting": "No machine has asked yet. Run the command above and this list will fill in.",
+      "check_again": "Check again",
+      "skip_approval": "Skip the approval step",
+      "token_title": "One command, nothing to approve",
+      "token_explain": "The command carries a single-use token, so the machine joins on its own — for when you can paste into it, or for Ansible, cloud-init and image builds where no one is at a browser. The token expires, and works once.",
+      "note": "Note",
+      "note_placeholder": "Which machine or rack is this for?",
+      "create_token": "Create a token",
+      "token_expires": "Shown once. Expires at {{time}}."
+    },
+    "detail": {
+      "token_tooltip": "Create a one-time enrollment token for this machine",
+      "token_title": "Enrollment token",
+      "deployment_progress": "Deployment progress",
+      "container_logs": "Container logs"
+    },
+    "fleet": {
+      "checking_resources": "Checking for associated resources…",
+      "has_resources": "This machine has {{runtimes}} and {{providers}} deployed on it.",
+      "runtime_count_one": "{{count}} runtime",
+      "runtime_count_other": "{{count}} runtimes",
+      "provider_count_one": "{{count}} provider",
+      "provider_count_other": "{{count}} providers",
+      "cascade": "Also delete the providers and runtimes on it",
+      "keep_runtimes": "The runtimes are unassigned from this machine but kept."
+    }
   },
   "node_profiles": {
     "page_title": "Machine Profiles",
@@ -1496,7 +1592,14 @@
     "empty": "No machine profiles defined. Create one to get started.",
     "search_placeholder": "Search profiles...",
     "delete_title": "Delete Profile",
-    "delete_confirm": "Delete profile \"{{name}}\"? Machines using this profile will be unassigned."
+    "delete_confirm": "Delete profile \"{{name}}\"? Machines using this profile will be unassigned.",
+    "section_runtime_config": "Runtime",
+    "section_gpu_config": "GPU",
+    "section_storage_config": "Storage",
+    "section_network_config": "Network",
+    "section_logging_config": "Logging",
+    "section_security_config": "Security",
+    "section_update_config": "Updates"
   },
   "system_updates": {
     "title": "System Updates",
@@ -1931,5 +2034,16 @@
       "traffic_window_other": "Measured at the gateway, last {{count}} minutes",
       "engine_reported": "Reported by the engine"
     }
+  },
+  "audit": {
+    "title": "Audit log",
+    "action": "Action",
+    "target": "Target",
+    "target_id": "Target ID",
+    "result": "Result",
+    "severity": "Severity",
+    "actor": "Actor",
+    "empty": "No events.",
+    "search": "Search action, target or actor…"
   }
 }

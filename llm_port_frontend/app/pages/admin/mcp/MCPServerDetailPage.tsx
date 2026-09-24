@@ -76,7 +76,7 @@ export default function MCPServerDetailPage() {
       await refreshServer(id!);
       await Promise.all([reloadServer(), reloadTools()]);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Refresh failed");
+      setError(err instanceof Error ? err.message : t("common.refresh_failed"));
     }
   }
 
@@ -103,7 +103,7 @@ export default function MCPServerDetailPage() {
       await updateServer(id!, { enabled: !server.enabled });
       await reloadServer();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Update failed");
+      setError(err instanceof Error ? err.message : t("common.update_failed"));
     }
   }
 
@@ -112,7 +112,7 @@ export default function MCPServerDetailPage() {
       await updateTool(tool.id, { enabled: !tool.enabled });
       await reloadTools();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Update failed");
+      setError(err instanceof Error ? err.message : t("common.update_failed"));
     }
   }
 

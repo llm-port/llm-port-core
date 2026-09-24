@@ -142,7 +142,7 @@ export default function PIIDashboardPage() {
               {t("pii_dashboard.daily_volume", "Daily Scan Volume")}
             </Typography>
             <LineChart
-              xAxis={[{ scaleType: "band", data: dailyDates, label: "Date" }]}
+              xAxis={[{ scaleType: "band", data: dailyDates, label: t("pii_dashboard.date") }]}
               series={[
                 { data: dailyCounts, label: t("pii_dashboard.total", "Total"), color: theme.palette.primary.main },
                 { data: dailyPII, label: t("pii_dashboard.pii_detected_label", "PII Detected"), color: theme.palette.warning.main },

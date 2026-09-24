@@ -654,7 +654,7 @@ export default function GraphPage() {
                     colSpan={traceColumns.length}
                     style={{ textAlign: "center", padding: 24, color: "#999" }}
                   >
-                    Waiting for trace events…
+                    {t("llm_graph.waiting_traces")}
                   </td>
                 </tr>
               ) : (

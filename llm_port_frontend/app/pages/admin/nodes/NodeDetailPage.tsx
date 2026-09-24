@@ -209,7 +209,7 @@ export default function NodeDetailPage() {
     try {
       setNode(await nodesApi.get(id));
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to load node.");
+      setError(err instanceof Error ? err.message : t("common.load_failed"));
     } finally {
       setLoading(false);
     }
@@ -299,7 +299,7 @@ export default function NodeDetailPage() {
       await action();
       await load();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Action failed.");
+      setError(err instanceof Error ? err.message : t("common.action_failed"));
     } finally {
       setBusyKey(null);
     }
@@ -317,7 +317,7 @@ export default function NodeDetailPage() {
       setError(
         err instanceof Error
           ? err.message
-          : "Failed to create enrollment token.",
+          : t("common.create_failed"),
       );
     } finally {
       setEnrollBusy(false);
@@ -330,7 +330,7 @@ export default function NodeDetailPage() {
       await navigator.clipboard.writeText(enrollToken.token);
       setEnrollCopied(true);
     } catch {
-      setError("Failed to copy token to clipboard.");
+      setError(t("common.copy_failed"));
     }
   }
 
@@ -346,7 +346,7 @@ export default function NodeDetailPage() {
       await silentRefresh();
     } catch (err: unknown) {
       setError(
-        err instanceof Error ? err.message : "Failed to change profile.",
+        err instanceof Error ? err.message : t("common.update_failed"),
       );
     } finally {
       setProfileBusy(false);
@@ -359,7 +359,7 @@ export default function NodeDetailPage() {
     try {
       setTimeline(await nodesApi.commandTimeline(id, commandId));
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to load timeline.");
+      setError(err instanceof Error ? err.message : t("common.load_failed"));
     } finally {
       setBusyKey(null);
     }
@@ -645,7 +645,7 @@ export default function NodeDetailPage() {
             </Button>
           </span>
         </Tooltip>
-        <Tooltip title="Generate a one-time enrollment token for this node">
+        <Tooltip title={t("nodes.detail.token_tooltip")}>
           <span>
             <Button
               size="small"
@@ -704,7 +704,7 @@ export default function NodeDetailPage() {
               <Stack spacing={1}>
                 <Stack direction="row" spacing={1} alignItems="center">
                   <VpnKeyIcon fontSize="small" color="warning" />
-                  <Typography variant="subtitle2">Enrollment Token</Typography>
+                  <Typography variant="subtitle2">{t("nodes.detail.token_title")}</Typography>
                   <Typography variant="caption" color="text.secondary">
                     expires {new Date(enrollToken.expires_at).toLocaleString()}
                   </Typography>
@@ -980,7 +980,7 @@ llmport-agent run`}
         <Card variant="outlined">
           <CardContent sx={{ py: 1.5, "&:last-child": { pb: 1.5 } }}>
             <Typography variant="subtitle2" sx={{ mb: 1 }}>
-              Deployment Progress
+              {t("nodes.detail.deployment_progress")}
               <Typography
                 component="span"
                 variant="caption"
@@ -1005,7 +1005,7 @@ llmport-agent run`}
             alignItems="center"
           >
             <Stack direction="row" spacing={1} alignItems="center">
-              <Typography variant="subtitle2">Container Logs</Typography>
+              <Typography variant="subtitle2">{t("nodes.detail.container_logs")}</Typography>
               <Typography variant="caption" color="text.secondary">
                 last 15 min &middot; {flatContainerLogs.length} entries
               </Typography>

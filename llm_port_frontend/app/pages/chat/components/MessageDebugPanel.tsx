@@ -78,7 +78,7 @@ export default function MessageDebugPanel({ traceId, open, onClose }: Props) {
       .catch((err: unknown) => {
         if (!cancelled)
           setError(
-            err instanceof Error ? err.message : "Failed to load debug info",
+            err instanceof Error ? err.message : t("common.load_failed"),
           );
       })
       .finally(() => {

@@ -83,7 +83,7 @@ export default function CreateSkillPage() {
       const result = await createSkill(payload);
       navigate(`/admin/skills/${result.id}`);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to create skill");
+      setError(err instanceof Error ? err.message : t("common.create_failed"));
     } finally {
       setSaving(false);
     }

@@ -130,7 +130,7 @@ export default function SettingsPage() {
       setSecretMasked(masked);
     } catch (e: unknown) {
       setError(
-        e instanceof Error ? e.message : "Failed to load system settings.",
+        e instanceof Error ? e.message : t("common.load_failed"),
       );
     } finally {
       setLoading(false);
@@ -231,7 +231,7 @@ export default function SettingsPage() {
         setValues((prev) => ({ ...prev, [item.key]: "" }));
       }
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to update setting.");
+      setError(e instanceof Error ? e.message : t("common.update_failed"));
     } finally {
       setBusyKey(null);
       await loadSettings();

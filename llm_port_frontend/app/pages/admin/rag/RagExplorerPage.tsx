@@ -99,7 +99,7 @@ export default function RagExplorerPage() {
       setSelectedContainer(created.id);
       setSuccess("Container created.");
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to create container.");
+      setError(err instanceof Error ? err.message : t("common.create_failed"));
     } finally {
       setBusy(false);
     }
@@ -134,7 +134,7 @@ export default function RagExplorerPage() {
           body: file,
         });
         if (!putRes.ok) {
-          throw new Error(`Upload failed for ${file.name}: ${putRes.status}`);
+          throw new Error(t("rag_explorer.upload_failed_file", { name: file.name, status: putRes.status }));
         }
         await ragUploads.complete({
           object_key: presign.object_key,
@@ -154,7 +154,7 @@ export default function RagExplorerPage() {
       await refreshDraft(activeDraft.id);
       setSuccess("Files uploaded to draft.");
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Upload failed.");
+      setError(err instanceof Error ? err.message : t("common.upload_failed"));
     } finally {
       setBusy(false);
       event.target.value = "";
@@ -174,7 +174,7 @@ export default function RagExplorerPage() {
       setSuccess(`Publish ${response.status}.`);
       await refreshDraft(draft.id);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Publish failed.");
+      setError(err instanceof Error ? err.message : t("common.publish_failed"));
     } finally {
       setBusy(false);
     }

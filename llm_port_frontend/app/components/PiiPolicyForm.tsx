@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
@@ -36,6 +37,7 @@ export default function PiiPolicyForm({
   disabled = false,
   onChange,
 }: PiiPolicyFormProps) {
+  const { t } = useTranslation();
   const knownEntitySet = useMemo(
     () => new Set(options?.supported_entities ?? []),
     [options],
@@ -97,7 +99,7 @@ export default function PiiPolicyForm({
     <Stack spacing={2}>
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
-          Telemetry
+          {t("pii_policy.form.telemetry")}
         </Typography>
         <Stack spacing={1.5}>
           <FormControlLabel
@@ -108,13 +110,13 @@ export default function PiiPolicyForm({
                 disabled={disabled}
               />
             )}
-            label="Enable telemetry sanitization"
+            label={t("pii_policy.form.telemetry_enable")}
           />
           <Stack direction={{ xs: "column", md: "row" }} spacing={1.5}>
             <FormControl size="small" fullWidth>
-              <InputLabel>Mode</InputLabel>
+              <InputLabel>{t("common.mode")}</InputLabel>
               <Select
-                label="Mode"
+                label={t("common.mode")}
                 value={value.telemetry.mode}
                 onChange={(event) => patch({
                   telemetry: {
@@ -137,7 +139,7 @@ export default function PiiPolicyForm({
                   disabled={disabled}
                 />
               )}
-              label="Store raw payloads"
+              label={t("pii_policy.form.store_raw")}
             />
           </Stack>
         </Stack>
@@ -145,7 +147,7 @@ export default function PiiPolicyForm({
 
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
-          Egress
+          {t("pii_policy.form.egress")}
         </Typography>
         <Stack spacing={1.5}>
           <Stack direction={{ xs: "column", md: "row" }} spacing={1.5}>
@@ -157,7 +159,7 @@ export default function PiiPolicyForm({
                   disabled={disabled}
                 />
               )}
-              label="Enable for cloud providers"
+              label={t("pii_policy.form.egress_cloud")}
             />
             <FormControlLabel
               control={(
@@ -167,14 +169,14 @@ export default function PiiPolicyForm({
                   disabled={disabled}
                 />
               )}
-              label="Enable for local providers"
+              label={t("pii_policy.form.egress_local")}
             />
           </Stack>
           <Stack direction={{ xs: "column", md: "row" }} spacing={1.5}>
             <FormControl size="small" fullWidth>
-              <InputLabel>Mode</InputLabel>
+              <InputLabel>{t("common.mode")}</InputLabel>
               <Select
-                label="Mode"
+                label={t("common.mode")}
                 value={value.egress.mode}
                 onChange={(event) => patch({
                   egress: {
@@ -190,9 +192,9 @@ export default function PiiPolicyForm({
               </Select>
             </FormControl>
             <FormControl size="small" fullWidth>
-              <InputLabel>Fail Action</InputLabel>
+              <InputLabel>{t("pii_policy.form.fail_action")}</InputLabel>
               <Select
-                label="Fail Action"
+                label={t("pii_policy.form.fail_action")}
                 value={value.egress.fail_action}
                 onChange={(event) => patch({
                   egress: {
@@ -213,14 +215,14 @@ export default function PiiPolicyForm({
 
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
-          Presidio
+          {t("pii_policy.form.presidio")}
         </Typography>
         <Stack spacing={1.5}>
           <Stack direction={{ xs: "column", md: "row" }} spacing={1.5}>
             <FormControl size="small" fullWidth>
-              <InputLabel>Language</InputLabel>
+              <InputLabel>{t("pii_policy.form.language")}</InputLabel>
               <Select
-                label="Language"
+                label={t("pii_policy.form.language")}
                 value={value.presidio.language}
                 onChange={(event) => patch({
                   presidio: {
@@ -239,7 +241,7 @@ export default function PiiPolicyForm({
               size="small"
               fullWidth
               type="number"
-              label="Score Threshold"
+              label={t("pii_policy.form.score_threshold")}
               value={value.presidio.threshold}
               inputProps={{ min: 0, max: 1, step: 0.01 }}
               onChange={(event) => {
@@ -257,7 +259,7 @@ export default function PiiPolicyForm({
 
           <Stack spacing={1}>
             <Typography variant="body2" color="text.secondary">
-              Entities
+              {t("pii_policy.form.entities")}
             </Typography>
             <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
               {selectedEntities.map((entity) => (
@@ -271,7 +273,7 @@ export default function PiiPolicyForm({
               {legacyEntities.map((entity) => (
                 <Chip
                   key={`legacy-${entity}`}
-                  label={`${entity} (legacy)`}
+                  label={t("pii_policy.form.legacy_entity", { entity })}
                   size="small"
                   color="warning"
                   variant="outlined"
@@ -279,15 +281,15 @@ export default function PiiPolicyForm({
               ))}
               {entities.length === 0 && (
                 <Typography variant="caption" color="text.secondary">
-                  No entities selected.
+                  {t("pii_policy.form.no_entities")}
                 </Typography>
               )}
             </Stack>
             <Stack direction={{ xs: "column", md: "row" }} spacing={1}>
               <FormControl size="small" fullWidth>
-                <InputLabel>Add Entity</InputLabel>
+                <InputLabel>{t("pii_policy.form.add_entity")}</InputLabel>
                 <Select
-                  label="Add Entity"
+                  label={t("pii_policy.form.add_entity")}
                   value={entityToAdd}
                   onChange={(event) => setEntityToAdd(String(event.target.value))}
                   disabled={disabled || availableEntities.length === 0}
@@ -302,7 +304,7 @@ export default function PiiPolicyForm({
                 onClick={addEntity}
                 disabled={disabled || !entityToAdd}
               >
-                Add
+                {t("common.add")}
               </Button>
             </Stack>
           </Stack>

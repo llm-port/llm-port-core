@@ -6,6 +6,7 @@
  *   const { isModuleEnabled, getModule, services, loading } = useServices();
  *   if (isModuleEnabled("rag")) { ... }
  */
+import i18n from "i18next";
 import {
   createContext,
   useCallback,
@@ -103,7 +104,7 @@ export function ServicesProvider({ children }: { children: ReactNode }) {
       // On failure, keep previous state but flag the error.
       // This lets the UI degrade gracefully — if we've never fetched
       // successfully, all modules show as disabled (safe default).
-      setError(err instanceof Error ? err.message : "Failed to load services");
+      setError(err instanceof Error ? err.message : i18n.t("common.load_failed"));
     } finally {
       setLoading(false);
     }

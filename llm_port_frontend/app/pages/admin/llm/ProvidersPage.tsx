@@ -219,7 +219,7 @@ export default function ProvidersPage() {
             // Ours, on our own hardware — the opposite of a remote endpoint,
             // which is what it was being labelled.
             <Chip
-              label="Cluster"
+              label={t("clusters.deployments.col_cluster")}
               size="small"
               color="secondary"
               variant="outlined"

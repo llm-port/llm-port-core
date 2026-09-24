@@ -61,7 +61,7 @@ export default function NodeProfilesPage() {
       setFormOpen(false);
       await refresh();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Save failed.");
+      setError(err instanceof Error ? err.message : t("common.save_failed"));
     }
   }
 
@@ -73,7 +73,7 @@ export default function NodeProfilesPage() {
       setDeleteTarget(null);
       await refresh();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Delete failed.");
+      setError(err instanceof Error ? err.message : t("common.delete_failed"));
     } finally {
       setDeleting(false);
     }

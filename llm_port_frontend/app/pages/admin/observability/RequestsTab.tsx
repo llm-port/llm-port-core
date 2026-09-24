@@ -77,7 +77,7 @@ export default function RequestsTab({ start, end }: Props) {
       });
       setData(result);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to load requests");
+      setError(err instanceof Error ? err.message : t("common.load_failed"));
     } finally {
       setLoading(false);
     }

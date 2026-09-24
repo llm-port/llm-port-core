@@ -68,7 +68,7 @@ function LogPanel({
       const text = await servicesApi.containerLogs(module, containerName, tail);
       setLogs(text);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to fetch logs.");
+      setError(err instanceof Error ? err.message : t("common.load_failed"));
       setLogs("");
     } finally {
       setLoading(false);

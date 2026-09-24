@@ -36,7 +36,7 @@ export default function RagPublishesPage() {
     try {
       setPublishes((await ragPublishes.list(100)).publishes);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to load publishes.");
+      setError(err instanceof Error ? err.message : t("common.load_failed"));
     } finally {
       setLoading(false);
     }
@@ -61,7 +61,7 @@ export default function RagPublishesPage() {
   const publishColumns: ColumnDef<RagPublish>[] = [
     {
       key: "id",
-      label: "Publish",
+      label: t("rag_publishes.col_publish"),
       sortable: true,
       sortValue: (row) => row.created_at,
       render: (row) => (
@@ -72,7 +72,7 @@ export default function RagPublishesPage() {
     },
     {
       key: "container",
-      label: "Container",
+      label: t("rag_explorer.container"),
       searchValue: (row) => row.container_id,
       render: (row) => row.container_id.slice(0, 12),
     },
@@ -85,7 +85,7 @@ export default function RagPublishesPage() {
     },
     {
       key: "scheduled",
-      label: "Scheduled",
+      label: t("rag_publishes.col_scheduled"),
       render: (row) => (row.scheduled_for ? new Date(row.scheduled_for).toLocaleString() : "now"),
     },
     {
@@ -98,7 +98,7 @@ export default function RagPublishesPage() {
   const jobColumns: ColumnDef<RagIngestJob>[] = [
     {
       key: "job_id",
-      label: "Job",
+      label: t("rag_collectors.job_id"),
       sortable: true,
       sortValue: (row) => row.created_at,
       render: (row) => (
@@ -109,7 +109,7 @@ export default function RagPublishesPage() {
     },
     {
       key: "job_type",
-      label: "Type",
+      label: t("rag_collectors.type"),
       sortable: true,
       sortValue: (row) => row.job_type,
       render: (row) => row.job_type,

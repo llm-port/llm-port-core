@@ -70,7 +70,7 @@ export default function SkillsListPage() {
       setDeleteTarget(null);
       await load();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Delete failed");
+      setError(err instanceof Error ? err.message : t("common.delete_failed"));
     } finally {
       setDeleting(false);
     }
@@ -81,7 +81,7 @@ export default function SkillsListPage() {
       await publishSkill(id);
       await load();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Publish failed");
+      setError(err instanceof Error ? err.message : t("common.publish_failed"));
     }
   }
 
@@ -90,7 +90,7 @@ export default function SkillsListPage() {
       await archiveSkill(id);
       await load();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Archive failed");
+      setError(err instanceof Error ? err.message : t("common.archive_failed"));
     }
   }
 

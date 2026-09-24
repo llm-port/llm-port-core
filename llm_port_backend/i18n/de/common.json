@@ -172,7 +172,9 @@
     "label": "Sprache"
   },
   "table": {
-    "all": "Alle"
+    "all": "Alle",
+    "toggle_columns": "Spalten ein- oder ausblenden",
+    "toggle_details": "Details ein- oder ausblenden"
   },
   "dashboard": {
     "title": "Admin Dashboard",
@@ -291,7 +293,19 @@
     "refresh": "Aktualisieren",
     "saving": "Wird gespeichert…",
     "skip": "Überspringen",
-    "mode": "Modus"
+    "mode": "Modus",
+    "load_failed": "Die Daten konnten nicht geladen werden.",
+    "save_failed": "Speichern fehlgeschlagen.",
+    "publish_failed": "Veröffentlichen fehlgeschlagen.",
+    "archive_failed": "Archivieren fehlgeschlagen.",
+    "export_failed": "Export fehlgeschlagen.",
+    "refresh_failed": "Aktualisieren fehlgeschlagen.",
+    "upload_failed": "Hochladen fehlgeschlagen.",
+    "retry_failed": "Erneuter Versuch fehlgeschlagen.",
+    "move_failed": "Verschieben fehlgeschlagen.",
+    "copy_failed": "Kopieren in die Zwischenablage fehlgeschlagen.",
+    "login_failed": "Anmeldung fehlgeschlagen.",
+    "sso_failed": "Single Sign-on fehlgeschlagen: {{error}}"
   },
   "containers": {
     "title": "Container",
@@ -610,7 +624,9 @@
     "wizard_pricing_input": "Eingabepreis pro 1K Tokens",
     "wizard_pricing_output": "Ausgabepreis pro 1K Tokens",
     "model_names_placeholder": "Tippen, um registrierte Modelle zu suchen...",
-    "provider_names_placeholder": "Tippen, um Anbieter zu suchen..."
+    "provider_names_placeholder": "Tippen, um Anbieter zu suchen...",
+    "chart_cost": "Kosten ($)",
+    "chart_latency": "Latenz (ms)"
   },
   "llm_providers": {
     "title": "LLM-Provider",
@@ -647,7 +663,8 @@
     "model_source_hf_desc": "Die Maschine lädt das Modell selbst herunter (benötigt Internet).",
     "model_source_sync_desc": "Das Modell aus dem Cache dieses Servers kopieren (für Maschinen ohne Internet).",
     "select_or_type_model": "Modell wählen oder eingeben…",
-    "test_to_discover": "Verbindung testen, um die Modelle aufzulisten"
+    "test_to_discover": "Verbindung testen, um die Modelle aufzulisten",
+    "other_openai": "Andere (OpenAI-kompatibel)"
   },
   "llm_models": {
     "title": "LLM-Modelle",
@@ -746,7 +763,8 @@
       "mtp_acceptance": "MTP-Akzeptanz",
       "generation_tokens_per_sec": "Generierung tok/s",
       "preemption_rate": "Verdrängungen/s"
-    }
+    },
+    "open_deployment": "Bereitstellung öffnen"
   },
   "llm_runtime_detail": {
     "failed_load": "Runtime konnte nicht geladen werden.",
@@ -799,7 +817,8 @@
     "select_node": "Einen Knoten waehlen, um Metadaten zu sehen.",
     "type": "Typ",
     "failed_load": "Graph-Topologie konnte nicht geladen werden.",
-    "failed_load_traces": "Graph-Trace-Events konnten nicht geladen werden."
+    "failed_load_traces": "Graph-Trace-Events konnten nicht geladen werden.",
+    "waiting_traces": "Warte auf Trace-Ereignisse…"
   },
   "agents_api_docs": {
     "title": "Endpunkt",
@@ -917,7 +936,8 @@
     "entity_breakdown": "Aufschluesselung nach Entitaetstyp",
     "by_operation": "Nach Operation",
     "by_source": "Nach Quelle",
-    "no_data": "Noch keine PII-Scandaten. Ereignisse erscheinen, wenn das Gateway Anfragen mit aktivierten PII-Richtlinien verarbeitet."
+    "no_data": "Noch keine PII-Scandaten. Ereignisse erscheinen, wenn das Gateway Anfragen mit aktivierten PII-Richtlinien verarbeitet.",
+    "date": "Datum"
   },
   "pii_log": {
     "title": "PII-Aktivitaetsprotokoll",
@@ -949,7 +969,23 @@
     "effective_preview": "Vorschau der effektiven Richtlinie",
     "precedence_hint": "Prioritaet: Mandanten-Override > Systemstandard > keine.",
     "save_override_success": "Mandanten-Override gespeichert.",
-    "clear_override_success": "Mandanten-Override geloescht."
+    "clear_override_success": "Mandanten-Override geloescht.",
+    "form": {
+      "telemetry": "Telemetrie",
+      "telemetry_enable": "Personenbezogene Daten aus der Telemetrie entfernen",
+      "store_raw": "Rohdaten speichern",
+      "egress": "Ausgehende Anfragen",
+      "egress_cloud": "Anfragen an Cloud-Anbieter schützen",
+      "egress_local": "Anfragen an lokale Modelle schützen",
+      "fail_action": "Wenn die Erkennung fehlschlägt",
+      "presidio": "Erkennung (Presidio)",
+      "language": "Sprache",
+      "score_threshold": "Schwellenwert",
+      "entities": "Entitäten",
+      "legacy_entity": "{{entity}} (nicht mehr unterstützt)",
+      "no_entities": "Keine Entitäten ausgewählt.",
+      "add_entity": "Entität hinzufügen"
+    }
   },
   "roles": {
     "title": "Rollenverwaltung",
@@ -1025,7 +1061,8 @@
     "failed_delete": "Anbieter konnte nicht gelöscht werden.",
     "test_connection": "Verbindung testen",
     "test_success": "Verbindung erfolgreich.",
-    "test_failed": "Verbindungstest fehlgeschlagen."
+    "test_failed": "Verbindungstest fehlgeschlagen.",
+    "keep_secret": "Leer lassen, um das aktuelle Geheimnis zu behalten"
   },
   "security_map": {
     "title": "Datenresidenz-Karte",
@@ -1095,7 +1132,13 @@
     "generated_token_label": "Ihr API-Token:",
     "copy_token": "In Zwischenablage kopieren",
     "copied": "Kopiert!",
-    "token_warning": "Bewahren Sie dieses Token sicher auf. Es wird nicht erneut angezeigt, nachdem Sie diese Seite verlassen."
+    "token_warning": "Bewahren Sie dieses Token sicher auf. Es wird nicht erneut angezeigt, nachdem Sie diese Seite verlassen.",
+    "expiry_1h": "1 Stunde",
+    "expiry_24h": "24 Stunden",
+    "expiry_7d": "7 Tage",
+    "expiry_30d": "30 Tage",
+    "expiry_90d": "90 Tage",
+    "expiry_never": "Kein Ablauf"
   },
   "scheduler": {
     "title": "Scheduler",
@@ -1200,7 +1243,12 @@
     "no_servers_found": "Im durchsuchten Portbereich wurden keine MCP-Server gefunden.",
     "discovered_servers": "Gefundene Server ({{count}})",
     "already_registered": "Bereits registriert",
-    "tools_count": "{{count}} Tools"
+    "tools_count": "{{count}} Tools",
+    "transport_sse": "SSE (älteres HTTP)",
+    "transport_stdio": "Stdio (Befehl)",
+    "pii_allow": "Zulassen (keine Filterung)",
+    "pii_redact": "Schwärzen (personenbezogene Daten entfernen)",
+    "pii_block": "Blockieren (ablehnen, wenn personenbezogene Daten gefunden werden)"
   },
   "skills": {
     "list_title": "Fähigkeiten",
@@ -1247,7 +1295,10 @@
     "target_id": "Ziel-ID",
     "not_found": "Fähigkeit nicht gefunden",
     "back_to_list": "Skills",
-    "priority_hint": "0 = niedrigste, 100 = höchste"
+    "priority_hint": "0 = niedrigste, 100 = höchste",
+    "scope_workspace": "Arbeitsbereich",
+    "scope_assistant": "Assistent",
+    "scope_user": "Benutzer"
   },
   "nodes": {
     "back_to_fleet": "Zurück zur Flotte",
@@ -1320,7 +1371,49 @@
     "delete_node": "Maschine löschen",
     "delete_node_title": "Diese Maschine löschen?",
     "delete_node_confirm": "Die Maschine \"{{host}}\" wird mit ihren Sitzungen, Inventar-Snapshots, Befehlen und Ereignissen dauerhaft entfernt. Das lässt sich nicht rückgängig machen.",
-    "delete_node_type_host": "Zur Bestätigung \"{{host}}\" eingeben"
+    "delete_node_type_host": "Zur Bestätigung \"{{host}}\" eingeben",
+    "onboard": {
+      "copied": "Kopiert",
+      "copy_command": "Befehl kopieren",
+      "accelerator": "Beschleuniger",
+      "agent_version": "Agent {{version}}",
+      "asked_from": "Angefragt von {{ip}}",
+      "check_code": "Prüfen Sie, ob dieser Code mit dem auf der Maschine angezeigten übereinstimmt.",
+      "approve": "Genehmigen",
+      "reject": "Nicht diese",
+      "token_failed": "Token konnte nicht erstellt werden.",
+      "run_this": "Führen Sie auf der Maschine, die Sie hinzufügen möchten, Folgendes aus:",
+      "what_happens": "Er zeigt einen kurzen Code an und wartet. Dort muss sonst nichts eingegeben werden – kein Token, keine Prüfsumme. Das Installationsprogramm prüft, was es herunterlädt.",
+      "no_sudo": "Kein sudo auf der Maschine? Lassen Sie <code>sudo</code> weg: Die Installation erfolgt in Ihr Home-Verzeichnis, läuft als Benutzerdienst und fragt nach keinem Passwort.",
+      "pick_address": "Dieser Server hat mehrere Adressen. Wählen Sie die, die die Maschine erreichen kann:",
+      "local_address": "Sie sehen diese Seite unter <code>{{address}}</code>; das bedeutet auf der hinzuzufügenden Maschine nur „diese Maschine“. Der Befehl oben verwendet stattdessen eine erreichbare Adresse.",
+      "waiting": "Wartet auf Genehmigung",
+      "none_waiting": "Noch hat keine Maschine angefragt. Führen Sie den Befehl oben aus, dann füllt sich diese Liste.",
+      "check_again": "Erneut prüfen",
+      "skip_approval": "Genehmigungsschritt überspringen",
+      "token_title": "Ein Befehl, nichts zu genehmigen",
+      "token_explain": "Der Befehl enthält ein Einmal-Token, sodass die Maschine selbstständig beitritt – wenn Sie dort einfügen können, oder für Ansible, cloud-init und Image-Builds, bei denen niemand am Browser sitzt. Das Token läuft ab und funktioniert nur einmal.",
+      "note": "Notiz",
+      "note_placeholder": "Für welche Maschine oder welches Rack?",
+      "create_token": "Token erstellen",
+      "token_expires": "Wird nur einmal angezeigt. Läuft um {{time}} ab."
+    },
+    "detail": {
+      "token_tooltip": "Einmal-Registrierungstoken für diese Maschine erstellen",
+      "token_title": "Registrierungstoken",
+      "deployment_progress": "Bereitstellungsfortschritt",
+      "container_logs": "Container-Protokolle"
+    },
+    "fleet": {
+      "checking_resources": "Zugehörige Ressourcen werden geprüft…",
+      "has_resources": "Auf dieser Maschine sind {{runtimes}} und {{providers}} bereitgestellt.",
+      "runtime_count_one": "{{count}} Runtime",
+      "runtime_count_other": "{{count}} Runtimes",
+      "provider_count_one": "{{count}} Anbieter",
+      "provider_count_other": "{{count}} Anbieter",
+      "cascade": "Auch die Anbieter und Runtimes darauf löschen",
+      "keep_runtimes": "Die Runtimes werden von dieser Maschine gelöst, bleiben aber erhalten."
+    }
   },
   "rag_lite": {
     "documents_title": "RAG-Dokumente",
@@ -1379,7 +1472,14 @@
     "empty": "Keine Maschinenprofile definiert. Erstellen Sie eines, um loszulegen.",
     "search_placeholder": "Profile durchsuchen…",
     "delete_title": "Profil löschen",
-    "delete_confirm": "Profil \"{{name}}\" löschen? Maschinen, die dieses Profil verwenden, werden entkoppelt."
+    "delete_confirm": "Profil \"{{name}}\" löschen? Maschinen, die dieses Profil verwenden, werden entkoppelt.",
+    "section_runtime_config": "Runtime",
+    "section_gpu_config": "GPU",
+    "section_storage_config": "Speicher",
+    "section_network_config": "Netzwerk",
+    "section_logging_config": "Protokollierung",
+    "section_security_config": "Sicherheit",
+    "section_update_config": "Updates"
   },
   "found": {
     "title": "vLLM auf dieser Maschine",
@@ -1514,7 +1614,8 @@
     "schedule_publish": "Veröffentlichung planen",
     "draft_ops": "Entwurfsvorgänge",
     "no_draft": "Kein Entwurf ausgewählt.",
-    "no_ops": "Noch keine Entwurfsvorgänge."
+    "no_ops": "Noch keine Entwurfsvorgänge.",
+    "upload_failed_file": "Hochladen von {{name}} fehlgeschlagen: {{status}}"
   },
   "rag_publishes": {
     "title": "RAG-Veröffentlichungen",
@@ -1523,7 +1624,9 @@
     "empty_publishes": "Noch keine Veröffentlichungen.",
     "empty_jobs": "Noch keine Jobs.",
     "search_publishes": "Veröffentlichungen suchen…",
-    "search_jobs": "Jobs suchen…"
+    "search_jobs": "Jobs suchen…",
+    "col_publish": "Veröffentlichung",
+    "col_scheduled": "Geplant"
   },
   "rag_search": {
     "title": "RAG-Suche",
@@ -1933,5 +2036,16 @@
       "traffic_window_other": "Am Gateway gemessen, letzte {{count}} Minuten",
       "engine_reported": "Von der Engine gemeldet"
     }
+  },
+  "audit": {
+    "title": "Audit-Protokoll",
+    "action": "Aktion",
+    "target": "Ziel",
+    "target_id": "Ziel-ID",
+    "result": "Ergebnis",
+    "severity": "Schweregrad",
+    "actor": "Akteur",
+    "empty": "Keine Ereignisse.",
+    "search": "Aktion, Ziel oder Akteur suchen…"
   }
 }

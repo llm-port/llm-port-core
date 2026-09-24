@@ -172,7 +172,9 @@
     "label": "语言"
   },
   "table": {
-    "all": "全部"
+    "all": "全部",
+    "toggle_columns": "显示或隐藏列",
+    "toggle_details": "显示或隐藏详情"
   },
   "dashboard": {
     "title": "管理仪表盘",
@@ -291,7 +293,19 @@
     "refresh": "刷新",
     "saving": "正在保存…",
     "skip": "跳过",
-    "mode": "模式"
+    "mode": "模式",
+    "load_failed": "无法加载数据。",
+    "save_failed": "保存失败。",
+    "publish_failed": "发布失败。",
+    "archive_failed": "归档失败。",
+    "export_failed": "导出失败。",
+    "refresh_failed": "刷新失败。",
+    "upload_failed": "上传失败。",
+    "retry_failed": "重试失败。",
+    "move_failed": "移动失败。",
+    "copy_failed": "无法复制到剪贴板。",
+    "login_failed": "登录失败。",
+    "sso_failed": "单点登录失败：{{error}}"
   },
   "containers": {
     "title": "容器",
@@ -610,7 +624,9 @@
     "wizard_pricing_input": "每1K Token输入价格",
     "wizard_pricing_output": "每1K Token输出价格",
     "model_names_placeholder": "输入以搜索已注册的模型...",
-    "provider_names_placeholder": "输入以搜索提供商..."
+    "provider_names_placeholder": "输入以搜索提供商...",
+    "chart_cost": "成本（$）",
+    "chart_latency": "延迟（毫秒）"
   },
   "llm_providers": {
     "title": "LLM 提供商",
@@ -647,7 +663,8 @@
     "model_source_hf_desc": "由机器自行下载模型（需要联网）。",
     "model_source_sync_desc": "从本服务器的缓存复制模型（适用于无法联网的机器）。",
     "select_or_type_model": "选择或输入模型…",
-    "test_to_discover": "测试连接以列出其模型"
+    "test_to_discover": "测试连接以列出其模型",
+    "other_openai": "其他（兼容 OpenAI）"
   },
   "llm_models": {
     "title": "LLM 模型",
@@ -746,7 +763,8 @@
       "mtp_acceptance": "MTP 接受率",
       "generation_tokens_per_sec": "生成 tok/s",
       "preemption_rate": "抢占次数/秒"
-    }
+    },
+    "open_deployment": "打开部署"
   },
   "llm_runtime_detail": {
     "failed_load": "加载运行时失败。",
@@ -799,7 +817,8 @@
     "select_node": "选择一个节点查看元数据。",
     "type": "类型",
     "failed_load": "加载图拓扑失败。",
-    "failed_load_traces": "加载 Trace 事件失败。"
+    "failed_load_traces": "加载 Trace 事件失败。",
+    "waiting_traces": "正在等待追踪事件…"
   },
   "agents_api_docs": {
     "title": "端点",
@@ -917,7 +936,8 @@
     "entity_breakdown": "实体类型分布",
     "by_operation": "按操作",
     "by_source": "按来源",
-    "no_data": "暂无 PII 扫描数据。启用 PII 策略后，网关处理请求时将显示事件。"
+    "no_data": "暂无 PII 扫描数据。启用 PII 策略后，网关处理请求时将显示事件。",
+    "date": "日期"
   },
   "pii_log": {
     "title": "PII 活动日志",
@@ -949,7 +969,23 @@
     "effective_preview": "生效策略预览",
     "precedence_hint": "优先级：租户覆盖 > 系统默认 > 无。",
     "save_override_success": "租户覆盖策略已保存。",
-    "clear_override_success": "租户覆盖策略已清除。"
+    "clear_override_success": "租户覆盖策略已清除。",
+    "form": {
+      "telemetry": "遥测",
+      "telemetry_enable": "从遥测中移除个人数据",
+      "store_raw": "存储原始数据",
+      "egress": "出站请求",
+      "egress_cloud": "保护发往云提供商的请求",
+      "egress_local": "保护发往本地模型的请求",
+      "fail_action": "检测失败时",
+      "presidio": "检测（Presidio）",
+      "language": "语言",
+      "score_threshold": "分数阈值",
+      "entities": "实体",
+      "legacy_entity": "{{entity}}（已不再支持）",
+      "no_entities": "未选择任何实体。",
+      "add_entity": "添加实体"
+    }
   },
   "roles": {
     "title": "角色管理",
@@ -1025,7 +1061,8 @@
     "failed_delete": "删除提供商失败。",
     "test_connection": "测试连接",
     "test_success": "连接成功。",
-    "test_failed": "连接测试失败。"
+    "test_failed": "连接测试失败。",
+    "keep_secret": "留空以保留当前密钥"
   },
   "security_map": {
     "title": "数据驻留地图",
@@ -1095,7 +1132,13 @@
     "generated_token_label": "您的API令牌：",
     "copy_token": "复制到剪贴板",
     "copied": "已复制！",
-    "token_warning": "请安全保存此令牌。离开此页面后将不再显示。"
+    "token_warning": "请安全保存此令牌。离开此页面后将不再显示。",
+    "expiry_1h": "1 小时",
+    "expiry_24h": "24 小时",
+    "expiry_7d": "7 天",
+    "expiry_30d": "30 天",
+    "expiry_90d": "90 天",
+    "expiry_never": "永不过期"
   },
   "scheduler": {
     "title": "调度器",
@@ -1200,7 +1243,12 @@
     "no_servers_found": "在扫描的端口范围内未找到 MCP 服务器。",
     "discovered_servers": "发现的服务器（{{count}}）",
     "already_registered": "已注册",
-    "tools_count": "{{count}} 个工具"
+    "tools_count": "{{count}} 个工具",
+    "transport_sse": "SSE（旧版 HTTP）",
+    "transport_stdio": "Stdio（命令）",
+    "pii_allow": "允许（不过滤）",
+    "pii_redact": "脱敏（移除个人数据）",
+    "pii_block": "阻止（发现个人数据时拒绝）"
   },
   "skills": {
     "list_title": "技能",
@@ -1247,7 +1295,10 @@
     "target_id": "目标 ID",
     "not_found": "技能未找到",
     "back_to_list": "技能",
-    "priority_hint": "0 = 最低，100 = 最高"
+    "priority_hint": "0 = 最低，100 = 最高",
+    "scope_workspace": "工作区",
+    "scope_assistant": "助手",
+    "scope_user": "用户"
   },
   "nodes": {
     "back_to_fleet": "返回节点群",
@@ -1320,7 +1371,49 @@
     "delete_node": "删除机器",
     "delete_node_title": "删除此机器？",
     "delete_node_confirm": "这将永久删除机器“{{host}}”及其会话、清单快照、命令和事件，且无法撤销。",
-    "delete_node_type_host": "输入“{{host}}”以确认"
+    "delete_node_type_host": "输入“{{host}}”以确认",
+    "onboard": {
+      "copied": "已复制",
+      "copy_command": "复制命令",
+      "accelerator": "加速器",
+      "agent_version": "代理 {{version}}",
+      "asked_from": "请求来自 {{ip}}",
+      "check_code": "请确认此代码与机器上显示的一致。",
+      "approve": "批准",
+      "reject": "不是这台",
+      "token_failed": "无法创建令牌。",
+      "run_this": "在要添加的机器上运行：",
+      "what_happens": "它会显示一个短代码并等待。那里无需输入其他内容——没有令牌，也没有校验和。安装程序会校验其下载的内容。",
+      "no_sudo": "那台机器没有 sudo？去掉 <code>sudo</code>：它会安装到您的主目录并作为用户服务运行，不会要求任何密码。",
+      "pick_address": "此服务器有多个地址。请选择该机器可以访问的地址：",
+      "local_address": "您正在通过 <code>{{address}}</code> 查看此页，这在要添加的机器上仅指“本机”。上面的命令改用了可访问的地址。",
+      "waiting": "等待批准",
+      "none_waiting": "还没有机器请求加入。运行上面的命令后，此列表会自动更新。",
+      "check_again": "再次检查",
+      "skip_approval": "跳过批准步骤",
+      "token_title": "一条命令，无需批准",
+      "token_explain": "该命令携带一次性令牌，机器会自行加入——适用于您可以粘贴命令的场合，或无人操作浏览器的 Ansible、cloud-init 和镜像构建。令牌会过期，且只能使用一次。",
+      "note": "备注",
+      "note_placeholder": "用于哪台机器或机架？",
+      "create_token": "创建令牌",
+      "token_expires": "仅显示一次。将于 {{time}} 过期。"
+    },
+    "detail": {
+      "token_tooltip": "为此机器创建一次性注册令牌",
+      "token_title": "注册令牌",
+      "deployment_progress": "部署进度",
+      "container_logs": "容器日志"
+    },
+    "fleet": {
+      "checking_resources": "正在检查关联资源…",
+      "has_resources": "此机器上部署了{{runtimes}}和{{providers}}。",
+      "runtime_count_one": "{{count}} 个运行时",
+      "runtime_count_other": "{{count}} 个运行时",
+      "provider_count_one": "{{count}} 个提供商",
+      "provider_count_other": "{{count}} 个提供商",
+      "cascade": "同时删除其上的提供商和运行时",
+      "keep_runtimes": "运行时将从此机器解除分配，但会保留。"
+    }
   },
   "rag_lite": {
     "documents_title": "RAG 文档",
@@ -1379,7 +1472,14 @@
     "empty": "暂无机器配置文件。创建一个以开始。",
     "search_placeholder": "搜索配置文件…",
     "delete_title": "删除配置文件",
-    "delete_confirm": "删除配置文件 \"{{name}}\"？使用此配置文件的机器将被取消分配。"
+    "delete_confirm": "删除配置文件 \"{{name}}\"？使用此配置文件的机器将被取消分配。",
+    "section_runtime_config": "运行时",
+    "section_gpu_config": "GPU",
+    "section_storage_config": "存储",
+    "section_network_config": "网络",
+    "section_logging_config": "日志",
+    "section_security_config": "安全",
+    "section_update_config": "更新"
   },
   "found": {
     "title": "此机器上的 vLLM",
@@ -1514,7 +1614,8 @@
     "schedule_publish": "计划发布",
     "draft_ops": "草稿操作",
     "no_draft": "未选择草稿。",
-    "no_ops": "暂无草稿操作。"
+    "no_ops": "暂无草稿操作。",
+    "upload_failed_file": "{{name}} 上传失败：{{status}}"
   },
   "rag_publishes": {
     "title": "RAG 发布",
@@ -1523,7 +1624,9 @@
     "empty_publishes": "暂无发布。",
     "empty_jobs": "暂无任务。",
     "search_publishes": "搜索发布…",
-    "search_jobs": "搜索任务…"
+    "search_jobs": "搜索任务…",
+    "col_publish": "发布",
+    "col_scheduled": "计划时间"
   },
   "rag_search": {
     "title": "RAG 搜索",
@@ -1933,5 +2036,16 @@
       "traffic_window_other": "在网关测量，最近 {{count}} 分钟",
       "engine_reported": "由引擎上报"
     }
+  },
+  "audit": {
+    "title": "审计日志",
+    "action": "操作",
+    "target": "目标",
+    "target_id": "目标 ID",
+    "result": "结果",
+    "severity": "严重程度",
+    "actor": "操作者",
+    "empty": "没有事件。",
+    "search": "搜索操作、目标或操作者…"
   }
 }

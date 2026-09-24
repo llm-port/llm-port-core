@@ -172,7 +172,9 @@
     "label": "Langue"
   },
   "table": {
-    "all": "Tout"
+    "all": "Tout",
+    "toggle_columns": "Afficher ou masquer des colonnes",
+    "toggle_details": "Afficher ou masquer les détails"
   },
   "dashboard": {
     "title": "Tableau de bord d'administration",
@@ -286,7 +288,19 @@
     "refresh": "Actualiser",
     "saving": "Enregistrement…",
     "skip": "Passer",
-    "mode": "Mode"
+    "mode": "Mode",
+    "load_failed": "Impossible de charger les données.",
+    "save_failed": "Impossible d'enregistrer.",
+    "publish_failed": "La publication a échoué.",
+    "archive_failed": "L'archivage a échoué.",
+    "export_failed": "L'export a échoué.",
+    "refresh_failed": "L'actualisation a échoué.",
+    "upload_failed": "Le téléversement a échoué.",
+    "retry_failed": "La nouvelle tentative a échoué.",
+    "move_failed": "Le déplacement a échoué.",
+    "copy_failed": "Impossible de copier dans le presse-papiers.",
+    "login_failed": "La connexion a échoué.",
+    "sso_failed": "L'authentification unique a échoué : {{error}}"
   },
   "containers": {
     "title": "Conteneurs",
@@ -605,7 +619,9 @@
     "wizard_pricing_input": "Prix d'entrée par 1K tokens",
     "wizard_pricing_output": "Prix de sortie par 1K tokens",
     "model_names_placeholder": "Tapez pour rechercher les modèles enregistrés...",
-    "provider_names_placeholder": "Tapez pour rechercher les fournisseurs..."
+    "provider_names_placeholder": "Tapez pour rechercher les fournisseurs...",
+    "chart_cost": "Coût ($)",
+    "chart_latency": "Latence (ms)"
   },
   "llm_providers": {
     "title": "Fournisseurs LLM",
@@ -642,7 +658,8 @@
     "model_source_hf_desc": "La machine télécharge le modèle elle-même (nécessite Internet).",
     "model_source_sync_desc": "Copier le modèle depuis le cache de ce serveur (pour les machines sans Internet).",
     "select_or_type_model": "Choisissez ou saisissez un modèle…",
-    "test_to_discover": "Testez la connexion pour lister ses modèles"
+    "test_to_discover": "Testez la connexion pour lister ses modèles",
+    "other_openai": "Autre (compatible OpenAI)"
   },
   "llm_models": {
     "title": "Modèles LLM",
@@ -753,7 +770,8 @@
       "mtp_acceptance": "Acceptation MTP",
       "generation_tokens_per_sec": "Génération tok/s",
       "preemption_rate": "Préemptions/s"
-    }
+    },
+    "open_deployment": "Ouvrir le déploiement"
   },
   "llm_runtime_detail": {
     "failed_load": "Échec du chargement de l'environnement.",
@@ -806,7 +824,8 @@
     "select_node": "Sélectionnez un nœud pour inspecter les métadonnées.",
     "type": "Type",
     "failed_load": "Échec du chargement de la topologie du graphe.",
-    "failed_load_traces": "Échec du chargement des traces du graphe."
+    "failed_load_traces": "Échec du chargement des traces du graphe.",
+    "waiting_traces": "En attente d'événements de trace…"
   },
   "rag_runtime": {
     "title": "Config. d'exécution RAG",
@@ -858,7 +877,8 @@
     "schedule_publish": "Planifier la publication",
     "draft_ops": "Opérations de brouillon",
     "no_draft": "Aucun brouillon sélectionné.",
-    "no_ops": "Aucune opération de brouillon pour le moment."
+    "no_ops": "Aucune opération de brouillon pour le moment.",
+    "upload_failed_file": "Échec du téléversement de {{name}} : {{status}}"
   },
   "rag_publishes": {
     "title": "Publications RAG",
@@ -867,7 +887,9 @@
     "empty_publishes": "Aucune publication pour le moment.",
     "empty_jobs": "Aucune tâche pour le moment.",
     "search_publishes": "Rechercher des publications…",
-    "search_jobs": "Rechercher des tâches…"
+    "search_jobs": "Rechercher des tâches…",
+    "col_publish": "Publication",
+    "col_scheduled": "Planifié"
   },
   "rag_search": {
     "title": "Recherche RAG",
@@ -1048,7 +1070,8 @@
     "entity_breakdown": "Répartition par type d'entité",
     "by_operation": "Par opération",
     "by_source": "Par source",
-    "no_data": "Aucune donnée d'analyse PII pour le moment. Les événements apparaîtront lorsque la passerelle traitera des requêtes avec les politiques PII activées."
+    "no_data": "Aucune donnée d'analyse PII pour le moment. Les événements apparaîtront lorsque la passerelle traitera des requêtes avec les politiques PII activées.",
+    "date": "Date"
   },
   "pii_log": {
     "title": "Journal d'activité PII",
@@ -1080,7 +1103,23 @@
     "effective_preview": "Aperçu de la politique effective",
     "precedence_hint": "Priorité : remplacement du locataire > défaut système > aucun.",
     "save_override_success": "Remplacement du locataire enregistré.",
-    "clear_override_success": "Remplacement du locataire effacé."
+    "clear_override_success": "Remplacement du locataire effacé.",
+    "form": {
+      "telemetry": "Télémétrie",
+      "telemetry_enable": "Retirer les données personnelles de la télémétrie",
+      "store_raw": "Stocker les données brutes",
+      "egress": "Requêtes sortantes",
+      "egress_cloud": "Protéger les requêtes vers les fournisseurs cloud",
+      "egress_local": "Protéger les requêtes vers les modèles locaux",
+      "fail_action": "Si la détection échoue",
+      "presidio": "Détection (Presidio)",
+      "language": "Langue",
+      "score_threshold": "Seuil de score",
+      "entities": "Entités",
+      "legacy_entity": "{{entity}} (plus pris en charge)",
+      "no_entities": "Aucune entité sélectionnée.",
+      "add_entity": "Ajouter une entité"
+    }
   },
   "roles": {
     "title": "Gestion des rôles",
@@ -1156,7 +1195,8 @@
     "failed_delete": "Échec de la suppression du fournisseur.",
     "test_connection": "Tester la connexion",
     "test_success": "Connexion réussie.",
-    "test_failed": "Échec du test de connexion."
+    "test_failed": "Échec du test de connexion.",
+    "keep_secret": "Laissez vide pour conserver le secret actuel"
   },
   "security_map": {
     "title": "Carte de résidence des données",
@@ -1226,7 +1266,13 @@
     "generated_token_label": "Votre jeton API :",
     "copy_token": "Copier dans le presse-papiers",
     "copied": "Copié !",
-    "token_warning": "Conservez ce jeton en sécurité. Il ne sera plus affiché après avoir quitté cette page."
+    "token_warning": "Conservez ce jeton en sécurité. Il ne sera plus affiché après avoir quitté cette page.",
+    "expiry_1h": "1 heure",
+    "expiry_24h": "24 heures",
+    "expiry_7d": "7 jours",
+    "expiry_30d": "30 jours",
+    "expiry_90d": "90 jours",
+    "expiry_never": "Sans expiration"
   },
   "scheduler": {
     "title": "Planificateur",
@@ -1358,7 +1404,12 @@
     "no_servers_found": "Aucun serveur MCP trouvé dans la plage de ports analysée.",
     "discovered_servers": "Serveurs découverts ({{count}})",
     "already_registered": "Déjà enregistré",
-    "tools_count": "{{count}} outils"
+    "tools_count": "{{count}} outils",
+    "transport_sse": "SSE (HTTP hérité)",
+    "transport_stdio": "Stdio (commande)",
+    "pii_allow": "Autoriser (aucun filtrage)",
+    "pii_redact": "Masquer (retirer les données personnelles)",
+    "pii_block": "Bloquer (rejeter si des données personnelles sont trouvées)"
   },
   "skills": {
     "list_title": "Compétences",
@@ -1405,7 +1456,10 @@
     "target_id": "ID de cible",
     "not_found": "Compétence non trouvée",
     "back_to_list": "Compétences",
-    "priority_hint": "0 = la plus basse, 100 = la plus haute"
+    "priority_hint": "0 = la plus basse, 100 = la plus haute",
+    "scope_workspace": "Espace de travail",
+    "scope_assistant": "Assistant",
+    "scope_user": "Utilisateur"
   },
   "nodes": {
     "back_to_fleet": "Retour à la flotte",
@@ -1478,7 +1532,49 @@
     "delete_node": "Supprimer la machine",
     "delete_node_title": "Supprimer cette machine ?",
     "delete_node_confirm": "La machine « {{host}} » est supprimée définitivement avec ses sessions, instantanés d'inventaire, commandes et événements. Action irréversible.",
-    "delete_node_type_host": "Saisissez « {{host}} » pour confirmer"
+    "delete_node_type_host": "Saisissez « {{host}} » pour confirmer",
+    "onboard": {
+      "copied": "Copié",
+      "copy_command": "Copier la commande",
+      "accelerator": "accélérateur",
+      "agent_version": "agent {{version}}",
+      "asked_from": "Demandé depuis {{ip}}",
+      "check_code": "Vérifiez que ce code correspond à celui affiché sur la machine.",
+      "approve": "Approuver",
+      "reject": "Pas celle-ci",
+      "token_failed": "Impossible de créer un jeton.",
+      "run_this": "Sur la machine à ajouter, exécutez :",
+      "what_happens": "Il affiche un code court et attend. Rien d'autre à saisir là-bas — ni jeton, ni somme de contrôle. L'installateur vérifie ce qu'il télécharge.",
+      "no_sudo": "Pas de sudo sur cette machine ? Retirez <code>sudo</code> : l'installation se fait dans votre répertoire personnel, tourne comme service utilisateur et ne demande aucun mot de passe.",
+      "pick_address": "Ce serveur a plusieurs adresses. Choisissez celle que la machine peut joindre :",
+      "local_address": "Vous consultez cette page à <code>{{address}}</code>, ce qui ne signifie que « cette machine » sur celle que vous ajoutez. La commande ci-dessus utilise plutôt une adresse joignable.",
+      "waiting": "En attente d'approbation",
+      "none_waiting": "Aucune machine n'a encore demandé. Exécutez la commande ci-dessus et cette liste se remplira.",
+      "check_again": "Vérifier à nouveau",
+      "skip_approval": "Passer l'étape d'approbation",
+      "token_title": "Une commande, rien à approuver",
+      "token_explain": "La commande contient un jeton à usage unique : la machine rejoint seule — quand vous pouvez y coller la commande, ou pour Ansible, cloud-init et les constructions d'images où personne n'est devant un navigateur. Le jeton expire et ne fonctionne qu'une fois.",
+      "note": "Note",
+      "note_placeholder": "Pour quelle machine ou quelle baie ?",
+      "create_token": "Créer un jeton",
+      "token_expires": "Affiché une seule fois. Expire à {{time}}."
+    },
+    "detail": {
+      "token_tooltip": "Créer un jeton d'inscription à usage unique pour cette machine",
+      "token_title": "Jeton d'inscription",
+      "deployment_progress": "Progression du déploiement",
+      "container_logs": "Journaux du conteneur"
+    },
+    "fleet": {
+      "checking_resources": "Recherche des ressources associées…",
+      "has_resources": "Cette machine héberge {{runtimes}} et {{providers}}.",
+      "runtime_count_one": "{{count}} runtime",
+      "runtime_count_other": "{{count}} runtimes",
+      "provider_count_one": "{{count}} fournisseur",
+      "provider_count_other": "{{count}} fournisseurs",
+      "cascade": "Supprimer aussi les fournisseurs et runtimes qu'elle héberge",
+      "keep_runtimes": "Les runtimes sont détachés de cette machine mais conservés."
+    }
   },
   "node_profiles": {
     "page_title": "Profils de machine",
@@ -1498,7 +1594,14 @@
     "empty": "Aucun profil de machine défini. Créez-en un pour commencer.",
     "search_placeholder": "Rechercher des profils…",
     "delete_title": "Supprimer le profil",
-    "delete_confirm": "Supprimer le profil \"{{name}}\" ? Les machines utilisant ce profil seront désaffectées."
+    "delete_confirm": "Supprimer le profil \"{{name}}\" ? Les machines utilisant ce profil seront désaffectées.",
+    "section_runtime_config": "Runtime",
+    "section_gpu_config": "GPU",
+    "section_storage_config": "Stockage",
+    "section_network_config": "Réseau",
+    "section_logging_config": "Journalisation",
+    "section_security_config": "Sécurité",
+    "section_update_config": "Mises à jour"
   },
   "found": {
     "title": "vLLM sur cette machine",
@@ -1933,5 +2036,16 @@
       "traffic_window_other": "Mesuré à la passerelle, {{count}} dernières minutes",
       "engine_reported": "Remonté par le moteur"
     }
+  },
+  "audit": {
+    "title": "Journal d'audit",
+    "action": "Action",
+    "target": "Cible",
+    "target_id": "ID de la cible",
+    "result": "Résultat",
+    "severity": "Gravité",
+    "actor": "Acteur",
+    "empty": "Aucun événement.",
+    "search": "Rechercher une action, une cible ou un acteur…"
   }
 }

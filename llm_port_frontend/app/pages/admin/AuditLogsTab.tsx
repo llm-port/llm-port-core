@@ -2,6 +2,7 @@
  * Admin -> Audit log table content used inside LogsPage tabs.
  */
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { audit, type AuditEvent } from "~/api/admin";
 import { DataTable, type ColumnDef } from "~/components/DataTable";
 import { ResultChip, SeverityChip } from "~/components/Chips";
@@ -15,6 +16,7 @@ import Typography from "@mui/material/Typography";
 import FilterListIcon from "@mui/icons-material/FilterList";
 
 export default function AuditLogsTab() {
+  const { t, i18n } = useTranslation();
   const [data, setData] = useState<AuditEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -32,7 +34,7 @@ export default function AuditLogsTab() {
       });
       setData(result);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to load audit log.");
+      setError(e instanceof Error ? e.message : t("common.load_failed"));
     } finally {
       setLoading(false);
     }
@@ -45,18 +47,18 @@ export default function AuditLogsTab() {
   const columns: ColumnDef<AuditEvent>[] = [
     {
       key: "time",
-      label: "Time",
+      label: t("logs.time"),
       sortable: true,
       sortValue: (ev) => new Date(ev.time).getTime(),
       render: (ev) => (
         <Typography variant="body2" color="text.secondary" fontSize="0.8rem" noWrap>
-          {new Date(ev.time).toLocaleString()}
+          {new Date(ev.time).toLocaleString(i18n.language || undefined)}
         </Typography>
       ),
     },
     {
       key: "action",
-      label: "Action",
+      label: t("audit.action"),
       sortable: true,
       searchValue: (ev) => ev.action,
       render: (ev) => (
@@ -67,7 +69,7 @@ export default function AuditLogsTab() {
     },
     {
       key: "target",
-      label: "Target",
+      label: t("audit.target"),
       searchValue: (ev) => ev.target_type + " " + ev.target_id,
       render: (ev) => (
         <Typography variant="body2" fontFamily="monospace" fontSize="0.8rem" color="text.secondary">
@@ -80,17 +82,17 @@ export default function AuditLogsTab() {
     },
     {
       key: "result",
-      label: "Result",
+      label: t("audit.result"),
       render: (ev) => <ResultChip value={ev.result as "allow" | "deny"} />,
     },
     {
       key: "severity",
-      label: "Severity",
+      label: t("audit.severity"),
       render: (ev) => <SeverityChip value={ev.severity} />,
     },
     {
       key: "actor",
-      label: "Actor",
+      label: t("audit.actor"),
       searchValue: (ev) => ev.actor_id ?? "",
       render: (ev) => (
         <Typography variant="body2" fontFamily="monospace" fontSize="0.8rem" color="text.secondary">
@@ -103,33 +105,33 @@ export default function AuditLogsTab() {
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
       <DataTable
-        title="Audit Log"
+        title={t("audit.title")}
         columns={columns}
         rows={data}
         rowKey={(ev) => ev.id}
         loading={loading}
         error={error}
-        emptyMessage="No events."
+        emptyMessage={t("audit.empty")}
         onRefresh={load}
-        searchPlaceholder="Search action, target, or actor…"
+        searchPlaceholder={t("audit.search")}
         toolbarActions={
           <Stack direction="row" spacing={1} alignItems="center">
             <TextField
-              label="Action"
+              label={t("audit.action")}
               size="small"
               value={filterAction}
               onChange={(e) => setFilterAction(e.target.value)}
               sx={{ width: 160 }}
             />
             <TextField
-              label="Target ID"
+              label={t("audit.target_id")}
               size="small"
               value={filterTarget}
               onChange={(e) => setFilterTarget(e.target.value)}
               sx={{ width: 160 }}
             />
             <Button variant="outlined" size="small" startIcon={<FilterListIcon />} onClick={load}>
-              Apply
+              {t("inference.detail.apply")}
             </Button>
           </Stack>
         }

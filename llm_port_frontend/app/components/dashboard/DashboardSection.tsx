@@ -1,4 +1,5 @@
 import { useSortable } from "@dnd-kit/sortable";
+import { useTranslation } from "react-i18next";
 import { CSS } from "@dnd-kit/utilities";
 import Box from "@mui/material/Box";
 import IconButton from "@mui/material/IconButton";
@@ -28,6 +29,7 @@ export default function DashboardSection({
   onToggleVisibility,
   children,
 }: DashboardSectionProps) {
+  const { t } = useTranslation();
   const {
     attributes,
     listeners,
@@ -91,7 +93,7 @@ export default function DashboardSection({
           >
             {title}
           </Typography>
-          <Tooltip title={hidden ? "Show section" : "Hide section"}>
+          <Tooltip title={hidden ? t("dashboard.show_section") : t("dashboard.hide_section")}>
             <IconButton
               size="small"
               onClick={() => onToggleVisibility(id)}

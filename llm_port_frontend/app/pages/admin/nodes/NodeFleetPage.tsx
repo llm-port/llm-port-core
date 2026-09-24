@@ -103,7 +103,7 @@ export default function NodeFleetPage() {
       await action();
       await refresh();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Action failed.");
+      setError(err instanceof Error ? err.message : t("common.action_failed"));
     } finally {
       setActionBusyKey(null);
     }
@@ -391,17 +391,17 @@ export default function NodeFleetPage() {
               >
                 <CircularProgress size={16} />
                 <Typography variant="body2" color="text.secondary">
-                  Checking for associated resources...
+                  {t("nodes.fleet.checking_resources")}
                 </Typography>
               </Stack>
             )}
             {!loadingAssociations && nodeRuntimes.length > 0 && (
               <Box sx={{ mt: 2 }}>
                 <Alert severity="warning" variant="outlined" sx={{ mb: 1.5 }}>
-                  This machine has {nodeRuntimes.length} runtime
-                  {nodeRuntimes.length > 1 ? "s" : ""} and{" "}
-                  {nodeProviders.length} provider
-                  {nodeProviders.length > 1 ? "s" : ""} deployed on it.
+                  {t("nodes.fleet.has_resources", {
+                    runtimes: t("nodes.fleet.runtime_count", { count: nodeRuntimes.length }),
+                    providers: t("nodes.fleet.provider_count", { count: nodeProviders.length }),
+                  })}
                 </Alert>
                 <Box sx={{ pl: 1, mb: 1 }}>
                   {nodeRuntimes.map((rt) => (
@@ -425,7 +425,7 @@ export default function NodeFleetPage() {
                   }
                   label={
                     <Typography variant="body2">
-                      Also delete associated providers and runtimes
+                      {t("nodes.fleet.cascade")}
                     </Typography>
                   }
                 />
@@ -435,8 +435,7 @@ export default function NodeFleetPage() {
                     color="text.secondary"
                     sx={{ display: "block", pl: 4 }}
                   >
-                    Runtimes will be unassigned from this machine but kept in the
-                    system.
+                    {t("nodes.fleet.keep_runtimes")}
                   </Typography>
                 )}
               </Box>
@@ -467,7 +466,7 @@ export default function NodeFleetPage() {
             setNodeProviders([]);
             await refresh();
           } catch (err: unknown) {
-            setError(err instanceof Error ? err.message : "Delete failed.");
+            setError(err instanceof Error ? err.message : t("common.delete_failed"));
           } finally {
             setDeleting(false);
           }

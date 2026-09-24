@@ -205,7 +205,7 @@ export default function NodeProfileFormDialog({
           {CONFIG_SECTIONS.map((sec) => (
             <Tab
               key={sec.key}
-              label={sec.label}
+              label={t(`node_profiles.section_${sec.key}`, sec.label)}
               sx={{
                 color: configErrors[sec.key] ? "error.main" : undefined,
               }}

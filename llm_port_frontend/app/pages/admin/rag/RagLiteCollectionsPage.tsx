@@ -45,7 +45,7 @@ export default function RagLiteCollectionsPage() {
       setError(null);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to load collections",
+        err instanceof Error ? err.message : t("common.load_failed"),
       );
     } finally {
       setLoading(false);
@@ -66,7 +66,7 @@ export default function RagLiteCollectionsPage() {
       setNewDesc("");
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Create failed");
+      setError(err instanceof Error ? err.message : t("common.create_failed"));
     } finally {
       setCreating(false);
     }
@@ -77,7 +77,7 @@ export default function RagLiteCollectionsPage() {
       await ragLite.deleteCollection(id);
       setCollections((prev) => prev.filter((c) => c.id !== id));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Delete failed");
+      setError(err instanceof Error ? err.message : t("common.delete_failed"));
     }
   }
 

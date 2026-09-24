@@ -228,7 +228,7 @@ export default function ObservabilityPage() {
                       data: timeseries.map(
                         (b) => Number(b.estimated_total_cost) || 0,
                       ),
-                      label: "Cost ($)",
+                      label: t("observability.chart_cost"),
                       color: theme.palette.primary.main,
                       area: true,
                     },
@@ -267,7 +267,7 @@ export default function ObservabilityPage() {
                   series={[
                     {
                       data: timeseries.map((b) => b.total_requests),
-                      label: "Requests",
+                      label: t("inference.detail.traffic_requests"),
                       color: theme.palette.secondary.main,
                     },
                   ]}
@@ -297,7 +297,7 @@ export default function ObservabilityPage() {
                         perf.p95_latency_ms ?? 0,
                         perf.p99_latency_ms ?? 0,
                       ],
-                      label: "Latency (ms)",
+                      label: t("observability.chart_latency"),
                       color: theme.palette.warning.main,
                     },
                   ]}
@@ -339,7 +339,7 @@ export default function ObservabilityPage() {
                       data: summary.by_model
                         .slice(0, 10)
                         .map((m) => Number(m.estimated_total_cost) || 0),
-                      label: "Cost ($)",
+                      label: t("observability.chart_cost"),
                       color: theme.palette.info.main,
                     },
                   ]}

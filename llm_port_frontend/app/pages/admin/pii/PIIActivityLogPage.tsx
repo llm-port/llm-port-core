@@ -178,7 +178,7 @@ export default function PIIActivityLogPage() {
                     <TableCell>{ev.mode ?? "—"}</TableCell>
                     <TableCell align="center">
                       {ev.pii_detected ? (
-                        <Chip label="Yes" size="small" color="warning" />
+                        <Chip label={t("common.yes")} size="small" color="warning" />
                       ) : (
                         <Chip label="No" size="small" color="success" variant="outlined" />
                       )}

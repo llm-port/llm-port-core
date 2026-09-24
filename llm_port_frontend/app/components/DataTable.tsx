@@ -7,6 +7,7 @@
  *  - sticky header + scrollable body that fits into flex containers
  *  - optional client-side pagination
  */
+import { useTranslation } from "react-i18next";
 import {
   Fragment,
   useState,
@@ -192,6 +193,7 @@ export function DataTable<T>({
   tableLayout = "fixed",
   expansion,
 }: DataTableProps<T>) {
+  const { t } = useTranslation();
   const [search, setSearch] = useState("");
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnSizing, setColumnSizing] = useState<ColumnSizingState>({});
@@ -430,7 +432,7 @@ export function DataTable<T>({
                     label={f.label}
                     onChange={(e) => f.onChange?.(e.target.value)}
                   >
-                    <MenuItem value="">All</MenuItem>
+                    <MenuItem value="">{t("table.all")}</MenuItem>
                     {f.options.map((opt) => (
                       <MenuItem key={opt.value} value={opt.value}>
                         {opt.label}
@@ -447,7 +449,7 @@ export function DataTable<T>({
             {/* Column visibility toggle */}
             {columnVisibilityKey && hideableColumns.length > 0 && (
               <>
-                <Tooltip title="Toggle columns">
+                <Tooltip title={t("table.toggle_columns")}>
                   <IconButton
                     size="small"
                     onClick={(e) => setColMenuAnchor(e.currentTarget)}
@@ -502,7 +504,7 @@ export function DataTable<T>({
 
             {/* Refresh */}
             {onRefresh && (
-              <Tooltip title="Refresh">
+              <Tooltip title={t("common.refresh")}>
                 <IconButton size="small" onClick={onRefresh} disabled={loading}>
                   <RefreshIcon />
                 </IconButton>
@@ -709,7 +711,7 @@ export function DataTable<T>({
                               >
                                 <IconButton
                                   size="small"
-                                  aria-label="Toggle details"
+                                  aria-label={t("table.toggle_details")}
                                   aria-expanded={isExpandedRow}
                                   onClick={(e) => {
                                     e.stopPropagation();

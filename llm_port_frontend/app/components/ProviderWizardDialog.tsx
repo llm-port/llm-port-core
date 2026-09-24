@@ -77,7 +77,7 @@ const CUSTOM_IMAGE_VALUE = "__custom__";
 const AUTO_IMAGE_VALUE = "__auto__";
 
 /** Known LiteLLM provider prefixes shown in the remote-endpoint dropdown. */
-const LITELLM_PROVIDERS: { value: string; label: string }[] = [
+const LITELLM_PROVIDERS: { value: string; label: string; labelKey?: string }[] = [
   { value: "openai", label: "OpenAI" },
   { value: "anthropic", label: "Anthropic" },
   { value: "gemini", label: "Google Gemini" },
@@ -90,7 +90,7 @@ const LITELLM_PROVIDERS: { value: string; label: string }[] = [
   { value: "deepseek", label: "DeepSeek" },
   { value: "cohere", label: "Cohere" },
   { value: "openrouter", label: "OpenRouter" },
-  { value: "openai", label: "Other (OpenAI-compatible)" },
+  { value: "openai", label: "Other (OpenAI-compatible)", labelKey: "llm_providers.other_openai" },
 ];
 
 function formatBytes(bytes: number): string {
@@ -924,7 +924,7 @@ export function ProviderWizardDialog({
                   >
                     {LITELLM_PROVIDERS.map((p) => (
                       <MenuItem key={`${p.value}-${p.label}`} value={p.value}>
-                        {p.label}
+                        {p.labelKey ? t(p.labelKey) : p.label}
                       </MenuItem>
                     ))}
                   </Select>

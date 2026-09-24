@@ -273,7 +273,7 @@ export default function AuthProvidersPage() {
               fullWidth
               size="small"
               type="password"
-              helperText={editing ? "Leave blank to keep existing secret" : undefined}
+              helperText={editing ? t("auth_providers.keep_secret") : undefined}
             />
 
             {formType === "oidc" && (

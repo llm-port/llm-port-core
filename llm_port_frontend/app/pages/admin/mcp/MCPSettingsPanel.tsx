@@ -65,7 +65,7 @@ export function MCPSettingsPanel({ serverId }: Props) {
       setSchema(schemaData);
       setValues(valuesData);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to load settings");
+      setError(err instanceof Error ? err.message : t("common.load_failed"));
     } finally {
       setLoading(false);
     }
@@ -85,7 +85,7 @@ export function MCPSettingsPanel({ serverId }: Props) {
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to save settings");
+      setError(err instanceof Error ? err.message : t("common.save_failed"));
     } finally {
       setSaving(false);
     }

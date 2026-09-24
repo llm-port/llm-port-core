@@ -326,7 +326,7 @@ function AdminLayoutInner() {
       await loadRootStatus();
     } catch (err: unknown) {
       setError(
-        err instanceof Error ? err.message : "Failed to start root mode.",
+        err instanceof Error ? err.message : t("common.action_failed"),
       );
     }
   }

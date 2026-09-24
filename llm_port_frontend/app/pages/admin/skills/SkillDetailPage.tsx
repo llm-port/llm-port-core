@@ -166,7 +166,7 @@ export default function SkillDetailPage() {
     try {
       setVersions(await listVersions(id));
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to load versions");
+      setError(err instanceof Error ? err.message : t("common.load_failed"));
     } finally {
       setVersionsLoading(false);
     }
@@ -179,7 +179,7 @@ export default function SkillDetailPage() {
       setAssignments(await listAssignments(id));
     } catch (err: unknown) {
       setError(
-        err instanceof Error ? err.message : "Failed to load assignments",
+        err instanceof Error ? err.message : t("common.load_failed"),
       );
     } finally {
       setAssignmentsLoading(false);
@@ -215,7 +215,7 @@ export default function SkillDetailPage() {
       setSkill(updated);
       populateForm(updated);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Save failed");
+      setError(err instanceof Error ? err.message : t("common.save_failed"));
     } finally {
       setSaving(false);
     }
@@ -228,7 +228,7 @@ export default function SkillDetailPage() {
       setSkill(s);
       populateForm(s);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Publish failed");
+      setError(err instanceof Error ? err.message : t("common.publish_failed"));
     }
   }
 
@@ -239,7 +239,7 @@ export default function SkillDetailPage() {
       setSkill(s);
       populateForm(s);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Archive failed");
+      setError(err instanceof Error ? err.message : t("common.archive_failed"));
     }
   }
 
@@ -250,7 +250,7 @@ export default function SkillDetailPage() {
       await deleteSkill(id);
       navigate("/admin/skills");
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Delete failed");
+      setError(err instanceof Error ? err.message : t("common.delete_failed"));
     } finally {
       setDeleting(false);
     }
@@ -270,7 +270,7 @@ export default function SkillDetailPage() {
       a.click();
       URL.revokeObjectURL(url);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Export failed");
+      setError(err instanceof Error ? err.message : t("common.export_failed"));
     }
   }
 
@@ -287,7 +287,7 @@ export default function SkillDetailPage() {
       await loadAssignments();
     } catch (err: unknown) {
       setError(
-        err instanceof Error ? err.message : "Failed to create assignment",
+        err instanceof Error ? err.message : t("common.create_failed"),
       );
     } finally {
       setAssigning(false);
@@ -301,7 +301,7 @@ export default function SkillDetailPage() {
       await loadAssignments();
     } catch (err: unknown) {
       setError(
-        err instanceof Error ? err.message : "Failed to delete assignment",
+        err instanceof Error ? err.message : t("common.delete_failed"),
       );
     }
   }
@@ -549,11 +549,11 @@ export default function SkillDetailPage() {
             }
             fullWidth
           >
-            <MenuItem value="tenant">Tenant</MenuItem>
-            <MenuItem value="global">Global</MenuItem>
-            <MenuItem value="workspace">Workspace</MenuItem>
-            <MenuItem value="project">Project</MenuItem>
-            <MenuItem value="assistant">Assistant</MenuItem>
+            <MenuItem value="tenant">{t("skills.scope_tenant")}</MenuItem>
+            <MenuItem value="global">{t("skills.scope_global")}</MenuItem>
+            <MenuItem value="workspace">{t("skills.scope_workspace")}</MenuItem>
+            <MenuItem value="project">{t("skills.scope_project")}</MenuItem>
+            <MenuItem value="assistant">{t("skills.scope_assistant")}</MenuItem>
           </TextField>
           <TextField
             label={t("skills.target_id", "Target ID")}

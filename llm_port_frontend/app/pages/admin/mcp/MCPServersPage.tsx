@@ -145,7 +145,7 @@ export default function MCPServersPage() {
       await load();
     } catch (err: unknown) {
       setError(
-        err instanceof Error ? err.message : "Failed to register server",
+        err instanceof Error ? err.message : t("common.create_failed"),
       );
     } finally {
       setCreating(false);
@@ -157,7 +157,7 @@ export default function MCPServersPage() {
       await refreshServer(id);
       await load();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Refresh failed");
+      setError(err instanceof Error ? err.message : t("common.refresh_failed"));
     }
   }
 
@@ -170,7 +170,7 @@ export default function MCPServersPage() {
       setDeleteTarget(null);
       await load();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Delete failed");
+      setError(err instanceof Error ? err.message : t("common.delete_failed"));
     } finally {
       setDeleting(false);
     }
@@ -230,7 +230,7 @@ export default function MCPServersPage() {
       await load();
     } catch (err: unknown) {
       setError(
-        err instanceof Error ? err.message : "Failed to register server",
+        err instanceof Error ? err.message : t("common.create_failed"),
       );
     } finally {
       setRegisteringUrl(null);
@@ -420,8 +420,8 @@ export default function MCPServersPage() {
             disabled={creating}
           >
             <MenuItem value="streamable_http">Streamable HTTP</MenuItem>
-            <MenuItem value="sse">SSE (Legacy HTTP)</MenuItem>
-            <MenuItem value="stdio">Stdio (Command)</MenuItem>
+            <MenuItem value="sse">{t("mcp.transport_sse")}</MenuItem>
+            <MenuItem value="stdio">{t("mcp.transport_stdio")}</MenuItem>
           </TextField>
           {(newTransport === "sse" || newTransport === "streamable_http") && (
             <TextField
@@ -475,9 +475,9 @@ export default function MCPServersPage() {
             fullWidth
             disabled={creating}
           >
-            <MenuItem value="allow">Allow (no filtering)</MenuItem>
-            <MenuItem value="redact">Redact (remove PII)</MenuItem>
-            <MenuItem value="block">Block (reject if PII found)</MenuItem>
+            <MenuItem value="allow">{t("mcp.pii_allow")}</MenuItem>
+            <MenuItem value="redact">{t("mcp.pii_redact")}</MenuItem>
+            <MenuItem value="block">{t("mcp.pii_block")}</MenuItem>
           </TextField>
         </Stack>
       </FormDialog>

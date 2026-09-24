@@ -343,7 +343,7 @@ export default function SecurityMapPage() {
         }
       } catch (err: unknown) {
         if (!cancelled)
-          setError(err instanceof Error ? err.message : "Failed to load data");
+          setError(err instanceof Error ? err.message : t("common.load_failed"));
       } finally {
         if (!cancelled) setLoading(false);
       }

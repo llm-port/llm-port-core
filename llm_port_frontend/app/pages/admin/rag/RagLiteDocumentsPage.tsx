@@ -54,7 +54,7 @@ export default function RagLiteDocumentsPage() {
       setDocs(result);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load documents");
+      setError(err instanceof Error ? err.message : t("common.load_failed"));
     } finally {
       setLoading(false);
     }
@@ -72,7 +72,7 @@ export default function RagLiteDocumentsPage() {
       await ragLite.upload(file);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Upload failed");
+      setError(err instanceof Error ? err.message : t("common.upload_failed"));
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
@@ -84,7 +84,7 @@ export default function RagLiteDocumentsPage() {
       await ragLite.deleteDocument(docId);
       setDocs((prev) => prev.filter((d) => d.id !== docId));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Delete failed");
+      setError(err instanceof Error ? err.message : t("common.delete_failed"));
     }
   }
 
@@ -93,7 +93,7 @@ export default function RagLiteDocumentsPage() {
       await ragLite.retryDocument(docId);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Retry failed");
+      setError(err instanceof Error ? err.message : t("common.retry_failed"));
     }
   }
 
