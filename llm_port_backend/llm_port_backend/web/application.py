@@ -9,6 +9,7 @@ from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.logging import LoggingIntegration
 from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
 
+from llm_port_backend.db.dependencies import commit_before_responding
 from llm_port_backend.log import configure_logging
 from llm_port_backend.settings import settings
 from llm_port_backend.web.api.router import api_router
@@ -69,5 +70,8 @@ def get_app() -> FastAPI:
     # Adds static directory.
     # This directory is used to access swagger files.
     app.mount("/static", StaticFiles(directory=APP_ROOT / "static"), name="static")
+
+    # Last, once every route exists: writes are committed before the answer.
+    commit_before_responding(app)
 
     return app
