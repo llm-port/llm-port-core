@@ -20,37 +20,58 @@ This monorepo contains all **core** (Apache 2.0) components of [llm.port](https:
 
 ## Quick Start
 
+On a Linux (x86_64) server with Docker:
+
 ```bash
-pip install llmport
-llmport init
+pipx install llmport-cli        # or: uv tool install llmport-cli
 llmport deploy
 ```
 
+Then open `http://<server>`, sign in, and add the machines with GPUs from
+**Machines → Add a machine**. See [Installing LLM.Port](docs/installing.md),
+and [Upgrading LLM.Port](docs/upgrading.md) for upgrades.
+
 ## Docker Images
 
-All core images are published to Docker Hub under the `llmport` organisation:
+The images are published to the GitHub Container Registry:
 
-- `llmport/api`
-- `llmport/backend`
-- `llmport/frontend`
-- `llmport/pii`
-- `llmport/mcp`
-- `llmport/skills`
+- `ghcr.io/llm-port/backend`
+- `ghcr.io/llm-port/api`
+- `ghcr.io/llm-port/frontend`
+- `ghcr.io/llm-port/pii`
+- `ghcr.io/llm-port/mcp`
+- `ghcr.io/llm-port/skills`
 
-Images are tagged with `latest` on main and with semver on release tags (e.g. `llmport/api:v1.0.0`).
+A release `v0.3.0` publishes them as `0.3.0`, `0.3` and `latest`. The CLI of a
+release runs the images of its own version, so `llmport-cli 0.3.0` deploys
+`0.3.0`.
 
 ## Building from source
 
 ```bash
-cd llm_port_shared
-docker compose build
+git clone https://github.com/llm-port/llm-port-core.git
+cd llm-port-core
+pipx install ./llm_port_cli
+llmport deploy --build
 ```
+
+## Releasing
+
+1. Set the version in `llm_port_cli/pyproject.toml` and
+   `llm_port_cli/src/llmport/__init__.py`.
+2. Tag and push `v<version>`. That builds the images of that version, then
+   publishes the CLI to PyPI once they exist.
+3. For a new node agent: set its version in `llm_port_node_agent` and
+   `AGENT_VERSION` in the backend, then tag and push `node-agent-v<version>`.
+   That publishes the Linux x86_64 and aarch64 binaries the install line
+   fetches.
 
 ## Node Agent
 
 The node agent is distributed as standalone binaries (no Python required).
-See [llm_port_node_agent/README.md](llm_port_node_agent/README.md) and the
-[Releases](https://github.com/llm-port/llm-port-core/releases) page.
+Machines get it through the install line on the console's **Machines → Add a
+machine** page. See [llm_port_node_agent/README.md](llm_port_node_agent/README.md)
+and the [Releases](https://github.com/llm-port/llm-port-core/releases) page.
 
 ## License
 

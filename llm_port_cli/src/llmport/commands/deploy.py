@@ -17,6 +17,8 @@ from pathlib import Path
 
 import click
 
+from llmport import __version__
+from llmport.core.bundle import DEFAULT_INSTALL_DIR, bundled_files, installed_release, unpack
 from llmport.core.compose import (
     ComposeContext,
     build as compose_build,
@@ -47,6 +49,19 @@ def _regenerate_rmq_definitions(
         api_pass=env_vars.get("RABBITMQ_API_PASS", "guest"),
         pii_pass=env_vars.get("RABBITMQ_PII_PASS") if "pii" in set(profiles) else None,
     )
+
+
+def pin_release(env_path: Path) -> None:
+    """Run the published images of this CLI's version (an install made from the bundle).
+
+    Unpinned, the compose file asks for ``latest``: an install would pull
+    whatever was published last, and two machines deployed a day apart
+    would run different releases under the same CLI.
+    """
+    env_vars = read_env_file(env_path)
+    if env_vars.get("VERSION") != __version__:
+        env_vars["VERSION"] = __version__
+        write_env_file(env_path, env_vars)
 
 
 def _sync_postgres_password(ctx: ComposeContext, env_path: Path) -> None:
@@ -249,9 +264,9 @@ def deploy_cmd(
 
     \b
     Examples:
-        llmport deploy                         # deploy using pre-built images
-        llmport deploy --build                 # build images from source
+        llmport deploy                         # deploy the published images (into ~/llm-port)
         llmport deploy /opt/llm-port           # deploy to specific directory
+        llmport deploy --build                 # from a source checkout: build the images
         llmport deploy --force-env             # regenerate secrets
     """
     console.print("\n[bold magenta]llm.port — Production Deployment[/bold magenta]\n")
@@ -262,7 +277,8 @@ def deploy_cmd(
     #   1. Explicit CLI argument  (llmport deploy /path)
     #   2. Current working directory — if it contains llm_port_shared
     #   3. Saved config install_dir  (from a previous dev init / deploy)
-    #   4. CWD as final fallback
+    #   4. ~/llm-port, unpacked from the files this CLI carries
+    #   5. CWD as final fallback
     #
     # This ensures that running ``llmport deploy`` from a development
     # workspace always builds from the local source, even when the
@@ -278,6 +294,8 @@ def deploy_cmd(
             workspace = cwd
         elif cfg.install_dir:
             workspace = Path(cfg.install_dir)
+        elif bundled_files() is not None:
+            workspace = DEFAULT_INSTALL_DIR
         else:
             workspace = cwd
 
@@ -286,6 +304,11 @@ def deploy_cmd(
         # If install_dir itself IS the shared dir
         if (workspace / "docker-compose.yaml").exists() or (workspace / "docker-compose.yml").exists():
             shared_dir = workspace
+        elif bundled_files() is not None:
+            # No checkout: the deployment files this CLI carries.
+            unpack(workspace)
+            shared_dir = workspace
+            success(f"Deployment files for release {__version__} written to {workspace}")
         else:
             error(
                 f"Cannot find llm_port_shared in {workspace}.\n"
@@ -293,6 +316,23 @@ def deploy_cmd(
                 "  If you haven't cloned the repos yet, run: llmport dev init <dir>"
             )
             sys.exit(1)
+
+    # An install made from the bundle runs one release: the CLI's.
+    release = installed_release(shared_dir)
+    if release is not None:
+        if release != __version__:
+            error(
+                f"{shared_dir} runs release {release}; this CLI is {__version__}.\n"
+                "  To move it to this release, run: llmport upgrade"
+            )
+            sys.exit(1)
+        if build or no_cache:
+            error(
+                "--build needs a source checkout; this install runs the published images.\n"
+                "  Deploy without --build, or deploy from a checkout of llm-port-core."
+            )
+            sys.exit(1)
+        unpack(shared_dir)  # puts back anything deleted since
 
     compose_file = _resolve_compose_file(shared_dir)
     if not compose_file:
@@ -390,6 +430,10 @@ def deploy_cmd(
     # Ensure empty fallback directory exists for compose
     fallback_dir = shared_dir / ".empty-hf-cache"
     fallback_dir.mkdir(exist_ok=True)
+
+    if release is not None:
+        pin_release(env_path)
+        info(f"Images: release {__version__}")
 
     # ── 3b. Migrate old single-credential RabbitMQ env vars ───────
     existing = read_env_file(env_path)

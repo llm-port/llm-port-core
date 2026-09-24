@@ -1,3 +1,9 @@
+# The project name decides the volume names (llm_port_shared_pg_data, ...).
+# Fixed, so an install keeps its data whichever directory it runs from: a
+# source checkout's llm_port_shared, or the directory `llmport deploy`
+# unpacks the release into (~/llm-port by default).
+name: llm_port_shared
+
 services:
   # -----------------------------
   # Platform base image (build-only, no runtime container)

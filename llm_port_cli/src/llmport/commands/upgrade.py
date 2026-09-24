@@ -3,8 +3,9 @@
 Performs a safe in-place upgrade:
   1. Pre-flight checks (Docker, disk)
   2. Auto-backup (unless --no-backup)
-  3. Refresh .env with preserve_secrets=True
-  4. Rebuild images (unless --no-build)
+  3. Refresh the deployment files and .env (existing values kept)
+  4. Pull this release's images (an install made by ``llmport deploy``
+     from the published images), or rebuild them (a source checkout)
   5. Rolling restart: infra → migrators → app → modules
   6. Health gate: poll backend /api/health
   7. Print summary
@@ -23,7 +24,9 @@ from pathlib import Path
 
 import click
 
+from llmport import __version__
 from llmport.core.backup import create_backup
+from llmport.core.bundle import installed_release, unpack
 from llmport.core.compose import (
     ComposeContext,
     build as compose_build,
@@ -92,6 +95,18 @@ def upgrade_cmd(
 
     env_path = shared_dir / ".env"
 
+    # An install made from the published images moves to this CLI's release;
+    # a source checkout rebuilds from its own code.
+    release = installed_release(shared_dir)
+    if release is not None and _older(__version__, release):
+        error(
+            f"This CLI ({__version__}) is older than the install ({release}).\n"
+            "  Its database has already been migrated past this release; going back is a restore:\n"
+            "    llmport restore <install_dir>/backups/<time>\n"
+            "  To upgrade, install the newer CLI first: pip install -U llmport-cli"
+        )
+        sys.exit(1)
+
     # Build compose file list (include GPU overlay if present)
     from llmport.core.compose import has_nvidia_gpu  # noqa: PLC0415
 
@@ -114,7 +129,10 @@ def upgrade_cmd(
         console.print(f"  Compose file:      {compose_file.name}")
         console.print(f"  Profiles:          {', '.join(cfg.profiles) or '(none)'}")
         console.print(f"  Backup:            {'skip' if no_backup else backup_dir}")
-        console.print(f"  Build images:      {'skip' if no_build else 'yes'}")
+        if release is not None:
+            console.print(f"  Release:           {release} -> {__version__} (pull published images)")
+        else:
+            console.print(f"  Build images:      {'skip' if no_build else 'yes'}")
         console.print(f"  Build cache:       {'no' if no_cache else 'yes'}")
         return
 
@@ -184,10 +202,24 @@ def upgrade_cmd(
     step += 1
     console.print(f"\n[bold cyan]Step {step}: Refreshing environment…[/bold cyan]")
 
+    if release is not None:
+        changed = unpack(shared_dir)
+        success(f"Deployment files for release {__version__} ({len(changed)} changed).")
+
     if env_path.exists():
+        # What the install has wins; a new release only adds what it
+        # introduced. Rewritten from the defaults with just the secrets kept,
+        # every upgrade dropped what deploy and the operator had set --
+        # HF_CACHE_DIR (the host's model cache), the admin name synced to
+        # Grafana, ports -- and the services came back without them.
         env_vars = default_env_vars(profiles=list(cfg.profiles))
-        write_env_file(env_path, env_vars, preserve_secrets=True)
-        success(".env refreshed (secrets preserved).")
+        env_vars.update(read_env_file(env_path))
+        write_env_file(env_path, env_vars)
+        if release is not None:
+            from llmport.commands.deploy import pin_release  # noqa: PLC0415
+
+            pin_release(env_path)
+        success(".env refreshed (existing settings kept).")
         # RabbitMQ makes its users from definitions.json on every start; the
         # services log in with the passwords in .env. Written only by deploy,
         # the file kept an older install's passwords, and after an upgrade
@@ -199,8 +231,18 @@ def upgrade_cmd(
     else:
         warning("No .env file found — skipping env refresh.")
 
-    # ── 4. Build images ───────────────────────────────────────
-    if not no_build:
+    # ── 4. Images ─────────────────────────────────────────────
+    if release is not None:
+        step += 1
+        console.print(f"\n[bold cyan]Step {step}: Pulling release {__version__}…[/bold cyan]")
+        from llmport.core.compose import pull as compose_pull  # noqa: PLC0415
+
+        rc = compose_pull(ctx)
+        if rc != 0:
+            error("Could not pull this release's images; nothing was restarted.")
+            sys.exit(rc)
+        success("Images pulled.")
+    elif not no_build:
         step += 1
         console.print(f"\n[bold cyan]Step {step}: Building container images…[/bold cyan]")
         console.print("[dim]This may take several minutes.[/dim]")
@@ -278,3 +320,16 @@ def upgrade_cmd(
     # ── Done ──────────────────────────────────────────────────
     console.print()
     success("Upgrade complete.")
+
+
+def _older(a: str, b: str) -> bool:
+    """Whether release *a* comes before release *b* (``0.3.0`` < ``0.10.0``)."""
+
+    def parts(v: str) -> tuple[int, ...]:
+        out = []
+        for piece in v.split("."):
+            digits = "".join(ch for ch in piece if ch.isdigit())
+            out.append(int(digits) if digits else 0)
+        return tuple(out)
+
+    return parts(a) < parts(b)

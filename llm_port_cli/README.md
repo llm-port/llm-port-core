@@ -10,17 +10,23 @@ that routes, secures, and observes traffic across local runtimes and remote
 providers.
 
 ```
-pip install llmport-cli        # or: uv tool install llmport-cli
-llmport doctor                 # verify prerequisites
-llmport deploy /opt/llmport    # full production deployment
+pipx install llmport-cli       # or: uv tool install llmport-cli
+llmport deploy                 # installs LLM.Port into ~/llm-port and starts it
 ```
+
+The CLI carries the deployment files of its release and runs that release's
+published images: `llmport-cli 0.3.0` deploys LLM.Port 0.3.0. To upgrade,
+upgrade the CLI and run `llmport upgrade`. See
+[Installing LLM.Port](https://github.com/llm-port/llm-port-core/blob/master/docs/installing.md).
 
 ---
 
 ## Features
 
 - **One-command production deploy** — pre-flight checks, `.env` generation,
-  image builds, database migrations, and service startup.
+  the release's images, database migrations, and service startup.
+- **Upgrade, backup and restore** — `llmport upgrade` backs up every database,
+  moves the install to the CLI's release and keeps your settings.
 - **Auto-tuning** — detects host CPU / RAM and computes optimal worker counts,
   DB pool sizes, and queue channel pools.
 - **Module management** — enable / disable optional services
@@ -43,7 +49,9 @@ llmport deploy /opt/llmport    # full production deployment
 | Python         | 3.12    |
 | Docker Engine  | 24.0    |
 | Docker Compose | v2      |
-| Git            | 2.x     |
+
+Git is only needed to deploy from a source checkout (`--build`) or for the
+developer workflow.
 
 ---
 
@@ -61,8 +69,8 @@ uv tool install llmport-cli
 ### From source
 
 ```bash
-git clone https://github.com/llm-port/llm-port-cli.git
-cd llm-port-cli
+git clone https://github.com/llm-port/llm-port-core.git
+cd llm-port-core/llm_port_cli
 uv sync                   # install deps + editable entry point
 uv run llmport --help
 ```
@@ -81,14 +89,20 @@ llmport doctor
 ### Production deployment
 
 ```bash
-# Full deploy — pre-flight, env gen, build, migrate, start
-llmport deploy /opt/llmport
+# Full deploy — pre-flight, env gen, pull this release's images, migrate, start
+llmport deploy                      # into ~/llm-port
+llmport deploy /opt/llmport         # into a directory of your choice
 
 # Enable optional modules
-llmport deploy /opt/llmport --modules pii,auth
+llmport deploy --modules pii,auth
 
-# Skip image builds (pull only)
-llmport deploy /opt/llmport --no-build
+# From a source checkout: build the images instead of pulling them
+llmport deploy --build
+
+# Upgrade to the CLI's release (backs up first), back up, restore
+llmport upgrade
+llmport backup
+llmport restore ~/llm-port/backups/<time>
 
 # Provision node-agent on this host during deploy
 llmport deploy /opt/llmport --local-node
@@ -181,6 +195,8 @@ Use `--local-node-no-sudo` to skip privileged systemd setup.
 | `llmport version`                            | Print CLI, Python, Docker, and Compose versions               |
 | `llmport doctor`                             | Run system health checks (OS, RAM, disk, Docker, GPU, ports)  |
 | `llmport deploy [DIR]`                       | Full production deployment with pre-flight checks             |
+| `llmport upgrade`                            | Back up, move to the CLI's release, restart with health gate  |
+| `llmport backup` / `llmport restore DIR`     | Dump every database and `.env` / put them back                |
 | `llmport deploy [DIR] --local-node`          | Deploy + provision node-agent (local or SSH host)            |
 | `llmport up [SERVICES...]`                   | Start services (supports `--build`, `--pull`)                 |
 | `llmport down`                               | Stop and remove containers (`--volumes`, `--all`)             |

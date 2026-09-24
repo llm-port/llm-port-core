@@ -14,22 +14,26 @@ It upgrades the installation the CLI is configured for
    created by something else (see below).
 2. **Backs up** every database on the Postgres server and the `.env` file,
    to `<install_dir>/backups/<time>/`. It stops if nothing could be backed up.
-3. **Refreshes `.env`**: new settings are added, secrets are kept. Then
-   writes RabbitMQ's users from it (`rabbitmq/definitions.json`).
-4. **Builds the images** from the source in the install directory
-   (`--no-build` skips this).
+3. **Refreshes the deployment files and `.env`.** An install made from the
+   published images gets the new release's deployment files. `.env` keeps
+   every value it has; a release only adds the settings it introduces. Then
+   RabbitMQ's users are written from it (`rabbitmq/definitions.json`).
+4. **Gets the new images.** An install made from the published images pulls
+   the images of the CLI's version. An install from a source checkout builds
+   them from the checkout (`--no-build` skips this).
 5. **Restarts** everything: infrastructure, then the migrations, then the
    application and modules. Database migrations run here.
 6. **Clears ClickHouse's old diagnostic logs** (see
    [The disk is full](#the-disk-is-full)).
 7. **Waits for the backend** to report healthy.
 
-It does not fetch the new version: you put it in place first.
+The new version comes from the CLI (published images) or from the
+checkout (source), so put that in place first.
 
 ## Before you start
 
-**Free disk space.** Building the images needs about 10 GB, and the backup
-needs room for your databases. Check with `df -h /`.
+**Free disk space.** The new images need a few GB (building them from
+source, about 10 GB), and the backup needs room for your databases. Check with `df -h /`.
 
 If the disk is already full -- Postgres, ClickHouse, Loki and Grafana
 restarting over and over is the sign -- see [The disk is full](#the-disk-is-full)
@@ -41,9 +45,23 @@ first. Nothing else will work until there is space.
 llmport config show        # install_dir is the llm_port_shared directory
 ```
 
-## 1. Put the new version in place
+## Installed with `pipx install llmport-cli`
 
-For an installation made with `llmport dev init` (a git checkout):
+```bash
+pipx upgrade llmport-cli        # or: uv tool upgrade llmport-cli
+llmport upgrade --dry-run       # shows the release it moves to
+llmport upgrade -y
+```
+
+Then [check it](#check-it). The CLI refuses to move an install to an
+older release than the one it runs: the databases were migrated forward.
+Going back is a [restore](#going-back).
+
+## Installed from a source checkout
+
+### 1. Put the new version in place
+
+For an installation made with `llmport dev init` or `git clone`:
 
 ```bash
 cd ~/llm-port-core
@@ -55,7 +73,7 @@ git checkout <release tag or branch>
 Local edits are kept in the stash (`git stash list`); re-apply them with
 `git stash pop` after the upgrade if you still need them.
 
-## 2. Update the CLI
+### 2. Update the CLI
 
 The upgrade logic is in the CLI, so update it before running it:
 
@@ -64,7 +82,7 @@ uv tool install --force ~/llm-port-core/llm_port_cli
 llmport --version
 ```
 
-## 3. Upgrade
+### 3. Upgrade
 
 ```bash
 llmport upgrade --dry-run   # what it would do
@@ -74,12 +92,11 @@ llmport upgrade -y
 On an 8-core VM the image builds took about 15 minutes and the rest a few
 minutes.
 
-## 4. Check it
+## Check it
 
 ```bash
 llmport status                          # every service running; healthy where it has a check
-curl -s -o /dev/null -w "%{http_code}
-" http://localhost/api/health   # 200
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost/api/health   # 200
 ```
 
 Then sign in to the console. What the upgraded VM showed:
@@ -94,6 +111,22 @@ Then sign in to the console. What the upgraded VM showed:
 - ClickHouse's old diagnostic logs dropped; the disk at 51%.
 
 ## If the upgrade stops
+
+### Settings missing after an earlier upgrade
+
+Before this release, `llmport upgrade` rewrote `.env` from the defaults and
+kept only the passwords. Everything else was lost, including `HF_CACHE_DIR`
+(the host's model cache, set by `llmport deploy`), the admin name synced to
+Grafana, and any port you had changed. Upgrades now keep every value.
+
+To get the lost values back, compare `.env` with the copy the upgrade saved
+in its backup, and copy the missing lines back:
+
+```bash
+diff <(grep -o '^[A-Z_]*=' .env.bak) <(grep -o '^[A-Z_]*=' .env)   # in backups/<time>/ and the install dir
+```
+
+Then run `llmport up` to apply them.
 
 ### "These containers have names this installation uses, but it did not create them"
 
