@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import Depends
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from llm_port_backend.db.dependencies import get_db_session
@@ -306,6 +306,61 @@ class NodeControlDAO:
         self.session.add(snap)
         await self.session.flush()
         return snap
+
+    async def prune_inventory_snapshots(self, *, before: datetime, batch: int = 5000) -> int:
+        """Delete up to *batch* snapshots taken before *before*, never a machine's latest.
+
+        Only the latest snapshot of each machine is ever read; the latest is
+        kept however old, since for a machine that went away it is all
+        there is.
+        """
+        latest = (
+            select(InfraNodeInventorySnapshot.id)
+            .distinct(InfraNodeInventorySnapshot.node_id)
+            .order_by(InfraNodeInventorySnapshot.node_id, InfraNodeInventorySnapshot.created_at.desc())
+        )
+        doomed = (
+            select(InfraNodeInventorySnapshot.id)
+            .where(
+                InfraNodeInventorySnapshot.created_at < before,
+                InfraNodeInventorySnapshot.id.not_in(latest),
+            )
+            .limit(batch)
+        )
+        result = await self.session.execute(
+            delete(InfraNodeInventorySnapshot).where(InfraNodeInventorySnapshot.id.in_(doomed)),
+        )
+        return result.rowcount or 0
+
+    async def prune_finished_commands(self, *, before: datetime, batch: int = 5000) -> int:
+        """Delete up to *batch* finished commands issued before *before*, with their events.
+
+        Only finished ones: a command still in flight is the reaper's to
+        settle. An old finished command never blocks a new one with the same
+        idempotency key (the key is retired then), and the one table that
+        points at commands lets go of them (``ON DELETE SET NULL``).
+        """
+        doomed = (
+            select(InfraNodeCommand.id)
+            .where(
+                InfraNodeCommand.issued_at < before,
+                InfraNodeCommand.status.in_([
+                    NodeCommandStatus.SUCCEEDED.value,
+                    NodeCommandStatus.FAILED.value,
+                    NodeCommandStatus.CANCELED.value,
+                    NodeCommandStatus.TIMED_OUT.value,
+                ]),
+            )
+            .limit(batch)
+        )
+        result = await self.session.execute(delete(InfraNodeCommand).where(InfraNodeCommand.id.in_(doomed)))
+        return result.rowcount or 0
+
+    async def prune_node_events(self, *, before: datetime, batch: int = 5000) -> int:
+        """Delete up to *batch* machine events recorded before *before*."""
+        doomed = select(InfraNodeEvent.id).where(InfraNodeEvent.created_at < before).limit(batch)
+        result = await self.session.execute(delete(InfraNodeEvent).where(InfraNodeEvent.id.in_(doomed)))
+        return result.rowcount or 0
 
     async def get_latest_inventory_snapshot(self, *, node_id: uuid.UUID) -> InfraNodeInventorySnapshot | None:
         result = await self.session.execute(

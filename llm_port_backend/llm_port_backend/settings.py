@@ -336,6 +336,13 @@ class Settings(BaseSettings):
     node_cluster_enabled: bool = False
     node_enrollment_ttl_minutes: int = 30
     node_command_default_timeout_sec: int = 900
+    # How long the machines' history is kept (pruned hourly by the backend).
+    # Each machine reports its inventory about once a minute, and the health
+    # checks issue commands every minute: kept forever, a small fleet adds
+    # tens of thousands of rows a day.
+    node_inventory_retention_hours: int = 24
+    node_command_retention_days: int = 7
+    node_event_retention_days: int = 30
     node_stream_idle_timeout_sec: int = 120
     # How often a cluster that is up, and a model that is serving, are looked
     # at again. Without it a Ray head that died left both reading "ready"

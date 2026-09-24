@@ -922,6 +922,36 @@ class NodeControlService:
             return False
         return (now - last_seen) >= timedelta(seconds=self._silence_budget(command))
 
+    async def prune_history(
+        self,
+        *,
+        inventory_hours: int,
+        command_days: int,
+        event_days: int,
+        now: datetime | None = None,
+    ) -> dict[str, int]:
+        """Delete machine history past its retention; how many rows of each.
+
+        Deletes in batches, committing each, so the first pass over a table
+        that grew for months neither holds one long transaction nor locks it.
+        """
+        now = now or datetime.now(UTC)
+        pruned = {"inventory_snapshots": 0, "commands": 0, "events": 0}
+        steps = (
+            ("inventory_snapshots", self._dao.prune_inventory_snapshots, now - timedelta(hours=inventory_hours)),
+            ("commands", self._dao.prune_finished_commands, now - timedelta(days=command_days)),
+            ("events", self._dao.prune_node_events, now - timedelta(days=event_days)),
+        )
+        batch = 5000
+        for name, prune, before in steps:
+            while True:
+                deleted = await prune(before=before, batch=batch)
+                await self._dao.session.commit()
+                pruned[name] += deleted
+                if deleted < batch:
+                    break
+        return pruned
+
     async def close_stale_sessions(self) -> int:
         """End stream sessions that stopped heartbeating.
 

@@ -356,6 +356,9 @@ async def _node_command_reaper_loop(app: FastAPI) -> None:
     responsive; skips the worker process which has no node connections.
     """
     interval_sec = 60
+    # History is pruned hourly, not every pass: nothing about it is urgent.
+    prune_every_sec = 3600
+    last_prune = 0.0
     while True:
         session = None
         try:
@@ -389,6 +392,15 @@ async def _node_command_reaper_loop(app: FastAPI) -> None:
                 closed = await service.close_stale_sessions()
                 if reaped or closed:
                     await session.commit()
+                if time.monotonic() - last_prune >= prune_every_sec:
+                    last_prune = time.monotonic()
+                    pruned = await service.prune_history(
+                        inventory_hours=settings.node_inventory_retention_hours,
+                        command_days=settings.node_command_retention_days,
+                        event_days=settings.node_event_retention_days,
+                    )
+                    if any(pruned.values()):
+                        log.info("Pruned machine history: %s", pruned)
         except asyncio.CancelledError:
             raise
         except Exception:
