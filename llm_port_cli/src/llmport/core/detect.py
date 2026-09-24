@@ -152,6 +152,8 @@ class PortCheck:
     port: int
     label: str
     in_use: bool
+    #: Held by one of LLM.Port's own containers: not a conflict.
+    ours: bool = False
 
 
 @dataclass
@@ -405,6 +407,83 @@ def check_port(port: int, label: str = "") -> PortCheck:
 def check_known_ports() -> list[PortCheck]:
     """Check all known llm.port ports."""
     return [check_port(port, label) for port, label in KNOWN_PORTS]
+
+
+#: What a production install publishes on the host, for when the compose file
+#: cannot be asked (no Docker yet). ``check_install_ports`` reads the real list.
+FALLBACK_INSTALL_PORTS: list[tuple[int, str]] = [
+    (80, "nginx: console, API, gateway"),
+    (3001, "grafana"),
+    (3002, "langfuse-web"),
+    (3100, "loki"),
+    (9099, "prometheus"),
+]
+
+
+def _published_ports(compose_file: Path, env_file: Path | None) -> list[tuple[int, str]] | None:
+    """The host ports *compose_file* publishes, with the service, or ``None`` if Docker cannot say."""
+    import json  # noqa: PLC0415
+
+    docker = shutil.which("docker")
+    if not docker:
+        return None
+    cmd = [docker, "compose", "-f", str(compose_file)]
+    if env_file is not None and env_file.is_file():
+        cmd += ["--env-file", str(env_file)]
+    try:
+        out = _run([*cmd, "config", "--format", "json"], timeout=30)
+        spec = json.loads(out.stdout or "{}") if out.returncode == 0 else None
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+    if not spec:
+        return None
+    ports: dict[int, str] = {}
+    for name, service in (spec.get("services") or {}).items():
+        for mapping in (service or {}).get("ports") or []:
+            try:
+                ports.setdefault(int(mapping.get("published")), name)
+            except (TypeError, ValueError):
+                continue
+    return sorted(ports.items())
+
+
+def _ports_held_by_llm_port() -> set[int]:
+    """Host ports LLM.Port's own containers publish (``llm-port-*``)."""
+    docker = shutil.which("docker")
+    if not docker:
+        return set()
+    try:
+        out = _run([docker, "ps", "--format", "{{.Names}}\t{{.Ports}}"], timeout=15)
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    held: set[int] = set()
+    for line in (out.stdout or "").splitlines():
+        name, _, ports = line.partition("\t")
+        if not name.startswith("llm-port-"):
+            continue
+        # "0.0.0.0:80->80/tcp, [::]:80->80/tcp, 127.0.0.1:9099->9090/tcp"
+        for match in re.finditer(r":(\d+)->", ports):
+            held.add(int(match.group(1)))
+    return held
+
+
+def check_install_ports(compose_file: Path | None, env_file: Path | None = None) -> list[PortCheck]:
+    """The host ports an install needs, and whether something else holds them.
+
+    Read from the compose file the install runs, so the list is what
+    ``docker compose up`` will bind -- a port held by something else stops
+    it ("port is already allocated"). Ports LLM.Port's own containers hold
+    are marked as such, not as conflicts.
+    """
+    published = _published_ports(compose_file, env_file) if compose_file else None
+    wanted = published if published is not None else FALLBACK_INSTALL_PORTS
+    ours = _ports_held_by_llm_port()
+    checks = []
+    for port, label in wanted:
+        check = check_port(port, label)
+        check.ours = check.in_use and port in ours
+        checks.append(check)
+    return checks
 
 
 # Directories probed for freshly installed tools that are not yet on

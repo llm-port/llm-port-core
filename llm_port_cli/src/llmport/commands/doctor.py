@@ -6,12 +6,15 @@ prerequisites are satisfied for running llm.port.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import click
 from rich.panel import Panel
 from rich.table import Table
 
 from llmport.core.console import console
 from llmport.core.detect import (
+    check_install_ports,
     full_report,
 )
 
@@ -28,7 +31,8 @@ def doctor_cmd(ctx: click.Context, *, ports: bool) -> None:
     verbose = ctx.obj.get("verbose", False)
 
     with console.status("[bold cyan]Running diagnostics…[/bold cyan]"):
-        report = full_report(check_ports=ports)
+        report = full_report(check_ports=False)
+        port_checks = check_install_ports(*_install_compose()) if ports else []
 
     # ── OS ────────────────────────────────────────────────────────
     os_info = report.os
@@ -42,11 +46,13 @@ def doctor_cmd(ctx: click.Context, *, ports: bool) -> None:
 
     # ── RAM ───────────────────────────────────────────────────────
     ram = report.ram
-    ram_ok = ram.total_gb >= 8.0
+    # An "8 GB" machine reports 7.5-7.8 GB once the kernel has its share;
+    # the release test VM ran everything in 7 GB.
+    ram_ok = ram.total_gb >= 7.0
     console.print(
         f"\n{_check_mark(ram_ok)}  RAM: [bold]{ram.total_gb:.1f} GB[/bold] total, "
         f"{ram.available_gb:.1f} GB available  "
-        f"{'(≥8 GB recommended)' if not ram_ok else ''}"
+        f"{'(8 GB recommended)' if not ram_ok else ''}"
     )
 
     # ── Disk ──────────────────────────────────────────────────────
@@ -78,56 +84,42 @@ def doctor_cmd(ctx: click.Context, *, ports: bool) -> None:
     )
 
     # ── GPU ───────────────────────────────────────────────────────
+    # The server needs no GPU: models run on the machines added to it.
     gpu = report.gpu
     if gpu.has_gpu:
         for dev in gpu.devices:
             console.print(
-                f"{_check_mark(True)}  GPU: [bold]{dev.name}[/bold] "
-                f"({dev.vram_mb} MB)"
+                f"[cyan]i[/cyan]  GPU: [bold]{dev.name}[/bold] "
+                f"({dev.vram_mb} MB) -- add this server as a machine to use it"
             )
     else:
-        console.print(f"{_check_mark(False)}  GPU: not detected (CPU-only mode)")
-
-    # ── Dev tools ─────────────────────────────────────────────────
-    if report.tools:
-        console.print()
-        tools_table = Table(title="Developer Tools", show_header=True, header_style="bold")
-        tools_table.add_column("Tool", style="bold")
-        tools_table.add_column("Status")
-        tools_table.add_column("Version")
-        tools_table.add_column("Install")
-
-        for tool in report.tools:
-            if tool.found:
-                status = _check_mark(True)
-                install_col = ""
-            else:
-                status = _check_mark(False)
-                install_col = tool.install_hint or "—"
-            tools_table.add_row(
-                tool.name,
-                status,
-                tool.version or "—",
-                install_col,
-            )
-        console.print(tools_table)
+        console.print("[cyan]i[/cyan]  GPU: none on this server (models run on the machines you add)")
 
     # ── Ports ─────────────────────────────────────────────────────
-    if ports and report.ports:
+    # Developer tools (git, uv, node) are `llmport dev doctor`'s: a server
+    # running the published images needs none of them.
+    conflicts = [pc for pc in port_checks if pc.in_use and not pc.ours]
+    if port_checks:
         console.print()
-        port_table = Table(title="Port Availability", show_header=True, header_style="bold")
+        port_table = Table(title="Ports this install publishes", show_header=True, header_style="bold")
         port_table.add_column("Port", justify="right")
         port_table.add_column("Service")
         port_table.add_column("Status")
 
-        for pc in report.ports:
-            status = (
-                "[green]available[/green]"
-                if not pc.in_use
-                else "[red]in use[/red]"
-            )
+        for pc in port_checks:
+            if not pc.in_use:
+                status = "[green]available[/green]"
+            elif pc.ours:
+                status = "[green]LLM.Port[/green]"
+            else:
+                status = "[red]in use by something else[/red]"
             port_table.add_row(str(pc.port), pc.label, status)
         console.print(port_table)
+        if conflicts:
+            console.print(
+                "[dim]  A port held by something else stops `llmport deploy`: free it, or change\n"
+                "  the port in .env (LLM_PORT_HTTP_PORT, PROM_PORT, ...).[/dim]"
+            )
 
     # ── Verdict ───────────────────────────────────────────────────
     all_ok = (
@@ -136,6 +128,7 @@ def doctor_cmd(ctx: click.Context, *, ports: bool) -> None:
         and docker.daemon_running
         and ram_ok
         and disk_ok
+        and not conflicts
     )
     console.print()
     if all_ok:
@@ -143,5 +136,20 @@ def doctor_cmd(ctx: click.Context, *, ports: bool) -> None:
     else:
         console.print("[bold red]Some prerequisites are missing — see above.[/bold red]")
 
+    console.print("[dim]Developer tools: llmport dev doctor[/dim]")
     if verbose:
-        console.print(f"\n[dim]Report generated with {len(report.ports)} port checks.[/dim]")
+        console.print(f"\n[dim]Report generated with {len(port_checks)} port checks.[/dim]")
+
+
+def _install_compose() -> tuple[Path | None, Path | None]:
+    """The compose file and .env of the configured install, or of this CLI's release."""
+    from llmport.core.bundle import bundled_files  # noqa: PLC0415
+    from llmport.core.settings import load_config  # noqa: PLC0415
+
+    cfg = load_config()
+    if cfg.install_dir and cfg.compose_path.is_file():
+        return cfg.compose_path, cfg.env_path
+    bundled = bundled_files()
+    if bundled is not None:
+        return Path(str(bundled / "docker-compose.yaml")), None
+    return None, None
