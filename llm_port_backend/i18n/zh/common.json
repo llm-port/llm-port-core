@@ -63,7 +63,8 @@
     "inference_group": "AI 基础设施",
     "clusters": "集群",
     "deployments": "部署",
-    "admin": "管理面板"
+    "admin": "管理面板",
+    "marketplace": "模型市场"
   },
   "auth": {
     "logout": "退出登录",
@@ -433,7 +434,12 @@
       "auth": "认证",
       "infrastructure": "基础设施",
       "modules": "模块",
-      "notifications": "通知"
+      "notifications": "通知",
+      "api_server": "API 服务器",
+      "database": "数据库",
+      "llm": "LLM",
+      "logging": "日志",
+      "observability": "可观测性"
     },
     "groups": {
       "auth": "认证",
@@ -442,8 +448,19 @@
       "mailer": "邮件",
       "smtp": "SMTP",
       "alerts": "警报",
-      "docling": "Docling"
-    }
+      "docling": "Docling",
+      "endpoint": "端点",
+      "grafana": "Grafana",
+      "huggingface": "Hugging Face",
+      "jwt": "登录令牌（JWT）",
+      "langfuse": "Langfuse",
+      "mcp": "MCP",
+      "postgres": "PostgreSQL",
+      "rag_lite": "RAG Lite",
+      "redis": "Redis",
+      "skills": "技能"
+    },
+    "current_value": "（当前：{{value}}）"
   },
   "users": {
     "title": "用户管理",
@@ -785,7 +802,8 @@
     "swap_space_help": "每个 GPU 用于卸载的 CPU 交换空间（GiB，如 4）。留空使用 vLLM 默认值（旧款 GPU 模式下默认为 1 GiB）。",
     "model_id": "模型 ID",
     "capabilities": "能力",
-    "supports_embeddings": "嵌入"
+    "supports_embeddings": "嵌入",
+    "extra_args_invalid": "部分额外参数无法使用：{{issues}}。未保存任何内容。"
   },
   "llm_jobs": {
     "title": "下载任务",
@@ -2035,6 +2053,14 @@
       "traffic_window_one": "在网关测量，最近 1 分钟",
       "traffic_window_other": "在网关测量，最近 {{count}} 分钟",
       "engine_reported": "由引擎上报"
+    },
+    "engine": {
+      "title": "引擎设置",
+      "edit": "更改",
+      "defaults": "vLLM 默认值：未做任何更改。",
+      "dialog_title": "{{name}} 的引擎设置",
+      "restart_warning": "保存后，每个副本都会以新设置重启。在它们恢复运行前，模型不可用。如果某个副本无法启动，本页面会说明原因，您可以改回原来的设置。",
+      "save_restart": "保存并重启"
     }
   },
   "audit": {
@@ -2172,5 +2198,252 @@
       "remote_code": "模型自带的代码将在您的机器上运行。仅对可信发布者保持开启。",
       "extra_invalid": "以下参数不被接受，将不会使用：{{tokens}}"
     }
+  },
+  "hf_access": {
+    "title": "Hugging Face 访问",
+    "why": "模型来自 Hugging Face。公开模型无需令牌。受限模型（Llama、Gemma 及部分 Mistral 模型）需要一个已接受其许可的账号的令牌；令牌还能提高下载限额。",
+    "none": "未设置令牌：本服务器以匿名方式浏览和下载公开模型。",
+    "invalid": "Hugging Face 不再接受已保存的令牌：它可能已过期或被撤销。请保存一个新令牌。",
+    "unchecked": "已设置令牌，但本服务器无法连接 Hugging Face 进行验证。",
+    "signed_in_as": "已以 {{username}} 身份登录 Hugging Face",
+    "token_named": "令牌“{{name}}”",
+    "role_write": "此令牌还能向 Hugging Face 写入。本服务器只需要读取权限：建议换成只读令牌。",
+    "from_environment": "此令牌来自服务器环境变量 LLM_PORT_BACKEND_HF_TOKEN。在此保存的令牌会取代它。",
+    "storage_unsafe": "本服务器仍在使用默认的设置主密钥，保存的令牌将得不到保护。请先将 LLM_PORT_BACKEND_SETTINGS_MASTER_KEY 设为随机值并重启，再保存令牌。",
+    "token_label": "访问令牌",
+    "replace_label": "替换为新令牌",
+    "create_hint": "在此创建只读令牌：",
+    "show": "显示令牌",
+    "hide": "隐藏令牌",
+    "save": "验证并保存",
+    "checking": "正在验证…",
+    "security_note": "令牌加密保存在本服务器上，之后不会再显示，管理员也看不到。只有本服务器使用它：集群机器从本服务器获取模型，而不是从 Hugging Face。",
+    "remove": "移除令牌",
+    "remove_confirm": "移除令牌？之后将无法再下载受限模型。",
+    "chip_anonymous": "Hugging Face：匿名",
+    "chip_invalid": "Hugging Face：令牌被拒绝",
+    "chip_signed_in": "Hugging Face：{{username}}",
+    "chip_set": "Hugging Face：已设置令牌"
+  },
+  "hosting": {
+    "title": "托管 {{model}}",
+    "title_generic": "模型",
+    "step": {
+      "model": "模型",
+      "where": "位置",
+      "settings": "引擎设置",
+      "review": "确认"
+    },
+    "model_intro": "从本服务器保存的模型中选择一个。要添加其他模型，请在模型市场中查找。",
+    "no_models": "本服务器尚未保存任何模型。",
+    "find_more": "在模型市场中查找模型",
+    "still_downloading": "仍在下载",
+    "added_on": "添加于 {{date}}",
+    "gpu_share": "一块 {{accelerator}} 的一部分（{{percent}}%）",
+    "an_accelerator": "加速器",
+    "gpu_whole_one": "{{count}} 块 GPU",
+    "gpu_whole_other": "{{count}} 块 GPU",
+    "cluster_hardware_one": "{{count}} × {{accelerator}} · {{memory}}",
+    "cluster_hardware_other": "{{count}} × {{accelerator}} · 每块 {{memory}}",
+    "cluster_no_gpus": "尚未报告加速器",
+    "no_clusters": "还没有可托管模型的集群。请先用您的机器创建一个。",
+    "go_to_clusters": "前往集群",
+    "no_fit": "无法检查此模型能否放下（{{error}}）。您仍可托管它，请自行选择规模。",
+    "local_no_fit": "此模型是从本地路径添加的，因此这里不知道它的大小。请选择给它多少集群资源。",
+    "where_title": "集群",
+    "size_title": "每个副本的规模",
+    "size_share_help": "多个副本共用一块加速器。每个副本只占用自己那份显存，其余留给其他模型。",
+    "size_split_help_one": "每个副本拆分到 {{count}} 块加速器上（张量并行）。",
+    "size_split_help_other": "每个副本拆分到 {{count}} 块加速器上（张量并行）。大模型必须如此；对较小的模型，这是用加速器换速度。",
+    "size_one_help": "每个副本独占一块加速器运行。",
+    "copies_label": "副本数",
+    "copies_help_one": "按此规模，集群可容纳 {{count}} 个副本。",
+    "copies_help_other": "按此规模，集群可容纳 {{count}} 个副本。副本越多，可同时服务的人越多。",
+    "name_label": "部署名称",
+    "name_help": "小写字母、数字和连字符。显示在列表和日志中。",
+    "name_invalid": "请使用小写字母、数字和连字符，并以字母或数字开头。",
+    "chat_label": "在聊天中提供的名称",
+    "chat_help": "用户在聊天中选择、在 API 中使用的名称。清空则只通过其端点提供服务。",
+    "chat_none": "不在聊天中提供：只能通过其端点访问。",
+    "summary": {
+      "model": "模型",
+      "cluster": "集群",
+      "size": "规模",
+      "settings": "引擎设置"
+    },
+    "copies_value_one": "{{count}} 个副本",
+    "copies_value_other": "{{count}} 个副本",
+    "settings_changed_one": "{{count}} 项设置不同于 vLLM 默认值",
+    "settings_changed_other": "{{count}} 项设置不同于 vLLM 默认值",
+    "settings_default": "vLLM 默认值",
+    "download_note_size": "服务器先下载模型（{{size}}），再复制到各台机器。文件就位后部署即开始；您可以在其页面上跟踪进度。",
+    "download_note": "服务器先下载模型，再复制到各台机器。文件就位后部署即开始；您可以在其页面上跟踪进度。",
+    "kept_note": "本服务器已保存此模型：无需从 Hugging Face 下载任何内容。",
+    "busy_warning": "当前空闲显存放不下所有副本（可容纳 {{count}} 个）。其余副本会在其他模型腾出空间后启动。",
+    "creating": "正在创建部署…",
+    "host": "托管"
+  },
+  "marketplace": {
+    "title": "模型市场",
+    "subtitle": "在 Hugging Face 上查找模型，查看它能否放入您的集群，然后托管它。",
+    "fit_for": "适配集群",
+    "no_clusters": "还没有集群，因此无法衡量适配情况。您仍可浏览。",
+    "offline": "本服务器无法连接 Hugging Face：搜索不可用，大小为估计值。本服务器已保存的模型仍可托管。",
+    "tab": {
+      "recommended": "推荐",
+      "search": "搜索 Hugging Face",
+      "local": "本服务器上"
+    },
+    "search_placeholder": "搜索模型，例如 qwen、llama、mistral",
+    "task": {
+      "chat": "聊天",
+      "embedding": "向量嵌入",
+      "vision": "视觉"
+    },
+    "sort_label": "排序方式",
+    "sort": {
+      "trending": "热门",
+      "downloads": "下载最多",
+      "likes": "点赞最多",
+      "recent": "最新"
+    },
+    "only_fits": "只显示放得下的模型",
+    "local_empty": "本服务器尚未保存来自 Hugging Face 的模型。",
+    "search_empty": "未找到模型。",
+    "show_unrunnable_one": "显示 {{count}} 个 vLLM 无法提供服务的模型",
+    "show_unrunnable_other": "显示 {{count}} 个 vLLM 无法提供服务的模型",
+    "hide_unrunnable": "隐藏 vLLM 无法提供服务的模型",
+    "fit_footnote": "适配情况根据模型大小、其上下文缓存和每块加速器的显存估算。托管对话框会在任何内容启动前显示详细信息。",
+    "group": {
+      "start": "试用入门",
+      "chat": "通用聊天",
+      "code": "编程",
+      "reasoning": "推理",
+      "vision": "视觉",
+      "embedding": "向量嵌入"
+    },
+    "group_help": {
+      "start": "体积小、下载快：几分钟内完成第一次部署。",
+      "chat": "用于日常问答、写作和工具调用的助手。",
+      "code": "专为编写和解释代码而训练。",
+      "reasoning": "回答前逐步思考：速度较慢，但更擅长难题。",
+      "vision": "既能读文本，也能读图像。",
+      "embedding": "将文本转换为向量，用于搜索和知识库，通过 /v1/embeddings 提供服务。"
+    },
+    "capability": {
+      "tools": "工具",
+      "reasoning": "推理",
+      "vision": "视觉",
+      "code": "代码",
+      "embedding": "向量嵌入"
+    },
+    "capability_help": {
+      "tools": "可以调用工具和函数。",
+      "reasoning": "回答前会先思考。",
+      "vision": "能理解图像。",
+      "code": "专为代码训练。",
+      "embedding": "为搜索生成向量嵌入。"
+    },
+    "params_active": "{{total}} · {{active}} 激活",
+    "fit": {
+      "fits_one": "可放入 {{count}} 块 GPU",
+      "fits_other": "可放入 {{count}} 块 GPU",
+      "shares": "共用一块 GPU",
+      "busy_now": "放得下，但当前没有空间",
+      "too_large": "太大",
+      "no_accelerators": "没有加速器",
+      "unknown": "大小未知",
+      "detail_needs": "每块 {{total}} 的加速器约需 {{needed}}。",
+      "detail_copies_one": "可容纳 {{count}} 个副本。",
+      "detail_copies_other": "可容纳 {{count}} 个副本。",
+      "detail_copies_now": "当前空闲：可容纳 {{count}} 个。",
+      "detail_too_large": "约需 {{needed}}；集群总共有 {{total}}。",
+      "note": {
+        "kv_estimated": "上下文缓存大小为估计值。",
+        "context_over_model_max": "请求的上下文长度超过了模型支持的长度。"
+      }
+    },
+    "not_runnable_short": "不适用于 vLLM",
+    "not_runnable": {
+      "gguf": "GGUF 文件用于 llama.cpp 和 Ollama。vLLM 提供原始模型，或其 AWQ、GPTQ、FP8 版本。",
+      "mlx": "MLX 权重只能在 Apple 芯片上运行。",
+      "no_weights": "此仓库没有 vLLM 可以加载的权重。",
+      "task": "不是聊天、视觉或向量嵌入模型。"
+    },
+    "gated_help": "受限：需要一个已接受该模型许可的账号的 Hugging Face 令牌。",
+    "verified": "已在此测试",
+    "verified_help": "{{date}} 在 {{on}} 上提供过服务",
+    "local_kept": "本服务器上",
+    "local_downloading": "正在下载",
+    "local_deployed_one": "已部署 {{count}} 次",
+    "local_deployed_other": "已部署 {{count}} 次",
+    "downloads_help": "最近 30 天的下载量",
+    "host": "托管",
+    "host_on_cluster": "托管到集群",
+    "detail": {
+      "open_hub": "在 Hugging Face 上打开",
+      "offline": "本服务器无法连接 Hugging Face：以下是它在离线状态下所知道的信息。",
+      "gated": "受限模型：下载需要一个已接受其许可的账号的 Hugging Face 令牌。",
+      "remote_code": "此模型自带加载代码，会在您的机器上运行。请仅在信任其作者时托管。",
+      "fit_title": "在您的集群上",
+      "about": "简介",
+      "read_more": "在 Hugging Face 上阅读完整的模型卡",
+      "facts": "详情",
+      "parameters": "参数量",
+      "weights": "权重",
+      "context": "上下文长度",
+      "tokens": "{{value}} 个词元",
+      "precision": "精度",
+      "format": "格式",
+      "architecture": "架构",
+      "base_model": "基于",
+      "license": "许可证",
+      "downloads": "下载量（30 天）",
+      "likes": "点赞",
+      "updated": "更新于",
+      "on_server": "本服务器上",
+      "not_on_server": "尚未",
+      "files_one": "{{count}} 个文件 · {{size}}",
+      "files_other": "{{count}} 个文件 · {{size}}",
+      "all_files_one": "显示全部 {{count}} 个文件",
+      "all_files_other": "显示全部 {{count}} 个文件",
+      "fewer_files": "收起"
+    },
+    "blurb": {
+      "tiny_verified": "最小的实用聊天模型，已在此环境中测试：最快看到部署端到端运行的方式。",
+      "tiny": "小巧快速：用于试用，不适合实际工作。",
+      "small_capable": "小而能干：几乎在任何地方都能运行，胜任日常聊天和简单的工具调用。",
+      "all_rounder": "一款强大的全能模型，一块加速器就能轻松容纳。",
+      "stronger": "回答明显优于 8B 模型，代价是更多显存。",
+      "gpt_oss_small": "OpenAI 的开放权重模型：规模适中，推理和工具调用能力强。",
+      "moe_fast": "混合专家模型：30B 模型的知识，3B 模型的速度。",
+      "mistral_small": "Mistral 的小型模型：善于遵循指令，擅长工具调用和欧洲语言。",
+      "gpt_oss_large": "OpenAI 的大型开放权重模型：接近前沿的推理能力；需要一块大显存加速器或多块加速器。",
+      "large_dense": "大型稠密模型：能力很强，需要大量加速器显存。",
+      "coder": "专为代码打造：补全、解释以及智能体编程工具。",
+      "reasoning": "回答前逐步思考：更擅长数学和逻辑，回复较慢。",
+      "vision": "既能读文本，也能读图像和文档。",
+      "gemma": "Google 的开放模型：强大的多语言聊天能力，并能理解图像。",
+      "embedding_small": "小巧快速的向量嵌入模型，用于搜索和知识库。",
+      "embedding_large": "大型向量嵌入模型：检索效果更好，显存占用更多。"
+    }
+  },
+  "container_resources": {
+    "title": "容器资源",
+    "auto": "自动",
+    "gpus": "GPU",
+    "gpus_help": "容器可见的 GPU。自动表示将全部 GPU 交给 vLLM。",
+    "gpus_all": "全部 GPU",
+    "gpus_ids": "GPU {{ids}}",
+    "ipc": "共享内存模式（IPC）",
+    "ipc_help": "自动使用 host：vLLM 的进程之间共享内存，需要 host 或足够大的共享内存。",
+    "shm": "共享内存大小",
+    "shm_help": "仅在 IPC 不是 host 时需要，例如 16g。",
+    "memory": "内存限制",
+    "memory_help": "容器可使用的系统内存，例如 32g。留空：不限制。",
+    "cpus": "CPU 限制",
+    "cpus_help": "容器可使用的 CPU 核数。留空：不限制。",
+    "port": "容器内端口",
+    "port_help": "vLLM 在容器内监听的端口。留空：8000。"
   }
 }

@@ -63,7 +63,8 @@
     "inference_group": "AI Infrastructure",
     "clusters": "Clusters",
     "deployments": "Deployments",
-    "admin": "Admin panel"
+    "admin": "Admin panel",
+    "marketplace": "Model marketplace"
   },
   "auth": {
     "logout": "Logout",
@@ -428,7 +429,12 @@
       "auth": "Authentication",
       "infrastructure": "Infrastructure",
       "modules": "Modules",
-      "notifications": "Notifications"
+      "notifications": "Notifications",
+      "api_server": "API server",
+      "database": "Database",
+      "llm": "LLM",
+      "logging": "Logging",
+      "observability": "Observability"
     },
     "groups": {
       "auth": "Auth",
@@ -437,8 +443,19 @@
       "mailer": "Mailer",
       "smtp": "SMTP",
       "alerts": "Alerts",
-      "docling": "Docling"
-    }
+      "docling": "Docling",
+      "endpoint": "Endpoint",
+      "grafana": "Grafana",
+      "huggingface": "Hugging Face",
+      "jwt": "Sign-in tokens (JWT)",
+      "langfuse": "Langfuse",
+      "mcp": "MCP",
+      "postgres": "PostgreSQL",
+      "rag_lite": "RAG Lite",
+      "redis": "Redis",
+      "skills": "Skills"
+    },
+    "current_value": "(current: {{value}})"
   },
   "users": {
     "title": "User Management",
@@ -790,7 +807,8 @@
     "swap_space_help": "CPU swap space per GPU in GiB (e.g. 4). Leave blank for vLLM default (1 GiB in legacy GPU mode).",
     "model_id": "Model ID",
     "capabilities": "Capabilities",
-    "supports_embeddings": "Embeddings"
+    "supports_embeddings": "Embeddings",
+    "extra_args_invalid": "Some extra flags cannot be used: {{issues}}. Nothing was saved."
   },
   "llm_jobs": {
     "title": "Download Jobs",
@@ -2033,6 +2051,14 @@
       "traffic_window_one": "Measured at the gateway, last minute",
       "traffic_window_other": "Measured at the gateway, last {{count}} minutes",
       "engine_reported": "Reported by the engine"
+    },
+    "engine": {
+      "title": "Engine settings",
+      "edit": "Change",
+      "defaults": "vLLM's defaults: nothing changed.",
+      "dialog_title": "Engine settings for {{name}}",
+      "restart_warning": "Saving restarts every copy with the new settings. The model is unavailable until they are back up. If a copy does not start, this page says why and you can change the settings back.",
+      "save_restart": "Save and restart"
     }
   },
   "audit": {
@@ -2170,5 +2196,252 @@
       "remote_code": "The model's own code will run on your machines. Keep this on only for publishers you trust.",
       "extra_invalid": "These flags are not accepted and will not be used: {{tokens}}"
     }
+  },
+  "hf_access": {
+    "title": "Hugging Face access",
+    "why": "Models come from Hugging Face. Public models need no token. Gated ones (Llama, Gemma and some Mistral models) need a token from an account that has accepted their license, and a token also raises download limits.",
+    "none": "No token set: this server browses and downloads public models anonymously.",
+    "invalid": "Hugging Face no longer accepts the stored token: it may have expired or been revoked. Save a new one.",
+    "unchecked": "A token is set, but this server cannot reach Hugging Face to check it.",
+    "signed_in_as": "Signed in to Hugging Face as {{username}}",
+    "token_named": "token “{{name}}”",
+    "role_write": "This token can also write to Hugging Face. Read access is all this server needs: consider replacing it with a read-only token.",
+    "from_environment": "This token comes from LLM_PORT_BACKEND_HF_TOKEN in the server's environment. A token saved here takes its place.",
+    "storage_unsafe": "This server still uses the default settings master key, so a saved token would not be protected. Set LLM_PORT_BACKEND_SETTINGS_MASTER_KEY to a random value and restart before saving one.",
+    "token_label": "Access token",
+    "replace_label": "Replace with a new token",
+    "create_hint": "Create a read token at",
+    "show": "Show token",
+    "hide": "Hide token",
+    "save": "Check and save",
+    "checking": "Checking…",
+    "security_note": "Stored encrypted on this server and never shown again, not even to administrators. Only this server uses it: cluster machines get their models from this server, not from Hugging Face.",
+    "remove": "Remove token",
+    "remove_confirm": "Remove the token? Gated models can then no longer be downloaded.",
+    "chip_anonymous": "Hugging Face: anonymous",
+    "chip_invalid": "Hugging Face: token rejected",
+    "chip_signed_in": "Hugging Face: {{username}}",
+    "chip_set": "Hugging Face: token set"
+  },
+  "hosting": {
+    "title": "Host {{model}}",
+    "title_generic": "a model",
+    "step": {
+      "model": "Model",
+      "where": "Where",
+      "settings": "Engine settings",
+      "review": "Review"
+    },
+    "model_intro": "Pick one of the models this server keeps. To add another, find it in the model marketplace.",
+    "no_models": "This server keeps no models yet.",
+    "find_more": "Find a model in the marketplace",
+    "still_downloading": "still downloading",
+    "added_on": "added {{date}}",
+    "gpu_share": "A share of one {{accelerator}} ({{percent}}%)",
+    "an_accelerator": "accelerator",
+    "gpu_whole_one": "{{count}} GPU",
+    "gpu_whole_other": "{{count}} GPUs",
+    "cluster_hardware_one": "{{count}} × {{accelerator}} · {{memory}}",
+    "cluster_hardware_other": "{{count}} × {{accelerator}} · {{memory}} each",
+    "cluster_no_gpus": "No accelerators reported yet",
+    "no_clusters": "There is no cluster to host a model on yet. Create one from your machines first.",
+    "go_to_clusters": "Go to clusters",
+    "no_fit": "Could not check how this model fits ({{error}}). You can still host it; choose its size yourself.",
+    "local_no_fit": "This model was added from a local path, so its size is not known here. Choose how much of the cluster to give it.",
+    "where_title": "Cluster",
+    "size_title": "Size of each copy",
+    "size_share_help": "Several copies share one accelerator. Each takes only its share of the memory, leaving the rest free for other models.",
+    "size_split_help_one": "Each copy is split across {{count}} accelerator (tensor parallel).",
+    "size_split_help_other": "Each copy is split across {{count}} accelerators (tensor parallel). Large models need this; for smaller ones it trades accelerators for speed.",
+    "size_one_help": "Each copy runs on an accelerator of its own.",
+    "copies_label": "Copies",
+    "copies_help_one": "The cluster has room for {{count}} copy at this size.",
+    "copies_help_other": "The cluster has room for {{count}} copies at this size. More copies serve more people at once.",
+    "name_label": "Deployment name",
+    "name_help": "Lowercase letters, digits and dashes. Shown in lists and logs.",
+    "name_invalid": "Use lowercase letters, digits and dashes, starting with a letter or digit.",
+    "chat_label": "Offer in chat as",
+    "chat_help": "The name people pick in chat and use at the API. Clear it to serve by endpoint only.",
+    "chat_none": "Not offered in chat: reachable only at its endpoint.",
+    "summary": {
+      "model": "Model",
+      "cluster": "Cluster",
+      "size": "Size",
+      "settings": "Engine settings"
+    },
+    "copies_value_one": "{{count}} copy",
+    "copies_value_other": "{{count}} copies",
+    "settings_changed_one": "{{count}} setting changed from vLLM's defaults",
+    "settings_changed_other": "{{count}} settings changed from vLLM's defaults",
+    "settings_default": "vLLM's defaults",
+    "download_note_size": "The server downloads the model first ({{size}}), then copies it to the machines. The deployment starts once the files are in place; you can follow it on its page.",
+    "download_note": "The server downloads the model first, then copies it to the machines. The deployment starts once the files are in place; you can follow it on its page.",
+    "kept_note": "This server already keeps this model: nothing is downloaded from Hugging Face.",
+    "busy_warning": "Not every copy fits in the memory free right now (room for {{count}}). The rest start when other models make room.",
+    "creating": "Creating the deployment…",
+    "host": "Host"
+  },
+  "marketplace": {
+    "title": "Model marketplace",
+    "subtitle": "Find a model on Hugging Face, see whether it fits your clusters, and host it.",
+    "fit_for": "Fit for cluster",
+    "no_clusters": "There is no cluster yet, so fit cannot be measured. You can still browse.",
+    "offline": "This server cannot reach Hugging Face, so search is unavailable and sizes are estimates. Models this server already keeps can still be hosted.",
+    "tab": {
+      "recommended": "Recommended",
+      "search": "Search Hugging Face",
+      "local": "On this server"
+    },
+    "search_placeholder": "Search models, e.g. qwen, llama, mistral",
+    "task": {
+      "chat": "Chat",
+      "embedding": "Embeddings",
+      "vision": "Vision"
+    },
+    "sort_label": "Sort by",
+    "sort": {
+      "trending": "Trending",
+      "downloads": "Most downloaded",
+      "likes": "Most liked",
+      "recent": "Newest"
+    },
+    "only_fits": "Only show models that fit",
+    "local_empty": "This server keeps no models from Hugging Face yet.",
+    "search_empty": "No models found.",
+    "show_unrunnable_one": "Show {{count}} model vLLM cannot serve",
+    "show_unrunnable_other": "Show {{count}} models vLLM cannot serve",
+    "hide_unrunnable": "Hide models vLLM cannot serve",
+    "fit_footnote": "Fit is estimated from the model's size, its context cache and each accelerator's memory. The hosting dialog shows the details before anything starts.",
+    "group": {
+      "start": "To try things out",
+      "chat": "General chat",
+      "code": "Coding",
+      "reasoning": "Reasoning",
+      "vision": "Vision",
+      "embedding": "Embeddings"
+    },
+    "group_help": {
+      "start": "Small and quick to download: a first deployment in minutes.",
+      "chat": "Assistants for everyday questions, writing and tool use.",
+      "code": "Trained for writing and explaining code.",
+      "reasoning": "They think step by step before answering: slower, but better at hard problems.",
+      "vision": "They read images as well as text.",
+      "embedding": "They turn text into vectors for search and knowledge bases, served at /v1/embeddings."
+    },
+    "capability": {
+      "tools": "Tools",
+      "reasoning": "Reasoning",
+      "vision": "Vision",
+      "code": "Code",
+      "embedding": "Embeddings"
+    },
+    "capability_help": {
+      "tools": "Can call tools and functions.",
+      "reasoning": "Thinks before it answers.",
+      "vision": "Understands images.",
+      "code": "Trained for code.",
+      "embedding": "Produces embeddings for search."
+    },
+    "params_active": "{{total}} · {{active}} active",
+    "fit": {
+      "fits_one": "Fits on {{count}} GPU",
+      "fits_other": "Fits on {{count}} GPUs",
+      "shares": "Shares a GPU",
+      "busy_now": "Fits, but not right now",
+      "too_large": "Too large",
+      "no_accelerators": "No accelerators",
+      "unknown": "Size unknown",
+      "detail_needs": "Needs about {{needed}} of each {{total}} accelerator.",
+      "detail_copies_one": "Room for {{count}} copy.",
+      "detail_copies_other": "Room for {{count}} copies.",
+      "detail_copies_now": "Free right now: room for {{count}}.",
+      "detail_too_large": "Needs about {{needed}}; the cluster has {{total}} in all.",
+      "note": {
+        "kv_estimated": "The context cache size is an estimate.",
+        "context_over_model_max": "The context asked for is longer than the model supports."
+      }
+    },
+    "not_runnable_short": "Not for vLLM",
+    "not_runnable": {
+      "gguf": "GGUF files are for llama.cpp and Ollama. vLLM serves the original model, or an AWQ, GPTQ or FP8 version of it.",
+      "mlx": "MLX weights run only on Apple silicon.",
+      "no_weights": "This repository has no weights vLLM can load.",
+      "task": "Not a chat, vision or embedding model."
+    },
+    "gated_help": "Gated: needs a Hugging Face token from an account that has accepted the model's license.",
+    "verified": "Tested here",
+    "verified_help": "Served on {{on}} on {{date}}",
+    "local_kept": "On this server",
+    "local_downloading": "Downloading",
+    "local_deployed_one": "Deployed {{count}} time",
+    "local_deployed_other": "Deployed {{count}} times",
+    "downloads_help": "Downloads in the last 30 days",
+    "host": "Host",
+    "host_on_cluster": "Host on a cluster",
+    "detail": {
+      "open_hub": "Open on Hugging Face",
+      "offline": "This server cannot reach Hugging Face: this is what it knows without it.",
+      "gated": "Gated model: downloading it needs a Hugging Face token from an account that has accepted its license.",
+      "remote_code": "This model ships its own loading code, which runs on your machines. Host it only if you trust its authors.",
+      "fit_title": "On your clusters",
+      "about": "About",
+      "read_more": "Read the full model card on Hugging Face",
+      "facts": "Details",
+      "parameters": "Parameters",
+      "weights": "Weights",
+      "context": "Context length",
+      "tokens": "{{value}} tokens",
+      "precision": "Precision",
+      "format": "Format",
+      "architecture": "Architecture",
+      "base_model": "Based on",
+      "license": "License",
+      "downloads": "Downloads (30 days)",
+      "likes": "Likes",
+      "updated": "Updated",
+      "on_server": "On this server",
+      "not_on_server": "Not yet",
+      "files_one": "{{count}} file · {{size}}",
+      "files_other": "{{count}} files · {{size}}",
+      "all_files_one": "Show all {{count}} file",
+      "all_files_other": "Show all {{count}} files",
+      "fewer_files": "Show fewer"
+    },
+    "blurb": {
+      "tiny_verified": "The smallest useful chat model, tested on this setup: the quickest way to see a deployment work end to end.",
+      "tiny": "Tiny and fast: for trying things out rather than real work.",
+      "small_capable": "Small but capable: runs almost anywhere and handles everyday chat and simple tool use.",
+      "all_rounder": "A strong all-rounder that fits comfortably on one accelerator.",
+      "stronger": "Noticeably better answers than the 8B models, for more memory.",
+      "gpt_oss_small": "OpenAI's open-weight model: strong reasoning and tool use at a modest size.",
+      "moe_fast": "Mixture of experts: the knowledge of a 30B model at the speed of a 3B one.",
+      "mistral_small": "Mistral's small model: good at following instructions, tools and European languages.",
+      "gpt_oss_large": "OpenAI's large open-weight model: near-frontier reasoning; needs a large accelerator or several.",
+      "large_dense": "A large dense model: very capable, and needs plenty of accelerator memory.",
+      "coder": "Built for code: completion, explanation and agentic coding tools.",
+      "reasoning": "Thinks step by step before answering: better at maths and logic, slower to reply.",
+      "vision": "Reads images and documents as well as text.",
+      "gemma": "Google's open model: strong multilingual chat that also understands images.",
+      "embedding_small": "A small, fast embedding model for search and knowledge bases.",
+      "embedding_large": "A large embedding model: better retrieval, more memory."
+    }
+  },
+  "container_resources": {
+    "title": "Container resources",
+    "auto": "Automatic",
+    "gpus": "GPUs",
+    "gpus_help": "Which GPUs the container sees. Automatic gives vLLM all of them.",
+    "gpus_all": "All GPUs",
+    "gpus_ids": "GPU {{ids}}",
+    "ipc": "Shared memory mode (IPC)",
+    "ipc_help": "Automatic uses host: vLLM's processes share memory, which needs host or a large shared memory size.",
+    "shm": "Shared memory size",
+    "shm_help": "Only when IPC is not host, e.g. 16g.",
+    "memory": "Memory limit",
+    "memory_help": "System memory the container may use, e.g. 32g. Empty: no limit.",
+    "cpus": "CPU limit",
+    "cpus_help": "CPU cores the container may use. Empty: no limit.",
+    "port": "Port inside the container",
+    "port_help": "Where vLLM listens inside the container. Empty: 8000."
   }
 }

@@ -18,6 +18,7 @@ import type {
 import { models as modelsApi, type Model } from "~/api/llm";
 import { ConfirmDialog } from "~/components/ConfirmDialog";
 import { DataTable, type ColumnDef } from "~/components/DataTable";
+import { HostModelDialog } from "~/components/hosting/HostModelDialog";
 import { useAsyncData } from "~/lib/useAsyncData";
 
 import Alert from "@mui/material/Alert";
@@ -35,7 +36,6 @@ import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import StopIcon from "@mui/icons-material/Stop";
 
 import { copiesWanted, deploymentPhaseColor } from "../inference/common";
-import { DeployModelWizard } from "./DeployModelWizard";
 import { phaseLabel, shortId } from "./presentation";
 
 interface DeploymentsData {
@@ -360,12 +360,11 @@ export default function DeploymentsPage() {
         }
       />
 
-      <DeployModelWizard
+      <HostModelDialog
         open={wizardOpen}
         models={data.models}
-        clusters={data.clusters}
         onClose={() => setWizardOpen(false)}
-        onDeployed={(deploymentId) => {
+        onHosted={(deploymentId) => {
           setWizardOpen(false);
           navigate(`/admin/deployments/${deploymentId}`);
         }}

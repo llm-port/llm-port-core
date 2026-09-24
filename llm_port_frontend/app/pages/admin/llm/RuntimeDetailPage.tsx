@@ -16,8 +16,8 @@ import {
 } from "~/api/llm";
 import { nodesApi, type NodeCommandTimeline } from "~/api/nodes";
 import { RuntimeStatusChip, EngineChip } from "~/components/Chips";
-import { VllmEngineArgsPanel } from "~/components/VllmEngineArgsPanel";
-import { parseRawVllmArgs } from "~/lib/vllm";
+import { EngineSettingsEditor } from "~/components/engine/EngineSettingsEditor";
+import { fromContainerFields, toContainerFields, type EngineConfig, type EngineValue } from "~/lib/engine";
 import {
   ContainerResourcesPanel,
   type ContainerResourceValues,
@@ -234,9 +234,8 @@ export default function RuntimeDetailPage() {
   // ── Edit mode state ──────────────────────────────────────────────
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState("");
-  const [engineArgs, setEngineArgs] = useState<
-    Record<string, string | number | boolean>
-  >({});
+  // vLLM settings by name (max_model_len); stored as flags in provider_config.
+  const [engineConfig, setEngineConfig] = useState<EngineConfig>({});
   const [saving, setSaving] = useState(false);
   const [resourcesOpen, setResourcesOpen] = useState(false);
 
@@ -270,15 +269,15 @@ export default function RuntimeDetailPage() {
   );
   const isNodeDeployment = !!rt?.assigned_node_id;
 
-  // Map from generic_config snake_case keys to CLI kebab-case flags
-  const GC_TO_FLAG: Record<string, string> = {
-    max_model_len: "max-model-len",
-    dtype: "dtype",
-    gpu_memory_utilization: "gpu-memory-utilization",
-    tensor_parallel_size: "tensor-parallel-size",
-    swap_space: "swap-space",
-    enforce_eager: "enforce-eager",
-  };
+  // Settings older runtimes kept in generic_config, under vLLM's own names.
+  const GENERIC_KEYS = [
+    "max_model_len",
+    "dtype",
+    "gpu_memory_utilization",
+    "tensor_parallel_size",
+    "swap_space",
+    "enforce_eager",
+  ];
 
   function openEditor() {
     if (!rt) return;
@@ -286,17 +285,16 @@ export default function RuntimeDetailPage() {
     const pc = rt.provider_config ?? {};
     setEditName(rt.name);
 
-    // Seed engine args from provider_config.engine_args first
-    const args: Record<string, string | number | boolean> = {
-      ...((pc.engine_args as Record<string, string | number | boolean>) ?? {}),
-    };
-    // Overlay values from legacy generic_config (lower priority than engine_args)
-    for (const [gcKey, flag] of Object.entries(GC_TO_FLAG)) {
-      if (gc[gcKey] != null && args[flag] === undefined) {
-        args[flag] = gc[gcKey] as string | number | boolean;
-      }
+    // provider_config's flags first; generic_config fills what they leave out.
+    const seeded = fromContainerFields({
+      engine_args: (pc.engine_args as Record<string, EngineValue>) ?? {},
+      extra_args: Array.isArray(pc.extra_args) ? (pc.extra_args as string[]) : [],
+    });
+    const config: EngineConfig = { ...seeded.config };
+    for (const key of GENERIC_KEYS) {
+      if (gc[key] != null && config[key] === undefined) config[key] = gc[key] as EngineValue;
     }
-    setEngineArgs(args);
+    setEngineConfig(config);
     // Seed container resource fields
     setContainerRes({
       gpuRequest: String(pc.gpu_request ?? ""),
@@ -314,9 +312,7 @@ export default function RuntimeDetailPage() {
     setEditImage(
       String((rt.provider_config as Record<string, unknown>)?.image ?? ""),
     );
-    setEditExtraArgs(
-      Array.isArray(pc.extra_args) ? (pc.extra_args as string[]).join(" ") : "",
-    );
+    setEditExtraArgs(seeded.extra);
     setEditModelSource(
       ((rt.provider_config as Record<string, unknown>)?.model_source as
         | "sync_from_server"
@@ -353,45 +349,26 @@ export default function RuntimeDetailPage() {
         const generic_config: Record<string, unknown> = {
           ...(rt.generic_config ?? {}),
         };
-        const FLAG_TO_GC: Record<string, string> = {
-          "max-model-len": "max_model_len",
-          dtype: "dtype",
-          "gpu-memory-utilization": "gpu_memory_utilization",
-          "tensor-parallel-size": "tensor_parallel_size",
-          "swap-space": "swap_space",
-          "enforce-eager": "enforce_eager",
-        };
-        // Clear legacy gc keys, then repopulate from engine args
-        for (const gcKey of Object.values(FLAG_TO_GC))
-          delete generic_config[gcKey];
-        for (const [flag, gcKey] of Object.entries(FLAG_TO_GC)) {
-          if (engineArgs[flag] != null)
-            generic_config[gcKey] = engineArgs[flag];
+        // Clear legacy gc keys, then repopulate from the settings
+        for (const key of GENERIC_KEYS) delete generic_config[key];
+        for (const key of GENERIC_KEYS) {
+          if (engineConfig[key] != null) generic_config[key] = engineConfig[key];
+        }
+        const fields = toContainerFields(engineConfig, editExtraArgs);
+        if (fields.issues.length > 0) {
+          // Nothing half-saved: the editor already points at the bad flags.
+          setError(t("llm_runtime_detail.extra_args_invalid", { issues: fields.issues.join(", ") }));
+          return;
         }
 
         const provider_config: Record<string, unknown> = {
           ...(rt.provider_config ?? {}),
         };
-        // Store full engine_args dict
-        if (Object.keys(engineArgs).length > 0) {
-          provider_config.engine_args = engineArgs;
-        } else {
-          delete provider_config.engine_args;
-        }
-        // Extra arguments (raw flags not in the curated catalogue) →
-        // provider_config.extra_args passthrough list
-        const { args: parsedExtra, issues } = parseRawVllmArgs(editExtraArgs);
-        if (parsedExtra.length > 0) {
-          provider_config.extra_args = parsedExtra;
-        } else {
-          delete provider_config.extra_args;
-        }
-        if (issues.length > 0) {
-          alert(
-            "Some extra arguments were invalid and have been ignored: " +
-              issues.join(", "),
-          );
-        }
+        // Settings as flags; typed extra flags as the passthrough list
+        if (fields.engine_args) provider_config.engine_args = fields.engine_args;
+        else delete provider_config.engine_args;
+        if (fields.extra_args) provider_config.extra_args = fields.extra_args;
+        else delete provider_config.extra_args;
 
         // Image override
         if (editImage.trim()) {
@@ -921,13 +898,16 @@ export default function RuntimeDetailPage() {
                     )}
                     slotProps={{ input: { sx: { fontFamily: "monospace" } } }}
                   />
-                  <VllmEngineArgsPanel
-                    values={engineArgs}
-                    onChange={setEngineArgs}
-                    version={engineArgs["enforce-eager"] ? "0.6.6" : "0.7.3"}
-                    modelName={model?.display_name}
-                    rawArgs={editExtraArgs}
-                    onRawArgsChange={setEditExtraArgs}
+                  <EngineSettingsEditor
+                    value={engineConfig}
+                    extra={editExtraArgs}
+                    onChange={(value, extra) => {
+                      setEngineConfig(value);
+                      setEditExtraArgs(extra);
+                    }}
+                    target="container"
+                    model={{ repoId: model?.hf_repo_id ?? model?.display_name ?? null }}
+                    disabled={saving}
                   />
 
                   {/* Container Resources */}
@@ -940,7 +920,7 @@ export default function RuntimeDetailPage() {
                     onClick={() => setResourcesOpen(!resourcesOpen)}
                     sx={{ alignSelf: "flex-start" }}
                   >
-                    Container Resources
+                    {t("container_resources.title")}
                   </Button>
                   <Collapse in={resourcesOpen}>
                     <Box sx={{ pl: 1 }}>

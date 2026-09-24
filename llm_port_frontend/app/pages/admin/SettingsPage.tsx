@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { useTranslation } from "react-i18next";
 
+import { HuggingFaceTokenPanel } from "~/components/HuggingFaceAccess";
+
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
@@ -29,6 +31,9 @@ import {
   systemSettingsApi,
   type SystemSettingSchemaItem,
 } from "~/api/systemSettings";
+
+/** Set through its own panel: checked with Hugging Face first, never shown again. */
+const HF_TOKEN_KEY = "llm_backend.hf_token";
 
 type SettingsTab = "general" | "modules";
 
@@ -319,7 +324,16 @@ export default function SettingsPage() {
                   </Typography>
                   <Divider sx={{ my: 1 }} />
                   <Stack spacing={1.5}>
-                    {items.map((item) => (
+                    {items.map((item) =>
+                      item.key === HF_TOKEN_KEY ? (
+                        // Checked with Hugging Face before it is kept, and never shown again.
+                        <Box key={item.key}>
+                          <Typography variant="body2" sx={{ mb: 1 }}>
+                            {item.label}
+                          </Typography>
+                          <HuggingFaceTokenPanel />
+                        </Box>
+                      ) : (
                       <Box key={item.key}>
                         <Stack
                           direction={{ xs: "column", md: "row" }}
@@ -411,7 +425,7 @@ export default function SettingsPage() {
                                   item.type,
                                 )
                               }
-                              helperText={`${item.description}${item.is_secret && secretMasked[item.key] ? ` (current: ${secretMasked[item.key]})` : ""}`}
+                              helperText={`${item.description}${item.is_secret && secretMasked[item.key] ? ` ${t("settings.current_value", { value: secretMasked[item.key] })}` : ""}`}
                             />
                           )}
                           <Chip
@@ -476,7 +490,8 @@ export default function SettingsPage() {
                           </Button>
                         </Stack>
                       </Box>
-                    ))}
+                      ),
+                    )}
                   </Stack>
                 </Paper>
               );

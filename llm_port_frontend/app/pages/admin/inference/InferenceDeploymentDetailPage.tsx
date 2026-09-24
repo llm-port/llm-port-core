@@ -66,7 +66,8 @@ import StopIcon from "@mui/icons-material/Stop";
 import SyncIcon from "@mui/icons-material/Sync";
 import TuneIcon from "@mui/icons-material/Tune";
 
-import { suggestChatName } from "../clusters/DeployModelWizard";
+import { suggestChatName } from "~/lib/hosting";
+import { DeploymentEngineCard } from "./DeploymentEngineCard";
 import { gpuCount } from "../clusters/readiness";
 import { clusterStatusLabel, nodeLabel, phaseLabel } from "../clusters/presentation";
 import {
@@ -850,6 +851,13 @@ export default function InferenceDeploymentDetailPage() {
           </Grid>
         </CardContent>
       </Card>
+
+      {/* --- How vLLM runs it --------------------------------------------- */}
+      <DeploymentEngineCard
+        deployment={deployment}
+        repoId={data.model?.hf_repo_id ?? null}
+        onSaved={refresh}
+      />
 
       {/* --- 4: participating nodes -------------------------------------- */}
       <Card variant="outlined">

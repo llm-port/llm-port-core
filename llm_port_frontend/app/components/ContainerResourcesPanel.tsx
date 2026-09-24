@@ -1,12 +1,14 @@
 /**
- * Shared panel for editing container resource settings (GPU, IPC, SHM, etc.).
- * Used by both RuntimeDetailPage (edit config) and ProviderWizardDialog.
+ * What a legacy engine container is given: which GPUs, how much shared
+ * memory, limits, and the port inside it.
+ *
+ * Every field can stay empty: the server then picks what vLLM needs (all
+ * GPUs, host IPC). Used by RuntimeDetailPage and ProviderWizardDialog.
  */
-import FormControl from "@mui/material/FormControl";
-import InputLabel from "@mui/material/InputLabel";
+import { useTranslation } from "react-i18next";
+
+import Grid from "@mui/material/Grid";
 import MenuItem from "@mui/material/MenuItem";
-import Select from "@mui/material/Select";
-import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 
 export interface ContainerResourceValues {
@@ -23,79 +25,92 @@ export interface ContainerResourcesPanelProps {
   onChange: (field: keyof ContainerResourceValues, value: string) => void;
 }
 
-export function ContainerResourcesPanel({
-  values,
-  onChange,
-}: ContainerResourcesPanelProps) {
+const GPU_CHOICES = ["", "all", "0", "0,1", "0,1,2,3"];
+const IPC_CHOICES = ["", "host", "private", "shareable"];
+
+export function ContainerResourcesPanel({ values, onChange }: ContainerResourcesPanelProps) {
+  const { t } = useTranslation();
+  const auto = t("container_resources.auto");
   return (
-    <Stack spacing={2}>
-      <Stack direction="row" spacing={2}>
-        <FormControl size="small" sx={{ minWidth: 140 }}>
-          <InputLabel>GPU</InputLabel>
-          <Select
-            label="GPU"
-            value={values.gpuRequest}
-            onChange={(e) => onChange("gpuRequest", e.target.value)}
-          >
-            <MenuItem value="">
-              <em>Default</em>
-            </MenuItem>
-            <MenuItem value="all">all</MenuItem>
-            <MenuItem value="0">0</MenuItem>
-            <MenuItem value="0,1">0,1</MenuItem>
-            <MenuItem value="0,1,2,3">0,1,2,3</MenuItem>
-          </Select>
-        </FormControl>
-        <FormControl size="small" sx={{ minWidth: 140 }}>
-          <InputLabel>IPC Mode</InputLabel>
-          <Select
-            label="IPC Mode"
-            value={values.ipcMode}
-            onChange={(e) => onChange("ipcMode", e.target.value)}
-          >
-            <MenuItem value="">
-              <em>Default</em>
-            </MenuItem>
-            <MenuItem value="host">host</MenuItem>
-            <MenuItem value="private">private</MenuItem>
-            <MenuItem value="shareable">shareable</MenuItem>
-          </Select>
-        </FormControl>
+    <Grid container spacing={2}>
+      <Grid size={{ xs: 12, sm: 6, md: 4 }}>
         <TextField
-          label="SHM Size"
+          select
+          fullWidth
           size="small"
-          placeholder="e.g. 1g"
+          label={t("container_resources.gpus")}
+          value={values.gpuRequest}
+          onChange={(e) => onChange("gpuRequest", e.target.value)}
+          helperText={t("container_resources.gpus_help")}
+        >
+          {GPU_CHOICES.map((v) => (
+            <MenuItem key={v || "auto"} value={v}>
+              {v === "" ? <em>{auto}</em> : v === "all" ? t("container_resources.gpus_all") : t("container_resources.gpus_ids", { ids: v })}
+            </MenuItem>
+          ))}
+        </TextField>
+      </Grid>
+      <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+        <TextField
+          select
+          fullWidth
+          size="small"
+          label={t("container_resources.ipc")}
+          value={values.ipcMode}
+          onChange={(e) => onChange("ipcMode", e.target.value)}
+          helperText={t("container_resources.ipc_help")}
+        >
+          {IPC_CHOICES.map((v) => (
+            <MenuItem key={v || "auto"} value={v}>
+              {v === "" ? <em>{auto}</em> : v}
+            </MenuItem>
+          ))}
+        </TextField>
+      </Grid>
+      <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+        <TextField
+          fullWidth
+          size="small"
+          label={t("container_resources.shm")}
+          placeholder="16g"
           value={values.shmSize}
           onChange={(e) => onChange("shmSize", e.target.value)}
-          sx={{ width: 120 }}
+          helperText={t("container_resources.shm_help")}
         />
-      </Stack>
-      <Stack direction="row" spacing={2}>
+      </Grid>
+      <Grid size={{ xs: 12, sm: 6, md: 4 }}>
         <TextField
-          label="Memory Limit"
+          fullWidth
           size="small"
-          placeholder="e.g. 32g"
+          label={t("container_resources.memory")}
+          placeholder="32g"
           value={values.memoryLimit}
           onChange={(e) => onChange("memoryLimit", e.target.value)}
-          sx={{ width: 140 }}
+          helperText={t("container_resources.memory_help")}
         />
+      </Grid>
+      <Grid size={{ xs: 12, sm: 6, md: 4 }}>
         <TextField
-          label="CPU Limit"
+          fullWidth
           size="small"
-          placeholder="e.g. 8"
+          label={t("container_resources.cpus")}
+          placeholder="8"
           value={values.cpuLimit}
           onChange={(e) => onChange("cpuLimit", e.target.value)}
-          sx={{ width: 120 }}
+          helperText={t("container_resources.cpus_help")}
         />
+      </Grid>
+      <Grid size={{ xs: 12, sm: 6, md: 4 }}>
         <TextField
-          label="Container Port"
+          fullWidth
           size="small"
+          label={t("container_resources.port")}
           placeholder="8000"
           value={values.containerPort}
           onChange={(e) => onChange("containerPort", e.target.value)}
-          sx={{ width: 140 }}
+          helperText={t("container_resources.port_help")}
         />
-      </Stack>
-    </Stack>
+      </Grid>
+    </Grid>
   );
 }

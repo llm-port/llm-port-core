@@ -170,6 +170,26 @@ service does not stop it.
 
 ## Deployments
 
+### Where do I find a model to run, and will it fit?
+
+In **Inference → Model marketplace**. Each model shows whether it fits the
+cluster you pick: on a share of one accelerator, on one, across several, or
+not at all. **Host** puts it on the cluster, with vLLM's settings suggested
+for the model. See [Hosting a model from the marketplace](model-marketplace.md).
+
+### A gated model (Llama, Gemma) will not download.
+
+The server needs a Hugging Face token from an account that has accepted the
+model's license. Set it under the **Hugging Face** chip in the marketplace.
+The server checks the token with Hugging Face before saving it, keeps it
+encrypted, and never shows it again. See
+[Hugging Face access](model-marketplace.md#hugging-face-access).
+
+### How do I change vLLM's settings for a deployment?
+
+On the deployment's page, **Engine settings → Change**. The editor is the one
+used when hosting. Saving restarts the copies with the new settings.
+
 ### The model picker lists the same model twice.
 
 Earlier versions made a new record every time a model was downloaded, so the
@@ -254,7 +274,8 @@ from **Models**, and the deployment picks it up once the model is there.
 
 Read the message on the deployment page. It carries the engine's own reason.
 Most often the model does not fit in the GPU's memory, or it needs a number
-format the card does not support.
+format the card does not support. For memory, lower the context length or
+raise the memory share under **Engine settings → Change**.
 
 ---
 

@@ -214,8 +214,19 @@ export interface DownloadJob {
   updated_at: string;
 }
 
+/** Whether this server has a Hugging Face token -- never the token itself. */
 export interface HFTokenStatus {
   configured: boolean;
+  /** "database": set in LLM.port; "environment": LLM_PORT_BACKEND_HF_TOKEN. */
+  source: "database" | "environment" | null;
+  /** False while the settings master key is the published default. */
+  storage_safe: boolean;
+  /** What Hugging Face said about it. */
+  check: "ok" | "invalid" | "offline" | null;
+  username: string | null;
+  token_name: string | null;
+  /** "read", "write" or "fineGrained". */
+  role: string | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -505,6 +516,9 @@ export const llmSettings = {
       method: "PUT",
       body: JSON.stringify({ token }),
     });
+  },
+  removeHFToken() {
+    return request<HFTokenStatus>("/settings/hf-token", { method: "DELETE" });
   },
 };
 

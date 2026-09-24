@@ -10,6 +10,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { inferenceApi } from "~/api/inference";
+import { marketplaceApi } from "~/api/marketplace";
 import { models as modelsApi } from "~/api/llm";
 import { nodesApi } from "~/api/nodes";
 import {
@@ -226,9 +227,11 @@ describe("ClusterDetailPage", () => {
 
     const banner = await screen.findByTestId("next-step");
     expect(banner).toHaveAttribute("data-stage", "ready");
+    vi.spyOn(marketplaceApi, "clusters").mockResolvedValue([]);
     await userEvent.click(within(banner).getByRole("button", { name: "Deploy a model" }));
+    // The host dialog, opened on this cluster, starts by asking which kept model.
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByLabelText("Model")).toBeInTheDocument();
+    expect(within(dialog).getByText(/Pick one of the models this server keeps/)).toBeInTheDocument();
   });
 
   it("offers the network step when none has been applied", async () => {

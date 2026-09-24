@@ -43,6 +43,7 @@ export default [
     // by design (migration plan requirement 3).
     route("/admin/clusters", "pages/admin/clusters/ClustersPage.tsx"),
     route("/admin/clusters/:id", "pages/admin/clusters/ClusterDetailPage.tsx"),
+    route("/admin/marketplace", "pages/admin/marketplace/MarketplacePage.tsx"),
     route("/admin/deployments", "pages/admin/clusters/DeploymentsPage.tsx"),
     route(
       "/admin/deployments/:id",

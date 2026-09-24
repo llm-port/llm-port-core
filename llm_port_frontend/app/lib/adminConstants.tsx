@@ -34,6 +34,7 @@ import HubIcon from "@mui/icons-material/Hub";
 import DeviceHubIcon from "@mui/icons-material/DeviceHub";
 import WorkspacesIcon from "@mui/icons-material/Workspaces";
 import RocketLaunchIcon from "@mui/icons-material/RocketLaunch";
+import StorefrontIcon from "@mui/icons-material/Storefront";
 import DescriptionIcon from "@mui/icons-material/Description";
 import LlmIcon from "~/components/LlmIcon";
 import SettingsRemoteIcon from "@mui/icons-material/SettingsRemote";
@@ -309,6 +310,12 @@ export const NAV: NavEntry[] = [
         labelKey: "nav.clusters",
         icon: <WorkspacesIcon />,
         permission: "inference.environments:read",
+      },
+      {
+        to: "/admin/marketplace",
+        labelKey: "nav.marketplace",
+        icon: <StorefrontIcon />,
+        permission: "llm.models:read",
       },
       {
         to: "/admin/deployments",

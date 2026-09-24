@@ -28,6 +28,7 @@ import {
   TableSkeleton,
 } from "~/components/AsyncSection";
 import { ConfirmDialog } from "~/components/ConfirmDialog";
+import { HostModelDialog } from "~/components/hosting/HostModelDialog";
 import { useAsyncData } from "~/lib/useAsyncData";
 
 import Accordion from "@mui/material/Accordion";
@@ -72,7 +73,6 @@ import { ChooseNetworkDialog } from "./ChooseNetworkDialog";
 import InsightsIcon from "@mui/icons-material/Insights";
 
 import { ClusterTopology } from "./ClusterTopology";
-import { DeployModelWizard } from "./DeployModelWizard";
 import { NextStepBanner } from "./NextStepBanner";
 import {
   clusterStatusColor,
@@ -800,13 +800,13 @@ export default function ClusterDetailPage() {
         }}
       />
 
-      <DeployModelWizard
+      <HostModelDialog
         open={deployOpen}
         models={data.models}
-        clusters={[cluster]}
         clusterId={cluster.id}
+        lockCluster
         onClose={() => setDeployOpen(false)}
-        onDeployed={(deploymentId) => {
+        onHosted={(deploymentId) => {
           setDeployOpen(false);
           navigate(`/admin/deployments/${deploymentId}`);
         }}

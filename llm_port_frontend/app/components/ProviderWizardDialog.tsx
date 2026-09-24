@@ -63,8 +63,8 @@ import DownloadIcon from "@mui/icons-material/Download";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import NetworkCheckIcon from "@mui/icons-material/NetworkCheck";
 
-import { VllmEngineArgsPanel } from "~/components/VllmEngineArgsPanel";
-import { parseRawVllmArgs } from "~/lib/vllm";
+import { EngineSettingsEditor } from "~/components/engine/EngineSettingsEditor";
+import { parseExtraFlags, toContainerFields, type EngineConfig } from "~/lib/engine";
 import {
   ContainerResourcesPanel,
   type ContainerResourceValues,
@@ -177,9 +177,8 @@ export function ProviderWizardDialog({
   const [imageChoice, setImageChoice] = useState(AUTO_IMAGE_VALUE);
   const [customImage, setCustomImage] = useState("");
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [engineArgs, setEngineArgs] = useState<
-    Record<string, string | number | boolean>
-  >({});
+  // vLLM settings by name (max_model_len); stored as flags in provider_config.
+  const [engineConfig, setEngineConfig] = useState<EngineConfig>({});
   const [openaiCompat, setOpenaiCompat] = useState(true);
   const [legacyGpu, setLegacyGpu] = useState(false);
   const [extraArgsRaw, setExtraArgsRaw] = useState("");
@@ -240,7 +239,7 @@ export function ProviderWizardDialog({
       setCustomImage("");
       setAdvancedOpen(false);
       setLegacyGpu(false);
-      setEngineArgs({});
+      setEngineConfig({});
       setExtraArgsRaw("");
       setContainerRes({
         gpuRequest: "",
@@ -262,8 +261,15 @@ export function ProviderWizardDialog({
     }
   }, [open]);
 
-  // When legacyGpu is toggled, sync imageChoice to the legacy image or back to auto
+  // When legacyGpu is toggled, sync imageChoice to the legacy image or back to auto,
+  // and eager mode with it: the legacy image's older GPUs need it.
   useEffect(() => {
+    setEngineConfig((current) => {
+      const next = { ...current };
+      if (legacyGpu) next.enforce_eager = true;
+      else delete next.enforce_eager;
+      return next;
+    });
     if (legacyGpu) {
       setImageChoice(hwInfo?.legacy_vllm_image ?? AUTO_IMAGE_VALUE);
     } else {
@@ -511,9 +517,13 @@ export function ProviderWizardDialog({
     modelSource === "sync_from_server" &&
     availableModels.length === 0;
   const needsLocalImage = !isRemoteNode || modelSource === "sync_from_server";
-  const localCreateBlocked = isRemoteWithInternet
-    ? !hasModel
-    : !hasModel || !localImageReady || localCheckInProgress;
+  // Typed extra flags that could not be read would be dropped silently: refuse instead.
+  const extraFlagIssues = parseExtraFlags(extraArgsRaw).issues;
+  const localCreateBlocked =
+    extraFlagIssues.length > 0 ||
+    (isRemoteWithInternet
+      ? !hasModel
+      : !hasModel || !localImageReady || localCheckInProgress);
 
   // ── Pull image handler ────────────────────────────────────────────
   async function handlePullImage() {
@@ -582,9 +592,7 @@ export function ProviderWizardDialog({
       }
 
       if (target === "local_docker") {
-        // Merge legacy-GPU flag into engine args
-        const mergedArgs = { ...engineArgs };
-        if (legacyGpu) mergedArgs["enforce-eager"] = true;
+        const fields = toContainerFields(engineConfig, extraArgsRaw);
 
         // Build provider_config with engine_args + image
         const provider_config: Record<string, unknown> = {};
@@ -595,20 +603,9 @@ export function ProviderWizardDialog({
               ? undefined
               : imageChoice;
         if (resolvedImage) provider_config.image = resolvedImage;
-        if (Object.keys(mergedArgs).length > 0)
-          provider_config.engine_args = mergedArgs;
-
-        // Extra arguments (raw flags not in the curated catalogue)
-        const { args: parsedExtra, issues } = parseRawVllmArgs(extraArgsRaw);
-        if (parsedExtra.length > 0) {
-          provider_config.extra_args = parsedExtra;
-        }
-        if (issues.length > 0) {
-          alert(
-            "Some extra arguments were invalid and have been ignored: " +
-              issues.join(", "),
-          );
-        }
+        if (fields.engine_args) provider_config.engine_args = fields.engine_args;
+        // Extra flags typed as text (checked before Create was allowed)
+        if (fields.extra_args) provider_config.extra_args = fields.extra_args;
 
         // Container resource fields
         if (containerRes.gpuRequest.trim())
@@ -626,17 +623,10 @@ export function ProviderWizardDialog({
 
         // Backward-compat: also populate generic_config with commonly-used fields
         const generic_config: Record<string, unknown> = {};
-        if (mergedArgs["max-model-len"] != null)
-          generic_config.max_model_len = mergedArgs["max-model-len"];
-        if (mergedArgs["dtype"] != null)
-          generic_config.dtype = mergedArgs["dtype"];
-        if (mergedArgs["gpu-memory-utilization"] != null)
-          generic_config.gpu_memory_utilization =
-            mergedArgs["gpu-memory-utilization"];
-        if (mergedArgs["tensor-parallel-size"] != null)
-          generic_config.tensor_parallel_size =
-            mergedArgs["tensor-parallel-size"];
-        if (mergedArgs["enforce-eager"]) generic_config.enforce_eager = true;
+        for (const key of ["max_model_len", "dtype", "gpu_memory_utilization", "tensor_parallel_size"]) {
+          if (engineConfig[key] != null) generic_config[key] = engineConfig[key];
+        }
+        if (engineConfig.enforce_eager) generic_config.enforce_eager = true;
 
         // Resolve model_id: use existing model or create one via download for HF-direct
         let resolvedModelId = modelId;
@@ -1327,13 +1317,25 @@ export function ProviderWizardDialog({
               <AccordionDetails
                 sx={{ display: "flex", flexDirection: "column", gap: 2 }}
               >
-                <VllmEngineArgsPanel
-                  values={engineArgs}
-                  onChange={setEngineArgs}
-                  version={legacyGpu ? "0.6.6" : "0.7.3"}
-                  modelName={models.find((m) => m.id === modelId)?.display_name}
-                  rawArgs={extraArgsRaw}
-                  onRawArgsChange={setExtraArgsRaw}
+                <EngineSettingsEditor
+                  value={engineConfig}
+                  extra={extraArgsRaw}
+                  onChange={(value, extra) => {
+                    setEngineConfig(value);
+                    setExtraArgsRaw(extra);
+                  }}
+                  target="container"
+                  model={{
+                    repoId:
+                      modelSource === "download_from_hf" && hfRepoId.trim()
+                        ? hfRepoId.trim()
+                        : (models.find((m) => m.id === modelId)?.hf_repo_id ??
+                          models.find((m) => m.id === modelId)?.display_name ??
+                          null),
+                  }}
+                  hardware={{
+                    gpuBytes: hwInfo?.gpu.devices[0]?.vram_bytes ?? null,
+                  }}
                 />
                 <FormControlLabel
                   control={
@@ -1355,7 +1357,7 @@ export function ProviderWizardDialog({
                 />
 
                 <Typography variant="subtitle2" sx={{ mt: 1 }}>
-                  Container Resources
+                  {t("container_resources.title")}
                 </Typography>
                 <ContainerResourcesPanel
                   values={containerRes}

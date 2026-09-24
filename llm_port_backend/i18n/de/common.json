@@ -63,7 +63,8 @@
     "inference_group": "KI-Infrastruktur",
     "clusters": "Cluster",
     "deployments": "Deployments",
-    "admin": "Verwaltung"
+    "admin": "Verwaltung",
+    "marketplace": "Modell-Marktplatz"
   },
   "auth": {
     "logout": "Abmelden",
@@ -433,7 +434,12 @@
       "auth": "Authentifizierung",
       "infrastructure": "Infrastruktur",
       "modules": "Module",
-      "notifications": "Benachrichtigungen"
+      "notifications": "Benachrichtigungen",
+      "api_server": "API-Server",
+      "database": "Datenbank",
+      "llm": "LLM",
+      "logging": "Protokollierung",
+      "observability": "Beobachtbarkeit"
     },
     "groups": {
       "auth": "Auth",
@@ -442,8 +448,19 @@
       "mailer": "Mailer",
       "smtp": "SMTP",
       "alerts": "Alarme",
-      "docling": "Docling"
-    }
+      "docling": "Docling",
+      "endpoint": "Endpunkt",
+      "grafana": "Grafana",
+      "huggingface": "Hugging Face",
+      "jwt": "Anmelde-Tokens (JWT)",
+      "langfuse": "Langfuse",
+      "mcp": "MCP",
+      "postgres": "PostgreSQL",
+      "rag_lite": "RAG Lite",
+      "redis": "Redis",
+      "skills": "Skills"
+    },
+    "current_value": "(aktuell: {{value}})"
   },
   "users": {
     "title": "Benutzerverwaltung",
@@ -785,7 +802,8 @@
     "swap_space_help": "CPU-Swap-Speicher pro GPU in GiB zum Auslagern (z. B. 4). Leer lassen fuer vLLM-Standard (1 GiB im Legacy-GPU-Modus).",
     "model_id": "Modell-ID",
     "capabilities": "Fähigkeiten",
-    "supports_embeddings": "Embeddings"
+    "supports_embeddings": "Embeddings",
+    "extra_args_invalid": "Einige zusätzliche Flags sind nicht verwendbar: {{issues}}. Es wurde nichts gespeichert."
   },
   "llm_jobs": {
     "title": "Download-Jobs",
@@ -2035,6 +2053,14 @@
       "traffic_window_one": "Am Gateway gemessen, letzte Minute",
       "traffic_window_other": "Am Gateway gemessen, letzte {{count}} Minuten",
       "engine_reported": "Von der Engine gemeldet"
+    },
+    "engine": {
+      "title": "Engine-Einstellungen",
+      "edit": "Ändern",
+      "defaults": "vLLM-Standardwerte: nichts geändert.",
+      "dialog_title": "Engine-Einstellungen für {{name}}",
+      "restart_warning": "Beim Speichern startet jede Kopie mit den neuen Einstellungen neu. Das Modell ist nicht erreichbar, bis sie wieder laufen. Startet eine Kopie nicht, zeigt diese Seite den Grund, und Sie können die Einstellungen zurücksetzen.",
+      "save_restart": "Speichern und neu starten"
     }
   },
   "audit": {
@@ -2172,5 +2198,252 @@
       "remote_code": "Der eigene Code des Modells läuft auf Ihren Maschinen. Nur für vertrauenswürdige Herausgeber aktiviert lassen.",
       "extra_invalid": "Diese Flags werden nicht akzeptiert und nicht verwendet: {{tokens}}"
     }
+  },
+  "hf_access": {
+    "title": "Hugging-Face-Zugang",
+    "why": "Die Modelle kommen von Hugging Face. Öffentliche Modelle brauchen kein Token. Zugangsbeschränkte Modelle (Llama, Gemma und einige Mistral-Modelle) brauchen ein Token eines Kontos, das ihre Lizenz akzeptiert hat; ein Token erhöht außerdem die Download-Limits.",
+    "none": "Kein Token gesetzt: Dieser Server durchsucht und lädt öffentliche Modelle anonym.",
+    "invalid": "Hugging Face akzeptiert das gespeicherte Token nicht mehr: Es ist vielleicht abgelaufen oder widerrufen. Speichern Sie ein neues.",
+    "unchecked": "Ein Token ist gesetzt, aber dieser Server erreicht Hugging Face nicht, um es zu prüfen.",
+    "signed_in_as": "Bei Hugging Face angemeldet als {{username}}",
+    "token_named": "Token „{{name}}“",
+    "role_write": "Dieses Token darf auch auf Hugging Face schreiben. Dieser Server braucht nur Lesezugriff: Ersetzen Sie es besser durch ein reines Lese-Token.",
+    "from_environment": "Dieses Token stammt aus LLM_PORT_BACKEND_HF_TOKEN in der Umgebung des Servers. Ein hier gespeichertes Token ersetzt es.",
+    "storage_unsafe": "Dieser Server verwendet noch den Standard-Hauptschlüssel für Einstellungen, ein gespeichertes Token wäre also nicht geschützt. Setzen Sie LLM_PORT_BACKEND_SETTINGS_MASTER_KEY auf einen zufälligen Wert und starten Sie neu, bevor Sie eines speichern.",
+    "token_label": "Zugriffstoken",
+    "replace_label": "Durch ein neues Token ersetzen",
+    "create_hint": "Ein Lese-Token erstellen Sie unter",
+    "show": "Token anzeigen",
+    "hide": "Token verbergen",
+    "save": "Prüfen und speichern",
+    "checking": "Wird geprüft…",
+    "security_note": "Verschlüsselt auf diesem Server gespeichert und nie wieder angezeigt, auch nicht Administratoren. Nur dieser Server verwendet es: Die Cluster-Maschinen erhalten ihre Modelle von diesem Server, nicht von Hugging Face.",
+    "remove": "Token entfernen",
+    "remove_confirm": "Token entfernen? Zugangsbeschränkte Modelle lassen sich dann nicht mehr herunterladen.",
+    "chip_anonymous": "Hugging Face: anonym",
+    "chip_invalid": "Hugging Face: Token abgelehnt",
+    "chip_signed_in": "Hugging Face: {{username}}",
+    "chip_set": "Hugging Face: Token gesetzt"
+  },
+  "hosting": {
+    "title": "{{model}} bereitstellen",
+    "title_generic": "ein Modell",
+    "step": {
+      "model": "Modell",
+      "where": "Wo",
+      "settings": "Engine-Einstellungen",
+      "review": "Prüfen"
+    },
+    "model_intro": "Wählen Sie eines der Modelle, die dieser Server vorhält. Weitere finden Sie im Modell-Marktplatz.",
+    "no_models": "Dieser Server hält noch keine Modelle vor.",
+    "find_more": "Ein Modell im Marktplatz finden",
+    "still_downloading": "wird noch heruntergeladen",
+    "added_on": "hinzugefügt am {{date}}",
+    "gpu_share": "Ein Anteil an einem {{accelerator}} ({{percent}} %)",
+    "an_accelerator": "Beschleuniger",
+    "gpu_whole_one": "{{count}} GPU",
+    "gpu_whole_other": "{{count}} GPUs",
+    "cluster_hardware_one": "{{count}} × {{accelerator}} · {{memory}}",
+    "cluster_hardware_other": "{{count}} × {{accelerator}} · je {{memory}}",
+    "cluster_no_gpus": "Noch keine Beschleuniger gemeldet",
+    "no_clusters": "Es gibt noch keinen Cluster für ein Modell. Erstellen Sie zuerst einen aus Ihren Maschinen.",
+    "go_to_clusters": "Zu den Clustern",
+    "no_fit": "Es ließ sich nicht prüfen, wie dieses Modell passt ({{error}}). Sie können es trotzdem bereitstellen; wählen Sie die Größe selbst.",
+    "local_no_fit": "Dieses Modell wurde aus einem lokalen Pfad hinzugefügt, seine Größe ist hier also unbekannt. Wählen Sie, wie viel vom Cluster es erhält.",
+    "where_title": "Cluster",
+    "size_title": "Größe jeder Kopie",
+    "size_share_help": "Mehrere Kopien teilen sich einen Beschleuniger. Jede nimmt nur ihren Anteil am Speicher, der Rest bleibt für andere Modelle frei.",
+    "size_split_help_one": "Jede Kopie wird auf {{count}} Beschleuniger aufgeteilt (Tensor-Parallelität).",
+    "size_split_help_other": "Jede Kopie wird auf {{count}} Beschleuniger aufgeteilt (Tensor-Parallelität). Große Modelle brauchen das; bei kleineren tauscht es Beschleuniger gegen Geschwindigkeit.",
+    "size_one_help": "Jede Kopie läuft auf einem eigenen Beschleuniger.",
+    "copies_label": "Kopien",
+    "copies_help_one": "Der Cluster hat bei dieser Größe Platz für {{count}} Kopie.",
+    "copies_help_other": "Der Cluster hat bei dieser Größe Platz für {{count}} Kopien. Mehr Kopien bedienen mehr Menschen gleichzeitig.",
+    "name_label": "Name der Bereitstellung",
+    "name_help": "Kleinbuchstaben, Ziffern und Bindestriche. Erscheint in Listen und Logs.",
+    "name_invalid": "Verwenden Sie Kleinbuchstaben, Ziffern und Bindestriche, beginnend mit einem Buchstaben oder einer Ziffer.",
+    "chat_label": "Im Chat anbieten als",
+    "chat_help": "Der Name, den man im Chat auswählt und in der API verwendet. Leeren Sie das Feld, um nur über den Endpunkt zu bedienen.",
+    "chat_none": "Nicht im Chat angeboten: nur über seinen Endpunkt erreichbar.",
+    "summary": {
+      "model": "Modell",
+      "cluster": "Cluster",
+      "size": "Größe",
+      "settings": "Engine-Einstellungen"
+    },
+    "copies_value_one": "{{count}} Kopie",
+    "copies_value_other": "{{count}} Kopien",
+    "settings_changed_one": "{{count}} Einstellung weicht von den vLLM-Standardwerten ab",
+    "settings_changed_other": "{{count}} Einstellungen weichen von den vLLM-Standardwerten ab",
+    "settings_default": "vLLM-Standardwerte",
+    "download_note_size": "Der Server lädt das Modell zuerst herunter ({{size}}) und kopiert es dann auf die Maschinen. Die Bereitstellung startet, sobald die Dateien bereitliegen; Sie können sie auf ihrer Seite verfolgen.",
+    "download_note": "Der Server lädt das Modell zuerst herunter und kopiert es dann auf die Maschinen. Die Bereitstellung startet, sobald die Dateien bereitliegen; Sie können sie auf ihrer Seite verfolgen.",
+    "kept_note": "Dieser Server hält das Modell bereits vor: Von Hugging Face wird nichts heruntergeladen.",
+    "busy_warning": "Nicht jede Kopie passt in den gerade freien Speicher (Platz für {{count}}). Die übrigen starten, sobald andere Modelle Platz machen.",
+    "creating": "Bereitstellung wird erstellt…",
+    "host": "Bereitstellen"
+  },
+  "marketplace": {
+    "title": "Modell-Marktplatz",
+    "subtitle": "Finden Sie ein Modell auf Hugging Face, sehen Sie, ob es auf Ihre Cluster passt, und stellen Sie es bereit.",
+    "fit_for": "Passend für Cluster",
+    "no_clusters": "Es gibt noch keinen Cluster, die Passform lässt sich also nicht messen. Stöbern können Sie trotzdem.",
+    "offline": "Dieser Server erreicht Hugging Face nicht: Die Suche ist nicht verfügbar und Größen sind Schätzungen. Modelle, die dieser Server bereits vorhält, lassen sich weiterhin bereitstellen.",
+    "tab": {
+      "recommended": "Empfohlen",
+      "search": "Hugging Face durchsuchen",
+      "local": "Auf diesem Server"
+    },
+    "search_placeholder": "Modelle suchen, z. B. qwen, llama, mistral",
+    "task": {
+      "chat": "Chat",
+      "embedding": "Embeddings",
+      "vision": "Bilder"
+    },
+    "sort_label": "Sortieren nach",
+    "sort": {
+      "trending": "Im Trend",
+      "downloads": "Meiste Downloads",
+      "likes": "Meiste Likes",
+      "recent": "Neueste"
+    },
+    "only_fits": "Nur passende Modelle zeigen",
+    "local_empty": "Dieser Server hält noch keine Modelle von Hugging Face vor.",
+    "search_empty": "Keine Modelle gefunden.",
+    "show_unrunnable_one": "{{count}} Modell zeigen, das vLLM nicht bedienen kann",
+    "show_unrunnable_other": "{{count}} Modelle zeigen, die vLLM nicht bedienen kann",
+    "hide_unrunnable": "Modelle ausblenden, die vLLM nicht bedienen kann",
+    "fit_footnote": "Die Passform wird aus der Größe des Modells, seinem Kontext-Cache und dem Speicher jedes Beschleunigers geschätzt. Der Bereitstellungsdialog zeigt die Einzelheiten, bevor etwas startet.",
+    "group": {
+      "start": "Zum Ausprobieren",
+      "chat": "Allgemeiner Chat",
+      "code": "Programmieren",
+      "reasoning": "Schlussfolgern",
+      "vision": "Bilder",
+      "embedding": "Embeddings"
+    },
+    "group_help": {
+      "start": "Klein und schnell heruntergeladen: eine erste Bereitstellung in Minuten.",
+      "chat": "Assistenten für Alltagsfragen, Texte und Werkzeugnutzung.",
+      "code": "Darauf trainiert, Code zu schreiben und zu erklären.",
+      "reasoning": "Sie denken Schritt für Schritt, bevor sie antworten: langsamer, aber besser bei schweren Aufgaben.",
+      "vision": "Sie lesen Bilder ebenso wie Text.",
+      "embedding": "Sie wandeln Text in Vektoren für Suche und Wissensdatenbanken um, bereitgestellt unter /v1/embeddings."
+    },
+    "capability": {
+      "tools": "Werkzeuge",
+      "reasoning": "Schlussfolgern",
+      "vision": "Bilder",
+      "code": "Code",
+      "embedding": "Embeddings"
+    },
+    "capability_help": {
+      "tools": "Kann Werkzeuge und Funktionen aufrufen.",
+      "reasoning": "Denkt nach, bevor es antwortet.",
+      "vision": "Versteht Bilder.",
+      "code": "Für Code trainiert.",
+      "embedding": "Erzeugt Embeddings für die Suche."
+    },
+    "params_active": "{{total}} · {{active}} aktiv",
+    "fit": {
+      "fits_one": "Passt auf {{count}} GPU",
+      "fits_other": "Passt auf {{count}} GPUs",
+      "shares": "Teilt sich eine GPU",
+      "busy_now": "Passt, aber nicht gerade jetzt",
+      "too_large": "Zu groß",
+      "no_accelerators": "Keine Beschleuniger",
+      "unknown": "Größe unbekannt",
+      "detail_needs": "Braucht etwa {{needed}} von jedem {{total}}-Beschleuniger.",
+      "detail_copies_one": "Platz für {{count}} Kopie.",
+      "detail_copies_other": "Platz für {{count}} Kopien.",
+      "detail_copies_now": "Gerade frei: Platz für {{count}}.",
+      "detail_too_large": "Braucht etwa {{needed}}; der Cluster hat insgesamt {{total}}.",
+      "note": {
+        "kv_estimated": "Die Größe des Kontext-Caches ist geschätzt.",
+        "context_over_model_max": "Der gewünschte Kontext ist länger, als das Modell unterstützt."
+      }
+    },
+    "not_runnable_short": "Nicht für vLLM",
+    "not_runnable": {
+      "gguf": "GGUF-Dateien sind für llama.cpp und Ollama. vLLM bedient das Originalmodell oder eine AWQ-, GPTQ- oder FP8-Version davon.",
+      "mlx": "MLX-Gewichte laufen nur auf Apple Silicon.",
+      "no_weights": "Dieses Repository enthält keine Gewichte, die vLLM laden kann.",
+      "task": "Kein Chat-, Bild- oder Embedding-Modell."
+    },
+    "gated_help": "Zugangsbeschränkt: braucht ein Hugging-Face-Token eines Kontos, das die Lizenz des Modells akzeptiert hat.",
+    "verified": "Hier getestet",
+    "verified_help": "Bereitgestellt auf {{on}} am {{date}}",
+    "local_kept": "Auf diesem Server",
+    "local_downloading": "Wird heruntergeladen",
+    "local_deployed_one": "{{count}}-mal bereitgestellt",
+    "local_deployed_other": "{{count}}-mal bereitgestellt",
+    "downloads_help": "Downloads in den letzten 30 Tagen",
+    "host": "Bereitstellen",
+    "host_on_cluster": "Auf einem Cluster bereitstellen",
+    "detail": {
+      "open_hub": "Auf Hugging Face öffnen",
+      "offline": "Dieser Server erreicht Hugging Face nicht: Das ist, was er ohne es weiß.",
+      "gated": "Zugangsbeschränktes Modell: Zum Herunterladen braucht es ein Hugging-Face-Token eines Kontos, das seine Lizenz akzeptiert hat.",
+      "remote_code": "Dieses Modell bringt eigenen Ladecode mit, der auf Ihren Maschinen läuft. Stellen Sie es nur bereit, wenn Sie seinen Autoren vertrauen.",
+      "fit_title": "Auf Ihren Clustern",
+      "about": "Über das Modell",
+      "read_more": "Die vollständige Modellkarte auf Hugging Face lesen",
+      "facts": "Details",
+      "parameters": "Parameter",
+      "weights": "Gewichte",
+      "context": "Kontextlänge",
+      "tokens": "{{value}} Tokens",
+      "precision": "Genauigkeit",
+      "format": "Format",
+      "architecture": "Architektur",
+      "base_model": "Basiert auf",
+      "license": "Lizenz",
+      "downloads": "Downloads (30 Tage)",
+      "likes": "Likes",
+      "updated": "Aktualisiert",
+      "on_server": "Auf diesem Server",
+      "not_on_server": "Noch nicht",
+      "files_one": "{{count}} Datei · {{size}}",
+      "files_other": "{{count}} Dateien · {{size}}",
+      "all_files_one": "Alle {{count}} Datei zeigen",
+      "all_files_other": "Alle {{count}} Dateien zeigen",
+      "fewer_files": "Weniger zeigen"
+    },
+    "blurb": {
+      "tiny_verified": "Das kleinste brauchbare Chat-Modell, auf diesem Aufbau getestet: der schnellste Weg, eine Bereitstellung von Anfang bis Ende laufen zu sehen.",
+      "tiny": "Winzig und schnell: zum Ausprobieren, nicht für echte Arbeit.",
+      "small_capable": "Klein, aber fähig: läuft fast überall und schafft Alltags-Chat und einfache Werkzeugnutzung.",
+      "all_rounder": "Ein starker Allrounder, der bequem auf einen Beschleuniger passt.",
+      "stronger": "Spürbar bessere Antworten als die 8B-Modelle, für mehr Speicher.",
+      "gpt_oss_small": "Das Open-Weight-Modell von OpenAI: starkes Schlussfolgern und Werkzeugnutzung bei bescheidener Größe.",
+      "moe_fast": "Mixture of Experts: das Wissen eines 30B-Modells mit der Geschwindigkeit eines 3B-Modells.",
+      "mistral_small": "Das kleine Modell von Mistral: gut darin, Anweisungen zu folgen, bei Werkzeugen und europäischen Sprachen.",
+      "gpt_oss_large": "Das große Open-Weight-Modell von OpenAI: Schlussfolgern nahe der Spitze; braucht einen großen Beschleuniger oder mehrere.",
+      "large_dense": "Ein großes dichtes Modell: sehr fähig und braucht viel Beschleunigerspeicher.",
+      "coder": "Für Code gebaut: Vervollständigung, Erklärung und agentische Programmierwerkzeuge.",
+      "reasoning": "Denkt Schritt für Schritt, bevor es antwortet: besser in Mathematik und Logik, antwortet langsamer.",
+      "vision": "Liest Bilder und Dokumente ebenso wie Text.",
+      "gemma": "Das offene Modell von Google: starker mehrsprachiger Chat, der auch Bilder versteht.",
+      "embedding_small": "Ein kleines, schnelles Embedding-Modell für Suche und Wissensdatenbanken.",
+      "embedding_large": "Ein großes Embedding-Modell: bessere Treffer, mehr Speicher."
+    }
+  },
+  "container_resources": {
+    "title": "Container-Ressourcen",
+    "auto": "Automatisch",
+    "gpus": "GPUs",
+    "gpus_help": "Welche GPUs der Container sieht. Automatisch gibt vLLM alle.",
+    "gpus_all": "Alle GPUs",
+    "gpus_ids": "GPU {{ids}}",
+    "ipc": "Modus für gemeinsamen Speicher (IPC)",
+    "ipc_help": "Automatisch verwendet host: Die Prozesse von vLLM teilen Speicher, dafür braucht es host oder einen großen gemeinsamen Speicher.",
+    "shm": "Größe des gemeinsamen Speichers",
+    "shm_help": "Nur wenn IPC nicht host ist, z. B. 16g.",
+    "memory": "Speicherlimit",
+    "memory_help": "Arbeitsspeicher, den der Container nutzen darf, z. B. 32g. Leer: kein Limit.",
+    "cpus": "CPU-Limit",
+    "cpus_help": "CPU-Kerne, die der Container nutzen darf. Leer: kein Limit.",
+    "port": "Port im Container",
+    "port_help": "Wo vLLM im Container lauscht. Leer: 8000."
   }
 }
