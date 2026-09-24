@@ -339,6 +339,69 @@ async def test_a_failed_sync_blocks_the_deploy_without_offline_only(
 
 
 @pytest.mark.anyio
+async def test_a_model_the_server_is_downloading_is_waited_for(
+    dbsession: AsyncSession,
+) -> None:
+    """Hosting from the marketplace downloads the model as it deploys it.
+
+    The deployment used to be applied at once -- "fall back to remote source",
+    because the environment was not ``offline_only`` -- and Ray failed it three
+    times with "Cannot find an appropriate cached snapshot folder": the runtime
+    is air-gapped and the model was still on its way to the server. It waits
+    for the download instead, says so, and hands nothing to Ray.
+    """
+    from llm_port_backend.db.models.llm import DownloadJob, DownloadJobStatus
+
+    cp = InferenceControlPlane(name=f"cp-{uuid.uuid4().hex[:8]}", driver="ray")
+    dbsession.add(cp)
+    await dbsession.flush()
+    node = InfraNode(
+        agent_id=f"head-{uuid.uuid4().hex[:8]}", host="10.0.0.1", status="healthy",
+        capabilities_json=dict(DGX_SPARK_PLATFORM),
+    )
+    dbsession.add(node)
+    await dbsession.flush()
+    env = InferenceEnvironment(
+        control_plane_id=cp.id,
+        name=f"env-{uuid.uuid4().hex[:8]}",
+        head_node_id=node.id,
+        status=EnvironmentStatus.READY.value,
+        config_json={"runtime_bundle_id": "bundle-dgx-spark-gb10-v1"},
+    )
+    dbsession.add(env)
+    await dbsession.flush()
+    dbsession.add(InferenceEnvironmentNode(environment_id=env.id, node_id=node.id, role="head"))
+    model = LLMModel(
+        display_name="Qwen3-0.6B",
+        source=ModelSource.HUGGINGFACE,
+        status=ModelStatus.DOWNLOADING,
+        hf_repo_id="Qwen/Qwen3-0.6B",
+    )
+    dbsession.add(model)
+    await dbsession.flush()
+    dbsession.add(DownloadJob(model_id=model.id, status=DownloadJobStatus.RUNNING, progress=40))
+    dep = InferenceDeployment(
+        environment_id=env.id,
+        model_id=model.id,
+        name=f"dep-{uuid.uuid4().hex[:8]}",
+        spec_json=_spec(),
+        phase=DeploymentPhase.PENDING.value,
+    )
+    dbsession.add(dep)
+    await dbsession.commit()
+
+    fake_control = _FakeNodeControlService()
+    await RayDeploymentManager().reconcile_deployment(dbsession, dep, node_control=fake_control)
+
+    assert dep.phase == DeploymentPhase.PREPARING.value
+    assert "Downloading Qwen/Qwen3-0.6B to the LLM.Port server (40%)" in (dep.phase_message or "")
+    assert (dep.observed_status_json or {})["observation"]["reason"] == "model_downloading_to_server"
+    assert not any(
+        c["command_type"] == NodeCommandType.RUN_SERVE_APP.value for c in fake_control.issued
+    )
+
+
+@pytest.mark.anyio
 async def test_deployment_offline_only_blocks_on_missing_artifact(
     dbsession: AsyncSession,
 ) -> None:

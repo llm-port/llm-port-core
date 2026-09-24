@@ -286,6 +286,38 @@ def test_a_long_traceback_is_truncated_not_dumped() -> None:
     assert detail.endswith("...")
 
 
+def test_a_replica_that_failed_to_start_says_why() -> None:
+    """The live one: the reason is the traceback's last line, not its first.
+
+    Cut at the limit, the message read "... Error: ray::ServeReplica... File
+    ... return self. ..." and the operator never saw why.
+    """
+    from llm_port_backend.services.inference.drivers.ray.deployment import (
+        _failure_detail,
+    )
+
+    lines = [
+        "The deployment failed to start 3 times in a row. This may be due to a problem with its "
+        "constructor or initial health check failing. See controller logs for details. Error:",
+        "ray::ServeReplica:llmport-a34b:LLMServer:Qwen3-0_6B.initialize_and_get_metadata() (pid=1)",
+        '  File "/usr/lib/python3.12/concurrent/futures/_base.py", line 449, in result',
+        "    return self.__get_result()",
+        *(["    ^^^^^^^^^^^^^^^^^^^"] * 40),
+        "RuntimeError: Traceback (most recent call last):",
+        "ray.exceptions.RayTaskError(RuntimeError): ray::_get_vllm_engine_config() (pid=2)",
+        '  File "/usr/local/lib/python3.12/dist-packages/ray/llm/vllm_engine.py", line 206',
+        "RuntimeError: Failed to create vLLM engine config: Cannot find an appropriate cached "
+        "snapshot folder for the specified revision on the local disk and outgoing traffic has "
+        "been disabled.",
+    ]
+    message = "\n".join(lines)
+    app = {"deployments": {"LLMServer:Qwen3-0_6B": {"status": "DEPLOY_FAILED", "message": message}}}
+    detail = _failure_detail(app)
+    assert detail.startswith("The deployment failed to start 3 times in a row.")
+    assert "RuntimeError: Failed to create vLLM engine config: Cannot find an appropriate cached" in detail
+    assert "return self" not in detail
+
+
 def test_no_app_means_no_claim() -> None:
     from llm_port_backend.services.inference.drivers.ray.deployment import (
         _failure_detail,

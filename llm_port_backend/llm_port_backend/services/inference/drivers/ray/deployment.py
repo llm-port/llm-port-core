@@ -49,6 +49,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import re
 import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -211,11 +212,34 @@ def _failure_detail(app: dict[str, Any] | None, *, limit: int = 600) -> str:
         if text and not inner:
             inner = text
     detail = inner or outer
+    cause = _traceback_cause(detail)
+    if cause is not None:
+        # A replica that failed to start: Ray's first line is only "failed to
+        # start 3 times in a row ... Error:", then frames, and the reason is
+        # the traceback's *last* exception line. Cut at the limit, the message
+        # ended in "return self. ..." and never reached "Cannot find an
+        # appropriate cached snapshot folder" -- the one line that mattered.
+        headline = detail.splitlines()[0].strip()
+        if headline.endswith("Error:"):
+            headline = headline[: -len("Error:")].rstrip()
+        detail = f"{headline} {cause}" if cause not in headline else headline
     if len(detail) > limit:
-        # Ray's message carries a full traceback; the first lines hold the
-        # cause and the rest is frames the operator cannot act on.
         detail = detail[:limit].rstrip() + " ..."
     return detail
+
+
+_EXCEPTION_LINE = re.compile(r"^\s*((?:[A-Za-z_]\w*\.)*[A-Za-z_]\w*(?:Error|Exception|Exit|Timeout)\w*)(?:\([^)]*\))?: (\S.*)$")
+
+
+def _traceback_cause(text: str) -> str | None:
+    """The last exception line of a traceback in *text*, or None when there is none."""
+    if "Traceback" not in text and '\n  File "' not in text:
+        return None
+    for line in reversed(text.splitlines()):
+        match = _EXCEPTION_LINE.match(line)
+        if match:
+            return f"{match.group(1)}: {match.group(2).strip()}"
+    return None
 
 
 def _model_server_deployments(app: dict[str, Any]) -> dict[str, Any]:
@@ -358,6 +382,12 @@ def _scaling_message(
             "accelerators it needs."
         )
     return message
+
+
+def _is_downloading(model: Any) -> bool:
+    """Whether this server is downloading *model* now."""
+    status = getattr(model, "status", None)
+    return str(getattr(status, "value", status) or "").lower() == "downloading"
 
 
 @dataclass
@@ -682,6 +712,15 @@ class RayDeploymentManager:
             # again.
             gateway = _gateway(node_control)
             coordinator = ModelArtifactCoordinator(session, gateway=gateway)
+            # A model this server is downloading right now is on its way here,
+            # not something to fetch elsewhere: wait for it, then copy it to
+            # the machines. Deciding on ``offline_only`` alone let a model
+            # hosted from the marketplace -- downloaded as it is deployed --
+            # "fall back to remote source" at once, and Ray failed it three
+            # times with "Cannot find an appropriate cached snapshot folder"
+            # (the runtime is air-gapped, above).
+            server_downloading = _is_downloading(facts.model)
+            server_only = offline_only or (server_downloading and not allow_remote_fetch)
             # Keep what ``ensure`` decided. It is the call that knows whether a
             # sync could actually be issued, and it refuses with a sentence
             # naming the model and the directory it looked in -- "this server
@@ -692,14 +731,14 @@ class RayDeploymentManager:
             readiness = await coordinator.ensure(
                 model=facts.model,
                 environment=facts.environment,
-                fetch_to_server=offline_only,
+                fetch_to_server=server_only,
             )
             facts.artifact_readiness = readiness
 
             cannot_reach = bool(readiness.failed_node_ids or readiness.blockers)
 
-            if offline_only and readiness.blockers:
-                # Offline-only: nothing else is going to fetch this model, so
+            if server_only and readiness.blockers:
+                # Server-only: nothing else is going to fetch this model, so
                 # the coordinator's refusal is the end of the road and the
                 # operator needs to read it. With remote fetch allowed the
                 # same refusal is not fatal -- the node downloads the model
@@ -720,7 +759,7 @@ class RayDeploymentManager:
                 )
                 return
 
-            if not offline_only and cannot_reach:
+            if not server_only and cannot_reach:
                 log.info(
                     "Local artifact sync cannot be reached (%s); falling back to remote source for deployment %s",
                     readiness.blockers or readiness.failed_node_ids,
@@ -734,7 +773,7 @@ class RayDeploymentManager:
                     "ready_node_ids": readiness.ready_node_ids,
                     "pending_node_ids": readiness.pending_node_ids,
                 }
-                if not offline_only:
+                if not server_only:
                     obs_data["remote_fallback_available"] = True
 
                 if readiness.waiting_on:
