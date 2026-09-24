@@ -1573,5 +1573,258 @@
     "step_check_updates": "检查更新",
     "step_apply_updates": "应用更新",
     "step_done": "完成"
+  },
+  "clusters": {
+    "unknown_machine": "未知",
+    "machine_count_one": "{{count}} 台机器",
+    "machine_count_other": "{{count}} 台机器",
+    "no_machines_yet": "暂无机器",
+    "machines_with_leads_one": "{{machines}} · {{count}} 台主节点",
+    "machines_with_leads_other": "{{machines}} · {{count}} 台主节点",
+    "machine_kinds_one": "{{count}} 种机器",
+    "machine_kinds_other": "{{count}} 种机器",
+    "deployment_count_one": "{{count}} 个部署",
+    "deployment_count_other": "{{count}} 个部署",
+    "replica_count_one": "{{count}} 个副本",
+    "replica_count_other": "{{count}} 个副本",
+    "phase": {
+      "pending": "排队中",
+      "preparing": "正在复制模型",
+      "applying": "正在启动",
+      "running": "服务中",
+      "degraded": "降级",
+      "stopped": "已停止",
+      "failed": "失败",
+      "deleted": "已删除"
+    },
+    "status": {
+      "starting": "正在启动",
+      "running": "运行中",
+      "degraded": "需要处理",
+      "failed": "失败",
+      "stopped": "已停止"
+    },
+    "next": {
+      "no_nodes": {
+        "title": "添加第一台机器",
+        "detail": "集群由运行 LLM.Port 代理的机器组成。添加一台即可开始。",
+        "action": "添加机器"
+      },
+      "no_cluster": {
+        "title": "创建集群",
+        "detail_one": "{{count}} 台机器已就绪，可以组成用于提供模型服务的集群。",
+        "detail_other": "{{count}} 台机器已就绪，可以组成用于提供模型服务的集群。",
+        "action": "创建集群"
+      },
+      "fleet_ready": {
+        "title": "集群已设置完成",
+        "detail": "打开集群可查看其机器，或在其上部署模型。"
+      },
+      "empty": {
+        "title": "向此集群添加机器",
+        "detail": "集群至少需要一台机器才能启动。",
+        "action": "添加机器"
+      },
+      "network": {
+        "title": "选择网络",
+        "detail_many": "我们能看到这些机器共享哪些网络。选择一个，集群就会在其上启动。",
+        "detail_one": "确认此机器提供服务所用的网络，集群随即启动。",
+        "action": "选择网络"
+      },
+      "stopped": {
+        "title": "此集群已停止",
+        "detail": "启动它即可再次提供模型服务。其机器和网络均会保留。",
+        "action": "启动集群"
+      },
+      "degraded": {
+        "title": "集群需要处理",
+        "detail": "部分机器未上报。打开下方的“高级”查看完整状态。",
+        "action": "重试"
+      },
+      "starting": {
+        "title": "正在启动集群",
+        "detail_one": "正在准备 {{count}} 台机器：获取运行时并启动主节点。",
+        "detail_other": "正在准备 {{count}} 台机器：获取运行时、启动主节点并加入其他节点。"
+      },
+      "ready": {
+        "title": "部署模型",
+        "detail": "集群正在运行，但还没有可提供服务的模型。",
+        "action": "部署模型"
+      },
+      "deploying": {
+        "title_one": "正在启动 {{name}}",
+        "title_many": "正在启动 {{count}} 个部署",
+        "detail": "正在将模型复制到需要的机器，然后启动副本。"
+      },
+      "failed": {
+        "title_one": "{{count}} 个部署启动失败",
+        "title_other": "{{count}} 个部署启动失败",
+        "detail": "打开该部署以查看其日志。"
+      },
+      "serving": {
+        "title": "服务中",
+        "detail": "{{deployments}}正在 {{replicas}}上运行。"
+      }
+    },
+    "list": {
+      "title": "集群",
+      "create": "创建集群",
+      "empty_title": "暂无集群",
+      "empty_detail": "将机器组成集群，即可共同提供模型服务。",
+      "accelerators_one": "{{count}} 个加速器",
+      "accelerators_other": "{{count}} 个加速器",
+      "no_accelerators": "未报告加速器",
+      "advanced_schedulers": "高级：调度器"
+    },
+    "role": {
+      "head": "主节点",
+      "worker": "工作节点"
+    },
+    "machine_status": {
+      "healthy": "健康",
+      "degraded": "降级",
+      "unhealthy": "不健康",
+      "offline": "离线",
+      "maintenance": "维护中",
+      "draining": "正在排空",
+      "pending": "等待中"
+    },
+    "network": {
+      "title": "选择网络",
+      "looking": "正在查看这些机器共享的网络…",
+      "applying": "正在设置网络…",
+      "starting": "正在启动集群…",
+      "use": "使用此网络",
+      "use_cidr": "使用 {{cidr}}",
+      "blocked": "这些机器暂时无法组成集群。",
+      "intro": "这些机器可以通过以下网络互相访问。建议选择不与管理流量共享的最快网络。",
+      "none": "这些机器之间没有找到共享网络。",
+      "recommended": "推荐",
+      "tested_ok": "已测试——可用",
+      "tested_unreachable": "已测试——不可达",
+      "management": "与管理流量共享"
+    },
+    "topology": {
+      "empty": "此集群中暂无机器。",
+      "aria": "集群拓扑",
+      "leads": "主导集群",
+      "in_use": "已用 {{pct}}%",
+      "legend_healthy": "健康",
+      "legend_busy": "高负载",
+      "legend_dropped": "已掉线",
+      "legend_silent": "未上报",
+      "legend_motion": "机器在集群中时圆环会脉动；出现光晕表示它正在工作。"
+    },
+    "create": {
+      "title": "创建集群",
+      "step_name": "命名",
+      "step_machines": "选择机器",
+      "step_network": "确认网络",
+      "intro": "集群将多台机器组合在一起，共同提供模型服务。",
+      "name": "集群名称",
+      "pick_intro": "选择用于提供模型服务的机器。之后还可以添加更多。",
+      "no_machines": "尚未注册任何机器。请先在“机器”中添加一台。",
+      "use_machine": "使用 {{name}}",
+      "in_other_cluster": "已在其他集群中",
+      "no_image_reason": "此平台没有认证镜像",
+      "unsupported_one": "{{machines}} 上没有可运行的认证运行时镜像。请移除后继续：没有适配其架构镜像的机器无法加入集群。",
+      "unsupported_other": "{{machines}} 上没有可运行的认证运行时镜像。请移除后继续：没有适配其架构镜像的机器无法加入集群。",
+      "runs_bundle": "{{machine}} 运行 {{bundle}} · 运行时 {{runtime}} · vLLM {{vllm}}",
+      "head_label": "由哪台机器主导集群",
+      "head_help": "已为您选择加速器最多的机器。如有需要可以更改。",
+      "no_driver": "此服务器未注册推理驱动，无法运行集群。",
+      "control_plane_description": "随第一个集群自动创建。",
+      "working_create": "正在创建集群…",
+      "working_members": "正在添加机器…",
+      "working_replan": "机器的网络已变化——正在重新检查…",
+      "replanned": "在您选择时有机器上报了新的网络信息，因此选项已刷新。请确认以继续。",
+      "submit": "创建集群"
+    },
+    "deployments": {
+      "title": "部署",
+      "col_name": "名称",
+      "col_model": "模型",
+      "col_cluster": "集群",
+      "col_state": "状态",
+      "col_copies": "副本",
+      "col_address": "地址",
+      "stopping": "正在停止",
+      "not_published": "尚未发布",
+      "go_to_clusters": "前往集群",
+      "no_cluster": "还没有可部署的集群。请先创建一个。",
+      "empty": "尚未部署任何内容。",
+      "search": "搜索部署…",
+      "delete_title": "删除此部署？",
+      "delete_message": "“{{name}}”将停止服务并从其集群中移除。"
+    },
+    "found": {
+      "title": "在您的机器上运行，但未在此管理",
+      "intro": "这些集群由某台 LLM.Port 服务器启动，但它已不再识别它们：服务器被重建，或从较早的备份恢复。接管一个集群即可重新在此管理，其模型全程持续提供服务。",
+      "looking": "正在查找…",
+      "look_again": "重新查找",
+      "retry": "重试",
+      "load_failed": "无法查找您的机器上已在运行的集群：{{error}}",
+      "runtime": "运行时 {{version}}",
+      "take_over_open": "接管…",
+      "take_over": "接管",
+      "checking": "正在与集群核对…",
+      "gpus_per_copy": "每个副本的 GPU",
+      "copies_running": "{{total}} 个中有 {{running}} 个在运行",
+      "no_models": "它没有运行由 LLM.Port 部署的模型。",
+      "other_apps": "同样在运行、并非由 LLM.Port 部署、将保持原样：{{apps}}。",
+      "unreadable": "{{name}} 运行着集群运行时，但无法说明其提供的服务：{{error}}",
+      "dialog_title": "接管 {{name}} 上的集群",
+      "dialog_explain": "集群及其模型将按当前运行状态记录在此，不会重启任何内容。首先会请集群确认本服务器为每个模型部署的配置与正在运行的完全一致。如有差异，则不记录任何内容并告诉您差异所在。",
+      "alias_label": "{{model}}：网关中的名称",
+      "alias_help": "客户端请求时使用的模型名。旧服务器的名称不会保存在机器上。"
+    },
+    "detail": {
+      "not_found": "未找到集群。",
+      "deleting": "正在删除集群…",
+      "stopping_for_delete": "正在其机器上停止集群…",
+      "stop_unconfirmed": "机器未确认集群已停止。请检查它们是否在线，然后重试。",
+      "check_now": "立即检查",
+      "machines": "机器",
+      "machines_up": "{{total}} 台中 {{up}} 台在线",
+      "accelerators": "加速器",
+      "none_reported": "未上报",
+      "free_accelerators": "空闲加速器",
+      "n_of_m": "{{n}} / {{m}}",
+      "wiring": "此集群的连接方式",
+      "open_dashboard": "打开指标仪表板",
+      "click_machine": "点击机器可查看其正在运行的内容。",
+      "pools_explain": "一个模型同一时间只在一种机器上运行，因此部署时您要在这些组之间选择。",
+      "models": "此集群上的模型",
+      "nothing_deployed": "这里尚未部署任何内容。",
+      "unknown_model": "未知模型",
+      "advanced": "高级",
+      "health_checks": "健康检查",
+      "no_checks": "尚未记录任何检查。",
+      "check": "检查",
+      "metrics_unavailable": "指标不可用：{{error}}",
+      "prometheus_targets": "Prometheus 目标：{{targets}}",
+      "change_network": "更改网络",
+      "raw_status": "显示原始状态",
+      "drawer_leads": "主导集群",
+      "drawer_worker": "工作节点",
+      "fleet_status": "机器状态",
+      "in_cluster": "在集群中",
+      "member_alive": "已连接",
+      "not_reported": "未上报",
+      "joined": "加入时间",
+      "machine_group": "机器组",
+      "not_grouped": "尚未分组",
+      "drawer_deployments": "此集群上的部署",
+      "none": "无。",
+      "placement_unknown": "运行时不会报告哪台机器运行哪个副本。",
+      "remove_machine": "从集群中移除",
+      "delete_title": "删除此集群？",
+      "delete_has_deployments": "它仍有部署。请先删除这些部署，以免有模型继续在这些机器上运行。",
+      "delete_offline": "其机器已离线，因此无法从这里停止集群。仍会将其删除；它在机器上留下的内容会在该机器下次启动集群时被替换。",
+      "delete_running": "它正在运行。会先将其停止，以免在机器上留下任何内容，然后再删除。机器仍保持注册。",
+      "delete_stopped": "集群将被删除。其机器仍保持注册，并可加入其他集群。",
+      "remove_title": "移除此机器？",
+      "remove_message": "{{name}} 将离开集群，其承担的正在运行的模型部分会停止。"
+    }
   }
 }

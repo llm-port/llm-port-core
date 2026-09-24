@@ -6,6 +6,8 @@
  * with the same evidence, and a divergence between them would mean an
  * operator sees different reasoning depending on which door they came in.
  */
+import { useTranslation } from "react-i18next";
+
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Chip from "@mui/material/Chip";
@@ -22,11 +24,12 @@ export interface NetworkPickerProps {
 }
 
 export function NetworkPicker({ plan, selectedId, onSelect }: NetworkPickerProps) {
+  const { t } = useTranslation();
   return (
     <Stack spacing={1.5}>
       {plan.blockers.length > 0 && (
         <Alert severity="error">
-          <strong>These machines cannot form a cluster yet.</strong>
+          <strong>{t("clusters.network.blocked")}</strong>
           <ul style={{ margin: "6px 0 0 16px" }}>
             {plan.blockers.map((blocker) => (
               <li key={blocker}>{blocker}</li>
@@ -41,13 +44,12 @@ export function NetworkPicker({ plan, selectedId, onSelect }: NetworkPickerProps
       ))}
 
       <Typography variant="body2" color="text.secondary">
-        These machines can reach each other over the networks below. We recommend
-        the fastest one that is not shared with management traffic.
+        {t("clusters.network.intro")}
       </Typography>
 
       {plan.candidates.length === 0 && (
         <Alert severity="info">
-          No shared network was found between these machines.
+          {t("clusters.network.none")}
         </Alert>
       )}
 
@@ -69,7 +71,7 @@ export function NetworkPicker({ plan, selectedId, onSelect }: NetworkPickerProps
         >
           <Radio
             checked={selectedId === candidate.candidate_id}
-            slotProps={{ input: { "aria-label": `Use ${candidate.cidr}` } }}
+            slotProps={{ input: { "aria-label": t("clusters.network.use_cidr", { cidr: candidate.cidr }) } }}
           />
           <Box sx={{ flexGrow: 1, minWidth: 0 }}>
             <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
@@ -77,7 +79,7 @@ export function NetworkPicker({ plan, selectedId, onSelect }: NetworkPickerProps
                 {candidate.speed_gbps} Gb/s {candidate.fabric_type}
               </Typography>
               {candidate.recommended && (
-                <Chip size="small" color="success" label="recommended" />
+                <Chip size="small" color="success" label={t("clusters.network.recommended")} />
               )}
               {candidate.validation.performed && (
                 <Chip
@@ -86,15 +88,15 @@ export function NetworkPicker({ plan, selectedId, onSelect }: NetworkPickerProps
                   color={candidate.validation.reachable ? "success" : "error"}
                   label={
                     candidate.validation.reachable
-                      ? "we tested it — it works"
-                      : "we tested it — unreachable"
+                      ? t("clusters.network.tested_ok")
+                      : t("clusters.network.tested_unreachable")
                   }
                 />
               )}
             </Stack>
             <Typography variant="caption" color="text.secondary" display="block">
               {candidate.cidr}
-              {candidate.is_management ? " · shared with management traffic" : ""}
+              {candidate.is_management ? ` · ${t("clusters.network.management")}` : ""}
             </Typography>
             {(candidate.recommendation_reason || candidate.reasons.length > 0) && (
               <Typography variant="caption" color="text.secondary" display="block">

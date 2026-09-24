@@ -6,6 +6,7 @@
  * is never left guessing which of four screens to visit first.
  */
 import { useState, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router";
 
 import { inferenceApi } from "~/api/inference";
@@ -32,7 +33,7 @@ import { ControlPlanesDialog } from "../inference/ControlPlanesDialog";
 import { CreateClusterWizard } from "./CreateClusterWizard";
 import { FoundClustersCard } from "./FoundClustersCard";
 import { NextStepBanner } from "./NextStepBanner";
-import { clusterStatusColor, memberSummary } from "./presentation";
+import { clusterStatusColor, clusterStatusLabel, memberSummary } from "./presentation";
 import { fleetReadiness, gpuCount } from "./readiness";
 
 interface FleetData {
@@ -68,6 +69,7 @@ async function loadMembers(
 }
 
 export default function ClustersPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   // The cluster list is the page. The fleet and the memberships decorate it
   // and arrive when they arrive.
@@ -134,7 +136,7 @@ export default function ClustersPage() {
 
       <Stack direction="row" alignItems="center" spacing={1}>
         <Typography variant="h6" sx={{ flexGrow: 1 }}>
-          Clusters
+          {t("clusters.list.title")}
         </Typography>
         <Button
           variant="contained"
@@ -143,7 +145,7 @@ export default function ClustersPage() {
           disabled={data.nodes.length === 0}
           onClick={() => setWizardOpen(true)}
         >
-          Create a cluster
+          {t("clusters.list.create")}
         </Button>
       </Stack>
 
@@ -152,10 +154,10 @@ export default function ClustersPage() {
           <CardContent sx={{ textAlign: "center", py: 5 }}>
             <MemoryIcon sx={{ fontSize: 40, color: "text.disabled" }} />
             <Typography variant="body1" sx={{ mt: 1 }}>
-              No clusters yet
+              {t("clusters.list.empty_title")}
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Group your machines into a cluster and they can serve models together.
+              {t("clusters.list.empty_detail")}
             </Typography>
           </CardContent>
         </Card>
@@ -186,7 +188,7 @@ export default function ClustersPage() {
                         </Typography>
                         <Chip
                           size="small"
-                          label={cluster.status}
+                          label={clusterStatusLabel(cluster.status)}
                           color={clusterStatusColor(cluster.status)}
                         />
                       </Stack>
@@ -195,8 +197,8 @@ export default function ClustersPage() {
                       </Typography>
                       <Typography variant="body2" color="text.secondary">
                         {accelerators > 0
-                          ? `${accelerators} accelerator${accelerators === 1 ? "" : "s"}`
-                          : "no accelerators reported"}
+                          ? t("clusters.list.accelerators", { count: accelerators })
+                          : t("clusters.list.no_accelerators")}
                       </Typography>
                       {cluster.status_message && (
                         <Typography variant="caption" color="warning.main" display="block" sx={{ mt: 1 }}>
@@ -221,7 +223,7 @@ export default function ClustersPage() {
         sx={{ alignSelf: "flex-start", opacity: 0.7 }}
         onClick={() => setPlanesOpen(true)}
       >
-        Advanced: schedulers
+        {t("clusters.list.advanced_schedulers")}
       </Button>
 
       <ControlPlanesDialog

@@ -12,12 +12,13 @@
  * with an override, rather than hidden.
  */
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { inferenceApi } from "~/api/inference";
 import type { EnvironmentPlan, RuntimeBundle } from "~/api/inference";
 import type { ManagedNode } from "~/api/nodes";
 import { NetworkPicker } from "./NetworkPicker";
-import { nodeLabel } from "./presentation";
+import { machineStatusLabel, nodeLabel } from "./presentation";
 import { gpuCount, suggestHeadNode } from "./readiness";
 
 import Alert from "@mui/material/Alert";
@@ -39,7 +40,7 @@ import Stepper from "@mui/material/Stepper";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 
-const STEPS = ["Name it", "Pick machines", "Confirm the network"];
+const STEPS = ["name", "machines", "network"] as const;
 
 export interface CreateClusterWizardProps {
   open: boolean;
@@ -57,6 +58,7 @@ export function CreateClusterWizard({
   onClose,
   onCreated,
 }: CreateClusterWizardProps) {
+  const { t } = useTranslation();
   const [step, setStep] = useState(0);
   const [name, setName] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
@@ -124,7 +126,7 @@ export function CreateClusterWizard({
       const reason = bundle.incompatible[nodeId];
       if (reason) return reason;
     }
-    return "no certified image for this platform";
+    return t("clusters.create.no_image_reason");
   }
 
   function toggle(nodeId: string) {
@@ -154,14 +156,12 @@ export function CreateClusterWizard({
 
     const drivers = await inferenceApi.listDrivers().catch(() => [] as string[]);
     if (drivers.length === 0) {
-      throw new Error(
-        "This server has no inference driver registered, so it cannot run a cluster.",
-      );
+      throw new Error(t("clusters.create.no_driver"));
     }
     const created = await inferenceApi.createControlPlane({
       name: "default",
       driver: drivers[0],
-      description: "Created automatically with the first cluster.",
+      description: t("clusters.create.control_plane_description"),
     });
     return created.id;
   }
@@ -169,7 +169,7 @@ export function CreateClusterWizard({
   /** Steps 1-2 committed, then ask the backend what networks exist. */
   async function createAndPlan() {
     setError(null);
-    setWorking("Creating the cluster…");
+    setWorking(t("clusters.create.working_create"));
     try {
       const controlPlaneId = await ensureControlPlane();
       const cluster = await inferenceApi.createEnvironment({
@@ -179,7 +179,7 @@ export function CreateClusterWizard({
       });
       setClusterId(cluster.id);
 
-      setWorking("Adding the machines…");
+      setWorking(t("clusters.create.working_members"));
       for (const node of chosen) {
         await inferenceApi.addEnvironmentNode(
           cluster.id,
@@ -188,7 +188,7 @@ export function CreateClusterWizard({
         );
       }
 
-      setWorking("Looking at the networks these machines share…");
+      setWorking(t("clusters.network.looking"));
       const found = await inferenceApi.planEnvironment(cluster.id);
       setPlan(found);
       setCandidateId(found.recommended_candidate_id);
@@ -213,20 +213,20 @@ export function CreateClusterWizard({
     if (!clusterId || !plan) return;
     setError(null);
     setNotice(null);
-    setWorking("Setting up the network…");
+    setWorking(t("clusters.network.applying"));
     try {
       await inferenceApi.applyEnvironmentPlan(clusterId, {
         plan,
         selected_candidate_id: candidateId,
       });
-      setWorking("Starting the cluster…");
+      setWorking(t("clusters.network.starting"));
       await inferenceApi.reconcileEnvironment(clusterId);
       onCreated(clusterId);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       const stale = /stale plan/i.test(message);
       if (stale && !isRetry) {
-        setWorking("The machines' networks changed — checking again…");
+        setWorking(t("clusters.create.working_replan"));
         try {
           const refreshed = await inferenceApi.planEnvironment(clusterId);
           setPlan(refreshed);
@@ -241,9 +241,7 @@ export function CreateClusterWizard({
           setCandidateId(
             sameNetwork?.candidate_id ?? refreshed.recommended_candidate_id,
           );
-          setNotice(
-            "One of the machines reported new network details while you were choosing, so these options were refreshed. Confirm to continue.",
-          );
+          setNotice(t("clusters.create.replanned"));
           return;
         } catch (retryErr: unknown) {
           setError(
@@ -265,12 +263,12 @@ export function CreateClusterWizard({
 
   return (
     <Dialog open={open} onClose={busy ? undefined : onClose} maxWidth="md" fullWidth>
-      <DialogTitle>Create a cluster</DialogTitle>
+      <DialogTitle>{t("clusters.create.title")}</DialogTitle>
       <DialogContent dividers>
         <Stepper activeStep={step} sx={{ mb: 3 }}>
-          {STEPS.map((label) => (
-            <Step key={label}>
-              <StepLabel>{label}</StepLabel>
+          {STEPS.map((key) => (
+            <Step key={key}>
+              <StepLabel>{t(`clusters.create.step_${key}`)}</StepLabel>
             </Step>
           ))}
         </Stepper>
@@ -299,10 +297,10 @@ export function CreateClusterWizard({
         {step === 0 && (
           <Stack spacing={2}>
             <Typography variant="body2" color="text.secondary">
-              A cluster groups machines so they can serve models together.
+              {t("clusters.create.intro")}
             </Typography>
             <TextField
-              label="Cluster name"
+              label={t("clusters.create.name")}
               value={name}
               autoFocus
               fullWidth
@@ -315,11 +313,11 @@ export function CreateClusterWizard({
         {step === 1 && (
           <Stack spacing={1}>
             <Typography variant="body2" color="text.secondary">
-              Pick the machines that will serve models. You can add more later.
+              {t("clusters.create.pick_intro")}
             </Typography>
             {nodes.length === 0 && (
               <Alert severity="info">
-                No machines are enrolled yet. Onboard one under Nodes first.
+                {t("clusters.create.no_machines")}
               </Alert>
             )}
             {nodes.map((node) => {
@@ -343,7 +341,7 @@ export function CreateClusterWizard({
                     checked={isSelected}
                     onChange={() => toggle(node.id)}
                     slotProps={{
-                      input: { "aria-label": `Use ${nodeLabel(node)}` },
+                      input: { "aria-label": t("clusters.create.use_machine", { name: nodeLabel(node) }) },
                     }}
                   />
                   <Box sx={{ flexGrow: 1, minWidth: 0 }}>
@@ -353,14 +351,16 @@ export function CreateClusterWizard({
                     <Typography variant="caption" color="text.secondary">
                       {node.host}
                       {" · "}
-                      {gpus > 0 ? `${gpus} accelerator${gpus === 1 ? "" : "s"}` : "no accelerator reported"}
+                      {gpus > 0
+                        ? t("clusters.list.accelerators", { count: gpus })
+                        : t("clusters.list.no_accelerators")}
                       {" · "}
-                      {node.status}
-                      {busyNodeIds?.has(node.id) ? " · already in another cluster" : ""}
+                      {machineStatusLabel(node.status)}
+                      {busyNodeIds?.has(node.id) ? ` · ${t("clusters.create.in_other_cluster")}` : ""}
                     </Typography>
                   </Box>
                   {isSelected && node.id === headId && (
-                    <Chip size="small" color="primary" label="leads the cluster" />
+                    <Chip size="small" color="primary" label={t("clusters.topology.leads")} />
                   )}
                 </Stack>
               );
@@ -370,16 +370,15 @@ export function CreateClusterWizard({
               <Box sx={{ mt: 1 }}>
                 {unsupported.length > 0 && (
                   <Alert severity="warning" sx={{ mb: 1 }}>
-                    No certified runtime image runs on{" "}
-                    {unsupported
-                      .map(
-                        (id) =>
-                          `${nodes.find((n) => n.id === id)?.agent_id ?? id} (${whyUnsupported(id)})`,
-                      )
-                      .join(", ")}
-                    . Remove {unsupported.length === 1 ? "it" : "them"} to
-                    continue: a machine with no image for its architecture
-                    cannot join a cluster.
+                    {t("clusters.create.unsupported", {
+                      count: unsupported.length,
+                      machines: unsupported
+                        .map(
+                          (id) =>
+                            `${nodes.find((n) => n.id === id)?.agent_id ?? id} (${whyUnsupported(id)})`,
+                        )
+                        .join(", "),
+                    })}
                   </Alert>
                 )}
                 {chosen
@@ -393,8 +392,12 @@ export function CreateClusterWizard({
                         color="text.secondary"
                         component="div"
                       >
-                        {node.agent_id} runs {bundle.display_name} · Runtime{" "}
-                        {bundle.runtime_version} · vLLM {bundle.vllm_version}
+                        {t("clusters.create.runs_bundle", {
+                          machine: node.agent_id,
+                          bundle: bundle.display_name,
+                          runtime: bundle.runtime_version,
+                          vllm: bundle.vllm_version,
+                        })}
                       </Typography>
                     );
                   })}
@@ -405,9 +408,9 @@ export function CreateClusterWizard({
               <TextField
                 select
                 size="small"
-                label="Which machine leads the cluster"
+                label={t("clusters.create.head_label")}
                 value={headId}
-                helperText="Chosen for you: the machine with the most accelerators. Change it if you prefer."
+                helperText={t("clusters.create.head_help")}
                 sx={{ mt: 1 }}
                 onChange={(e) => setHeadId(e.target.value)}
               >
@@ -440,7 +443,7 @@ export function CreateClusterWizard({
 
       <DialogActions>
         <Button onClick={onClose} disabled={busy}>
-          Cancel
+          {t("common.cancel")}
         </Button>
         {step === 0 && (
           <Button
@@ -448,7 +451,7 @@ export function CreateClusterWizard({
             disabled={!name.trim()}
             onClick={() => setStep(1)}
           >
-            Next
+            {t("common.next")}
           </Button>
         )}
         {step === 1 && (
@@ -457,7 +460,7 @@ export function CreateClusterWizard({
             disabled={chosen.length === 0 || busy}
             onClick={() => void createAndPlan()}
           >
-            Next
+            {t("common.next")}
           </Button>
         )}
         {step === 2 && (
@@ -467,7 +470,7 @@ export function CreateClusterWizard({
             onClick={() => void applyAndStart()}
             data-testid="create-cluster"
           >
-            Create cluster
+            {t("clusters.create.submit")}
           </Button>
         )}
       </DialogActions>

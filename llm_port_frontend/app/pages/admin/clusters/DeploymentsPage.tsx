@@ -6,6 +6,7 @@
  * cluster named rather than an environment id.
  */
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { inferenceApi } from "~/api/inference";
@@ -76,6 +77,7 @@ async function loadEndpoints(
 }
 
 export default function DeploymentsPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   // The table's own rows. Everything else on this page decorates them.
   // Phases move on their own -- preparing, applying, running -- so this is
@@ -141,7 +143,7 @@ export default function DeploymentsPage() {
       await action();
       await refresh();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "That did not work.");
+      setError(err instanceof Error ? err.message : t("common.error_unexpected"));
     } finally {
       setBusyKey(null);
     }
@@ -150,7 +152,7 @@ export default function DeploymentsPage() {
   const columns: ColumnDef<InferenceDeployment>[] = [
     {
       key: "name",
-      label: "Name",
+      label: t("clusters.deployments.col_name"),
       sortable: true,
       sortValue: (row) => row.name,
       searchValue: (row) => `${row.name} ${row.description ?? ""}`,
@@ -162,7 +164,7 @@ export default function DeploymentsPage() {
     },
     {
       key: "model",
-      label: "Model",
+      label: t("clusters.deployments.col_model"),
       sortable: true,
       sortValue: (row) => modelName(row.model_id),
       searchValue: (row) => modelName(row.model_id),
@@ -170,7 +172,7 @@ export default function DeploymentsPage() {
     },
     {
       key: "cluster",
-      label: "Cluster",
+      label: t("clusters.deployments.col_cluster"),
       sortable: true,
       sortValue: (row) => clusterName(row.environment_id),
       searchValue: (row) => clusterName(row.environment_id),
@@ -189,7 +191,7 @@ export default function DeploymentsPage() {
     },
     {
       key: "state",
-      label: "State",
+      label: t("clusters.deployments.col_state"),
       sortable: true,
       sortValue: (row) => row.phase,
       render: (row) => (
@@ -200,14 +202,14 @@ export default function DeploymentsPage() {
             color={deploymentPhaseColor(row.phase)}
           />
           {row.desired_state === "stopped" && (
-            <Chip size="small" variant="outlined" label="stopping" />
+            <Chip size="small" variant="outlined" label={t("clusters.deployments.stopping")} />
           )}
         </Stack>
       ),
     },
     {
       key: "copies",
-      label: "Copies",
+      label: t("clusters.deployments.col_copies"),
       align: "right",
       sortable: true,
       sortValue: (row) => row.ready_replicas,
@@ -222,7 +224,7 @@ export default function DeploymentsPage() {
     },
     {
       key: "endpoint",
-      label: "Address",
+      label: t("clusters.deployments.col_address"),
       render: (row) => {
         const known = data.endpoints[row.id];
         if (known === undefined) {
@@ -233,7 +235,7 @@ export default function DeploymentsPage() {
         if (known.length === 0) {
           return (
             <Typography variant="body2" color="text.secondary">
-              not published yet
+              {t("clusters.deployments.not_published")}
             </Typography>
           );
         }
@@ -250,7 +252,7 @@ export default function DeploymentsPage() {
     },
     {
       key: "actions",
-      label: "Actions",
+      label: t("common.actions"),
       align: "right",
       hideable: false,
       render: (row) => (
@@ -261,12 +263,12 @@ export default function DeploymentsPage() {
           onClick={(event) => event.stopPropagation()}
         >
           {row.desired_state === "active" ? (
-            <Tooltip title="Stop">
+            <Tooltip title={t("common.stop")}>
               <span>
                 <Button
                   size="small"
                   color="warning"
-                  aria-label="Stop"
+                  aria-label={t("common.stop")}
                   disabled={busyKey === `stop:${row.id}`}
                   onClick={() =>
                     run(`stop:${row.id}`, () =>
@@ -279,12 +281,12 @@ export default function DeploymentsPage() {
               </span>
             </Tooltip>
           ) : (
-            <Tooltip title="Start">
+            <Tooltip title={t("common.start")}>
               <span>
                 <Button
                   size="small"
                   color="success"
-                  aria-label="Start"
+                  aria-label={t("common.start")}
                   disabled={busyKey === `start:${row.id}`}
                   onClick={() =>
                     run(`start:${row.id}`, () =>
@@ -297,12 +299,12 @@ export default function DeploymentsPage() {
               </span>
             </Tooltip>
           )}
-          <Tooltip title="Delete">
+          <Tooltip title={t("common.delete")}>
             <span>
               <Button
                 size="small"
                 color="error"
-                aria-label="Delete"
+                aria-label={t("common.delete")}
                 onClick={() => setDeleteTarget(row)}
               >
                 <DeleteOutlineIcon fontSize="small" />
@@ -326,11 +328,11 @@ export default function DeploymentsPage() {
           severity="info"
           action={
             <Button size="small" color="inherit" onClick={() => navigate("/admin/clusters")}>
-              Go to Clusters
+              {t("clusters.deployments.go_to_clusters")}
             </Button>
           }
         >
-          There is no cluster to deploy onto yet. Create one first.
+          {t("clusters.deployments.no_cluster")}
         </Alert>
       )}
       <DataTable
@@ -339,9 +341,9 @@ export default function DeploymentsPage() {
         rowKey={(row) => row.id}
         loading={loading}
         error={error ?? actionError}
-        title="Deployments"
-        emptyMessage="Nothing deployed yet."
-        searchPlaceholder="Search deployments..."
+        title={t("clusters.deployments.title")}
+        emptyMessage={t("clusters.deployments.empty")}
+        searchPlaceholder={t("clusters.deployments.search")}
         onRefresh={() => void refresh()}
         onRowClick={(row) => navigate(`/admin/deployments/${row.id}`)}
         columnVisibilityKey="dt-deployments"
@@ -353,7 +355,7 @@ export default function DeploymentsPage() {
             disabled={noCluster}
             onClick={() => setWizardOpen(true)}
           >
-            Deploy a model
+            {t("clusters.next.ready.action")}
           </Button>
         }
       />
@@ -371,13 +373,11 @@ export default function DeploymentsPage() {
 
       <ConfirmDialog
         open={deleteTarget !== null}
-        title="Delete this deployment?"
+        title={t("clusters.deployments.delete_title")}
         message={
-          deleteTarget
-            ? `"${deleteTarget.name}" stops serving and is removed from its cluster.`
-            : ""
+          deleteTarget ? t("clusters.deployments.delete_message", { name: deleteTarget.name }) : ""
         }
-        confirmLabel="Delete"
+        confirmLabel={t("common.delete")}
         loading={deleting}
         onConfirm={() => {
           const target = deleteTarget;
@@ -388,7 +388,7 @@ export default function DeploymentsPage() {
             .deleteDeployment(target.id)
             .then(() => refresh())
             .catch((err: unknown) =>
-              setError(err instanceof Error ? err.message : "Delete failed."),
+              setError(err instanceof Error ? err.message : t("common.delete_failed")),
             )
             .finally(() => setDeleting(false));
         }}

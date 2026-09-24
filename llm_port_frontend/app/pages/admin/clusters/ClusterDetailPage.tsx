@@ -9,6 +9,7 @@
  * next".
  */
 import { useCallback, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router";
 
 import { inferenceApi } from "~/api/inference";
@@ -77,6 +78,7 @@ import {
   clusterStatusColor,
   clusterStatusLabel,
   formatTimestamp,
+  machineStatusLabel,
   nodeLabel,
   phaseLabel,
   poolLabel,
@@ -130,6 +132,7 @@ const RUNNING = new Set(["ready", "running", "degraded", "preparing"]);
 
 export default function ClusterDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const { t } = useTranslation();
   const navigate = useNavigate();
   // The cluster itself: one cheap GET, and the only thing the frame needs
   // before it can render a title, a status and the navigation.
@@ -221,7 +224,7 @@ export default function ClusterDetailPage() {
   if (!cluster) {
     return (
       <Box sx={{ p: 2 }}>
-        <Alert severity="error">{error ?? "Cluster not found."}</Alert>
+        <Alert severity="error">{error ?? t("clusters.detail.not_found")}</Alert>
       </Box>
     );
   }
@@ -243,7 +246,7 @@ export default function ClusterDetailPage() {
       await action();
       await refresh();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "That did not work.");
+      setError(err instanceof Error ? err.message : t("common.error_unexpected"));
     } finally {
       setBusy(false);
     }
@@ -268,13 +271,13 @@ export default function ClusterDetailPage() {
     try {
       if (RUNNING.has(cluster.status) && membersUnreachable) {
         // Nothing can confirm a stop, so waiting for one would only hang.
-        setDeleting("Deleting the cluster…");
+        setDeleting(t("clusters.detail.deleting"));
         await inferenceApi.deleteEnvironment(cluster.id, { force: true });
         navigate("/admin/clusters");
         return;
       }
       if (RUNNING.has(cluster.status)) {
-        setDeleting("Stopping the cluster on its machines…");
+        setDeleting(t("clusters.detail.stopping_for_delete"));
         if (cluster.desired_state === "running") {
           await inferenceApi.updateEnvironment(cluster.id, { desired_state: "stopped" });
         }
@@ -283,18 +286,16 @@ export default function ClusterDetailPage() {
           const now = await inferenceApi.getEnvironment(cluster.id);
           if (!RUNNING.has(now.status)) break;
           if (Date.now() > deadline) {
-            throw new Error(
-              "The machines did not confirm the cluster stopped. Check they are online, then try again.",
-            );
+            throw new Error(t("clusters.detail.stop_unconfirmed"));
           }
           await new Promise((resolve) => window.setTimeout(resolve, 3000));
         }
       }
-      setDeleting("Deleting the cluster…");
+      setDeleting(t("clusters.detail.deleting"));
       await inferenceApi.deleteEnvironment(cluster.id);
       navigate("/admin/clusters");
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "That did not work.");
+      setError(err instanceof Error ? err.message : t("common.error_unexpected"));
     } finally {
       setDeleting(null);
     }
@@ -331,7 +332,7 @@ export default function ClusterDetailPage() {
 
       <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap">
         <Button size="small" startIcon={<ArrowBackIcon />} onClick={() => navigate("/admin/clusters")}>
-          Clusters
+          {t("clusters.list.title")}
         </Button>
         <Typography variant="h6" sx={{ flexGrow: 1 }}>
           {cluster.name}
@@ -347,7 +348,7 @@ export default function ClusterDetailPage() {
           disabled={busy}
           onClick={() => void run(() => inferenceApi.reconcileEnvironment(cluster.id))}
         >
-          Check now
+          {t("clusters.detail.check_now")}
         </Button>
         {cluster.desired_state === "running" ? (
           <Button
@@ -361,7 +362,7 @@ export default function ClusterDetailPage() {
               )
             }
           >
-            Stop
+            {t("common.stop")}
           </Button>
         ) : (
           <Button
@@ -375,7 +376,7 @@ export default function ClusterDetailPage() {
               )
             }
           >
-            Start
+            {t("common.start")}
           </Button>
         )}
         <Button
@@ -384,7 +385,7 @@ export default function ClusterDetailPage() {
           startIcon={<AddIcon />}
           onClick={() => setDeployOpen(true)}
         >
-          Deploy a model
+          {t("clusters.next.ready.action")}
         </Button>
         {/* There was no way to delete a cluster from the console at all:
             one built wrong stayed in the list for good. */}
@@ -395,7 +396,7 @@ export default function ClusterDetailPage() {
           disabled={busy || deleting !== null}
           onClick={() => setDeleteOpen(true)}
         >
-          Delete
+          {t("common.delete")}
         </Button>
       </Stack>
       {deleting && <Alert severity="info">{deleting}</Alert>}
@@ -425,8 +426,11 @@ export default function ClusterDetailPage() {
           <Card variant="outlined">
             <CardContent>
               <LabeledValue
-                label="Machines"
-                value={`${data.metrics?.nodes_alive ?? data.members.length} of ${data.members.length} up`}
+                label={t("clusters.detail.machines")}
+                value={t("clusters.detail.machines_up", {
+                  up: data.metrics?.nodes_alive ?? data.members.length,
+                  total: data.members.length,
+                })}
               />
             </CardContent>
           </Card>
@@ -435,8 +439,8 @@ export default function ClusterDetailPage() {
           <Card variant="outlined">
             <CardContent>
               <LabeledValue
-                label="Accelerators"
-                value={accelerators > 0 ? String(accelerators) : "none reported"}
+                label={t("clusters.detail.accelerators")}
+                value={accelerators > 0 ? String(accelerators) : t("clusters.detail.none_reported")}
               />
             </CardContent>
           </Card>
@@ -445,11 +449,14 @@ export default function ClusterDetailPage() {
           <Card variant="outlined">
             <CardContent>
               <LabeledValue
-                label="Free accelerators"
+                label={t("clusters.detail.free_accelerators")}
                 value={
                   data.metrics
-                    ? `${data.metrics.gpus_available} of ${data.metrics.gpus_total}`
-                    : "unknown"
+                    ? t("clusters.detail.n_of_m", {
+                        n: data.metrics.gpus_available,
+                        m: data.metrics.gpus_total,
+                      })
+                    : t("clusters.unknown_machine")
                 }
               />
             </CardContent>
@@ -458,7 +465,7 @@ export default function ClusterDetailPage() {
         <Grid size={{ xs: 6, md: 3 }}>
           <Card variant="outlined">
             <CardContent>
-              <LabeledValue label="Deployments" value={String(data.deployments.length)} />
+              <LabeledValue label={t("clusters.deployments.title")} value={String(data.deployments.length)} />
             </CardContent>
           </Card>
         </Grid>
@@ -474,7 +481,7 @@ export default function ClusterDetailPage() {
             alignItems="center"
             sx={{ mb: 1 }}
           >
-            <Typography variant="subtitle2">How this cluster is wired</Typography>
+            <Typography variant="subtitle2">{t("clusters.detail.wiring")}</Typography>
             {/* The cluster's own Grafana dashboard.
                 It was rendered from the template and nothing in the product
                 linked to it, so the panels existed and could not be found.
@@ -491,7 +498,7 @@ export default function ClusterDetailPage() {
                 rel="noopener"
                 startIcon={<InsightsIcon />}
               >
-                Open the metrics dashboard
+                {t("clusters.detail.open_dashboard")}
               </Button>
             )}
           </Stack>
@@ -510,7 +517,7 @@ export default function ClusterDetailPage() {
             />
           </AsyncSection>
           <Typography variant="caption" color="text.secondary">
-            Click a machine to see what it is running.
+            {t("clusters.detail.click_machine")}
           </Typography>
         </CardContent>
       </Card>
@@ -523,8 +530,7 @@ export default function ClusterDetailPage() {
               {poolMixSummary(data.pools)}
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-              A model runs on one kind of machine at a time, so these are the
-              groups you are choosing between when you deploy.
+              {t("clusters.detail.pools_explain")}
             </Typography>
             <Stack spacing={1}>
               {data.pools.map((pool) => (
@@ -550,7 +556,7 @@ export default function ClusterDetailPage() {
       <Card variant="outlined">
         <CardContent>
           <Typography variant="subtitle2" gutterBottom>
-            Models on this cluster
+            {t("clusters.detail.models")}
           </Typography>
           <AsyncSection
             loading={deployments.loading}
@@ -560,16 +566,16 @@ export default function ClusterDetailPage() {
           >
           {data.deployments.length === 0 ? (
             <Typography variant="body2" color="text.secondary">
-              Nothing deployed here yet.
+              {t("clusters.detail.nothing_deployed")}
             </Typography>
           ) : (
             <Table size="small">
               <TableHead>
                 <TableRow>
-                  <TableCell>Name</TableCell>
-                  <TableCell>Model</TableCell>
-                  <TableCell>State</TableCell>
-                  <TableCell align="right">Copies</TableCell>
+                  <TableCell>{t("clusters.deployments.col_name")}</TableCell>
+                  <TableCell>{t("clusters.deployments.col_model")}</TableCell>
+                  <TableCell>{t("clusters.deployments.col_state")}</TableCell>
+                  <TableCell align="right">{t("clusters.deployments.col_copies")}</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -583,7 +589,7 @@ export default function ClusterDetailPage() {
                     <TableCell>{deployment.name}</TableCell>
                     <TableCell>
                       {data.models.find((m) => m.id === deployment.model_id)?.display_name ??
-                        "unknown model"}
+                        t("clusters.detail.unknown_model")}
                     </TableCell>
                     <TableCell>
                       <Chip
@@ -614,17 +620,17 @@ export default function ClusterDetailPage() {
         slotProps={{ transition: { unmountOnExit: true } }}
       >
         <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-          <Typography variant="subtitle2">Advanced</Typography>
+          <Typography variant="subtitle2">{t("clusters.detail.advanced")}</Typography>
         </AccordionSummary>
         <AccordionDetails>
           <Stack spacing={2}>
             <Box>
               <Typography variant="caption" color="text.secondary">
-                Health checks
+                {t("clusters.detail.health_checks")}
               </Typography>
               {conditions.length === 0 ? (
                 <Typography variant="body2" color="text.secondary">
-                  No checks recorded yet.
+                  {t("clusters.detail.no_checks")}
                 </Typography>
               ) : (
                 <Stack spacing={0.5} sx={{ mt: 0.5 }}>
@@ -638,7 +644,7 @@ export default function ClusterDetailPage() {
                       <Chip
                         size="small"
                         color={asText(condition.status) === "True" ? "success" : "warning"}
-                        label={asText(condition.type) ?? "check"}
+                        label={asText(condition.type) ?? t("clusters.detail.check")}
                       />
                       <Typography variant="body2">{asText(condition.message)}</Typography>
                     </Stack>
@@ -648,24 +654,27 @@ export default function ClusterDetailPage() {
             </Box>
 
             {data.metricsError ? (
-              <Alert severity="info">Metrics are unavailable: {data.metricsError}</Alert>
+              <Alert severity="info">
+                {t("clusters.detail.metrics_unavailable", { error: data.metricsError })}
+              </Alert>
             ) : (
               data.metrics && <PartialsNotice partials={data.metrics.partials} />
             )}
 
             {data.metrics && data.metrics.scrape_targets.length > 0 && (
               <Typography variant="caption" color="text.secondary">
-                Prometheus targets:{" "}
-                {data.metrics.scrape_targets.map((t) => t.url).join(", ")}
+                {t("clusters.detail.prometheus_targets", {
+                  targets: data.metrics.scrape_targets.map((target) => target.url).join(", "),
+                })}
               </Typography>
             )}
 
 
             <Button size="small" onClick={() => setNetworkOpen(true)} sx={{ alignSelf: "flex-start" }}>
-              Change the network
+              {t("clusters.detail.change_network")}
             </Button>
 
-            <JsonBlock value={cluster.observed_status} label="Show raw provider status" />
+            <JsonBlock value={cluster.observed_status} label={t("clusters.detail.raw_status")} />
           </Stack>
         </AccordionDetails>
       </Accordion>
@@ -683,13 +692,15 @@ export default function ClusterDetailPage() {
               <Box sx={{ flexGrow: 1 }}>
                 <Typography variant="h6">{hostOf(selectedMember.node_id)}</Typography>
                 <Typography variant="caption" color="text.secondary">
-                  {selectedMember.role === "head" ? "Leads the cluster" : "Worker"}
+                  {selectedMember.role === "head"
+                    ? t("clusters.detail.drawer_leads")
+                    : t("clusters.detail.drawer_worker")}
                   {nodeOf(selectedMember.node_id)?.host
                     ? ` · ${nodeOf(selectedMember.node_id)?.host}`
                     : ""}
                 </Typography>
               </Box>
-              <IconButton aria-label="Close" onClick={() => setSelectedNodeId(null)}>
+              <IconButton aria-label={t("common.close")} onClick={() => setSelectedNodeId(null)}>
                 <CloseIcon />
               </IconButton>
             </Stack>
@@ -697,35 +708,45 @@ export default function ClusterDetailPage() {
             <Grid container spacing={1.5}>
               <Grid size={6}>
                 <LabeledValue
-                  label="Fleet status"
-                  value={nodeOf(selectedMember.node_id)?.status ?? "unknown"}
+                  label={t("clusters.detail.fleet_status")}
+                  value={
+                    nodeOf(selectedMember.node_id)?.status
+                      ? machineStatusLabel(nodeOf(selectedMember.node_id)!.status)
+                      : t("clusters.unknown_machine")
+                  }
                 />
               </Grid>
               <Grid size={6}>
                 <LabeledValue
-                  label="In the cluster"
-                  value={selectedMember.member_status ?? "not reported"}
+                  label={t("clusters.detail.in_cluster")}
+                  value={
+                    selectedMember.member_status === "alive"
+                      ? t("clusters.detail.member_alive")
+                      : selectedMember.member_status === "dead"
+                        ? t("clusters.topology.legend_dropped")
+                        : (selectedMember.member_status ?? t("clusters.detail.not_reported"))
+                  }
                 />
               </Grid>
               <Grid size={6}>
                 <LabeledValue
-                  label="Accelerators"
+                  label={t("clusters.detail.accelerators")}
                   value={String(gpuCount(nodeOf(selectedMember.node_id) ?? ({} as ManagedNode)))}
                 />
               </Grid>
               <Grid size={6}>
                 <LabeledValue
-                  label="Joined"
+                  label={t("clusters.detail.joined")}
                   value={formatTimestamp(selectedMember.joined_at)}
                 />
               </Grid>
               {poolsWorthShowing(data.pools) && (
                 <Grid size={6}>
                   <LabeledValue
-                    label="Machine group"
+                    label={t("clusters.detail.machine_group")}
                     value={
                       data.pools.find((p) => p.id === selectedMember.compute_pool_id)?.name ??
-                      "not grouped yet"
+                      t("clusters.detail.not_grouped")
                     }
                   />
                 </Grid>
@@ -734,11 +755,11 @@ export default function ClusterDetailPage() {
 
             <Box>
               <Typography variant="caption" color="text.secondary" display="block">
-                Deployments on this cluster
+                {t("clusters.detail.drawer_deployments")}
               </Typography>
               {data.deployments.length === 0 ? (
                 <Typography variant="body2" color="text.secondary">
-                  None.
+                  {t("clusters.detail.none")}
                 </Typography>
               ) : (
                 <Stack spacing={0.5} sx={{ mt: 0.5 }}>
@@ -752,7 +773,7 @@ export default function ClusterDetailPage() {
               {/* Serve reports replica counts, not placement, so we do not
                   claim which machine runs which copy. */}
               <Typography variant="caption" color="text.secondary">
-                Which machine runs which copy is not reported by the runtime.
+                {t("clusters.detail.placement_unknown")}
               </Typography>
             </Box>
 
@@ -763,7 +784,7 @@ export default function ClusterDetailPage() {
               disabled={busy}
               onClick={() => setRemoveTarget(selectedMember)}
             >
-              Remove from cluster
+              {t("clusters.detail.remove_machine")}
             </Button>
           </Stack>
         )}
@@ -793,17 +814,17 @@ export default function ClusterDetailPage() {
 
       <ConfirmDialog
         open={deleteOpen}
-        title="Delete this cluster?"
+        title={t("clusters.detail.delete_title")}
         message={
           data.deployments.some((d) => d.desired_state !== "deleted")
-            ? "It still has deployments. Delete them first, so no model is left running on these machines."
+            ? t("clusters.detail.delete_has_deployments")
             : RUNNING.has(cluster.status) && membersUnreachable
-              ? "Its machines are offline, so the cluster cannot be stopped from here. It is deleted anyway; whatever it left on a machine is replaced the next time that machine starts a cluster."
+              ? t("clusters.detail.delete_offline")
               : RUNNING.has(cluster.status)
-                ? "It is running. It will be stopped first, so nothing is left behind on its machines, and then deleted. The machines stay enrolled."
-                : "The cluster is removed. Its machines stay enrolled and can join another."
+                ? t("clusters.detail.delete_running")
+                : t("clusters.detail.delete_stopped")
         }
-        confirmLabel="Delete"
+        confirmLabel={t("common.delete")}
         loading={deleting !== null}
         onConfirm={() => {
           setDeleteOpen(false);
@@ -814,13 +835,13 @@ export default function ClusterDetailPage() {
 
       <ConfirmDialog
         open={removeTarget !== null}
-        title="Remove this machine?"
+        title={t("clusters.detail.remove_title")}
         message={
           removeTarget
-            ? `${hostOf(removeTarget.node_id)} will leave the cluster. Its share of any running model stops.`
+            ? t("clusters.detail.remove_message", { name: hostOf(removeTarget.node_id) })
             : ""
         }
-        confirmLabel="Remove"
+        confirmLabel={t("common.remove")}
         loading={busy}
         onConfirm={() => {
           const target = removeTarget;

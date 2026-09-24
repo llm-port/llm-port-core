@@ -1573,5 +1573,258 @@
     "step_check_updates": "Rechercher des mises à jour",
     "step_apply_updates": "Installer les mises à jour",
     "step_done": "Terminé"
+  },
+  "clusters": {
+    "unknown_machine": "inconnue",
+    "machine_count_one": "{{count}} machine",
+    "machine_count_other": "{{count}} machines",
+    "no_machines_yet": "Aucune machine pour l'instant",
+    "machines_with_leads_one": "{{machines}} · {{count}} principale",
+    "machines_with_leads_other": "{{machines}} · {{count}} principales",
+    "machine_kinds_one": "{{count}} type de machine",
+    "machine_kinds_other": "{{count}} types de machine",
+    "deployment_count_one": "{{count}} déploiement",
+    "deployment_count_other": "{{count}} déploiements",
+    "replica_count_one": "{{count}} copie",
+    "replica_count_other": "{{count}} copies",
+    "phase": {
+      "pending": "En file d'attente",
+      "preparing": "Copie du modèle",
+      "applying": "Démarrage",
+      "running": "En service",
+      "degraded": "Dégradé",
+      "stopped": "Arrêté",
+      "failed": "Échec",
+      "deleted": "Supprimé"
+    },
+    "status": {
+      "starting": "Démarrage",
+      "running": "En marche",
+      "degraded": "Nécessite une intervention",
+      "failed": "Échec",
+      "stopped": "Arrêté"
+    },
+    "next": {
+      "no_nodes": {
+        "title": "Ajoutez votre première machine",
+        "detail": "Un cluster est formé de machines qui exécutent l'agent LLM.Port. Ajoutez-en une pour commencer.",
+        "action": "Ajouter une machine"
+      },
+      "no_cluster": {
+        "title": "Créer un cluster",
+        "detail_one": "{{count}} machine est prête à être regroupée dans un cluster qui sert des modèles.",
+        "detail_other": "{{count}} machines sont prêtes à être regroupées dans un cluster qui sert des modèles.",
+        "action": "Créer un cluster"
+      },
+      "fleet_ready": {
+        "title": "Vos clusters sont prêts",
+        "detail": "Ouvrez un cluster pour voir ses machines, ou déployez-y un modèle."
+      },
+      "empty": {
+        "title": "Ajoutez des machines à ce cluster",
+        "detail": "Un cluster a besoin d'au moins une machine pour démarrer.",
+        "action": "Ajouter des machines"
+      },
+      "network": {
+        "title": "Choisissez le réseau",
+        "detail_many": "Nous voyons quels réseaux ces machines partagent. Choisissez-en un et le cluster y démarre.",
+        "detail_one": "Confirmez le réseau sur lequel cette machine servira, et le cluster démarre.",
+        "action": "Choisir le réseau"
+      },
+      "stopped": {
+        "title": "Ce cluster est arrêté",
+        "detail": "Démarrez-le pour servir à nouveau des modèles. Ses machines et son réseau sont conservés.",
+        "action": "Démarrer le cluster"
+      },
+      "degraded": {
+        "title": "Le cluster nécessite une intervention",
+        "detail": "Certaines machines ne répondent pas. Ouvrez « Avancé » ci-dessous pour l'état complet.",
+        "action": "Réessayer"
+      },
+      "starting": {
+        "title": "Démarrage du cluster",
+        "detail_one": "Préparation de {{count}} machine : récupération du runtime et démarrage du nœud principal.",
+        "detail_other": "Préparation de {{count}} machines : récupération du runtime, démarrage du nœud principal, ajout des autres."
+      },
+      "ready": {
+        "title": "Déployer un modèle",
+        "detail": "Le cluster fonctionne et n'a encore rien à servir.",
+        "action": "Déployer un modèle"
+      },
+      "deploying": {
+        "title_one": "Démarrage de {{name}}",
+        "title_many": "Démarrage de {{count}} déploiements",
+        "detail": "Copie du modèle sur les machines qui en ont besoin, puis démarrage des copies."
+      },
+      "failed": {
+        "title_one": "{{count}} déploiement n'a pas pu démarrer",
+        "title_other": "{{count}} déploiements n'ont pas pu démarrer",
+        "detail": "Ouvrez le déploiement pour lire ses journaux."
+      },
+      "serving": {
+        "title": "En service",
+        "detail": "{{deployments}} en cours sur {{replicas}}."
+      }
+    },
+    "list": {
+      "title": "Clusters",
+      "create": "Créer un cluster",
+      "empty_title": "Aucun cluster pour l'instant",
+      "empty_detail": "Regroupez vos machines dans un cluster pour qu'elles servent des modèles ensemble.",
+      "accelerators_one": "{{count}} accélérateur",
+      "accelerators_other": "{{count}} accélérateurs",
+      "no_accelerators": "aucun accélérateur signalé",
+      "advanced_schedulers": "Avancé : ordonnanceurs"
+    },
+    "role": {
+      "head": "nœud principal",
+      "worker": "nœud de travail"
+    },
+    "machine_status": {
+      "healthy": "Opérationnelle",
+      "degraded": "Dégradée",
+      "unhealthy": "Défaillante",
+      "offline": "Hors ligne",
+      "maintenance": "En maintenance",
+      "draining": "En cours de vidage",
+      "pending": "En attente"
+    },
+    "network": {
+      "title": "Choisissez le réseau",
+      "looking": "Recherche des réseaux que ces machines partagent…",
+      "applying": "Configuration du réseau…",
+      "starting": "Démarrage du cluster…",
+      "use": "Utiliser ce réseau",
+      "use_cidr": "Utiliser {{cidr}}",
+      "blocked": "Ces machines ne peuvent pas encore former un cluster.",
+      "intro": "Ces machines se joignent par les réseaux ci-dessous. Nous recommandons le plus rapide qui n'est pas partagé avec le trafic d'administration.",
+      "none": "Aucun réseau commun n'a été trouvé entre ces machines.",
+      "recommended": "recommandé",
+      "tested_ok": "testé — fonctionne",
+      "tested_unreachable": "testé — injoignable",
+      "management": "partagé avec le trafic d'administration"
+    },
+    "topology": {
+      "empty": "Aucune machine dans ce cluster pour l'instant.",
+      "aria": "Topologie du cluster",
+      "leads": "dirige le cluster",
+      "in_use": "{{pct}} % utilisé",
+      "legend_healthy": "Opérationnelle",
+      "legend_busy": "Très utilisée",
+      "legend_dropped": "Déconnectée",
+      "legend_silent": "Ne répond pas",
+      "legend_motion": "Un anneau pulse tant que sa machine est dans le cluster ; un halo signifie qu'elle travaille."
+    },
+    "create": {
+      "title": "Créer un cluster",
+      "step_name": "Nommer",
+      "step_machines": "Choisir les machines",
+      "step_network": "Confirmer le réseau",
+      "intro": "Un cluster regroupe des machines pour qu'elles servent des modèles ensemble.",
+      "name": "Nom du cluster",
+      "pick_intro": "Choisissez les machines qui serviront des modèles. Vous pourrez en ajouter plus tard.",
+      "no_machines": "Aucune machine n'est encore inscrite. Ajoutez-en d'abord une dans Machines.",
+      "use_machine": "Utiliser {{name}}",
+      "in_other_cluster": "déjà dans un autre cluster",
+      "no_image_reason": "aucune image certifiée pour cette plateforme",
+      "unsupported_one": "Aucune image de runtime certifiée ne fonctionne sur {{machines}}. Retirez-la pour continuer : sans image pour son architecture, une machine ne peut pas rejoindre un cluster.",
+      "unsupported_other": "Aucune image de runtime certifiée ne fonctionne sur {{machines}}. Retirez-les pour continuer : sans image pour son architecture, une machine ne peut pas rejoindre un cluster.",
+      "runs_bundle": "{{machine}} exécute {{bundle}} · Runtime {{runtime}} · vLLM {{vllm}}",
+      "head_label": "Quelle machine dirige le cluster",
+      "head_help": "Choisie pour vous : la machine avec le plus d'accélérateurs. Modifiez-la si vous préférez.",
+      "no_driver": "Aucun pilote d'inférence n'est enregistré sur ce serveur : il ne peut pas exécuter de cluster.",
+      "control_plane_description": "Créé automatiquement avec le premier cluster.",
+      "working_create": "Création du cluster…",
+      "working_members": "Ajout des machines…",
+      "working_replan": "Les réseaux des machines ont changé — nouvelle vérification…",
+      "replanned": "Une machine a signalé de nouvelles informations réseau pendant votre choix : les options ont été actualisées. Confirmez pour continuer.",
+      "submit": "Créer le cluster"
+    },
+    "deployments": {
+      "title": "Déploiements",
+      "col_name": "Nom",
+      "col_model": "Modèle",
+      "col_cluster": "Cluster",
+      "col_state": "État",
+      "col_copies": "Copies",
+      "col_address": "Adresse",
+      "stopping": "arrêt en cours",
+      "not_published": "pas encore publié",
+      "go_to_clusters": "Aller aux clusters",
+      "no_cluster": "Il n'y a encore aucun cluster sur lequel déployer. Créez-en d'abord un.",
+      "empty": "Rien n'est encore déployé.",
+      "search": "Rechercher des déploiements…",
+      "delete_title": "Supprimer ce déploiement ?",
+      "delete_message": "« {{name}} » cesse de servir et est retiré de son cluster."
+    },
+    "found": {
+      "title": "En cours sur vos machines, non géré ici",
+      "intro": "Un serveur LLM.Port a démarré ces clusters et ne les connaît plus : il a été reconstruit ou restauré depuis une sauvegarde plus ancienne. Reprenez-en un pour le gérer à nouveau ici ; ses modèles continuent de servir pendant ce temps.",
+      "looking": "Recherche…",
+      "look_again": "Chercher à nouveau",
+      "retry": "Réessayer",
+      "load_failed": "Impossible de rechercher les clusters que vos machines exécutent déjà : {{error}}",
+      "runtime": "runtime {{version}}",
+      "take_over_open": "Reprendre…",
+      "take_over": "Reprendre",
+      "checking": "Vérification auprès du cluster…",
+      "gpus_per_copy": "GPU par copie",
+      "copies_running": "{{running}} sur {{total}} en cours",
+      "no_models": "Il ne sert aucun modèle déployé par LLM.Port.",
+      "other_apps": "Également en cours, non déployés par LLM.Port et laissés tels quels : {{apps}}.",
+      "unreadable": "{{name}} exécute le runtime du cluster mais n'a pas pu indiquer ce qu'il sert : {{error}}",
+      "dialog_title": "Reprendre le cluster sur {{name}}",
+      "dialog_explain": "Le cluster et ses modèles sont enregistrés ici tels qu'ils tournent ; rien ne redémarre. Le cluster confirme d'abord que ce que ce serveur déploierait pour chaque modèle correspond exactement à ce qui tourne. Si quelque chose diffère, rien n'est enregistré et on vous indique quoi.",
+      "alias_label": "{{model}} : nom sur la passerelle",
+      "alias_help": "Ce que les clients demandent comme modèle. Le nom de l'ancien serveur n'est pas stocké sur les machines."
+    },
+    "detail": {
+      "not_found": "Cluster introuvable.",
+      "deleting": "Suppression du cluster…",
+      "stopping_for_delete": "Arrêt du cluster sur ses machines…",
+      "stop_unconfirmed": "Les machines n'ont pas confirmé l'arrêt du cluster. Vérifiez qu'elles sont en ligne, puis réessayez.",
+      "check_now": "Vérifier maintenant",
+      "machines": "Machines",
+      "machines_up": "{{up}} sur {{total}} actives",
+      "accelerators": "Accélérateurs",
+      "none_reported": "aucun signalé",
+      "free_accelerators": "Accélérateurs libres",
+      "n_of_m": "{{n}} sur {{m}}",
+      "wiring": "Comment ce cluster est câblé",
+      "open_dashboard": "Ouvrir le tableau de bord des métriques",
+      "click_machine": "Cliquez sur une machine pour voir ce qu'elle exécute.",
+      "pools_explain": "Un modèle tourne sur un seul type de machine à la fois : ce sont les groupes parmi lesquels vous choisissez au déploiement.",
+      "models": "Modèles sur ce cluster",
+      "nothing_deployed": "Rien n'est encore déployé ici.",
+      "unknown_model": "modèle inconnu",
+      "advanced": "Avancé",
+      "health_checks": "Contrôles de santé",
+      "no_checks": "Aucun contrôle enregistré pour l'instant.",
+      "check": "contrôle",
+      "metrics_unavailable": "Métriques indisponibles : {{error}}",
+      "prometheus_targets": "Cibles Prometheus : {{targets}}",
+      "change_network": "Changer de réseau",
+      "raw_status": "Afficher l'état brut",
+      "drawer_leads": "Dirige le cluster",
+      "drawer_worker": "Nœud de travail",
+      "fleet_status": "État de la machine",
+      "in_cluster": "Dans le cluster",
+      "member_alive": "Connectée",
+      "not_reported": "non signalé",
+      "joined": "A rejoint",
+      "machine_group": "Groupe de machines",
+      "not_grouped": "pas encore groupée",
+      "drawer_deployments": "Déploiements sur ce cluster",
+      "none": "Aucun.",
+      "placement_unknown": "Le runtime n'indique pas quelle machine exécute quelle copie.",
+      "remove_machine": "Retirer du cluster",
+      "delete_title": "Supprimer ce cluster ?",
+      "delete_has_deployments": "Il a encore des déploiements. Supprimez-les d'abord, pour qu'aucun modèle ne reste actif sur ces machines.",
+      "delete_offline": "Ses machines sont hors ligne : le cluster ne peut pas être arrêté d'ici. Il est supprimé quand même ; ce qu'il a laissé sur une machine sera remplacé au prochain démarrage d'un cluster sur celle-ci.",
+      "delete_running": "Il est en marche. Il sera d'abord arrêté, pour ne rien laisser sur ses machines, puis supprimé. Les machines restent inscrites.",
+      "delete_stopped": "Le cluster est supprimé. Ses machines restent inscrites et peuvent en rejoindre un autre.",
+      "remove_title": "Retirer cette machine ?",
+      "remove_message": "{{name}} quittera le cluster. Sa part de tout modèle en cours s'arrête."
+    }
   }
 }

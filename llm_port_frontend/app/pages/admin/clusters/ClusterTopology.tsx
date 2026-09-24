@@ -15,6 +15,7 @@
  * Nothing animates for a machine that is not reporting, a link that is not
  * up, or a viewer who has asked their system for reduced motion.
  */
+import { useTranslation } from "react-i18next";
 import { useTheme } from "@mui/material/styles";
 import Box from "@mui/material/Box";
 import Stack from "@mui/material/Stack";
@@ -41,6 +42,9 @@ export function ClusterTopology({
   onSelect,
 }: ClusterTopologyProps) {
   const theme = useTheme();
+  const { t } = useTranslation();
+  const roleLabel = (role: string) =>
+    role === "head" || role === "worker" ? t(`clusters.role.${role}`) : role;
   const topology: Topology = layoutTopology(cluster, members, nodes);
   // Honour the system setting rather than deciding for the operator. SVG
   // animation cannot be reached by a media query, so it is gated here.
@@ -57,7 +61,7 @@ export function ClusterTopology({
     return (
       <Box sx={{ p: 4, textAlign: "center" }}>
         <Typography variant="body2" color="text.secondary">
-          No machines in this cluster yet.
+          {t("clusters.topology.empty")}
         </Typography>
       </Box>
     );
@@ -68,7 +72,7 @@ export function ClusterTopology({
       <Box
         component="svg"
         role="img"
-        aria-label="Cluster topology"
+        aria-label={t("clusters.topology.aria")}
         viewBox={`0 0 ${topology.width} ${topology.height}`}
         sx={{ width: "100%", height: "auto", display: "block", maxWidth: "100%" }}
       >
@@ -140,7 +144,7 @@ export function ClusterTopology({
               style={{ cursor: onSelect ? "pointer" : "default" }}
               tabIndex={onSelect ? 0 : undefined}
               role={onSelect ? "button" : undefined}
-              aria-label={`${node.host}, ${node.role}`}
+              aria-label={`${node.host}, ${roleLabel(node.role)}`}
               data-address={node.address}
               onKeyDown={(event) => {
                 if (event.key === "Enter" || event.key === " ") {
@@ -213,7 +217,7 @@ export function ClusterTopology({
                 fontSize="9.5"
                 fill={theme.palette.text.secondary}
               >
-                {node.isHead ? "leads the cluster" : node.role}
+                {node.isHead ? t("clusters.topology.leads") : roleLabel(node.role)}
               </text>
               {node.allocation !== null && (
                 <text
@@ -222,7 +226,7 @@ export function ClusterTopology({
                   fontSize="9.5"
                   fill={theme.palette.text.secondary}
                 >
-                  {Math.round(node.allocation * 100)}% in use
+                  {t("clusters.topology.in_use", { pct: Math.round(node.allocation * 100) })}
                 </text>
               )}
             </g>
@@ -232,12 +236,12 @@ export function ClusterTopology({
 
       <Stack direction="row" spacing={2} sx={{ mt: 1, flexWrap: "wrap" }}>
         {[
-          ["Healthy", tones.good],
-          ["Heavily used", tones.warn],
+          [t("clusters.topology.legend_healthy"), tones.good],
+          [t("clusters.topology.legend_busy"), tones.warn],
           // Reachable now that the cluster observation is written back onto
           // each member; before that every machine read "not reporting".
-          ["Dropped out", tones.bad],
-          ["Not reporting", tones.idle],
+          [t("clusters.topology.legend_dropped"), tones.bad],
+          [t("clusters.topology.legend_silent"), tones.idle],
         ].map(([label, colour]) => (
           <Stack key={label} direction="row" spacing={0.75} alignItems="center">
             <Box
@@ -255,8 +259,7 @@ export function ClusterTopology({
         ))}
         {!still && (
           <Typography variant="caption" color="text.disabled">
-            A ring pulses while its machine is in the cluster; a halo means it
-            is working.
+            {t("clusters.topology.legend_motion")}
           </Typography>
         )}
       </Stack>

@@ -6,6 +6,7 @@
  * a dead end.
  */
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { inferenceApi, type EnvironmentPlan } from "~/api/inference";
 import { NetworkPicker } from "./NetworkPicker";
@@ -34,6 +35,7 @@ export function ChooseNetworkDialog({
   onClose,
   onApplied,
 }: ChooseNetworkDialogProps) {
+  const { t } = useTranslation();
   const [plan, setPlan] = useState<EnvironmentPlan | null>(null);
   const [candidateId, setCandidateId] = useState<string | null>(null);
   const [working, setWorking] = useState("");
@@ -44,7 +46,7 @@ export function ChooseNetworkDialog({
     let cancelled = false;
     setPlan(null);
     setError(null);
-    setWorking("Looking at the networks these machines share…");
+    setWorking(t("clusters.network.looking"));
     void (async () => {
       try {
         const found = await inferenceApi.planEnvironment(clusterId);
@@ -60,18 +62,19 @@ export function ChooseNetworkDialog({
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, clusterId]);
 
   async function apply() {
     if (!plan) return;
     setError(null);
-    setWorking("Setting up the network…");
+    setWorking(t("clusters.network.applying"));
     try {
       await inferenceApi.applyEnvironmentPlan(clusterId, {
         plan,
         selected_candidate_id: candidateId,
       });
-      setWorking("Starting the cluster…");
+      setWorking(t("clusters.network.starting"));
       await inferenceApi.reconcileEnvironment(clusterId);
       onApplied();
     } catch (err: unknown) {
@@ -86,7 +89,7 @@ export function ChooseNetworkDialog({
 
   return (
     <Dialog open={open} onClose={busy ? undefined : onClose} maxWidth="md" fullWidth>
-      <DialogTitle>Choose the network</DialogTitle>
+      <DialogTitle>{t("clusters.network.title")}</DialogTitle>
       <DialogContent dividers>
         {error && (
           <Alert severity="error" sx={{ mb: 2 }}>
@@ -111,14 +114,14 @@ export function ChooseNetworkDialog({
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} disabled={busy}>
-          Cancel
+          {t("common.cancel")}
         </Button>
         <Button
           variant="contained"
           disabled={busy || !plan || blocked || !candidateId}
           onClick={() => void apply()}
         >
-          Use this network
+          {t("clusters.network.use")}
         </Button>
       </DialogActions>
     </Dialog>

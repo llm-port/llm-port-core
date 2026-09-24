@@ -1571,5 +1571,258 @@
       "refresh": "Refresh",
       "title": "Tools"
     }
+  },
+  "clusters": {
+    "unknown_machine": "unknown",
+    "machine_count_one": "{{count}} machine",
+    "machine_count_other": "{{count}} machines",
+    "no_machines_yet": "No machines yet",
+    "machines_with_leads_one": "{{machines}} · {{count}} leads",
+    "machines_with_leads_other": "{{machines}} · {{count}} lead",
+    "machine_kinds_one": "{{count}} kind of machine",
+    "machine_kinds_other": "{{count}} kinds of machine",
+    "deployment_count_one": "{{count}} deployment",
+    "deployment_count_other": "{{count}} deployments",
+    "replica_count_one": "{{count}} copy",
+    "replica_count_other": "{{count}} copies",
+    "phase": {
+      "pending": "Queued",
+      "preparing": "Copying the model",
+      "applying": "Starting",
+      "running": "Serving",
+      "degraded": "Degraded",
+      "stopped": "Stopped",
+      "failed": "Failed",
+      "deleted": "Removed"
+    },
+    "status": {
+      "starting": "Starting",
+      "running": "Running",
+      "degraded": "Needs attention",
+      "failed": "Failed",
+      "stopped": "Stopped"
+    },
+    "next": {
+      "no_nodes": {
+        "title": "Add your first machine",
+        "detail": "A cluster is built from machines running the LLM.Port agent. Add one to get started.",
+        "action": "Add a machine"
+      },
+      "no_cluster": {
+        "title": "Create a cluster",
+        "detail_one": "{{count}} machine is ready to be grouped into a cluster that can serve models.",
+        "detail_other": "{{count}} machines are ready to be grouped into a cluster that can serve models.",
+        "action": "Create a cluster"
+      },
+      "fleet_ready": {
+        "title": "Your clusters are set up",
+        "detail": "Open a cluster to see its machines, or deploy a model to one."
+      },
+      "empty": {
+        "title": "Add machines to this cluster",
+        "detail": "A cluster needs at least one machine before it can start.",
+        "action": "Add machines"
+      },
+      "network": {
+        "title": "Choose the network",
+        "detail_many": "We can see which networks these machines share. Pick one and the cluster starts on it.",
+        "detail_one": "Confirm the network this machine will serve on, and the cluster starts.",
+        "action": "Choose the network"
+      },
+      "stopped": {
+        "title": "This cluster is stopped",
+        "detail": "Start it to serve models again. Its machines and network are kept.",
+        "action": "Start cluster"
+      },
+      "degraded": {
+        "title": "The cluster needs attention",
+        "detail": "Some machines are not reporting. Open Advanced below for the full status.",
+        "action": "Try again"
+      },
+      "starting": {
+        "title": "Starting the cluster",
+        "detail_one": "Preparing {{count}} machine: fetching the runtime and starting the head.",
+        "detail_other": "Preparing {{count}} machines: fetching the runtime, starting the head, joining the others."
+      },
+      "ready": {
+        "title": "Deploy a model",
+        "detail": "The cluster is running and has nothing to serve yet.",
+        "action": "Deploy a model"
+      },
+      "deploying": {
+        "title_one": "Starting {{name}}",
+        "title_many": "Starting {{count}} deployments",
+        "detail": "Copying the model to the machines that need it, then starting the copies."
+      },
+      "failed": {
+        "title_one": "{{count}} deployment failed to start",
+        "title_other": "{{count}} deployments failed to start",
+        "detail": "Open the deployment to read its logs."
+      },
+      "serving": {
+        "title": "Serving",
+        "detail": "{{deployments}} running on {{replicas}}."
+      }
+    },
+    "list": {
+      "title": "Clusters",
+      "create": "Create a cluster",
+      "empty_title": "No clusters yet",
+      "empty_detail": "Group your machines into a cluster and they can serve models together.",
+      "accelerators_one": "{{count}} accelerator",
+      "accelerators_other": "{{count}} accelerators",
+      "no_accelerators": "no accelerators reported",
+      "advanced_schedulers": "Advanced: schedulers"
+    },
+    "role": {
+      "head": "head",
+      "worker": "worker"
+    },
+    "machine_status": {
+      "healthy": "Healthy",
+      "degraded": "Degraded",
+      "unhealthy": "Unhealthy",
+      "offline": "Offline",
+      "maintenance": "In maintenance",
+      "draining": "Draining",
+      "pending": "Waiting"
+    },
+    "network": {
+      "title": "Choose the network",
+      "looking": "Looking at the networks these machines share…",
+      "applying": "Setting up the network…",
+      "starting": "Starting the cluster…",
+      "use": "Use this network",
+      "use_cidr": "Use {{cidr}}",
+      "blocked": "These machines cannot form a cluster yet.",
+      "intro": "These machines can reach each other over the networks below. We recommend the fastest one that is not shared with management traffic.",
+      "none": "No shared network was found between these machines.",
+      "recommended": "recommended",
+      "tested_ok": "we tested it — it works",
+      "tested_unreachable": "we tested it — unreachable",
+      "management": "shared with management traffic"
+    },
+    "topology": {
+      "empty": "No machines in this cluster yet.",
+      "aria": "Cluster topology",
+      "leads": "leads the cluster",
+      "in_use": "{{pct}}% in use",
+      "legend_healthy": "Healthy",
+      "legend_busy": "Heavily used",
+      "legend_dropped": "Dropped out",
+      "legend_silent": "Not reporting",
+      "legend_motion": "A ring pulses while its machine is in the cluster; a halo means it is working."
+    },
+    "create": {
+      "title": "Create a cluster",
+      "step_name": "Name it",
+      "step_machines": "Pick machines",
+      "step_network": "Confirm the network",
+      "intro": "A cluster groups machines so they can serve models together.",
+      "name": "Cluster name",
+      "pick_intro": "Pick the machines that will serve models. You can add more later.",
+      "no_machines": "No machines are enrolled yet. Add one under Machines first.",
+      "use_machine": "Use {{name}}",
+      "in_other_cluster": "already in another cluster",
+      "no_image_reason": "no certified image for this platform",
+      "unsupported_one": "No certified runtime image runs on {{machines}}. Remove it to continue: a machine with no image for its architecture cannot join a cluster.",
+      "unsupported_other": "No certified runtime image runs on {{machines}}. Remove them to continue: a machine with no image for its architecture cannot join a cluster.",
+      "runs_bundle": "{{machine}} runs {{bundle}} · Runtime {{runtime}} · vLLM {{vllm}}",
+      "head_label": "Which machine leads the cluster",
+      "head_help": "Chosen for you: the machine with the most accelerators. Change it if you prefer.",
+      "no_driver": "This server has no inference driver registered, so it cannot run a cluster.",
+      "control_plane_description": "Created automatically with the first cluster.",
+      "working_create": "Creating the cluster…",
+      "working_members": "Adding the machines…",
+      "working_replan": "The machines' networks changed — checking again…",
+      "replanned": "One of the machines reported new network details while you were choosing, so these options were refreshed. Confirm to continue.",
+      "submit": "Create cluster"
+    },
+    "deployments": {
+      "title": "Deployments",
+      "col_name": "Name",
+      "col_model": "Model",
+      "col_cluster": "Cluster",
+      "col_state": "State",
+      "col_copies": "Copies",
+      "col_address": "Address",
+      "stopping": "stopping",
+      "not_published": "not published yet",
+      "go_to_clusters": "Go to Clusters",
+      "no_cluster": "There is no cluster to deploy onto yet. Create one first.",
+      "empty": "Nothing deployed yet.",
+      "search": "Search deployments…",
+      "delete_title": "Delete this deployment?",
+      "delete_message": "\"{{name}}\" stops serving and is removed from its cluster."
+    },
+    "found": {
+      "title": "Running on your machines, not managed here",
+      "intro": "An LLM.Port server started these clusters and no longer knows them: it was rebuilt, or restored from an older backup. Take one over to manage it here again; its models keep serving throughout.",
+      "looking": "Looking…",
+      "look_again": "Look again",
+      "retry": "Retry",
+      "load_failed": "Could not look for clusters your machines already run: {{error}}",
+      "runtime": "runtime {{version}}",
+      "take_over_open": "Take over…",
+      "take_over": "Take over",
+      "checking": "Checking with the cluster…",
+      "gpus_per_copy": "GPUs per copy",
+      "copies_running": "{{running}} of {{total}} running",
+      "no_models": "It serves no model LLM.Port deployed.",
+      "other_apps": "Also running, not deployed by LLM.Port and left as they are: {{apps}}.",
+      "unreadable": "{{name}} runs the cluster runtime but could not say what it serves: {{error}}",
+      "dialog_title": "Take over the cluster on {{name}}",
+      "dialog_explain": "The cluster and its models are recorded here as they run; nothing restarts. First the cluster is asked to confirm that what this server would deploy for each model is exactly what runs. If anything differs, nothing is recorded and you are told what.",
+      "alias_label": "{{model}}: name at the gateway",
+      "alias_help": "What clients ask for as the model. The old server's name is not stored on the machines."
+    },
+    "detail": {
+      "not_found": "Cluster not found.",
+      "deleting": "Deleting the cluster…",
+      "stopping_for_delete": "Stopping the cluster on its machines…",
+      "stop_unconfirmed": "The machines did not confirm the cluster stopped. Check they are online, then try again.",
+      "check_now": "Check now",
+      "machines": "Machines",
+      "machines_up": "{{up}} of {{total}} up",
+      "accelerators": "Accelerators",
+      "none_reported": "none reported",
+      "free_accelerators": "Free accelerators",
+      "n_of_m": "{{n}} of {{m}}",
+      "wiring": "How this cluster is wired",
+      "open_dashboard": "Open the metrics dashboard",
+      "click_machine": "Click a machine to see what it is running.",
+      "pools_explain": "A model runs on one kind of machine at a time, so these are the groups you are choosing between when you deploy.",
+      "models": "Models on this cluster",
+      "nothing_deployed": "Nothing deployed here yet.",
+      "unknown_model": "unknown model",
+      "advanced": "Advanced",
+      "health_checks": "Health checks",
+      "no_checks": "No checks recorded yet.",
+      "check": "check",
+      "metrics_unavailable": "Metrics are unavailable: {{error}}",
+      "prometheus_targets": "Prometheus targets: {{targets}}",
+      "change_network": "Change the network",
+      "raw_status": "Show raw provider status",
+      "drawer_leads": "Leads the cluster",
+      "drawer_worker": "Worker",
+      "fleet_status": "Machine status",
+      "in_cluster": "In the cluster",
+      "member_alive": "Connected",
+      "not_reported": "not reported",
+      "joined": "Joined",
+      "machine_group": "Machine group",
+      "not_grouped": "not grouped yet",
+      "drawer_deployments": "Deployments on this cluster",
+      "none": "None.",
+      "placement_unknown": "Which machine runs which copy is not reported by the runtime.",
+      "remove_machine": "Remove from cluster",
+      "delete_title": "Delete this cluster?",
+      "delete_has_deployments": "It still has deployments. Delete them first, so no model is left running on these machines.",
+      "delete_offline": "Its machines are offline, so the cluster cannot be stopped from here. It is deleted anyway; whatever it left on a machine is replaced the next time that machine starts a cluster.",
+      "delete_running": "It is running. It will be stopped first, so nothing is left behind on its machines, and then deleted. The machines stay enrolled.",
+      "delete_stopped": "The cluster is removed. Its machines stay enrolled and can join another.",
+      "remove_title": "Remove this machine?",
+      "remove_message": "{{name}} will leave the cluster. Its share of any running model stops."
+    }
   }
 }

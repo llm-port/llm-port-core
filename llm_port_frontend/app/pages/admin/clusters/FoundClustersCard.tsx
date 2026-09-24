@@ -12,6 +12,7 @@
  * anything, no machine runs a cluster it does not know.
  */
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
@@ -37,6 +38,8 @@ import {
   type FoundClusters,
 } from "~/api/inference";
 
+import { clusterStatusLabel, machineCount } from "./presentation";
+
 function headName(cluster: FoundCluster): string {
   return cluster.head?.name ?? cluster.head?.hostname ?? cluster.address ?? "cluster";
 }
@@ -56,6 +59,7 @@ function TakeOverDialog({
   onClose: () => void;
   onTakenOver: (environmentId: string) => void;
 }) {
+  const { t } = useTranslation();
   const [name, setName] = useState(() => suggestClusterName(cluster));
   const [aliases, setAliases] = useState<Record<string, string>>(() =>
     Object.fromEntries(cluster.apps.map((a) => [a.app_name, a.suggested_alias])),
@@ -85,13 +89,10 @@ function TakeOverDialog({
 
   return (
     <Dialog open onClose={busy ? undefined : onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Take over the cluster on {headName(cluster)}</DialogTitle>
+      <DialogTitle>{t("clusters.found.dialog_title", { name: headName(cluster) })}</DialogTitle>
       <DialogContent>
         <Typography variant="body2" sx={{ mb: 2 }}>
-          The cluster and its models are recorded here as they run; nothing
-          restarts. First the cluster is asked to confirm that what this server
-          would deploy for each model is exactly what runs. If anything
-          differs, nothing is recorded and you are told what.
+          {t("clusters.found.dialog_explain")}
         </Typography>
         {error && (
           <Alert severity="error" sx={{ mb: 2 }} data-testid="takeover-error">
@@ -103,7 +104,7 @@ function TakeOverDialog({
             autoFocus
             fullWidth
             size="small"
-            label="Cluster name"
+            label={t("clusters.create.name")}
             value={name}
             onChange={(e) => setName(e.target.value)}
             inputProps={{ "data-testid": "takeover-name" }}
@@ -113,13 +114,13 @@ function TakeOverDialog({
               key={app.app_name}
               fullWidth
               size="small"
-              label={`${app.model_id}: name at the gateway`}
+              label={t("clusters.found.alias_label", { model: app.model_id })}
               value={aliases[app.app_name] ?? ""}
               onChange={(e) => setAliases({ ...aliases, [app.app_name]: e.target.value })}
               helperText={
                 app.notes.length > 0
                   ? app.notes.join(" ")
-                  : "What clients ask for as the model. The old server's name is not stored on the machines."
+                  : t("clusters.found.alias_help")
               }
               inputProps={{ "data-testid": `takeover-alias-${app.deployment_id}` }}
             />
@@ -128,7 +129,7 @@ function TakeOverDialog({
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} disabled={busy}>
-          Cancel
+          {t("common.cancel")}
         </Button>
         <Button
           variant="contained"
@@ -136,7 +137,7 @@ function TakeOverDialog({
           onClick={() => void takeOver()}
           data-testid="takeover-confirm"
         >
-          {busy ? "Checking with the cluster…" : "Take over"}
+          {busy ? t("clusters.found.checking") : t("clusters.found.take_over")}
         </Button>
       </DialogActions>
     </Dialog>
@@ -150,6 +151,7 @@ function FoundClusterRow({
   cluster: FoundCluster;
   onTakeOver: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <Stack spacing={1} data-testid={`found-cluster-${cluster.described_by}`}>
       <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap" useFlexGap>
@@ -157,8 +159,10 @@ function FoundClusterRow({
           {headName(cluster)}
           <Typography component="span" variant="caption" color="text.secondary">
             {" · "}
-            {cluster.members.length} machine{cluster.members.length === 1 ? "" : "s"}
-            {cluster.runtime_version ? ` · runtime ${cluster.runtime_version}` : ""}
+            {machineCount(cluster.members.length)}
+            {cluster.runtime_version
+              ? ` · ${t("clusters.found.runtime", { version: cluster.runtime_version })}`
+              : ""}
           </Typography>
         </Typography>
         <Button
@@ -168,7 +172,7 @@ function FoundClusterRow({
           onClick={onTakeOver}
           data-testid="takeover-open"
         >
-          Take over…
+          {t("clusters.found.take_over_open")}
         </Button>
       </Stack>
       <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
@@ -178,7 +182,7 @@ function FoundClusterRow({
             size="small"
             variant="outlined"
             color={m.node_id ? "default" : "warning"}
-            label={`${m.name ?? m.ip}${m.role === "head" ? " (head)" : ""}`}
+            label={`${m.name ?? m.ip}${m.role === "head" ? ` (${t("clusters.role.head")})` : ""}`}
           />
         ))}
       </Stack>
@@ -186,10 +190,10 @@ function FoundClusterRow({
         <Table size="small">
           <TableHead>
             <TableRow>
-              <TableCell>Model</TableCell>
-              <TableCell>Copies</TableCell>
-              <TableCell>GPUs per copy</TableCell>
-              <TableCell>State</TableCell>
+              <TableCell>{t("clusters.deployments.col_model")}</TableCell>
+              <TableCell>{t("clusters.deployments.col_copies")}</TableCell>
+              <TableCell>{t("clusters.found.gpus_per_copy")}</TableCell>
+              <TableCell>{t("clusters.deployments.col_state")}</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -204,14 +208,14 @@ function FoundClusterRow({
                   )}
                 </TableCell>
                 <TableCell>
-                  {app.running_copies} of {app.copies} running
+                  {t("clusters.found.copies_running", { running: app.running_copies, total: app.copies })}
                 </TableCell>
                 <TableCell>{app.gpus_per_copy ?? "-"}</TableCell>
                 <TableCell>
                   <Chip
                     size="small"
                     variant="outlined"
-                    label={app.status ?? "unknown"}
+                    label={app.status === "RUNNING" ? clusterStatusLabel("running") : (app.status ?? t("clusters.unknown_machine"))}
                     color={app.status === "RUNNING" ? "success" : "default"}
                   />
                 </TableCell>
@@ -221,12 +225,12 @@ function FoundClusterRow({
         </Table>
       ) : (
         <Typography variant="body2" color="text.secondary">
-          It serves no model LLM.Port deployed.
+          {t("clusters.found.no_models")}
         </Typography>
       )}
       {cluster.other_apps.length > 0 && (
         <Typography variant="caption" color="text.secondary">
-          Also running, not deployed by LLM.Port and left as they are: {cluster.other_apps.join(", ")}.
+          {t("clusters.found.other_apps", { apps: cluster.other_apps.join(", ") })}
         </Typography>
       )}
       {cluster.blockers.length > 0 && (
@@ -243,6 +247,7 @@ export function FoundClustersCard({
 }: {
   onTakenOver: (environmentId: string) => void;
 }) {
+  const { t } = useTranslation();
   const [found, setFound] = useState<FoundClusters | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [looking, setLooking] = useState(false);
@@ -266,8 +271,15 @@ export function FoundClustersCard({
 
   if (error) {
     return (
-      <Alert severity="warning" action={<Button size="small" color="inherit" onClick={() => void load()}>Retry</Button>}>
-        Could not look for clusters your machines already run: {error}
+      <Alert
+        severity="warning"
+        action={
+          <Button size="small" color="inherit" onClick={() => void load()}>
+            {t("clusters.found.retry")}
+          </Button>
+        }
+      >
+        {t("clusters.found.load_failed", { error })}
       </Alert>
     );
   }
@@ -278,16 +290,14 @@ export function FoundClustersCard({
       <CardContent>
         <Stack direction="row" alignItems="center" sx={{ mb: 0.5 }}>
           <Typography variant="subtitle1" fontWeight={600} sx={{ flexGrow: 1 }}>
-            Running on your machines, not managed here
+            {t("clusters.found.title")}
           </Typography>
           <Button size="small" color="inherit" disabled={looking} onClick={() => void load()}>
-            {looking ? "Looking…" : "Look again"}
+            {looking ? t("clusters.found.looking") : t("clusters.found.look_again")}
           </Button>
         </Stack>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          An LLM.Port server started these clusters and no longer knows them:
-          it was rebuilt, or restored from an older backup. Take one over to
-          manage it here again; its models keep serving throughout.
+          {t("clusters.found.intro")}
         </Typography>
         <Stack spacing={3}>
           {found.clusters.map((cluster) => (
@@ -302,7 +312,7 @@ export function FoundClustersCard({
           <Stack spacing={0.5} sx={{ mt: found.clusters.length > 0 ? 2 : 0 }}>
             {found.unreadable.map((m) => (
               <Typography key={m.node_id} variant="caption" color="text.secondary">
-                {m.name} runs the cluster runtime but could not say what it serves: {m.error}
+                {t("clusters.found.unreadable", { name: m.name, error: m.error })}
               </Typography>
             ))}
           </Stack>

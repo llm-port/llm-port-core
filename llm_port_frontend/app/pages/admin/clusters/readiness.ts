@@ -10,6 +10,8 @@
  * and the same answer drives the fleet page, the cluster page and the empty
  * states.
  */
+import i18n from "i18next";
+
 import type {
   InferenceDeployment,
   InferenceEnvironment,
@@ -66,26 +68,25 @@ export function fleetReadiness(
   if (nodes.length === 0) {
     return {
       stage: "no-nodes",
-      title: "Add your first machine",
-      detail:
-        "A cluster is built from machines running the LLM.Port agent. Onboard one to get started.",
-      actionLabel: "Add a machine",
+      title: i18n.t("clusters.next.no_nodes.title"),
+      detail: i18n.t("clusters.next.no_nodes.detail"),
+      actionLabel: i18n.t("clusters.next.no_nodes.action"),
       tone: "action",
     };
   }
   if (clusters.length === 0) {
     return {
       stage: "no-cluster",
-      title: "Create a cluster",
-      detail: `${nodes.length} machine${nodes.length === 1 ? " is" : "s are"} ready to be grouped into a cluster that can serve models.`,
-      actionLabel: "Create a cluster",
+      title: i18n.t("clusters.next.no_cluster.title"),
+      detail: i18n.t("clusters.next.no_cluster.detail", { count: nodes.length }),
+      actionLabel: i18n.t("clusters.next.no_cluster.action"),
       tone: "action",
     };
   }
   return {
     stage: "serving",
-    title: "Your clusters are set up",
-    detail: "Open a cluster to see its machines, or deploy a model to one.",
+    title: i18n.t("clusters.next.fleet_ready.title"),
+    detail: i18n.t("clusters.next.fleet_ready.detail"),
     tone: "success",
   };
 }
@@ -104,9 +105,9 @@ export function clusterReadiness(
   if (members.length === 0) {
     return {
       stage: "cluster-empty",
-      title: "Add machines to this cluster",
-      detail: "A cluster needs at least one machine before it can start.",
-      actionLabel: "Add machines",
+      title: i18n.t("clusters.next.empty.title"),
+      detail: i18n.t("clusters.next.empty.detail"),
+      actionLabel: i18n.t("clusters.next.empty.action"),
       tone: "action",
     };
   }
@@ -114,12 +115,12 @@ export function clusterReadiness(
   if (!hasNetwork(cluster)) {
     return {
       stage: "no-network",
-      title: "Choose the network",
+      title: i18n.t("clusters.next.network.title"),
       detail:
         members.length > 1
-          ? "We can see which networks these machines share. Pick one and the cluster starts on it."
-          : "Confirm the network this machine will serve on, and the cluster starts.",
-      actionLabel: "Choose the network",
+          ? i18n.t("clusters.next.network.detail_many")
+          : i18n.t("clusters.next.network.detail_one"),
+      actionLabel: i18n.t("clusters.next.network.action"),
       tone: "action",
     };
   }
@@ -127,9 +128,9 @@ export function clusterReadiness(
   if (cluster.desired_state === "stopped") {
     return {
       stage: "stopped",
-      title: "This cluster is stopped",
-      detail: "Start it to serve models again. Its machines and network are kept.",
-      actionLabel: "Start cluster",
+      title: i18n.t("clusters.next.stopped.title"),
+      detail: i18n.t("clusters.next.stopped.detail"),
+      actionLabel: i18n.t("clusters.next.stopped.action"),
       tone: "warning",
     };
   }
@@ -137,14 +138,12 @@ export function clusterReadiness(
   if (cluster.status === "failed" || cluster.status === "degraded") {
     return {
       stage: "degraded",
-      title: "The cluster needs attention",
-      detail:
-        cluster.status_message ??
-        "Some machines are not reporting. Open Advanced below for the full status.",
+      title: i18n.t("clusters.next.degraded.title"),
+      detail: cluster.status_message ?? i18n.t("clusters.next.degraded.detail"),
       // A failed start is retried on a backoff, and not at all while nothing
       // it depends on has changed. The operator who has just fixed it should
       // not have to wait for the next scheduled look.
-      actionLabel: cluster.status === "failed" ? "Try again" : undefined,
+      actionLabel: cluster.status === "failed" ? i18n.t("clusters.next.degraded.action") : undefined,
       tone: "warning",
     };
   }
@@ -156,10 +155,8 @@ export function clusterReadiness(
     const reported = cluster.progress?.message;
     return {
       stage: "starting",
-      title: "Starting the cluster",
-      detail:
-        reported ??
-        `Preparing ${members.length} machine${members.length === 1 ? "" : "s"}: fetching the runtime, starting the head, joining the others.`,
+      title: i18n.t("clusters.next.starting.title"),
+      detail: reported ?? i18n.t("clusters.next.starting.detail", { count: members.length }),
       tone: "progress",
       progressPct: cluster.progress?.progress_pct ?? null,
     };
@@ -169,9 +166,9 @@ export function clusterReadiness(
   if (active.length === 0) {
     return {
       stage: "ready",
-      title: "Deploy a model",
-      detail: "The cluster is running and has nothing to serve yet.",
-      actionLabel: "Deploy a model",
+      title: i18n.t("clusters.next.ready.title"),
+      detail: i18n.t("clusters.next.ready.detail"),
+      actionLabel: i18n.t("clusters.next.ready.action"),
       tone: "action",
     };
   }
@@ -181,9 +178,11 @@ export function clusterReadiness(
     const names = pending.map((d) => d.name).join(", ");
     return {
       stage: "deploying",
-      title: `Starting ${pending.length === 1 ? names : `${pending.length} deployments`}`,
-      detail:
-        "Copying the model to the machines that need it, then starting the replicas.",
+      title:
+        pending.length === 1
+          ? i18n.t("clusters.next.deploying.title_one", { name: names })
+          : i18n.t("clusters.next.deploying.title_many", { count: pending.length }),
+      detail: i18n.t("clusters.next.deploying.detail"),
       tone: "progress",
     };
   }
@@ -192,9 +191,8 @@ export function clusterReadiness(
   if (failed.length > 0) {
     return {
       stage: "degraded",
-      title: `${failed.length} deployment${failed.length === 1 ? "" : "s"} failed to start`,
-      detail:
-        failed[0].phase_message ?? "Open the deployment to read its logs.",
+      title: i18n.t("clusters.next.failed.title", { count: failed.length }),
+      detail: failed[0].phase_message ?? i18n.t("clusters.next.failed.detail"),
       tone: "warning",
     };
   }
@@ -202,8 +200,11 @@ export function clusterReadiness(
   const ready = active.reduce((sum, d) => sum + d.ready_replicas, 0);
   return {
     stage: "serving",
-    title: "Serving",
-    detail: `${active.length} deployment${active.length === 1 ? "" : "s"} running across ${ready} replica${ready === 1 ? "" : "s"}.`,
+    title: i18n.t("clusters.next.serving.title"),
+    detail: i18n.t("clusters.next.serving.detail", {
+      deployments: i18n.t("clusters.deployment_count", { count: active.length }),
+      replicas: i18n.t("clusters.replica_count", { count: ready }),
+    }),
     tone: "success",
   };
 }

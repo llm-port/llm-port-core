@@ -1573,5 +1573,258 @@
     "step_check_updates": "Nach Updates suchen",
     "step_apply_updates": "Updates installieren",
     "step_done": "Fertig"
+  },
+  "clusters": {
+    "unknown_machine": "unbekannt",
+    "machine_count_one": "{{count}} Maschine",
+    "machine_count_other": "{{count}} Maschinen",
+    "no_machines_yet": "Noch keine Maschinen",
+    "machines_with_leads_one": "{{machines}} · {{count}} leitet",
+    "machines_with_leads_other": "{{machines}} · {{count}} leiten",
+    "machine_kinds_one": "{{count}} Maschinentyp",
+    "machine_kinds_other": "{{count}} Maschinentypen",
+    "deployment_count_one": "{{count}} Bereitstellung",
+    "deployment_count_other": "{{count}} Bereitstellungen",
+    "replica_count_one": "{{count}} Kopie",
+    "replica_count_other": "{{count}} Kopien",
+    "phase": {
+      "pending": "In Warteschlange",
+      "preparing": "Modell wird kopiert",
+      "applying": "Wird gestartet",
+      "running": "Aktiv",
+      "degraded": "Eingeschränkt",
+      "stopped": "Gestoppt",
+      "failed": "Fehlgeschlagen",
+      "deleted": "Entfernt"
+    },
+    "status": {
+      "starting": "Wird gestartet",
+      "running": "Läuft",
+      "degraded": "Braucht Aufmerksamkeit",
+      "failed": "Fehlgeschlagen",
+      "stopped": "Gestoppt"
+    },
+    "next": {
+      "no_nodes": {
+        "title": "Erste Maschine hinzufügen",
+        "detail": "Ein Cluster besteht aus Maschinen, auf denen der LLM.Port-Agent läuft. Fügen Sie eine hinzu, um zu beginnen.",
+        "action": "Maschine hinzufügen"
+      },
+      "no_cluster": {
+        "title": "Cluster erstellen",
+        "detail_one": "{{count}} Maschine ist bereit, zu einem Cluster zusammengefasst zu werden, das Modelle bereitstellt.",
+        "detail_other": "{{count}} Maschinen sind bereit, zu einem Cluster zusammengefasst zu werden, das Modelle bereitstellt.",
+        "action": "Cluster erstellen"
+      },
+      "fleet_ready": {
+        "title": "Ihre Cluster sind eingerichtet",
+        "detail": "Öffnen Sie einen Cluster, um seine Maschinen zu sehen, oder stellen Sie darauf ein Modell bereit."
+      },
+      "empty": {
+        "title": "Maschinen zu diesem Cluster hinzufügen",
+        "detail": "Ein Cluster braucht mindestens eine Maschine, bevor er starten kann.",
+        "action": "Maschinen hinzufügen"
+      },
+      "network": {
+        "title": "Netzwerk wählen",
+        "detail_many": "Wir sehen, welche Netzwerke diese Maschinen gemeinsam haben. Wählen Sie eines, und der Cluster startet darauf.",
+        "detail_one": "Bestätigen Sie das Netzwerk, über das diese Maschine bereitstellt, und der Cluster startet.",
+        "action": "Netzwerk wählen"
+      },
+      "stopped": {
+        "title": "Dieser Cluster ist gestoppt",
+        "detail": "Starten Sie ihn, um wieder Modelle bereitzustellen. Maschinen und Netzwerk bleiben erhalten.",
+        "action": "Cluster starten"
+      },
+      "degraded": {
+        "title": "Der Cluster braucht Aufmerksamkeit",
+        "detail": "Einige Maschinen melden sich nicht. Öffnen Sie unten „Erweitert“ für den vollständigen Status.",
+        "action": "Erneut versuchen"
+      },
+      "starting": {
+        "title": "Cluster wird gestartet",
+        "detail_one": "{{count}} Maschine wird vorbereitet: Runtime wird geladen und der Kopfknoten gestartet.",
+        "detail_other": "{{count}} Maschinen werden vorbereitet: Runtime laden, Kopfknoten starten, die anderen verbinden."
+      },
+      "ready": {
+        "title": "Modell bereitstellen",
+        "detail": "Der Cluster läuft und hat noch nichts bereitzustellen.",
+        "action": "Modell bereitstellen"
+      },
+      "deploying": {
+        "title_one": "{{name}} wird gestartet",
+        "title_many": "{{count}} Bereitstellungen werden gestartet",
+        "detail": "Das Modell wird auf die Maschinen kopiert, die es brauchen; dann werden die Kopien gestartet."
+      },
+      "failed": {
+        "title_one": "{{count}} Bereitstellung konnte nicht starten",
+        "title_other": "{{count}} Bereitstellungen konnten nicht starten",
+        "detail": "Öffnen Sie die Bereitstellung, um ihre Protokolle zu lesen."
+      },
+      "serving": {
+        "title": "Aktiv",
+        "detail": "{{deployments}} laufen auf {{replicas}}."
+      }
+    },
+    "list": {
+      "title": "Cluster",
+      "create": "Cluster erstellen",
+      "empty_title": "Noch keine Cluster",
+      "empty_detail": "Fassen Sie Ihre Maschinen zu einem Cluster zusammen, damit sie gemeinsam Modelle bereitstellen.",
+      "accelerators_one": "{{count}} Beschleuniger",
+      "accelerators_other": "{{count}} Beschleuniger",
+      "no_accelerators": "keine Beschleuniger gemeldet",
+      "advanced_schedulers": "Erweitert: Scheduler"
+    },
+    "role": {
+      "head": "Kopfknoten",
+      "worker": "Arbeitsknoten"
+    },
+    "machine_status": {
+      "healthy": "Betriebsbereit",
+      "degraded": "Eingeschränkt",
+      "unhealthy": "Gestört",
+      "offline": "Offline",
+      "maintenance": "In Wartung",
+      "draining": "Wird geleert",
+      "pending": "Wartet"
+    },
+    "network": {
+      "title": "Netzwerk wählen",
+      "looking": "Prüfe, welche Netzwerke diese Maschinen teilen…",
+      "applying": "Netzwerk wird eingerichtet…",
+      "starting": "Cluster wird gestartet…",
+      "use": "Dieses Netzwerk verwenden",
+      "use_cidr": "{{cidr}} verwenden",
+      "blocked": "Diese Maschinen können noch keinen Cluster bilden.",
+      "intro": "Diese Maschinen erreichen sich über die folgenden Netzwerke. Wir empfehlen das schnellste, das nicht mit dem Verwaltungsverkehr geteilt wird.",
+      "none": "Zwischen diesen Maschinen wurde kein gemeinsames Netzwerk gefunden.",
+      "recommended": "empfohlen",
+      "tested_ok": "getestet – funktioniert",
+      "tested_unreachable": "getestet – nicht erreichbar",
+      "management": "mit Verwaltungsverkehr geteilt"
+    },
+    "topology": {
+      "empty": "Noch keine Maschinen in diesem Cluster.",
+      "aria": "Cluster-Topologie",
+      "leads": "leitet den Cluster",
+      "in_use": "{{pct}} % belegt",
+      "legend_healthy": "Betriebsbereit",
+      "legend_busy": "Stark ausgelastet",
+      "legend_dropped": "Ausgefallen",
+      "legend_silent": "Meldet sich nicht",
+      "legend_motion": "Ein Ring pulsiert, solange die Maschine im Cluster ist; ein Leuchten bedeutet, dass sie arbeitet."
+    },
+    "create": {
+      "title": "Cluster erstellen",
+      "step_name": "Benennen",
+      "step_machines": "Maschinen wählen",
+      "step_network": "Netzwerk bestätigen",
+      "intro": "Ein Cluster fasst Maschinen zusammen, damit sie gemeinsam Modelle bereitstellen.",
+      "name": "Clustername",
+      "pick_intro": "Wählen Sie die Maschinen, die Modelle bereitstellen. Weitere können Sie später hinzufügen.",
+      "no_machines": "Noch keine Maschinen registriert. Fügen Sie zuerst unter „Maschinen“ eine hinzu.",
+      "use_machine": "{{name}} verwenden",
+      "in_other_cluster": "bereits in einem anderen Cluster",
+      "no_image_reason": "kein zertifiziertes Image für diese Plattform",
+      "unsupported_one": "Auf {{machines}} läuft kein zertifiziertes Runtime-Image. Entfernen Sie die Maschine, um fortzufahren: Ohne Image für ihre Architektur kann sie keinem Cluster beitreten.",
+      "unsupported_other": "Auf {{machines}} läuft kein zertifiziertes Runtime-Image. Entfernen Sie diese Maschinen, um fortzufahren: Ohne Image für ihre Architektur kann eine Maschine keinem Cluster beitreten.",
+      "runs_bundle": "{{machine}} verwendet {{bundle}} · Runtime {{runtime}} · vLLM {{vllm}}",
+      "head_label": "Welche Maschine den Cluster leitet",
+      "head_help": "Für Sie gewählt: die Maschine mit den meisten Beschleunigern. Sie können sie ändern.",
+      "no_driver": "Auf diesem Server ist kein Inferenztreiber registriert, daher kann er keinen Cluster betreiben.",
+      "control_plane_description": "Automatisch mit dem ersten Cluster erstellt.",
+      "working_create": "Cluster wird erstellt…",
+      "working_members": "Maschinen werden hinzugefügt…",
+      "working_replan": "Die Netzwerke der Maschinen haben sich geändert – erneute Prüfung…",
+      "replanned": "Eine Maschine hat während Ihrer Auswahl neue Netzwerkdaten gemeldet, daher wurden die Optionen aktualisiert. Bestätigen Sie, um fortzufahren.",
+      "submit": "Cluster erstellen"
+    },
+    "deployments": {
+      "title": "Bereitstellungen",
+      "col_name": "Name",
+      "col_model": "Modell",
+      "col_cluster": "Cluster",
+      "col_state": "Zustand",
+      "col_copies": "Kopien",
+      "col_address": "Adresse",
+      "stopping": "wird gestoppt",
+      "not_published": "noch nicht veröffentlicht",
+      "go_to_clusters": "Zu den Clustern",
+      "no_cluster": "Es gibt noch keinen Cluster für eine Bereitstellung. Erstellen Sie zuerst einen.",
+      "empty": "Noch nichts bereitgestellt.",
+      "search": "Bereitstellungen suchen…",
+      "delete_title": "Diese Bereitstellung löschen?",
+      "delete_message": "\"{{name}}\" wird beendet und aus seinem Cluster entfernt."
+    },
+    "found": {
+      "title": "Läuft auf Ihren Maschinen, wird hier nicht verwaltet",
+      "intro": "Ein LLM.Port-Server hat diese Cluster gestartet und kennt sie nicht mehr: Er wurde neu aufgesetzt oder aus einer älteren Sicherung wiederhergestellt. Übernehmen Sie einen, um ihn hier wieder zu verwalten; seine Modelle laufen dabei weiter.",
+      "looking": "Suche…",
+      "look_again": "Erneut suchen",
+      "retry": "Erneut versuchen",
+      "load_failed": "Suche nach Clustern auf Ihren Maschinen fehlgeschlagen: {{error}}",
+      "runtime": "Runtime {{version}}",
+      "take_over_open": "Übernehmen…",
+      "take_over": "Übernehmen",
+      "checking": "Abgleich mit dem Cluster…",
+      "gpus_per_copy": "GPUs pro Kopie",
+      "copies_running": "{{running}} von {{total}} laufen",
+      "no_models": "Er stellt kein von LLM.Port bereitgestelltes Modell bereit.",
+      "other_apps": "Läuft ebenfalls, nicht von LLM.Port bereitgestellt und bleibt unverändert: {{apps}}.",
+      "unreadable": "{{name}} führt die Cluster-Runtime aus, konnte aber nicht angeben, was sie bereitstellt: {{error}}",
+      "dialog_title": "Cluster auf {{name}} übernehmen",
+      "dialog_explain": "Der Cluster und seine Modelle werden hier so erfasst, wie sie laufen; nichts wird neu gestartet. Zuerst bestätigt der Cluster, dass das, was dieser Server für jedes Modell bereitstellen würde, genau dem Laufenden entspricht. Weicht etwas ab, wird nichts erfasst und Sie erfahren, was.",
+      "alias_label": "{{model}}: Name am Gateway",
+      "alias_help": "Der Modellname, den Clients anfragen. Der Name des alten Servers ist auf den Maschinen nicht gespeichert."
+    },
+    "detail": {
+      "not_found": "Cluster nicht gefunden.",
+      "deleting": "Cluster wird gelöscht…",
+      "stopping_for_delete": "Cluster wird auf seinen Maschinen gestoppt…",
+      "stop_unconfirmed": "Die Maschinen haben das Stoppen nicht bestätigt. Prüfen Sie, ob sie online sind, und versuchen Sie es erneut.",
+      "check_now": "Jetzt prüfen",
+      "machines": "Maschinen",
+      "machines_up": "{{up}} von {{total}} aktiv",
+      "accelerators": "Beschleuniger",
+      "none_reported": "keine gemeldet",
+      "free_accelerators": "Freie Beschleuniger",
+      "n_of_m": "{{n}} von {{m}}",
+      "wiring": "So ist dieser Cluster verbunden",
+      "open_dashboard": "Metrik-Dashboard öffnen",
+      "click_machine": "Klicken Sie auf eine Maschine, um zu sehen, was sie ausführt.",
+      "pools_explain": "Ein Modell läuft jeweils auf einer Art von Maschine; zwischen diesen Gruppen wählen Sie bei der Bereitstellung.",
+      "models": "Modelle auf diesem Cluster",
+      "nothing_deployed": "Hier ist noch nichts bereitgestellt.",
+      "unknown_model": "unbekanntes Modell",
+      "advanced": "Erweitert",
+      "health_checks": "Zustandsprüfungen",
+      "no_checks": "Noch keine Prüfungen erfasst.",
+      "check": "Prüfung",
+      "metrics_unavailable": "Metriken sind nicht verfügbar: {{error}}",
+      "prometheus_targets": "Prometheus-Ziele: {{targets}}",
+      "change_network": "Netzwerk ändern",
+      "raw_status": "Rohstatus anzeigen",
+      "drawer_leads": "Leitet den Cluster",
+      "drawer_worker": "Arbeitsknoten",
+      "fleet_status": "Maschinenstatus",
+      "in_cluster": "Im Cluster",
+      "member_alive": "Verbunden",
+      "not_reported": "nicht gemeldet",
+      "joined": "Beigetreten",
+      "machine_group": "Maschinengruppe",
+      "not_grouped": "noch nicht gruppiert",
+      "drawer_deployments": "Bereitstellungen auf diesem Cluster",
+      "none": "Keine.",
+      "placement_unknown": "Welche Maschine welche Kopie ausführt, meldet die Runtime nicht.",
+      "remove_machine": "Aus Cluster entfernen",
+      "delete_title": "Diesen Cluster löschen?",
+      "delete_has_deployments": "Er hat noch Bereitstellungen. Löschen Sie diese zuerst, damit kein Modell auf den Maschinen weiterläuft.",
+      "delete_offline": "Seine Maschinen sind offline, daher lässt sich der Cluster von hier nicht stoppen. Er wird trotzdem gelöscht; was er auf einer Maschine hinterlässt, wird beim nächsten Clusterstart dort ersetzt.",
+      "delete_running": "Er läuft. Er wird zuerst gestoppt, damit nichts auf den Maschinen zurückbleibt, und dann gelöscht. Die Maschinen bleiben registriert.",
+      "delete_stopped": "Der Cluster wird entfernt. Seine Maschinen bleiben registriert und können einem anderen beitreten.",
+      "remove_title": "Diese Maschine entfernen?",
+      "remove_message": "{{name}} verlässt den Cluster. Ihr Anteil an laufenden Modellen wird beendet."
+    }
   }
 }

@@ -6,6 +6,8 @@
  * point of the rework. The colour helpers are re-exported from `common` so
  * there is still exactly one mapping per status enum.
  */
+import i18n from "i18next";
+
 import type { ComputePool, EnvironmentNode } from "~/api/inference";
 import type { ManagedNode } from "~/api/nodes";
 
@@ -24,38 +26,52 @@ export {
  * address it answers on -- an IP in practice. `agent_id` is the name the
  * operator gave it. Lead with the name; the address is secondary.
  */
-export function nodeLabel(node: ManagedNode | undefined, fallback = "unknown"): string {
-  if (!node) return fallback;
-  return node.agent_id?.trim() || node.host || fallback;
+export function nodeLabel(node: ManagedNode | undefined, fallback?: string): string {
+  const unknown = fallback ?? i18n.t("clusters.unknown_machine");
+  if (!node) return unknown;
+  return node.agent_id?.trim() || node.host || unknown;
+}
+
+/** "3 machines" -- the count every cluster screen repeats. */
+export function machineCount(count: number): string {
+  return i18n.t("clusters.machine_count", { count });
 }
 
 /** "2 machines · 1 leads" — what a membership list means, in one line. */
 export function memberSummary(members: EnvironmentNode[]): string {
-  if (members.length === 0) return "No machines yet";
+  if (members.length === 0) return i18n.t("clusters.no_machines_yet");
   const heads = members.filter((m) => (m.role || "").toLowerCase() === "head").length;
-  const machines = `${members.length} machine${members.length === 1 ? "" : "s"}`;
-  return heads > 0 ? `${machines} · ${heads} leads` : machines;
+  const machines = machineCount(members.length);
+  return heads > 0 ? i18n.t("clusters.machines_with_leads", { machines, count: heads }) : machines;
+}
+
+const MACHINE_STATUSES = new Set([
+  "healthy",
+  "degraded",
+  "unhealthy",
+  "offline",
+  "maintenance",
+  "draining",
+  "pending",
+]);
+
+/** A machine's status as a word in the reader's language, not the enum. */
+export function machineStatusLabel(status: string): string {
+  return MACHINE_STATUSES.has(status) ? i18n.t(`clusters.machine_status.${status}`) : status;
 }
 
 /** Deployment phase in words an operator uses, not the state machine's. */
 export function phaseLabel(phase: string): string {
   switch (phase) {
     case "pending":
-      return "Queued";
     case "preparing":
-      return "Copying the model";
     case "applying":
-      return "Starting";
     case "running":
-      return "Serving";
     case "degraded":
-      return "Degraded";
     case "stopped":
-      return "Stopped";
     case "failed":
-      return "Failed";
     case "deleted":
-      return "Removed";
+      return i18n.t(`clusters.phase.${phase}`);
     default:
       return phase;
   }
@@ -66,16 +82,16 @@ export function clusterStatusLabel(status: string): string {
   switch (status) {
     case "pending":
     case "preparing":
-      return "Starting";
+      return i18n.t("clusters.status.starting");
     case "ready":
     case "running":
-      return "Running";
+      return i18n.t("clusters.status.running");
     case "degraded":
-      return "Needs attention";
+      return i18n.t("clusters.status.degraded");
     case "failed":
-      return "Failed";
+      return i18n.t("clusters.status.failed");
     case "stopped":
-      return "Stopped";
+      return i18n.t("clusters.status.stopped");
     default:
       return status;
   }
@@ -89,8 +105,7 @@ export function clusterStatusLabel(status: string): string {
  */
 export function poolLabel(pool: ComputePool): string {
   const hardware = pool.accelerator_family?.trim() || pool.accelerator_vendor;
-  const machines = `${pool.member_count} machine${pool.member_count === 1 ? "" : "s"}`;
-  return `${hardware} · ${pool.cpu_architecture} · ${machines}`;
+  return `${hardware} · ${pool.cpu_architecture} · ${machineCount(pool.member_count)}`;
 }
 
 /**
@@ -109,5 +124,5 @@ export function poolsWorthShowing(pools: ComputePool[]): boolean {
 /** "2 kinds of machine" / "" — the headline for a mixed cluster. */
 export function poolMixSummary(pools: ComputePool[]): string {
   if (pools.length <= 1) return "";
-  return `${pools.length} kinds of machine`;
+  return i18n.t("clusters.machine_kinds", { count: pools.length });
 }
