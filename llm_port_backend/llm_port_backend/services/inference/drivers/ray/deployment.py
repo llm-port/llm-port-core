@@ -679,6 +679,34 @@ class RayDeploymentManager:
             cannot_reach_offline = (
                 has_hard_blockers and not allow_remote_fetch
             ) or no_manifest
+            if cannot_reach_offline and has_hard_blockers and not no_manifest:
+                # A failed copy is not a broken machine: the stream carrying it
+                # may simply have dropped. Let the coordinator retry the ones
+                # past their backoff before calling the deployment failed --
+                # stopping here for good left a model hosted from the
+                # marketplace failed until someone pressed "sync again".
+                retry = await ModelArtifactCoordinator(session, gateway=_gateway(node_control)).ensure(
+                    model=facts.model, environment=facts.environment, fetch_to_server=False,
+                )
+                still_failed = [n for n in retry.failed_node_ids if not await self._retry_issued(session, facts, n)]
+                # The failed nodes' own blockers were already there; anything
+                # ``ensure`` added (no copy to send, the re-issue failing) is new.
+                new_blockers = [b for b in retry.blockers if b not in readiness.blockers]
+                if not still_failed and not new_blockers:
+                    facts.artifact_readiness = retry
+                    self._observe(
+                        deployment,
+                        DeploymentPhase.PREPARING,
+                        "Copying the model to the machines again after a failed attempt.",
+                        False,
+                        observed={
+                            "reconciled": False,
+                            "reason": "preparing_artifacts",
+                            "retried_node_ids": retry.failed_node_ids,
+                        },
+                        mark_observed=False,
+                    )
+                    return
             if cannot_reach_offline:
                 blockers = list(readiness.blockers)
                 if readiness.manifest_sha256 is None and not blockers:
@@ -1530,6 +1558,22 @@ class RayDeploymentManager:
             observed={**observed, "app_status": entry.get("status"), "ready_replicas": ready},
             ready_replicas=ready, total_replicas=wanted,
         )
+
+    @staticmethod
+    async def _retry_issued(session: Any, facts: _DeploymentFacts, node_id: str) -> bool:
+        """Whether the coordinator has just re-issued the copy that failed on *node_id*.
+
+        ``ensure`` answers with the readiness it read before acting, so a node
+        it retried still reads as failed there; its row says otherwise.
+        """
+        from llm_port_backend.db.dao.inference_dao import ModelAvailabilityDAO  # noqa: PLC0415
+        from llm_port_backend.db.models.inference import ModelAvailabilityStatus  # noqa: PLC0415
+
+        try:
+            row = await ModelAvailabilityDAO(session).get(facts.model.id, uuid.UUID(node_id))
+        except ValueError:
+            return False
+        return row is not None and row.status != ModelAvailabilityStatus.FAILED.value
 
     def _observe(
         self,

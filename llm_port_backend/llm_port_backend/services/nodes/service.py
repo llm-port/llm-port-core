@@ -875,7 +875,9 @@ class NodeControlService:
                 timed_out = {
                     "success": False,
                     "error_code": "command_timed_out",
-                    "error_message": "Command timed out with no node connection (node offline).",
+                    # The reason set just above -- offline, or reachable but
+                    # silent -- not a fixed "node offline" for both.
+                    "error_message": command.error_message or "Command timed out.",
                 }
                 await self._apply_runtime_side_effect(command=command, success=False, payload=timed_out)
                 await self._apply_model_sync_side_effect(command=command, success=False, payload=timed_out)
