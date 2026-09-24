@@ -6,7 +6,7 @@ import logging
 import re
 import time
 import uuid
-from collections.abc import AsyncIterator, Awaitable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -301,6 +301,39 @@ async def _awaited(step: Awaitable[Any]) -> Any:
 async def _value(value: Any) -> Any:
     """*value*, as a step that needs no waiting."""
     return value
+
+
+def _scan_units(content: str) -> tuple[list[str], Callable[[list[str]], str]]:
+    """A tool answer as the texts it is scanned as, and how to put it back together.
+
+    A JSON answer is its string values, one text each, rebuilt in place: the
+    structure is never handed to the scanner, which could break it. Any
+    other answer is one text.
+    """
+    try:
+        data = json.loads(content)
+    except ValueError:
+        return [content], lambda scanned: scanned[0]
+    if not isinstance(data, dict | list):
+        return [content], lambda scanned: scanned[0]
+    places: list[tuple[Any, Any]] = []
+
+    def collect(node: Any) -> None:
+        items = node.items() if isinstance(node, dict) else enumerate(node)
+        for key, value in items:
+            if isinstance(value, str):
+                places.append((node, key))
+            elif isinstance(value, dict | list):
+                collect(value)
+
+    collect(data)
+
+    def rebuild(scanned: list[str]) -> str:
+        for (node, key), text in zip(places, scanned, strict=True):
+            node[key] = text
+        return json.dumps(data)
+
+    return [node[key] for node, key in places], rebuild
 
 
 def _last_user_text(payload: dict[str, Any]) -> str:
@@ -1795,9 +1828,20 @@ class GatewayService:
             or not _needs_scan(req.pii_policy, req.decision.candidate)
         ):
             return answers
+        # Each text of each answer is scanned apart -- every passage of a
+        # search, its query, its sources -- so the PII service's cache, which
+        # keeps one analysis per text, knows a passage the next search returns
+        # again. Scanned as one JSON blob per answer, every search was analysed
+        # afresh: 400-900 ms a round for five passages.
+        units: list[str] = []
+        rebuilds: list[tuple[int, int, Callable[[list[str]], str]]] = []
+        for answer in answers:
+            parts, rebuild = _scan_units(str(answer.get("content") or ""))
+            rebuilds.append((len(units), len(parts), rebuild))
+            units.extend(parts)
         try:
             scanned = await self.pii_client.sanitize(
-                payload={"messages": answers},
+                payload={"messages": [{"role": "tool", "content": unit} for unit in units]},
                 policy=req.pii_policy,
                 mode=req.pii_policy.egress.mode,
                 token_mapping=req.token_mapping,
@@ -1814,7 +1858,18 @@ class GatewayService:
             ) from None
         if scanned.token_mapping:
             req.token_mapping = scanned.token_mapping
-        return scanned.sanitized_payload.get("messages", answers)
+        texts = [str(m.get("content") or "") for m in scanned.sanitized_payload.get("messages") or []]
+        if len(texts) != len(units):
+            raise GatewayError(
+                status_code=502,
+                message="PII scan of tool results came back incomplete: they were not sent to the model.",
+                error_type="server_error",
+                code="pii_scan_incomplete",
+            )
+        return [
+            {**answer, "content": rebuild(texts[start:start + count])}
+            for answer, (start, count, rebuild) in zip(answers, rebuilds, strict=True)
+        ]
 
     async def _persist_assistant_response(
         self,

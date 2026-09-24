@@ -350,6 +350,27 @@ async def test_search_results_use_the_questions_tokens(
 
 
 @pytest.mark.anyio
+async def test_each_passage_is_scanned_as_its_own_text(
+    fastapi_app: FastAPI, client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The PII service keeps one analysis per text: a passage the next search
+    returns again is not analysed again. Scanned as one JSON blob, it was."""
+    await _seed(db_session, provider=ProviderType.REMOTE_OPENAI, pii=_pii("tokenize_reversible"))
+    fastapi_app.state.gateway_observability = _Observability()
+    fake = _install_pii(monkeypatch)
+    _Knowledge(monkeypatch)
+    model = _Model(monkeypatch, _call("knowledge_search", {"query": "launch"}), _say("On 5 May."))
+
+    assert (await _ask(client)).status_code == 200
+    scanned = [m["content"] for m in fake.seen[-1]["messages"]]
+    assert HIT["chunk_text"] in scanned, "the passage, alone"
+    assert "handbook.pdf" in scanned and "launch" in scanned
+    result = json.loads(model.sent[1]["messages"][-1]["content"])
+    assert result["results"][0]["text"] == "[PERSON_1] leads the launch on 5 May."
+    assert result["results"][0]["source"] == "handbook.pdf" and result["query"] == "launch"
+
+
+@pytest.mark.anyio
 async def test_calls_made_together_run_together_and_answer_in_order(
     fastapi_app: FastAPI, client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
