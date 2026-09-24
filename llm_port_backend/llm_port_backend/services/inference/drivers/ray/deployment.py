@@ -679,6 +679,7 @@ class RayDeploymentManager:
             cannot_reach_offline = (
                 has_hard_blockers and not allow_remote_fetch
             ) or no_manifest
+            retry_later = False
             if cannot_reach_offline and has_hard_blockers and not no_manifest:
                 # A failed copy is not a broken machine: the stream carrying it
                 # may simply have dropped. Let the coordinator retry the ones
@@ -707,6 +708,9 @@ class RayDeploymentManager:
                         mark_observed=False,
                     )
                     return
+                # Inside its backoff, nothing new in the way: fail for now,
+                # but stay in the reconcile queue so a later pass retries it.
+                retry_later = not new_blockers
             if cannot_reach_offline:
                 blockers = list(readiness.blockers)
                 if readiness.manifest_sha256 is None and not blockers:
@@ -720,15 +724,17 @@ class RayDeploymentManager:
                     # Say what is wrong in the operator's terms and name the
                     # node, rather than making them read a Ray traceback.
                     f"The model is not on every machine yet, and this runtime "
-                    f"cannot download it: {blocker_msg}",
+                    f"cannot download it: {blocker_msg}"
+                    + (" The copy is tried again in a few minutes." if retry_later else ""),
                     False,
                     observed={
                         "reconciled": False,
                         "reason": "artifact_blocked",
                         "blockers": blockers,
                         "failed_node_ids": readiness.failed_node_ids,
+                        "retry_later": retry_later,
                     },
-                    mark_observed=True,
+                    mark_observed=not retry_later,
                 )
                 return
 

@@ -405,6 +405,63 @@ async def test_a_copy_that_failed_a_while_ago_is_tried_again(
 
 
 @pytest.mark.anyio
+async def test_a_copy_that_just_failed_fails_the_deployment_for_now_and_is_revisited(
+    dbsession: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Inside the backoff it is not retried yet -- but it is not given up on either.
+
+    A failed, observed deployment is terminal: the reconciler never visits it
+    again. For a copy that can simply be retried that meant waiting for
+    someone to press "check now"; it stays in the queue instead.
+    """
+    from llm_port_backend.db.dao.inference_dao import DeploymentDAO
+    from llm_port_backend.services.inference import artifacts as artifacts_mod
+
+    monkeypatch.setattr(artifacts_mod, "build_model_sync_payload",
+                        lambda model, source: {"model_id": str(model.id), "files": [{"path": "config.json"}]})
+    monkeypatch.setattr(artifacts_mod, "model_sync_carries_files", lambda payload: True)
+
+    cp = InferenceControlPlane(name=f"cp-{uuid.uuid4().hex[:8]}", driver="ray")
+    dbsession.add(cp)
+    await dbsession.flush()
+    node = InfraNode(
+        agent_id=f"head-{uuid.uuid4().hex[:8]}", host="10.0.0.2", status="healthy",
+        capabilities_json=dict(DGX_SPARK_PLATFORM),
+    )
+    dbsession.add(node)
+    await dbsession.flush()
+    env = InferenceEnvironment(
+        control_plane_id=cp.id, name=f"env-{uuid.uuid4().hex[:8]}", head_node_id=node.id,
+        status=EnvironmentStatus.READY.value, config_json={"runtime_bundle_id": "bundle-dgx-spark-gb10-v1"},
+    )
+    dbsession.add(env)
+    await dbsession.flush()
+    dbsession.add(InferenceEnvironmentNode(environment_id=env.id, node_id=node.id, role="head"))
+    model = LLMModel(display_name="m", source=ModelSource.HUGGINGFACE, status=ModelStatus.AVAILABLE,
+                     hf_repo_id="Qwen/Qwen3-0.6B")
+    dbsession.add(model)
+    await dbsession.flush()
+    dep = InferenceDeployment(environment_id=env.id, model_id=model.id, name=f"dep-{uuid.uuid4().hex[:8]}",
+                              spec_json=_spec(), phase=DeploymentPhase.PREPARING.value)
+    dbsession.add(dep)
+    dbsession.add(ModelAvailability(model_id=model.id, node_id=node.id,
+                                    status=ModelAvailabilityStatus.FAILED.value,
+                                    status_message="The node's connection closed mid-command."))
+    await dbsession.commit()
+
+    fake_control = _FakeNodeControlService()
+    await RayDeploymentManager().reconcile_deployment(dbsession, dep, node_control=fake_control)
+    await dbsession.commit()
+
+    assert dep.phase == DeploymentPhase.FAILED.value
+    assert "tried again in a few minutes" in (dep.phase_message or "")
+    assert not any(c["command_type"] == NodeCommandType.SYNC_MODEL.value for c in fake_control.issued)
+    queued = {d.id for d in await DeploymentDAO(dbsession).list_pending_observation()}
+    assert dep.id in queued, "a retryable copy keeps the deployment in the reconcile queue"
+
+
+@pytest.mark.anyio
 async def test_a_model_the_server_is_downloading_is_waited_for(
     dbsession: AsyncSession,
 ) -> None:
