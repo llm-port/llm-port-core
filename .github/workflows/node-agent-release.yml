@@ -1,199 +1,146 @@
-# Build and release llm-port-node-agent standalone executables.
+# Build and release the node agent: the binaries the install line fetches.
 #
-# Produces single-file binaries for Linux (x86_64), Windows (x86_64),
-# and macOS (universal2) via PyInstaller.
+# The backend's install plan points machines at
+#   https://github.com/llm-port/llm-port-core/releases/download/node-agent-v<version>/llmport-agent-<platform>
+# for <platform> linux-x86_64 and linux-aarch64 (see
+# llm_port_backend/web/api/install/__init__.py, RELEASE_URL and AGENT_VERSION).
+# This workflow makes exactly those files.
 #
-# Trigger:
-#   - Push a tag matching node-agent-v* (e.g. node-agent-v0.1.0)
-#   - Manual dispatch with optional version override
+# Release:
+#   1. Bump the version in llm_port_node_agent/pyproject.toml and
+#      llm_port_node_agent/llm_port_node_agent/__init__.py, and AGENT_VERSION in
+#      the backend -- the backend is what tells machines which agent to install.
+#   2. Tag and push: git tag node-agent-v0.1.12 && git push origin node-agent-v0.1.12
 #
-# Outputs:
-#   - GitHub Release with attached binaries
-#   - Artifact uploads for each platform
+# Each binary is built by build-binary.sh in a Debian bookworm container, on a
+# runner of its own architecture: built on a newer distro, the agent links a
+# newer glibc and fails on older nodes (the DGX Sparks run glibc 2.39; many
+# servers run older).
 
 name: Release Node Agent
 
 on:
   workflow_dispatch:
-    inputs:
-      version:
-        description: "Release version (e.g. 0.2.0). Leave empty to use pyproject.toml version."
-        required: false
-        default: ""
-        type: string
   push:
     tags:
       - "node-agent-v*"
 
 permissions:
-  contents: write # needed for creating releases
+  contents: write
 
 env:
   AGENT_DIR: llm_port_node_agent
 
 jobs:
-  # ── Publish Python package to PyPI ──────────────────────────────
-  publish:
+  version:
     runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          sparse-checkout: |
-            llm_port_node_agent
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install build tools
-        run: pip install --upgrade build twine
-
-      - name: Resolve version
-        id: version
-        shell: bash
-        working-directory: ${{ env.AGENT_DIR }}
-        run: |
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
-          elif [[ "$GITHUB_REF" == refs/tags/node-agent-v* ]]; then
-            echo "version=${GITHUB_REF#refs/tags/node-agent-v}" >> "$GITHUB_OUTPUT"
-          else
-            VER=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
-            echo "version=$VER" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Build sdist + wheel
-        working-directory: ${{ env.AGENT_DIR }}
-        run: python -m build
-
-      - name: Publish to PyPI
-        working-directory: ${{ env.AGENT_DIR }}
-        env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-        run: twine upload dist/*
-
     outputs:
-      version: ${{ steps.version.outputs.version }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: The tag, the agent and the backend agree on the version
+        id: check
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYPROJECT=$(python3 -c "import tomllib; print(tomllib.load(open('$AGENT_DIR/pyproject.toml','rb'))['project']['version'])")
+          PACKAGE=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' "$AGENT_DIR/llm_port_node_agent/__init__.py")
+          BACKEND=$(sed -n 's/^AGENT_VERSION = "\(.*\)"/\1/p' llm_port_backend/llm_port_backend/web/api/install/__init__.py)
+          echo "pyproject=$PYPROJECT package=$PACKAGE backend=$BACKEND"
+          if [ "$PYPROJECT" != "$PACKAGE" ] || [ "$PYPROJECT" != "$BACKEND" ]; then
+            echo "::error::Versions differ: pyproject $PYPROJECT, package $PACKAGE, backend AGENT_VERSION $BACKEND"
+            exit 1
+          fi
+          if [[ "$GITHUB_REF" == refs/tags/node-agent-v* ]] && [ "${GITHUB_REF#refs/tags/node-agent-v}" != "$PYPROJECT" ]; then
+            echo "::error::Tag ${GITHUB_REF#refs/tags/} does not match version $PYPROJECT"
+            exit 1
+          fi
+          echo "version=$PYPROJECT" >> "$GITHUB_OUTPUT"
 
-  # ── Build standalone executables per platform ───────────────────
   build:
-    needs: publish
+    needs: version
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
-            target: linux-x86_64
-            binary_name: llmport-agent
-            asset_name: llmport-agent-linux-x86_64
-          - os: windows-latest
-            target: windows-x86_64
-            binary_name: llmport-agent.exe
-            asset_name: llmport-agent-windows-x86_64.exe
-          - os: macos-latest
-            target: macos-universal
-            binary_name: llmport-agent
-            asset_name: llmport-agent-macos-universal
-
-    runs-on: ${{ matrix.os }}
-
+          - runner: ubuntu-24.04
+            platform: linux-x86_64
+          - runner: ubuntu-24.04-arm
+            platform: linux-aarch64
+    runs-on: ${{ matrix.runner }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          sparse-checkout: |
-            llm_port_node_agent
+          sparse-checkout: llm_port_node_agent
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install dependencies
+      - name: Build
         working-directory: ${{ env.AGENT_DIR }}
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install pyinstaller
-          python -m pip install -e .
-
-      - name: Build executable
-        working-directory: ${{ env.AGENT_DIR }}
-        run: pyinstaller node_agent.spec --noconfirm
+        run: sh build-binary.sh ${{ matrix.platform }}
 
       - name: Smoke test
         working-directory: ${{ env.AGENT_DIR }}
         shell: bash
         run: |
-          ./dist/${{ matrix.binary_name }} --help 2>&1 || true
-          # The agent doesn't have --help; just verify it starts and
-          # exits cleanly when no backend is reachable (exit code != segfault)
-          timeout 3 ./dist/${{ matrix.binary_name }} 2>&1 || true
+          set -euo pipefail
+          BIN="dist/llmport-agent-${{ matrix.platform }}"
+          chmod +x "$BIN"
+          # It must start, parse its arguments and print its licence -- in the
+          # oldest environment it claims to support, not only on this runner.
+          docker run --rm -v "$PWD/dist:/d:ro" debian:bookworm-slim "/d/llmport-agent-${{ matrix.platform }}" license | head -5
+          sha256sum "$BIN" | awk '{print $1}' > "$BIN.sha256"
 
-      - name: Rename artifact
-        working-directory: ${{ env.AGENT_DIR }}
-        shell: bash
-        run: |
-          cp "dist/${{ matrix.binary_name }}" "dist/${{ matrix.asset_name }}"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.asset_name }}
-          path: ${{ env.AGENT_DIR }}/dist/${{ matrix.asset_name }}
+          name: llmport-agent-${{ matrix.platform }}
+          path: |
+            ${{ env.AGENT_DIR }}/dist/llmport-agent-${{ matrix.platform }}
+            ${{ env.AGENT_DIR }}/dist/llmport-agent-${{ matrix.platform }}.sha256
           retention-days: 30
 
   release:
-    needs: [publish, build]
+    needs: [version, build]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/node-agent-v') || github.event_name == 'workflow_dispatch'
-
+    if: startsWith(github.ref, 'refs/tags/node-agent-v')
     steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           path: artifacts
-
-      - name: Compute checksums
-        shell: bash
-        run: |
-          cd artifacts
-          find . -type f -not -name "*.sha256" | while read f; do
-            sha256sum "$f" | awk '{print $1}' > "${f}.sha256"
-          done
+          merge-multiple: true
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: node-agent-v${{ needs.publish.outputs.version }}
-          name: "Node Agent v${{ needs.publish.outputs.version }}"
-          body: |
-            ## llm-port Node Agent v${{ needs.publish.outputs.version }}
-
-            Standalone executables — no Python installation required.
-
-            Also available on PyPI: `pip install llmport-agent==${{ needs.publish.outputs.version }}`
-
-            ### Quick start
-            ```bash
-            # Linux
-            curl -LO https://github.com/${{ github.repository }}/releases/download/node-agent-v${{ needs.publish.outputs.version }}/llmport-agent-linux-x86_64
-            chmod +x llmport-agent-linux-x86_64
-            sudo mv llmport-agent-linux-x86_64 /usr/local/bin/llmport-agent
-
-            export LLM_PORT_NODE_AGENT_BACKEND_URL=http://<server>:8000
-            export LLM_PORT_NODE_AGENT_LOKI_URL=http://<server>:3100
-            export LLM_PORT_NODE_AGENT_ENROLLMENT_TOKEN=<token>
-            llmport-agent
-            ```
-
-            ### Checksums
-            SHA-256 checksums are attached as `.sha256` files.
-          files: |
-            artifacts/**/*
-          draft: false
-          prerelease: false
+          tag_name: node-agent-v${{ needs.version.outputs.version }}
+          name: "Node Agent v${{ needs.version.outputs.version }}"
           generate_release_notes: true
+          body: |
+            Standalone agent binaries for Linux, no Python needed. Machines normally
+            get them through the install line on the LLM.Port **Machines → Add a
+            machine** page, which checks the SHA-256 against the server's own copy.
+
+            Built in Debian bookworm (glibc 2.36), so they run on that and newer.
+          files: artifacts/*
+
+  pypi:
+    # Optional: only when the repository has a PyPI token. The binaries above
+    # are what installs use; this must never hold them back.
+    needs: [version, release]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/node-agent-v')
+    env:
+      TWINE_USERNAME: __token__
+      TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: llm_port_node_agent
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build and upload
+        if: env.TWINE_PASSWORD != ''
+        working-directory: ${{ env.AGENT_DIR }}
+        run: |
+          pip install --upgrade build twine
+          python -m build
+          twine upload dist/*

@@ -51,10 +51,14 @@ router = APIRouter(prefix="/install", tags=["install"])
 #: converge, because every fresh install reads it from the running backend.
 AGENT_VERSION = "0.1.12"
 
-#: Where published binaries live when this backend has no local copy.
+#: Where published binaries live when this backend has no local copy: the
+#: release .github/workflows/node-agent-release.yml makes for a
+#: ``node-agent-v<version>`` tag. (This pointed at the retired
+#: llm-port-node-agent repository, under a tag neither repository used, so
+#: every install depended on a local copy.)
 RELEASE_URL = (
-    "https://github.com/llm-port/llm-port-node-agent/releases/download"
-    "/v{version}/llmport-agent-{platform}"
+    "https://github.com/llm-port/llm-port-core/releases/download"
+    "/node-agent-v{version}/llmport-agent-{platform}"
 )
 
 #: Platforms we publish, keyed as ``uname -s``/``uname -m`` reports them.

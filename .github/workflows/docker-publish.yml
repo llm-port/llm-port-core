@@ -1,7 +1,10 @@
 # Build and push all llm.port core Docker images to GHCR.
 #
 # Trigger options:
-#   - Push to main (builds changed services only)
+#   - Push to master (builds changed services only)
+#   - A release tag v<version> (e.g. v0.3.0): every image, tagged 0.3.0, 0.3 and
+#     latest. `llmport deploy` from the CLI of that version pulls exactly
+#     <version>, so the images must be published before the CLI is.
 #   - Manual dispatch (choose which services to build)
 #
 # Prerequisites:
@@ -32,6 +35,7 @@ on:
   push:
     branches: [master]
     tags:
+      - "v*"
       - "core-v*"
 
 permissions:
@@ -59,7 +63,7 @@ jobs:
         run: |
           SERVICES="${{ github.event.inputs.services }}"
           # Build all on tag push, workflow_dispatch with 'all', or no services specified
-          if [[ "$GITHUB_REF" == refs/tags/core-v* ]]; then
+          if [[ "$GITHUB_REF" == refs/tags/core-v* || "$GITHUB_REF" == refs/tags/v* ]]; then
             echo "build_all=true" >> "$GITHUB_OUTPUT"
           elif [[ "$SERVICES" == "all" || -z "$SERVICES" ]]; then
             echo "build_all=true" >> "$GITHUB_OUTPUT"
@@ -93,6 +97,7 @@ jobs:
     if: >-
       needs.changes.outputs.api == 'true' ||
       startsWith(github.ref, 'refs/tags/core-v') ||
+      startsWith(github.ref, 'refs/tags/v') ||
       github.event_name == 'workflow_dispatch' &&
       (github.event.inputs.services == 'all' || contains(github.event.inputs.services, 'api'))
     uses: ./.github/workflows/docker-build-reusable.yml
@@ -106,6 +111,7 @@ jobs:
     if: >-
       needs.changes.outputs.backend == 'true' ||
       startsWith(github.ref, 'refs/tags/core-v') ||
+      startsWith(github.ref, 'refs/tags/v') ||
       github.event_name == 'workflow_dispatch' &&
       (github.event.inputs.services == 'all' || contains(github.event.inputs.services, 'backend'))
     uses: ./.github/workflows/docker-build-reusable.yml
@@ -121,6 +127,7 @@ jobs:
     if: >-
       needs.changes.outputs.frontend == 'true' ||
       startsWith(github.ref, 'refs/tags/core-v') ||
+      startsWith(github.ref, 'refs/tags/v') ||
       github.event_name == 'workflow_dispatch' &&
       (github.event.inputs.services == 'all' || contains(github.event.inputs.services, 'frontend'))
     uses: ./.github/workflows/docker-build-reusable.yml
@@ -134,6 +141,7 @@ jobs:
     if: >-
       needs.changes.outputs.pii == 'true' ||
       startsWith(github.ref, 'refs/tags/core-v') ||
+      startsWith(github.ref, 'refs/tags/v') ||
       github.event_name == 'workflow_dispatch' &&
       (github.event.inputs.services == 'all' || contains(github.event.inputs.services, 'pii'))
     uses: ./.github/workflows/docker-build-reusable.yml
@@ -147,6 +155,7 @@ jobs:
     if: >-
       needs.changes.outputs.mcp == 'true' ||
       startsWith(github.ref, 'refs/tags/core-v') ||
+      startsWith(github.ref, 'refs/tags/v') ||
       github.event_name == 'workflow_dispatch' &&
       (github.event.inputs.services == 'all' || contains(github.event.inputs.services, 'mcp'))
     uses: ./.github/workflows/docker-build-reusable.yml
@@ -160,6 +169,7 @@ jobs:
     if: >-
       needs.changes.outputs.skills == 'true' ||
       startsWith(github.ref, 'refs/tags/core-v') ||
+      startsWith(github.ref, 'refs/tags/v') ||
       github.event_name == 'workflow_dispatch' &&
       (github.event.inputs.services == 'all' || contains(github.event.inputs.services, 'skills'))
     uses: ./.github/workflows/docker-build-reusable.yml
