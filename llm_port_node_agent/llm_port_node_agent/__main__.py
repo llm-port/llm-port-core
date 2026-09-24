@@ -1046,6 +1046,31 @@ async def _join_flow(config: AgentConfig) -> bool:
     poll_secret = asked.get("poll_secret")
     request_id = asked.get("id")
 
+    # The backend gives the poll secret to the run that filed the request and
+    # to nobody after it -- a second asker cannot prove it is the same machine.
+    # So this run keeps it, and a later run on this machine resumes the wait
+    # with it. Without that, a run that died while waiting (Ctrl+C, a dropped
+    # SSH session) left a request nothing could collect: approving it enrolled
+    # nothing, and the machine was stuck until the request expired.
+    store = StateStore(config.state_path)
+    resumed = False
+    if poll_secret:
+        store.state.pending_join = {
+            "id": request_id,
+            "backend_url": config.backend_url,
+            "poll_secret": poll_secret,
+        }
+        store.save()
+    else:
+        saved = store.state.pending_join or {}
+        if (
+            saved.get("poll_secret")
+            and saved.get("id") == request_id
+            and saved.get("backend_url") == config.backend_url
+        ):
+            poll_secret = saved["poll_secret"]
+            resumed = True
+
     _section("Waiting for approval")
     print()
     print(f"      Code:  {code}")
@@ -1053,12 +1078,18 @@ async def _join_flow(config: AgentConfig) -> bool:
     print("  Open LLM.Port in a browser, go to Machines, and approve this")
     print("  request.  Check the code above matches the one on screen.")
     print()
+    # Piped or over a plain ssh session, stdout is block-buffered: the code
+    # would only appear once this process exits, long after it was needed.
+    sys.stdout.flush()
 
-    if not poll_secret:
-        # This machine already had a live request, so the secret belongs to
-        # the process that made it.  Saying so beats polling forever.
-        _warn("This machine is already waiting for approval from an earlier run.")
-        _warn("Approve it in the browser; that run will pick up the credential.")
+    if resumed:
+        _ok("Picking up the request an earlier run made; still waiting for it.")
+    elif not poll_secret:
+        # Another run on this machine, or another machine using this name,
+        # made the request, and only that run can collect it.
+        _warn("This machine already asked to join, from another run.")
+        _warn("If that run is still waiting, approve the request in the browser.")
+        _warn("If it stopped, choose \"Not this one\" in the browser, then run this again.")
         return False
 
     # A human has to walk to a browser, so poll patiently rather than tightly.
@@ -1074,21 +1105,25 @@ async def _join_flow(config: AgentConfig) -> bool:
         status = result.get("status")
         if status == "pending":
             continue
+        # Whatever the answer, the request is settled: forget its secret.
+        store.load()
+        store.state.pending_join = None
         if status == "approved":
-            store = StateStore(config.state_path)
-            store.load()
             store.state.credential = result.get("credential")
             store.state.node_id = result.get("node_id")
             store.save()
             _ok(f"Approved.  This machine is now '{result.get('agent_id')}'.")
             return True
+        store.save()
         if status == "rejected":
             _err(f"The request was refused. {result.get('message') or ''}".strip())
             return False
         _err(f"The request is no longer usable ({status}).")
         return False
 
-    _err("Nobody approved this within the time limit.  Run join again to retry.")
+    # Still pending on the backend: keep the secret, so running join again
+    # goes on waiting for this request rather than being told to wait.
+    _err("Nobody approved this within the time limit.  Run join again to keep waiting.")
     return False
 
 
@@ -1653,8 +1688,37 @@ def cmd_scan() -> None:
 # ── Main ──────────────────────────────────────────────────────────
 
 
+def _restore_system_library_path() -> None:
+    """Let the programs this agent runs load the machine's libraries, not the bundle's.
+
+    The frozen binary's launcher (PyInstaller) points ``LD_LIBRARY_PATH`` at
+    the libraries it unpacked, so the bundle finds its own copies first, and
+    every child inherited that. On a distro newer than the build image,
+    ``systemctl`` then loaded the bundle's older libcrypto and failed with
+    "version `OPENSSL_3.4.0' not found" -- right after a join was approved,
+    so the agent never started. This process has already resolved its own
+    libraries (the dynamic loader reads the variable once, at start-up), so
+    putting the original back changes only what children see. PyInstaller
+    documents this as the fix: pyinstaller.org, "Run-time Information".
+    """
+    if not getattr(sys, "frozen", False):
+        return
+    original = os.environ.get("LD_LIBRARY_PATH_ORIG")
+    if original is not None:
+        os.environ["LD_LIBRARY_PATH"] = original
+    else:
+        os.environ.pop("LD_LIBRARY_PATH", None)
+
+
 def main() -> None:
     """Process entrypoint."""
+    _restore_system_library_path()
+    # Line by line even when not a terminal: an install run over ssh or into a
+    # log has to show its join code while it waits, not after.
+    try:
+        sys.stdout.reconfigure(line_buffering=True)  # type: ignore[union-attr]
+    except (AttributeError, ValueError):
+        pass
     parser = argparse.ArgumentParser(
         prog="llmport-agent",
         description="llm-port node agent — host-side execution bridge.",

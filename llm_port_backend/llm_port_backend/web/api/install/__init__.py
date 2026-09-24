@@ -49,7 +49,7 @@ router = APIRouter(prefix="/install", tags=["install"])
 
 #: Agent version this backend expects.  Bumping it here is what makes a fleet
 #: converge, because every fresh install reads it from the running backend.
-AGENT_VERSION = "0.1.12"
+AGENT_VERSION = "0.1.13"
 
 #: Where published binaries live when this backend has no local copy: the
 #: release .github/workflows/node-agent-release.yml makes for a

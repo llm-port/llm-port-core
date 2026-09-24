@@ -28,6 +28,11 @@ class AgentState:
     workloads: dict[str, dict[str, Any]] = field(default_factory=dict)
     completed_commands: dict[str, dict[str, Any]] = field(default_factory=dict)
     profile: dict[str, Any] | None = None
+    #: A join request this machine is waiting on: its id, the backend it was
+    #: filed with, and the poll secret that alone collects the credential. The
+    #: backend hands that secret out once, so it is kept here to let a run that
+    #: died while waiting (Ctrl+C, a dropped SSH session, a reboot) be resumed.
+    pending_join: dict[str, Any] | None = None
     updated_at: str = field(default_factory=lambda: datetime.now(tz=UTC).isoformat())
 
 
@@ -64,6 +69,7 @@ class StateStore:
             workloads=dict(raw.get("workloads") or {}),
             completed_commands=dict(raw.get("completed_commands") or {}),
             profile=raw.get("profile"),
+            pending_join=raw.get("pending_join") if isinstance(raw.get("pending_join"), dict) else None,
             updated_at=str(raw.get("updated_at") or datetime.now(tz=UTC).isoformat()),
         )
 
@@ -79,6 +85,7 @@ class StateStore:
             "workloads": self.state.workloads,
             "completed_commands": self.state.completed_commands,
             "profile": self.state.profile,
+            "pending_join": self.state.pending_join,
             "updated_at": self.state.updated_at,
         }
         tmp = self.path.with_suffix(".tmp")
