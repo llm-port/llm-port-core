@@ -475,6 +475,10 @@ services:
       - ./prometheus/targets.json:/opt/llm-port/monitoring/prometheus/targets.json:rw
       - ./grafana/provisioning/dashboards/json:/opt/llm-port/monitoring/dashboards:rw
       - ./grafana/dashboards/templates:/opt/llm-port/monitoring/templates:ro
+      # Agent builds the install line hands out (llmport-agent-linux-<arch>).
+      # Without a copy here a machine can only fetch the published release,
+      # which an air-gapped site cannot reach and a new agent may not be yet.
+      - ./agent-binaries:/srv/llm-port/agent-binaries:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:

@@ -1,0 +1,5 @@
+# Agent builds served by the install line: llmport-agent-linux-x86_64,
+# llmport-agent-linux-aarch64 (llm_port_node_agent/build-binary.sh).
+# The directory is kept; the binaries are never committed.
+*
+!.gitignore
