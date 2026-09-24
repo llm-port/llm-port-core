@@ -12,6 +12,7 @@ this server has" instead of a failure.
 from __future__ import annotations
 
 import asyncio
+import fnmatch
 import json
 import logging
 import re
@@ -37,11 +38,35 @@ SORTS = {
 }
 
 #: Tasks -> the Hub pipeline tags they are filed under.
-TASK_TAGS: dict[str, tuple[str, ...]] = {
-    "chat": ("text-generation",),
-    "embedding": ("feature-extraction", "sentence-similarity"),
-    "vision": ("image-text-to-text",),
+#: The Hub queries behind each task filter.
+#:
+#: Chat asks for the ``conversational`` tag rather than the text-generation
+#: pipeline: the current chat models (Qwen3.5 onwards, Gemma 4) read images
+#: too and are filed under image-text-to-text, so a pipeline filter hid the
+#: most used chat models there are.
+TASK_QUERIES: dict[str, tuple[dict[str, str], ...]] = {
+    "chat": ({"filter": "conversational"},),
+    "embedding": ({"pipeline_tag": "feature-extraction"}, {"pipeline_tag": "sentence-similarity"}),
+    "vision": ({"pipeline_tag": "image-text-to-text"},),
 }
+
+#: A wildcard search fetches this many per literal piece, then filters.
+WILDCARD_FETCH = 100
+
+
+def wildcard_parts(query: str) -> tuple[str, list[str]] | None:
+    """``qwen3*fp8`` -> the glob and the literal pieces to ask the Hub for; None without wildcards.
+
+    ``*`` is any text and ``?`` one character. The glob matches anywhere in
+    ``author/name``, like the plain search does. The Hub has no wildcards: each
+    of the (at most three longest) literal pieces is searched for, and the
+    union filtered by the glob.
+    """
+    q = query.strip().lower()
+    if "*" not in q and "?" not in q:
+        return None
+    pieces = sorted(dict.fromkeys(p for p in re.split(r"[*?]+", q) if p), key=len, reverse=True)[:3]
+    return f"*{q}*", pieces
 
 _EXPAND = [
     "safetensors", "config", "cardData", "tags", "gated", "downloads", "likes", "trendingScore",
@@ -250,32 +275,47 @@ class HubClient:
         return HfApi(token=self.token)
 
     async def search(self, query: str = "", *, sort: str = "trending", task: str = "chat",
-                     limit: int = 40) -> list[dict[str, Any]]:
-        """Models matching *query* (all models when empty), as cards."""
-        key = f"search:{bool(self.token)}:{query.strip().lower()}:{sort}:{task}:{limit}"
+                     limit: int = 40, author: str | None = None) -> list[dict[str, Any]]:
+        """Models matching *query* (all models when empty), as cards.
+
+        *query* may hold ``*`` and ``?`` wildcards; *author* narrows to one
+        organisation or user, which the Hub filters itself.
+        """
+        author = (author or "").strip() or None
+        key = (f"search:{bool(self.token)}:{query.strip().lower()}:{sort}:{task}:{limit}"
+               f":{(author or '').lower()}")
         cached = _cache.get(key)
         if cached is not None:
             return cached
-        tags = TASK_TAGS.get(task, TASK_TAGS["chat"])
+        queries = TASK_QUERIES.get(task, TASK_QUERIES["chat"])
         hub_sort = SORTS.get(sort, SORTS["trending"])
+        wild = wildcard_parts(query)
+        terms = wild[1] if wild else [query.strip()]
+        fetch = WILDCARD_FETCH if wild else limit
 
         def run() -> list[dict[str, Any]]:
             api = self._api()
             seen: dict[str, dict[str, Any]] = {}
-            for tag in tags:
-                for info in api.list_models(
-                    search=query.strip() or None, pipeline_tag=tag, sort=hub_sort, limit=limit, expand=_EXPAND,
-                ):
-                    data = info_to_dict(info)
-                    if data["id"] and data["id"] not in seen:
-                        seen[data["id"]] = card_from_dict(data)
+            for extra in queries:
+                for term in terms or [""]:
+                    for info in api.list_models(
+                        search=term or None, author=author, sort=hub_sort, limit=fetch, expand=_EXPAND,
+                        **extra,
+                    ):
+                        data = info_to_dict(info)
+                        if data["id"] and data["id"] not in seen:
+                            seen[data["id"]] = card_from_dict(data)
             cards = list(seen.values())
-            if len(tags) > 1:  # two lists merged: put them back in the order asked for
+            if wild:
+                cards = [c for c in cards if fnmatch.fnmatchcase(c["repo_id"].lower(), wild[0])]
+            if len(queries) > 1 or len(terms) > 1:  # lists merged: put them back in the order asked for
                 order = {"downloads": "downloads", "likes": "likes"}.get(sort)
                 if order:
                     cards.sort(key=lambda c: c.get(order) or 0, reverse=True)
                 elif sort == "trending":
                     cards.sort(key=lambda c: c.get("trending_score") or 0, reverse=True)
+                elif sort == "recent":
+                    cards.sort(key=lambda c: str(c.get("created_at") or ""), reverse=True)
             return cards[:limit]
 
         cards = await self._call(run)
@@ -381,3 +421,79 @@ class HubClient:
 def clear_cache() -> None:
     """Forget every cached answer (tests, and a token change)."""
     _cache.clear()
+    _avatars.clear()
+
+
+# ── Owner avatars ─────────────────────────────────────────────────────────
+#
+# A model has no picture of its own: the Hub shows its owner's, from
+# /api/organizations/<name>/avatar (or /api/users/<name>/avatar for a person).
+# The server fetches and keeps them, so a browser that cannot reach Hugging
+# Face still sees them and the page loads nothing from another origin.
+
+HUB_URL = "https://huggingface.co"
+AVATAR_TTL_SEC = 24 * 3600
+AVATAR_MISS_TTL_SEC = 3600
+AVATAR_MAX_BYTES = 512 * 1024
+AVATAR_CACHE_MAX = 500
+_AVATAR_NAME = re.compile(r"^[A-Za-z0-9][\w.-]{0,95}$")
+#: Pictures are served from our own origin: raster images only (an SVG can
+#: carry script), and only from where the Hub keeps them.
+AVATAR_TYPES = frozenset({"image/png", "image/jpeg", "image/webp", "image/gif", "image/avif"})
+AVATAR_HOSTS = ("huggingface.co", "hf.co", "gravatar.com")
+_avatars: dict[str, tuple[float, tuple[str, bytes] | None]] = {}
+
+
+def _avatar_host_ok(url: str) -> bool:
+    """An https URL on one of AVATAR_HOSTS (or a subdomain of one)."""
+    from urllib.parse import urlsplit  # noqa: PLC0415
+
+    parts = urlsplit(url)
+    host = (parts.hostname or "").lower()
+    return parts.scheme == "https" and any(host == h or host.endswith("." + h) for h in AVATAR_HOSTS)
+
+
+async def fetch_avatar(author: str, *, client: Any = None) -> tuple[str, bytes] | None:
+    """``(content_type, bytes)`` of *author*'s avatar on the Hub, or None."""
+    if not _AVATAR_NAME.match(author or ""):
+        return None
+    key = author.lower()
+    hit = _avatars.get(key)
+    if hit and hit[0] > time.monotonic():
+        return hit[1]
+
+    import httpx  # noqa: PLC0415
+
+    from llm_port_backend.services.tls import default_httpx_verify  # noqa: PLC0415
+
+    own = client is None
+    client = client or httpx.AsyncClient(timeout=5.0, follow_redirects=True, verify=default_httpx_verify())
+    result: tuple[str, bytes] | None = None
+    reached = False
+    try:
+        for kind in ("organizations", "users"):
+            response = await client.get(f"{HUB_URL}/api/{kind}/{author}/avatar")
+            reached = True
+            if response.status_code != 200:
+                continue
+            url = (response.json() or {}).get("avatarUrl")
+            if not isinstance(url, str) or not _avatar_host_ok(url):
+                continue
+            image = await client.get(url)
+            kind_of = image.headers.get("content-type", "").split(";")[0].strip().lower()
+            small = len(image.content) <= AVATAR_MAX_BYTES
+            wanted = kind_of in AVATAR_TYPES and _avatar_host_ok(str(image.url))
+            if image.status_code == 200 and wanted and small:
+                result = (kind_of, image.content)
+                break
+    except Exception as exc:  # a missing picture is never an error
+        log.info("marketplace: no avatar for %s: %s", author, type(exc).__name__)
+    finally:
+        if own:
+            await client.aclose()
+    if len(_avatars) >= AVATAR_CACHE_MAX:
+        _avatars.clear()
+    # Unreachable Hub: ask again soon. Known to have none: not for an hour.
+    ttl = AVATAR_TTL_SEC if result else (AVATAR_MISS_TTL_SEC if reached else 600)
+    _avatars[key] = (time.monotonic() + ttl, result)
+    return result

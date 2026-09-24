@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import { containers, type ContainerSummary } from "~/api/admin";
 import { systemSettingsApi } from "~/api/systemSettings";
-import { apiDocsUrl } from "~/lib/serviceUrls";
+import { resolveApiDocsUrl } from "~/lib/serviceUrls";
 
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
@@ -22,14 +22,11 @@ import RestartAltIcon from "@mui/icons-material/RestartAlt";
 export default function ApiDocsPage() {
   const { t } = useTranslation();
   const [containerName, setContainerName] = useState("llm-port-api");
-  // In the dev/headless stack the llm_port_api gateway is exposed on
-  // port :8001 of the host serving this app (no nginx reverse proxy),
-  // so point the iframe directly at the exposed API port. The
-  // `api.server.endpoint_url` system setting (production nginx path
-  // `/gateway-docs/docs`) only resolves through the reverse proxy and
-  // is intentionally NOT used as the iframe target here — using it
-  // produced a 404 in the dev stack.
-  const [activeUrl] = useState(apiDocsUrl());
+  // Behind nginx (a full install) the gateway's docs are same-origin under
+  // /gateway-docs/docs and its own port is not published; in the dev stack
+  // there is no nginx and the exposed port (:8001) is the way in.
+  // resolveApiDocsUrl asks the same origin first, then falls back.
+  const [activeUrl, setActiveUrl] = useState<string | null>(null);
   const [serviceContainer, setServiceContainer] = useState<ContainerSummary | null>(null);
   const [loadingService, setLoadingService] = useState(false);
   const [actionBusy, setActionBusy] = useState<"start" | "stop" | "restart" | "register" | null>(null);
@@ -71,6 +68,16 @@ export default function ApiDocsPage() {
   useEffect(() => {
     void refreshService();
   }, [refreshService]);
+
+  useEffect(() => {
+    let live = true;
+    void resolveApiDocsUrl().then((url) => {
+      if (live) setActiveUrl(url);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
 
   async function runAction(action: "start" | "stop" | "restart") {
     if (!serviceContainer) {
@@ -184,26 +191,39 @@ export default function ApiDocsPage() {
         <Stack direction={{ xs: "column", md: "row" }} spacing={1} alignItems={{ xs: "stretch", md: "center" }}>
           <Chip
             variant="outlined"
-            label={`${t("agents_api_docs.endpoint_url")}: ${activeUrl}`}
+            label={`${t("agents_api_docs.endpoint_url")}: ${activeUrl ?? "…"}`}
+            data-testid="api-docs-url"
           />
-          <Button variant="outlined" href={activeUrl} target="_blank" rel="noopener noreferrer">
+          <Button
+            variant="outlined"
+            href={activeUrl ?? "#"}
+            disabled={!activeUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
             {t("agents_api_docs.open_new_tab")}
           </Button>
         </Stack>
       </Paper>
       <Paper sx={{ p: 1, height: "72vh", minHeight: 520 }}>
-        <Box
-          component="iframe"
-          title="api-docs"
-          src={activeUrl}
-          sx={{
-            width: "100%",
-            height: "100%",
-            border: 0,
-            borderRadius: 1,
-            bgcolor: "background.paper",
-          }}
-        />
+        {activeUrl ? (
+          <Box
+            component="iframe"
+            title="api-docs"
+            src={activeUrl}
+            sx={{
+              width: "100%",
+              height: "100%",
+              border: 0,
+              borderRadius: 1,
+              bgcolor: "background.paper",
+            }}
+          />
+        ) : (
+          <Box sx={{ display: "flex", justifyContent: "center", alignItems: "center", height: "100%" }}>
+            <CircularProgress />
+          </Box>
+        )}
       </Paper>
       <Typography variant="caption" color="text.secondary">
         {t("agents_api_docs.note")}

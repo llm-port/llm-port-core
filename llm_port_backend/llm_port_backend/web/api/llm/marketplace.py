@@ -11,7 +11,7 @@ import logging
 import uuid
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette import status
@@ -151,15 +151,20 @@ async def search(
     task: Literal["chat", "embedding", "vision"] = "chat",
     limit: int = Query(40, ge=1, le=100),
     cluster_id: str | None = None,
+    author: str | None = Query(None, max_length=96, pattern=r"^[A-Za-z0-9][\w.-]*$"),
     _user: User = Depends(_READ),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
-    """Models on the Hub, with their fit on the chosen cluster."""
+    """Models on the Hub, with their fit on the chosen cluster.
+
+    *q* may use ``*`` (any text) and ``?`` (one character); *author* keeps one
+    organisation's or person's models.
+    """
     hardware = await cluster_hardware(session)
     cluster = _cluster(hardware, cluster_id)
     local = await _local(session)
     try:
-        cards = await (await _hub(session)).search(q, sort=sort, task=task, limit=limit)
+        cards = await (await _hub(session)).search(q, sort=sort, task=task, limit=limit, author=author)
     except HubUnavailable:
         return {"hub": "offline", "cluster_id": cluster.environment_id if cluster else None, "items": []}
     for card in cards:
@@ -171,6 +176,30 @@ async def search(
         "cluster_id": cluster.environment_id if cluster else None,
         "items": [_decorate(card, cluster, local) for card in cards],
     }
+
+
+@router.get("/avatars/{author}")
+async def avatar(
+    author: str,
+    _user: User = Depends(_READ),
+) -> Response:
+    """The Hub picture of a model's owner, for its card; 404 when there is none."""
+    from llm_port_backend.services.marketplace.hub import fetch_avatar  # noqa: PLC0415
+
+    found = await fetch_avatar(author)
+    if found is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No avatar.")
+    content_type, content = found
+    return Response(
+        content=content,
+        media_type=content_type,
+        headers={
+            "Cache-Control": "private, max-age=86400",
+            # Someone else's upload, on our origin: never sniffed, never scripted.
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "default-src 'none'; sandbox",
+        },
+    )
 
 
 @router.get("/kept")

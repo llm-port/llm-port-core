@@ -44,6 +44,35 @@ export function apiDocsUrl(): string {
   return buildUrl(host, port, "/api/docs");
 }
 
+/** Where nginx serves the gateway's Swagger UI in a full install, same-origin. */
+export const GATEWAY_DOCS_PATH = "/gateway-docs/docs";
+
+/**
+ * The Swagger UI URL that works from this browser.
+ *
+ * A full install puts nginx in front and does not publish the gateway's own
+ * port, so the direct `:8001` URL is refused there; the same-origin
+ * `/gateway-docs/docs` answers instead. The dev stack is the other way round:
+ * no nginx, so that path answers with the app itself (or 404) and the exposed
+ * port is the way in. Ask the same origin first; an explicit
+ * VITE_LLM_PORT_API_HOST / _PORT always wins.
+ */
+export async function resolveApiDocsUrl(fetcher: typeof fetch = fetch): Promise<string> {
+  const env = import.meta.env;
+  if (env.VITE_LLM_PORT_API_HOST || env.VITE_LLM_PORT_API_PORT || typeof window === "undefined") {
+    return apiDocsUrl();
+  }
+  try {
+    const res = await fetcher(GATEWAY_DOCS_PATH, { credentials: "same-origin" });
+    if (res.ok && /swagger-ui/i.test(await res.text())) {
+      return `${window.location.origin}${GATEWAY_DOCS_PATH}`;
+    }
+  } catch {
+    // No reverse proxy in front of this app.
+  }
+  return apiDocsUrl();
+}
+
 const GRAFANA_OVERVIEW_PATH = "/grafana/d/llm-port-overview/llm-port-overview";
 
 /**

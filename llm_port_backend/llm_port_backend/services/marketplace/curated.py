@@ -37,31 +37,41 @@ class Curated:
 
 
 CURATED: tuple[Curated, ...] = (
+    # The current generation (checked on the Hub 2026-09-24: Qwen3.5/3.6/3.8, Gemma 4,
+    # gpt-oss, Qwen3-Coder-Next), plus the small models a first deployment wants.
     # ── to try things out ──
     Curated("Qwen/Qwen2.5-0.5B-Instruct", "start", "marketplace.blurb.tiny_verified",
             verified={"on": "DGX Spark pair (2 × GB10)", "date": "2026-09-21"}, params_b=0.5),
-    Curated("Qwen/Qwen3-0.6B", "start", "marketplace.blurb.tiny", params_b=0.6),
-    Curated("Qwen/Qwen3-4B-Instruct-2507", "start", "marketplace.blurb.small_capable", params_b=4.0),
+    Curated("Qwen/Qwen3-0.6B", "start", "marketplace.blurb.tiny",
+            # Hosted from the marketplace, sharing a GB10 at a tenth of it.
+            verified={"on": "DGX Spark pair (2 × GB10), 0.1 of one GB10", "date": "2026-09-24"},
+            params_b=0.6),
+    Curated("Qwen/Qwen3.5-4B", "start", "marketplace.blurb.small_capable", params_b=4.7),
     Curated("microsoft/Phi-4-mini-instruct", "start", "marketplace.blurb.small_capable", params_b=3.8),
     # ── general chat ──
-    Curated("Qwen/Qwen3-8B", "chat", "marketplace.blurb.all_rounder", params_b=8.2),
+    Curated("Qwen/Qwen3.5-9B", "chat", "marketplace.blurb.all_rounder", params_b=9.7),
     Curated("meta-llama/Llama-3.1-8B-Instruct", "chat", "marketplace.blurb.all_rounder", params_b=8.0),
-    Curated("Qwen/Qwen3-14B", "chat", "marketplace.blurb.stronger", params_b=14.8),
-    Curated("openai/gpt-oss-20b", "chat", "marketplace.blurb.gpt_oss_small", capabilities=("tools",), params_b=20.0),
-    Curated("Qwen/Qwen3-30B-A3B-Instruct-2507", "chat", "marketplace.blurb.moe_fast", params_b=30.5),
-    Curated("Qwen/Qwen3-32B", "chat", "marketplace.blurb.stronger", params_b=32.8),
+    Curated("Qwen/Qwen3.8-27B-FP8", "chat", "marketplace.blurb.flagship_fp8",
+            # Served in production on the pair, split across both GB10s (preflight 2026-09-19).
+            verified={"on": "DGX Spark pair (2 × GB10)", "date": "2026-09-19"}, params_b=27.8),
+    Curated("Qwen/Qwen3.8-27B", "chat", "marketplace.blurb.flagship", params_b=27.8),
+    Curated("Qwen/Qwen3.6-35B-A3B-FP8", "chat", "marketplace.blurb.moe_fast", params_b=36.0),
+    Curated("google/gemma-4-26B-A4B-it", "chat", "marketplace.blurb.gemma", params_b=25.8),
     Curated("mistralai/Mistral-Small-3.2-24B-Instruct-2506", "chat", "marketplace.blurb.mistral_small",
             settings={"tokenizer_mode": "mistral", "config_format": "mistral", "load_format": "mistral"},
             capabilities=("tools",), params_b=24.0),
-    Curated("openai/gpt-oss-120b", "chat", "marketplace.blurb.gpt_oss_large", capabilities=("tools",), params_b=120.0),
     Curated("meta-llama/Llama-3.3-70B-Instruct", "chat", "marketplace.blurb.large_dense", params_b=70.6),
     # ── code ──
     Curated("Qwen/Qwen3-Coder-30B-A3B-Instruct", "code", "marketplace.blurb.coder", params_b=30.5),
+    Curated("Qwen/Qwen3-Coder-Next-FP8", "code", "marketplace.blurb.coder_large", params_b=79.7),
     # ── reasoning ──
-    Curated("deepseek-ai/DeepSeek-R1-Distill-Qwen-14B", "reasoning", "marketplace.blurb.reasoning", params_b=14.8),
+    Curated("openai/gpt-oss-20b", "reasoning", "marketplace.blurb.gpt_oss_small", capabilities=("tools",),
+            params_b=20.0),
+    Curated("openai/gpt-oss-120b", "reasoning", "marketplace.blurb.gpt_oss_large", capabilities=("tools",),
+            params_b=120.0),
     # ── images ──
     Curated("Qwen/Qwen3-VL-8B-Instruct", "vision", "marketplace.blurb.vision", params_b=8.8),
-    Curated("google/gemma-3-27b-it", "vision", "marketplace.blurb.gemma", params_b=27.4),
+    Curated("google/gemma-4-31B-it", "vision", "marketplace.blurb.gemma", params_b=31.3),
     # ── embeddings (for knowledge bases) ──
     Curated("Qwen/Qwen3-Embedding-0.6B", "embedding", "marketplace.blurb.embedding_small", params_b=0.6),
     Curated("Qwen/Qwen3-Embedding-8B", "embedding", "marketplace.blurb.embedding_large", params_b=7.6),

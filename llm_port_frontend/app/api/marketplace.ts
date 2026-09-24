@@ -201,6 +201,14 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+/** What the Hub accepts as an organisation or user name (the server checks the same). */
+export const AUTHOR_PATTERN = /^[A-Za-z0-9][\w.-]{0,95}$/;
+
+/** The owner's picture on the Hub, fetched and kept by the server; 404 when there is none. */
+export function avatarUrl(owner: string): string {
+  return `${BASE}/avatars/${encodeURIComponent(owner)}`;
+}
+
 function query(params: Record<string, string | number | null | undefined>): string {
   const q = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) if (v !== null && v !== undefined && v !== "") q.set(k, String(v));
@@ -215,9 +223,24 @@ export const marketplaceApi = {
   recommended(clusterId?: string | null) {
     return request<MarketList>(`/recommended${query({ cluster_id: clusterId })}`);
   },
-  search(params: { q?: string; sort?: MarketSort; task?: ModelTask; clusterId?: string | null; limit?: number }) {
+  /** *q* may hold `*` (any text) and `?` (one character); *author* is one Hub organisation or user. */
+  search(params: {
+    q?: string;
+    sort?: MarketSort;
+    task?: ModelTask;
+    clusterId?: string | null;
+    limit?: number;
+    author?: string | null;
+  }) {
     return request<MarketList>(
-      `/search${query({ q: params.q, sort: params.sort, task: params.task, cluster_id: params.clusterId, limit: params.limit })}`,
+      `/search${query({
+        q: params.q,
+        sort: params.sort,
+        task: params.task,
+        cluster_id: params.clusterId,
+        limit: params.limit,
+        author: params.author,
+      })}`,
     );
   },
   kept() {

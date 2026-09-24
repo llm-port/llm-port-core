@@ -29,7 +29,7 @@ import VerifiedIcon from "@mui/icons-material/Verified";
 
 import { RecipeNotice } from "~/components/hosting/RecipeNotice";
 
-import { CapabilityChips } from "./ModelCard";
+import { CapabilityChips, OwnerAvatar } from "./ModelCard";
 
 const TONE = { success: "success", info: "info", warning: "warning", error: "error", default: "default" } as const;
 const FILES_SHOWN = 12;
@@ -82,6 +82,7 @@ export function ModelDetailDrawer({ repoId, clusterId, onClose, onHost, canHost,
       slotProps={{ paper: { sx: { width: { xs: "100%", sm: 560 } } } }}
     >
       <Stack direction="row" alignItems="center" sx={{ px: 2, py: 1.5 }} spacing={1}>
+        {repoId?.includes("/") && <OwnerAvatar key={repoId} owner={repoId.split("/")[0]} size={32} />}
         <Typography variant="h6" sx={{ flexGrow: 1, minWidth: 0 }} noWrap title={repoId ?? ""}>
           {repoId?.split("/").pop()}
         </Typography>

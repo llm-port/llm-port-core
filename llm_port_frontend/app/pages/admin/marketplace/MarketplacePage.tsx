@@ -13,6 +13,7 @@ import { useNavigate, useSearchParams } from "react-router";
 
 import { models as modelsApi, type Model } from "~/api/llm";
 import {
+  AUTHOR_PATTERN,
   marketplaceApi,
   type KeptModel,
   type MarketCluster,
@@ -28,6 +29,7 @@ import { useAsyncData } from "~/lib/useAsyncData";
 import { useCan } from "~/lib/useCan";
 
 import Alert from "@mui/material/Alert";
+import Autocomplete from "@mui/material/Autocomplete";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
@@ -56,6 +58,19 @@ type TabId = "recommended" | "search" | "local";
 const TABS: TabId[] = ["recommended", "search", "local"];
 const SORTS: MarketSort[] = ["trending", "downloads", "likes", "recent"];
 const TASKS: ModelTask[] = ["chat", "embedding", "vision"];
+/** Suggestions for the author filter; any Hub organisation or user can be typed. */
+const AUTHORS = [
+  "Qwen",
+  "meta-llama",
+  "mistralai",
+  "google",
+  "openai",
+  "deepseek-ai",
+  "microsoft",
+  "nvidia",
+  "RedHatAI",
+  "unsloth",
+];
 
 /** What the host dialog needs of a kept model. */
 function asModel(k: KeptModel): Model {
@@ -119,6 +134,9 @@ export default function MarketplacePage() {
   const [clusterId, setClusterId] = useState<string | null>(params.get("cluster"));
   const [query, setQuery] = useState(params.get("q") ?? "");
   const [debounced, setDebounced] = useState(query);
+  const [author, setAuthor] = useState(params.get("author") ?? "");
+  const authorValid = author.trim() === "" || AUTHOR_PATTERN.test(author.trim());
+  const [debouncedAuthor, setDebouncedAuthor] = useState(authorValid ? author.trim() : "");
   const [sort, setSort] = useState<MarketSort>("trending");
   const [task, setTask] = useState<ModelTask>("chat");
   const [onlyFits, setOnlyFits] = useState(false);
@@ -128,9 +146,13 @@ export default function MarketplacePage() {
   const [hostKept, setHostKept] = useState<KeptModel | null>(null);
 
   useEffect(() => {
-    const handle = window.setTimeout(() => setDebounced(query.trim()), 400);
+    const handle = window.setTimeout(() => {
+      setDebounced(query.trim());
+      // Half-typed nonsense is not sent: the Hub would only refuse it.
+      if (authorValid) setDebouncedAuthor(author.trim());
+    }, 400);
     return () => window.clearTimeout(handle);
-  }, [query]);
+  }, [query, author, authorValid]);
 
   const clusters = useAsyncData(() => marketplaceApi.clusters(), [], { initialValue: [] as MarketCluster[] });
 
@@ -145,9 +167,9 @@ export default function MarketplacePage() {
     () => {
       if (tab === "local") return Promise.resolve(null);
       if (tab === "recommended") return marketplaceApi.recommended(clusterId);
-      return marketplaceApi.search({ q: debounced, sort, task, clusterId, limit: 48 });
+      return marketplaceApi.search({ q: debounced, sort, task, clusterId, limit: 48, author: debouncedAuthor });
     },
-    [tab, clusterId, debounced, sort, task],
+    [tab, clusterId, debounced, sort, task, debouncedAuthor],
     { initialValue: null },
   );
 
@@ -290,11 +312,12 @@ export default function MarketplacePage() {
       </Tabs>
 
       {tab === "search" && (
-        <Stack direction={{ xs: "column", md: "row" }} spacing={1.5} alignItems={{ md: "center" }}>
+        <Stack direction={{ xs: "column", md: "row" }} spacing={1.5} alignItems={{ md: "flex-start" }}>
           <TextField
             size="small"
             fullWidth
             placeholder={t("marketplace.search_placeholder")}
+            helperText={t("marketplace.search_help")}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             slotProps={{
@@ -307,6 +330,24 @@ export default function MarketplacePage() {
               },
               htmlInput: { "data-testid": "market-search" },
             }}
+          />
+          <Autocomplete
+            freeSolo
+            size="small"
+            options={AUTHORS}
+            inputValue={author}
+            onInputChange={(_, value) => setAuthor(value)}
+            sx={{ minWidth: 200 }}
+            renderInput={(inputParams) => (
+              <TextField
+                {...inputParams}
+                label={t("marketplace.author_label")}
+                placeholder={t("marketplace.author_placeholder")}
+                error={!authorValid}
+                helperText={authorValid ? undefined : t("marketplace.author_invalid")}
+                slotProps={{ htmlInput: { ...inputParams.inputProps, "data-testid": "market-author" } }}
+              />
+            )}
           />
           <ToggleButtonGroup exclusive size="small" value={task} onChange={(_, v: ModelTask | null) => v && setTask(v)}>
             {TASKS.map((id) => (

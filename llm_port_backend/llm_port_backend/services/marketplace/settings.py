@@ -20,7 +20,8 @@ from llm_port_backend.services.marketplace.fit import Fit
 #: Registered in the runtime's vLLM (0.27.1).
 TOOL_PARSERS = frozenset({
     "apertus", "cohere_command3", "cohere_command4", "deepseek_v3", "deepseek_v31", "deepseek_v32", "deepseek_v4",
-    "ernie45", "functiongemma", "gigachat3", "glm45", "glm47", "granite", "granite-20b-fc", "granite4", "hermes",
+    "ernie45", "functiongemma", "gemma4", "gigachat3", "glm45", "glm47", "granite", "granite-20b-fc",
+    "granite4", "hermes",
     "hunyuan_a13b", "hy_v3", "inkling", "internlm", "jamba", "kimi_k2", "kimi_k3", "lfm2", "llama3_json",
     "llama4_json", "llama4_pythonic", "longcat", "mimo", "minicpm5", "minimax_m2", "minimax_m3", "mistral", "olmo3",
     "openai", "phi4_mini_json", "poolside_v1", "pythonic", "qwen3_coder", "qwen3_xml", "seed_oss", "step3",
@@ -36,7 +37,10 @@ REASONING_PARSERS = frozenset({
 #: (pattern on the repo id, tool parser). First match wins, so specific before general.
 _TOOL_RULES: list[tuple[str, str]] = [
     (r"qwen3-coder|qwen3\.\d-coder", "qwen3_coder"),
+    # From Qwen3.5 on the family calls tools in XML; vLLM's recipes use this parser.
+    (r"qwen3\.[5-9]", "qwen3_xml"),
     (r"qwen|qwq", "hermes"),
+    (r"gemma-?4", "gemma4"),
     (r"llama-?4", "llama4_pythonic"),
     (r"llama-?3\.[1-9]|llama-?3-[1-9]", "llama3_json"),
     (r"mistral|magistral|devstral|ministral|codestral", "mistral"),

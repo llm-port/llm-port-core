@@ -1,9 +1,10 @@
 /**
  * One model in the marketplace: what it is, what it can do, whether it fits.
  */
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import type { MarketModel } from "~/api/marketplace";
+import { avatarUrl, type MarketModel } from "~/api/marketplace";
 import { formatBytes } from "~/lib/engine";
 import { fitSummary, formatCount, formatParams } from "~/lib/hosting";
 
@@ -52,6 +53,33 @@ export function CapabilityChips({ capabilities }: { capabilities: string[] }) {
         </Tooltip>
       ))}
     </Stack>
+  );
+}
+
+/**
+ * The model owner's picture from the Hub (a model has none of its own), or
+ * the owner's initial when there is no picture or the Hub cannot be reached.
+ */
+export function OwnerAvatar({ owner, size = 36 }: { owner: string; size?: number }) {
+  const [failed, setFailed] = useState(false);
+  return (
+    <Avatar
+      variant="rounded"
+      alt={owner}
+      src={failed ? undefined : avatarUrl(owner)}
+      slotProps={{ img: { loading: "lazy", onError: () => setFailed(true) } }}
+      sx={{
+        width: size,
+        height: size,
+        fontSize: Math.round(size * 0.45),
+        // Pictures often have transparent corners: no coloured tile behind them.
+        bgcolor: failed ? "primary.main" : "transparent",
+        color: failed ? "primary.contrastText" : "text.secondary",
+      }}
+      data-testid={`owner-avatar-${owner}`}
+    >
+      {owner.slice(0, 1).toUpperCase()}
+    </Avatar>
   );
 }
 
@@ -119,9 +147,7 @@ export function ModelCard({ model, onOpen, onHost, canHost }: ModelCardProps) {
         }}
       >
         <Stack direction="row" spacing={1.5} alignItems="center" sx={{ width: "100%" }}>
-          <Avatar variant="rounded" sx={{ width: 36, height: 36, bgcolor: "primary.main", fontSize: 16 }}>
-            {(model.author ?? model.name).slice(0, 1).toUpperCase()}
-          </Avatar>
+          <OwnerAvatar owner={model.author ?? model.repo_id.split("/")[0]} />
           <Box sx={{ minWidth: 0, flexGrow: 1 }}>
             <Stack direction="row" spacing={0.5} alignItems="center">
               <Typography variant="subtitle1" fontWeight={600} noWrap title={model.repo_id}>

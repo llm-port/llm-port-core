@@ -38,6 +38,8 @@ import AddIcon from "@mui/icons-material/Add";
 import FolderIcon from "@mui/icons-material/Folder";
 import ManageSearchIcon from "@mui/icons-material/ManageSearch";
 
+import { OwnerAvatar } from "./ModelCard";
+
 /** A download the worker is still on. */
 export function isDownloading(m: KeptModel): boolean {
   return m.download?.status === "queued" || m.download?.status === "running";
@@ -297,6 +299,9 @@ function KeptCard({
     <Card variant="outlined" sx={{ height: "100%" }} data-testid={`kept-${model.model_id}`}>
       <CardContent>
         <Stack direction="row" spacing={1} alignItems="flex-start">
+          {!fromPath && model.hf_repo_id?.includes("/") && (
+            <OwnerAvatar owner={model.hf_repo_id.split("/")[0]} size={32} />
+          )}
           <Box sx={{ flexGrow: 1, minWidth: 0 }}>
             <Typography variant="subtitle1" fontWeight={600} noWrap title={model.hf_repo_id ?? model.display_name}>
               {model.display_name}

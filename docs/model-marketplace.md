@@ -12,11 +12,29 @@ the ones that matter for the model already filled in.
 - **Recommended.** Models we have picked, grouped by what they are for: trying
   things out, general chat, coding, reasoning, vision and embeddings. A model
   marked **Tested here** has been served on the hardware named in its tooltip.
+  The list follows the current releases, for example Qwen3.8-27B (and its
+  FP8 build), Qwen3.6-35B-A3B, Gemma 4, gpt-oss and Qwen3-Coder-Next.
 - **Search Hugging Face.** Search the Hub by name. You can filter by task
   (chat, embeddings, vision) and sort by trending, downloads, likes or
-  newest. Models vLLM cannot serve are hidden, with a button to show them and
-  the reason. Examples: GGUF files (they are for llama.cpp and Ollama), MLX
-  weights, and repositories with no weights.
+  newest. Chat includes the chat models that also read images, such as
+  Qwen3.5 and later, and Gemma 4. Models vLLM cannot serve are hidden, with a
+  button to show them and the reason. Examples: GGUF files (they are for
+  llama.cpp and Ollama), MLX weights, and repositories with no weights.
+  - **Wildcards.** `*` matches any text and `?` matches one character, across
+    `author/name`. For example, `qwen3.8*fp8` finds every FP8 build of
+    Qwen3.8. The Hub itself has no wildcards, so the server searches for the
+    literal parts (up to three, longest first), fetching up to 100 results
+    for each, and keeps the names that match. A wildcard search is therefore
+    a few Hub requests instead of one. Like every search, the answer is
+    cached for a few minutes.
+  - **Author.** Limits the search to one organisation or user, such as `Qwen`
+    or `unsloth`. The Hub filters by author itself, so this makes a search
+    no slower. Names may contain letters, digits, `-`, `_` and `.`.
+
+Each card shows its owner's picture from the Hub; a model has no picture of
+its own. The server fetches each picture once and keeps it for a day, so the
+browser never contacts Hugging Face. When there is no picture, or the Hub
+cannot be reached, the card shows the owner's initial.
 - **On this server.** Models this server keeps, and their downloads. Hosting
   one of these downloads nothing. See [On this server](#on-this-server).
 

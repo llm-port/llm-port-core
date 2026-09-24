@@ -1,7 +1,7 @@
 /**
  * The marketplace: models grouped by what they are for, each saying whether it fits.
  */
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -132,6 +132,44 @@ describe("MarketplacePage", () => {
 
     await userEvent.click(screen.getByTestId("market-task-embedding"));
     await waitFor(() => expect(search).toHaveBeenLastCalledWith(expect.objectContaining({ task: "embedding" })));
+  });
+
+  it("searches with wildcards and an author, and never sends an author the Hub would refuse", async () => {
+    vi.spyOn(marketplaceApi, "recommended").mockResolvedValue({ hub: "online", cluster_id: null, groups: [], items: [] });
+    const search = vi.spyOn(marketplaceApi, "search").mockResolvedValue({
+      hub: "online", cluster_id: PAIR.environment_id, items: [model("Qwen/Qwen3.8-27B-FP8")],
+    });
+    renderPage("/admin/marketplace?tab=search");
+    await screen.findByTestId("model-card-Qwen/Qwen3.8-27B-FP8");
+    expect(screen.getByText("* matches any text, ? one character")).toBeInTheDocument();
+
+    await userEvent.type(screen.getByTestId("market-search"), "qwen3.8*fp8");
+    await userEvent.type(screen.getByTestId("market-author"), "Qwen");
+    await waitFor(() =>
+      expect(search).toHaveBeenLastCalledWith(expect.objectContaining({ q: "qwen3.8*fp8", author: "Qwen" })),
+    );
+
+    await userEvent.clear(screen.getByTestId("market-author"));
+    await userEvent.type(screen.getByTestId("market-author"), "meta llama");
+    expect(await screen.findByText(/Letters, digits/)).toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(search).not.toHaveBeenCalledWith(expect.objectContaining({ author: "meta llama" }));
+  });
+
+  it("shows the owner's picture from the Hub, and the initial when there is none", async () => {
+    vi.spyOn(marketplaceApi, "recommended").mockResolvedValue({
+      hub: "online", cluster_id: PAIR.environment_id, groups: ["chat"],
+      items: [model("Qwen/Qwen3.8-27B-FP8", { curated: { group: "chat", blurb: "marketplace.blurb.flagship_fp8", verified: null } })],
+    });
+    renderPage();
+
+    const avatar = await screen.findByTestId("owner-avatar-Qwen");
+    const picture = within(avatar).getByRole("img");
+    expect(picture).toHaveAttribute("src", "/api/llm/marketplace/avatars/Qwen");
+    fireEvent.error(picture);
+    await waitFor(() => expect(within(avatar).queryByRole("img")).not.toBeInTheDocument());
+    expect(avatar).toHaveTextContent("Q");
+    expect(screen.getByText(/about half the memory/)).toBeInTheDocument();
   });
 
   it("says from any tab that something is downloading, and takes you to it", async () => {
