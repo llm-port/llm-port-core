@@ -172,5 +172,9 @@ each database, the `.env`, and the migration versions it was taken at.
 llmport restore <install_dir>/backups/<time>
 ```
 
-Then check out the version you came from and run `llmport upgrade --no-backup`
-to rebuild it.
+It puts back every database and the `.env`, and restarts the services.
+Checked on the upgraded VM: a chat deleted and a setting changed after the
+backup were both back as they had been, and chat still answered.
+
+To go back to the version you came from as well, check it out and run
+`llmport upgrade --no-backup` to rebuild it.
