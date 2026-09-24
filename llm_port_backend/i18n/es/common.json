@@ -2047,5 +2047,130 @@
     "actor": "Actor",
     "empty": "No hay eventos.",
     "search": "Buscar acción, objetivo o actor…"
+  },
+  "engine": {
+    "preset_label": "Ajustado para",
+    "preset": {
+      "balanced": "Equilibrado",
+      "balanced_help": "La configuración sugerida para este modelo en este hardware.",
+      "long_context": "Documentos largos",
+      "long_context_help": "El contexto más largo que cabe, con caché de contexto de 8 bits para que quepa más.",
+      "many_users": "Muchos usuarios",
+      "many_users_help": "Más solicitudes a la vez y reutilización de inicios de prompt compartidos.",
+      "low_memory": "Poca memoria",
+      "low_memory_help": "Contexto de 8K, caché de 8 bits y menos solicitudes a la vez, para una tarjeta pequeña."
+    },
+    "changed_count_one": "{{count}} ajuste elegido",
+    "changed_count_other": "{{count}} ajustes elegidos",
+    "reset_suggested": "Volver a lo sugerido",
+    "reset_suggested_help": "Deshacer sus cambios y usar la configuración sugerida para este modelo.",
+    "suggested": "sugerido",
+    "suggested_value": "sugerido: {{value}}",
+    "reason": {
+      "model_family": "Elegido para esta familia de modelos.",
+      "memory": "Lo que cabe en la memoria de esta copia.",
+      "default_cap": "Un contexto largo reserva memoria para cada conversación; 32K basta para la mayoría de chats.",
+      "fit": "Suficiente para el modelo y una caché de contexto útil.",
+      "shared_gpu": "Un modelo pequeño: deja el resto de la tarjeta para otros modelos.",
+      "embedding_model": "Un modelo de embeddings: se sirve en /v1/embeddings.",
+      "embedding_from_causal_lm": "Una arquitectura de chat usada para embeddings: vLLM la adapta.",
+      "needs_remote_code": "Este modelo incluye su propio código de carga.",
+      "curated": "Recomendado para este modelo."
+    },
+    "section": {
+      "memory": "Contexto y memoria",
+      "throughput": "Rendimiento",
+      "abilities": "Qué puede hacer",
+      "compatibility": "Compatibilidad"
+    },
+    "auto": "Automático",
+    "on": "Sí",
+    "off": "No",
+    "default_is": "Predeterminado ({{value}})",
+    "reset_one": "Volver al predeterminado",
+    "context": {
+      "label": "Conversación más larga",
+      "tokens": "tokens",
+      "model_max": "el máximo del modelo",
+      "over_memory": "más de lo que cabe",
+      "auto_known": "Automático ({{tokens}} del modelo)",
+      "help_set": "Prompt y respuesta juntos, hasta {{tokens}} tokens (unas {{words}} palabras).",
+      "help_auto": "vLLM usa el máximo del modelo ({{tokens}} tokens), que reserva más memoria por conversación.",
+      "help_unknown": "vLLM usa el máximo del modelo.",
+      "cache_cost": "Una conversación así de larga ocupa unos {{size}} de caché de contexto."
+    },
+    "memory": {
+      "label": "Parte de la memoria del acelerador",
+      "help": "Primero los pesos; el resto guarda conversaciones. Deje espacio si otros modelos comparten la tarjeta.",
+      "help_bytes": "Hasta {{size}} de cada tarjeta de {{total}}: primero los pesos, el resto para conversaciones.",
+      "default": "Sin definir: se usa el {{pct}} %."
+    },
+    "kv8": {
+      "label": "Caché de contexto de 8 bits",
+      "help": "Guarda casi el doble de tokens en la misma memoria, con una pérdida de calidad muy pequeña."
+    },
+    "seqs": {
+      "label": "Solicitudes a la vez",
+      "help": "Cuántas conversaciones atiende una copia a la vez. Más ayuda con mucha carga; cada una necesita caché de contexto."
+    },
+    "prefix": {
+      "label": "Reutilizar inicios de prompt compartidos",
+      "help": "Las conversaciones que empiezan igual (mismo prompt de sistema, mismo documento) se procesan una vez y se reutilizan."
+    },
+    "chunked": {
+      "label": "Dividir prompts largos",
+      "help": "Un prompt largo se procesa por partes para no frenar las respuestas de los demás."
+    },
+    "embed": {
+      "label": "Servir embeddings",
+      "help": "Responde en /v1/embeddings para bases de conocimiento y búsqueda, no para chat."
+    },
+    "tools": {
+      "label": "Llamadas a herramientas",
+      "parser": "Formato",
+      "help_on": "El modelo puede llamar herramientas (búsqueda, MCP, funciones). El formato debe coincidir con la familia del modelo.",
+      "help_off": "El modelo responde solo con texto; no usa las herramientas ofrecidas en el chat."
+    },
+    "reasoning": {
+      "label": "Mostrar su razonamiento aparte",
+      "help": "Para modelos que piensan antes de responder: el razonamiento se separa de la respuesta.",
+      "off": "No"
+    },
+    "eager": {
+      "label": "Omitir captura de grafos",
+      "help": "Arranca más rápido y usa menos memoria, pero genera más despacio. Necesario en algunas GPU antiguas."
+    },
+    "remote": {
+      "label": "Ejecutar el código propio del modelo",
+      "help": "Solo para modelos que lo necesitan: ejecuta Python del repositorio del modelo en sus máquinas.",
+      "help_needed": "Este modelo lo necesita para cargarse. Ejecuta Python del repositorio del modelo en sus máquinas: actívelo solo si confía en el editor."
+    },
+    "all": {
+      "title": "Todos los ajustes de vLLM ({{count}}, vLLM {{version}})",
+      "search": "Buscar por opción o descripción…",
+      "only_set": "Solo los definidos",
+      "no_match": "Ningún ajuste coincide.",
+      "none_set": "No hay nada definido: se aplican los valores de vLLM. Busque un ajuste.",
+      "more": "{{count}} más: acote la búsqueda."
+    },
+    "extra": {
+      "title": "Otras opciones, como texto",
+      "help": "Para opciones no listadas arriba, escritas como para vllm serve. Se rechazan los caracteres de shell."
+    },
+    "preview": {
+      "cluster": "El motor se ejecuta con estos ajustes (mostrados como opciones de vLLM):",
+      "container": "El contenedor ejecuta:"
+    },
+    "warning": {
+      "context_over_model": "El modelo se entrenó para {{max}} tokens. Más puede dar malas respuestas o impedir el arranque.",
+      "context_over_memory": "En la memoria de esta copia caben unos {{max}} tokens. Un contexto mayor puede no arrancar; redúzcalo, use la caché de 8 bits o dele más memoria.",
+      "memory_share_high": "Por encima del 95 % el controlador no tiene espacio; puede que el motor no arranque.",
+      "memory_share_low": "Tan poca memoria apenas deja espacio para conversaciones.",
+      "tool_parser_without_auto": "Hay un formato de herramientas definido pero las llamadas están desactivadas; no tiene efecto.",
+      "unknown_tool_parser": "Este motor no conoce el formato de herramientas \"{{value}}\".",
+      "unknown_reasoning_parser": "Este motor no conoce el formato de razonamiento \"{{value}}\".",
+      "remote_code": "El código propio del modelo se ejecutará en sus máquinas. Manténgalo activado solo para editores de confianza.",
+      "extra_invalid": "Estas opciones no se aceptan y no se usarán: {{tokens}}"
+    }
   }
 }

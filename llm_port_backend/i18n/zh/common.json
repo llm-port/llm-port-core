@@ -2047,5 +2047,130 @@
     "actor": "操作者",
     "empty": "没有事件。",
     "search": "搜索操作、目标或操作者…"
+  },
+  "engine": {
+    "preset_label": "优化目标",
+    "preset": {
+      "balanced": "均衡",
+      "balanced_help": "此模型在此硬件上的建议设置。",
+      "long_context": "长文档",
+      "long_context_help": "可容纳的最长上下文，并使用 8 位上下文缓存以容纳更多。",
+      "many_users": "多用户",
+      "many_users_help": "同时处理更多请求，并复用共享的提示开头。",
+      "low_memory": "低内存",
+      "low_memory_help": "8K 上下文、8 位缓存、更少并发请求，适合小显存。"
+    },
+    "changed_count_one": "已选择 {{count}} 项设置",
+    "changed_count_other": "已选择 {{count}} 项设置",
+    "reset_suggested": "恢复建议值",
+    "reset_suggested_help": "撤销更改，使用为此模型建议的设置。",
+    "suggested": "建议",
+    "suggested_value": "建议：{{value}}",
+    "reason": {
+      "model_family": "按此模型系列选择。",
+      "memory": "此副本的内存可容纳的最大值。",
+      "default_cap": "长上下文会为每个会话预留内存；32K 足够大多数聊天使用。",
+      "fit": "足以容纳模型和可用的上下文缓存。",
+      "shared_gpu": "小模型：显卡的其余部分留给其他模型。",
+      "embedding_model": "嵌入模型：通过 /v1/embeddings 提供服务。",
+      "embedding_from_causal_lm": "用于嵌入的聊天架构：由 vLLM 进行适配。",
+      "needs_remote_code": "此模型自带加载代码。",
+      "curated": "为此模型推荐。"
+    },
+    "section": {
+      "memory": "上下文与内存",
+      "throughput": "吞吐量",
+      "abilities": "功能",
+      "compatibility": "兼容性"
+    },
+    "auto": "自动",
+    "on": "开",
+    "off": "关",
+    "default_is": "默认（{{value}}）",
+    "reset_one": "恢复默认",
+    "context": {
+      "label": "最长会话",
+      "tokens": "令牌",
+      "model_max": "模型上限",
+      "over_memory": "超出可容纳范围",
+      "auto_known": "自动（模型的 {{tokens}}）",
+      "help_set": "提示与回答合计最多 {{tokens}} 个令牌（约 {{words}} 个词）。",
+      "help_auto": "vLLM 使用模型自身的上限（{{tokens}} 个令牌），每个会话预留的内存最多。",
+      "help_unknown": "vLLM 使用模型自身的上限。",
+      "cache_cost": "这么长的一次会话约占用 {{size}} 上下文缓存。"
+    },
+    "memory": {
+      "label": "加速器内存占比",
+      "help": "先存放权重，其余用于会话。若其他模型共用显卡，请预留空间。",
+      "help_bytes": "每张 {{total}} 显卡最多使用 {{size}}：先存放权重，其余用于会话。",
+      "default": "未设置：将使用 {{pct}}%。"
+    },
+    "kv8": {
+      "label": "8 位上下文缓存",
+      "help": "在相同内存中容纳约两倍的令牌，质量损失极小。"
+    },
+    "seqs": {
+      "label": "并发请求数",
+      "help": "一个副本同时处理的会话数。数量越多越适合繁忙服务器；每个会话都需要上下文缓存。"
+    },
+    "prefix": {
+      "label": "复用共享的提示开头",
+      "help": "开头相同的会话（相同的系统提示或文档）只处理一次并复用。"
+    },
+    "chunked": {
+      "label": "拆分长提示",
+      "help": "长提示分块处理，不会拖慢其他请求的回答。"
+    },
+    "embed": {
+      "label": "提供嵌入",
+      "help": "通过 /v1/embeddings 为知识库和搜索提供服务，而非聊天。"
+    },
+    "tools": {
+      "label": "工具调用",
+      "parser": "格式",
+      "help_on": "模型可以调用工具（搜索、MCP、函数）。格式必须与模型系列匹配。",
+      "help_off": "模型仅以文本作答；不会使用聊天中提供的工具。"
+    },
+    "reasoning": {
+      "label": "单独显示思考过程",
+      "help": "适用于先思考后回答的模型：思考内容与回答分开。",
+      "off": "关"
+    },
+    "eager": {
+      "label": "跳过图捕获",
+      "help": "启动更快、内存占用更少，但生成速度较慢。部分旧 GPU 需要开启。"
+    },
+    "remote": {
+      "label": "运行模型自带代码",
+      "help": "仅适用于需要它的模型：会在您的机器上运行模型仓库中的 Python 代码。",
+      "help_needed": "此模型需要它才能加载。它会在您的机器上运行模型仓库中的 Python 代码：仅在信任发布者时开启。"
+    },
+    "all": {
+      "title": "全部 vLLM 设置（{{count}} 项，vLLM {{version}}）",
+      "search": "按参数或描述搜索…",
+      "only_set": "仅显示已设置",
+      "no_match": "没有匹配的设置。",
+      "none_set": "此处未设置任何内容：使用 vLLM 默认值。可搜索查找设置。",
+      "more": "还有 {{count}} 项——请缩小搜索范围。"
+    },
+    "extra": {
+      "title": "其他参数（文本）",
+      "help": "用于上面未列出的参数，写法与 vllm serve 相同。Shell 字符会被拒绝。"
+    },
+    "preview": {
+      "cluster": "引擎将使用以下设置运行（以 vLLM 参数显示）：",
+      "container": "容器运行："
+    },
+    "warning": {
+      "context_over_model": "模型训练时的上限为 {{max}} 个令牌。更长可能导致回答变差或无法启动。",
+      "context_over_memory": "此副本的内存约可容纳 {{max}} 个令牌。更长的上下文可能无法启动；请调低、使用 8 位缓存或分配更多内存。",
+      "memory_share_high": "超过 95% 会让驱动没有余量，引擎可能无法启动。",
+      "memory_share_low": "内存过少，几乎无法容纳会话。",
+      "tool_parser_without_auto": "已设置工具格式但工具调用已关闭，因此不会生效。",
+      "unknown_tool_parser": "此引擎不认识工具格式“{{value}}”。",
+      "unknown_reasoning_parser": "此引擎不认识思考格式“{{value}}”。",
+      "remote_code": "模型自带的代码将在您的机器上运行。仅对可信发布者保持开启。",
+      "extra_invalid": "以下参数不被接受，将不会使用：{{tokens}}"
+    }
   }
 }

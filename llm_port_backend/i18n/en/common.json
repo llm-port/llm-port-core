@@ -2045,5 +2045,130 @@
     "actor": "Actor",
     "empty": "No events.",
     "search": "Search action, target or actor…"
+  },
+  "engine": {
+    "preset_label": "Tuned for",
+    "preset": {
+      "balanced": "Balanced",
+      "balanced_help": "The suggested settings for this model on this hardware.",
+      "long_context": "Long documents",
+      "long_context_help": "The longest context that fits, with an 8-bit context cache so more of it fits.",
+      "many_users": "Many users",
+      "many_users_help": "More requests at once, and reuse of shared prompt starts.",
+      "low_memory": "Low memory",
+      "low_memory_help": "An 8K context, an 8-bit cache and fewer requests at once, for a small card."
+    },
+    "changed_count_one": "{{count}} setting chosen",
+    "changed_count_other": "{{count}} settings chosen",
+    "reset_suggested": "Back to suggested",
+    "reset_suggested_help": "Undo your changes and use the settings suggested for this model.",
+    "suggested": "suggested",
+    "suggested_value": "suggested: {{value}}",
+    "reason": {
+      "model_family": "Chosen for this model family.",
+      "memory": "As much as fits in the memory this copy has.",
+      "default_cap": "A long context reserves memory for every conversation; 32K is plenty for most chats.",
+      "fit": "Enough for the model and a working context cache.",
+      "shared_gpu": "A small model: it leaves the rest of the card for other models.",
+      "embedding_model": "An embedding model: served at /v1/embeddings.",
+      "embedding_from_causal_lm": "A chat architecture used for embeddings: vLLM adapts it.",
+      "needs_remote_code": "This model ships its own code to load.",
+      "curated": "Recommended for this model."
+    },
+    "section": {
+      "memory": "Context and memory",
+      "throughput": "Throughput",
+      "abilities": "What it can do",
+      "compatibility": "Compatibility"
+    },
+    "auto": "Automatic",
+    "on": "On",
+    "off": "Off",
+    "default_is": "Default ({{value}})",
+    "reset_one": "Back to default",
+    "context": {
+      "label": "Longest conversation",
+      "tokens": "tokens",
+      "model_max": "the model's maximum",
+      "over_memory": "more than fits",
+      "auto_known": "Automatic (the model's {{tokens}})",
+      "help_set": "Prompt and answer together, up to {{tokens}} tokens (about {{words}} words).",
+      "help_auto": "vLLM uses the model's own maximum ({{tokens}} tokens), which reserves the most memory per conversation.",
+      "help_unknown": "vLLM uses the model's own maximum.",
+      "cache_cost": "One conversation this long takes about {{size}} of context cache."
+    },
+    "memory": {
+      "label": "Share of the accelerator's memory",
+      "help": "Weights first; the rest holds conversations. Leave room if other models share the card.",
+      "help_bytes": "Up to {{size}} of each {{total}} card: weights first, the rest holds conversations.",
+      "default": "Not set: {{pct}}% is used."
+    },
+    "kv8": {
+      "label": "8-bit context cache",
+      "help": "Holds about twice as many tokens in the same memory, at a very small cost in quality."
+    },
+    "seqs": {
+      "label": "Requests at once",
+      "help": "How many conversations a copy works on together. More helps busy servers; each needs context cache."
+    },
+    "prefix": {
+      "label": "Reuse shared prompt starts",
+      "help": "Conversations that begin alike (the same system prompt, the same document) are processed once and reused."
+    },
+    "chunked": {
+      "label": "Split long prompts",
+      "help": "A long prompt is processed in pieces, so it does not stall the answers of others."
+    },
+    "embed": {
+      "label": "Serve embeddings",
+      "help": "Answers /v1/embeddings for knowledge bases and search, not chat."
+    },
+    "tools": {
+      "label": "Tool calling",
+      "parser": "Format",
+      "help_on": "The model can call tools (search, MCP, functions). The format must match the model family.",
+      "help_off": "The model answers in text only; tools offered in chat are not used."
+    },
+    "reasoning": {
+      "label": "Show its thinking separately",
+      "help": "For models that think before answering: the thinking is kept apart from the answer.",
+      "off": "Off"
+    },
+    "eager": {
+      "label": "Skip graph capture",
+      "help": "Starts faster and uses less memory, but generates more slowly. Needed on some older GPUs."
+    },
+    "remote": {
+      "label": "Run the model's own code",
+      "help": "Only for models that need it: it runs Python from the model's repository on your machines.",
+      "help_needed": "This model needs it to load. It runs Python from the model's repository on your machines: turn it on only if you trust the publisher."
+    },
+    "all": {
+      "title": "All vLLM settings ({{count}}, vLLM {{version}})",
+      "search": "Search by flag or description…",
+      "only_set": "Only the ones set",
+      "no_match": "No setting matches.",
+      "none_set": "Nothing set here: vLLM's defaults apply. Search to find a setting.",
+      "more": "{{count}} more — narrow the search."
+    },
+    "extra": {
+      "title": "Other flags, as text",
+      "help": "For flags not listed above, written as for vllm serve. Shell characters are refused."
+    },
+    "preview": {
+      "cluster": "The engine runs with these settings (shown as vLLM flags):",
+      "container": "The container runs:"
+    },
+    "warning": {
+      "context_over_model": "The model was trained for {{max}} tokens. Longer may give poor answers or fail to start.",
+      "context_over_memory": "About {{max}} tokens fit in this copy's memory. A longer context may not start; lower it, use the 8-bit cache, or give it more memory.",
+      "memory_share_high": "Above 95% leaves the driver no room; the engine may fail to start.",
+      "memory_share_low": "So little memory leaves almost no room for conversations.",
+      "tool_parser_without_auto": "A tool format is set but tool calling is off, so it has no effect.",
+      "unknown_tool_parser": "This engine does not know the tool format \"{{value}}\".",
+      "unknown_reasoning_parser": "This engine does not know the thinking format \"{{value}}\".",
+      "remote_code": "The model's own code will run on your machines. Keep this on only for publishers you trust.",
+      "extra_invalid": "These flags are not accepted and will not be used: {{tokens}}"
+    }
   }
 }
