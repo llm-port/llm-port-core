@@ -667,6 +667,17 @@ def deploy_cmd(
             error("Local-node provisioning failed.")
             sys.exit(1)
 
+    # ── 7b. Nightly backups ───────────────────────────────────────
+    from llmport.core import schedule  # noqa: PLC0415
+
+    if schedule.available() and schedule.current() is None:
+        console.print()
+        if yes or click.confirm("  Back up every night at 03:00, keeping the last 7?", default=True):
+            backups = shared_dir / "backups"
+            backups.mkdir(parents=True, exist_ok=True)
+            schedule.install(hour=3, minute=0, retain=7, log=backups / "backup.log")
+            success(f"Nightly backups into {backups} (change: llmport backup schedule --at HH:MM, stop: --off).")
+
     # ── 8. Endpoint summary ───────────────────────────────────────
     console.print("\n[bold green]✨ Deployment complete![/bold green]\n")
 
