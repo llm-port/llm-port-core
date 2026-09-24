@@ -859,7 +859,8 @@ llmport-agent run`}
             {caps.machine && (
               <InfoRow
                 label={t("nodes.arch")}
-                value={`${caps.machine} (${caps.processor ?? ""})`}
+                // Linux often reports no processor name: no empty "()" then.
+                value={caps.processor ? `${caps.machine} (${caps.processor})` : caps.machine}
               />
             )}
             <InfoRow
@@ -908,7 +909,8 @@ llmport-agent run`}
                 {t("nodes.system_logs")}
               </Typography>
               <Typography variant="caption" color="text.secondary">
-                {t("nodes.logs_last_15_min")} \u00B7{" "}
+                {t("nodes.logs_last_15_min")}
+                {" \u00B7 "}
                 {t("nodes.logs_entries", { count: flatLogs.length })}
               </Typography>
             </Stack>

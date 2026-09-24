@@ -41,6 +41,7 @@ from llm_port_backend.services.inference.drivers.ray.compiler import (
     compile_deployment,
 )
 from llm_port_backend.services.inference.drivers.ray.environment import RayEnvironmentManager
+from llm_port_backend.services.inference.drivers.ray.schemas import NEW_CLUSTER_PORTS
 from tests.platform_fixtures import DGX_SPARK_PLATFORM
 
 API = "/api/inference"
@@ -89,7 +90,8 @@ class _FakeNodeControl:
         elif cmd_type == NodeCommandType.ENSURE_RAY_RUNTIME.value:
             result_json = {"installed": True, "version": "2.58.0", "runtime": "container"}
         elif cmd_type == NodeCommandType.START_RAY_HEAD.value:
-            result_json = {"started": True, "cluster_address": "10.100.0.1:6379"}
+            # A real agent reports the port it was asked to start on.
+            result_json = {"started": True, "cluster_address": f"10.100.0.1:{(kwargs.get('payload') or {}).get('port', 6379)}"}
         elif cmd_type == NodeCommandType.JOIN_RAY_CLUSTER.value:
             result_json = {"joined": True}
         elif cmd_type == NodeCommandType.GET_RAY_STATUS.value:
@@ -99,7 +101,7 @@ class _FakeNodeControl:
                 "num_nodes": 2,
                 "total_gpus": 2.0,
                 "available_gpus": 2.0,
-                "cluster_address": "10.100.0.1:6379",
+                "cluster_address": f"10.100.0.1:{NEW_CLUSTER_PORTS['head_port']}",
                 "nodes": [
                     {"node_ip": "10.100.0.1", "state": "ALIVE", "is_head": True},
                     {"node_ip": "10.100.0.2", "state": "ALIVE", "is_head": False},
@@ -330,7 +332,9 @@ async def test_end_to_end_zero_config_multi_node_flow(
     worker_cmds = fake_node_control.by_type(NodeCommandType.JOIN_RAY_CLUSTER.value)
     assert len(worker_cmds) == 1
     worker_payload = worker_cmds[0]["payload"]
-    assert worker_payload["head_address"] == f"{expected_head_ip}:6379"  # Targets RoCE IP!
+    # A new cluster is created off Redis's port (NEW_CLUSTER_PORTS).
+    head_port = NEW_CLUSTER_PORTS["head_port"]
+    assert worker_payload["head_address"] == f"{expected_head_ip}:{head_port}"  # Targets RoCE IP!
     assert worker_payload["node_ip_address"] == expected_worker_ip
     assert worker_payload["env"]["NCCL_SOCKET_IFNAME"] == "enp1s0f1np1"
     assert worker_payload["env"]["VLLM_HOST_IP"] == expected_worker_ip
@@ -340,7 +344,7 @@ async def test_end_to_end_zero_config_multi_node_flow(
 
     # Cluster health verified
     assert db_env.status == EnvironmentStatus.READY.value
-    assert db_env.address == f"{expected_head_ip}:6379"
+    assert db_env.address == f"{expected_head_ip}:{head_port}"
 
     # 8. Multi-Node Placement Strategy Verification (Compiler Lock)
     # Default multi-node uses Ray default placement group scheduling

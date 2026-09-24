@@ -41,7 +41,8 @@ export default function NodeFleetRow({
         </Typography>
         <Button
           component={RouterLink}
-          to="/admin/nodes/onboarding"
+          // Adding a machine is a drawer on the machines page, not a page of its own.
+          to="/admin/nodes?add=1"
           variant="outlined"
           size="small"
         >

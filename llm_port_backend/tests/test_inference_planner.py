@@ -629,3 +629,35 @@ async def test_apply_plan_rejects_a_plan_for_another_environment(
 
     with pytest.raises(ConflictError):
         await planner.apply_plan(envs[1].id, plan_a)
+
+
+def test_a_vpn_host_address_is_never_recommended_over_the_lan() -> None:
+    """Found on a Windows workstation: the Tailscale /32 had no default route, so it scored as an
+    isolated fabric and beat the LAN -- a VPN tunnel that no other machine is on as a peer."""
+    lan = [NodeFabricBinding(node_id="n1", interface="eth2", ip="10.88.10.220", link_type="ethernet",
+                             is_management=True)]
+    vpn = [NodeFabricBinding(node_id="n1", interface="eth9", ip="100.122.30.59", link_type="ethernet")]
+    score_lan, *_ = score_fabric_candidate(
+        fabric_type="ethernet", speed_gbps=10.0, mtu=1500, is_management=True, bindings=lan,
+        cidr="10.88.10.0/24",
+    )
+    score_vpn, _reason, confidence, isolation, reasons = score_fabric_candidate(
+        fabric_type="ethernet", speed_gbps=10.0, mtu=1500, is_management=False, bindings=vpn,
+        cidr="100.122.30.59/32",
+    )
+    assert score_lan > score_vpn
+    assert (confidence, isolation) == ("low", "external")
+    assert any("Host-only" in r for r in reasons)
+    assert any("100.64.0.0/10" in r for r in reasons)
+
+
+def test_an_ordinary_private_network_is_not_penalised() -> None:
+    fabric = [NodeFabricBinding(node_id="n1", interface="enp1s0", ip="192.168.50.2", link_type="ethernet")]
+    with_cidr, *_ = score_fabric_candidate(
+        fabric_type="ethernet", speed_gbps=25.0, mtu=9000, is_management=False, bindings=fabric,
+        cidr="192.168.50.0/24",
+    )
+    without, *_ = score_fabric_candidate(
+        fabric_type="ethernet", speed_gbps=25.0, mtu=9000, is_management=False, bindings=fabric,
+    )
+    assert with_cidr == without

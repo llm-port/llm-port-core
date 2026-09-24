@@ -34,6 +34,7 @@ in an additional DB transaction around the network calls themselves.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -262,10 +263,26 @@ class RayEnvironmentManager:
             return
 
         # desired_state == running
+        resolved_fabric = self._get_resolved_fabric(environment)
+        if resolved_fabric is None and str(environment.status) == EnvironmentStatus.PENDING.value:
+            # Never started, and nobody has confirmed its network yet. The
+            # console creates the cluster before it asks which network to use,
+            # and this pass used to start it on the machine's own address in
+            # the meantime: an abandoned wizard left a cluster that started
+            # itself, and a confirmed network arrived after Ray was already up
+            # on another one. Applying a plan is what starts it.
+            self._observe(
+                environment,
+                EnvironmentStatus.PENDING,
+                RayClusterStatus(alive=False),
+                expected_nodes=len(nodes),
+                reason="waiting for its network to be confirmed",
+            )
+            return
+
         config = RayEnvironmentConfig.model_validate(environment.config_json or {})
         credential_ref = await self._ensure_cluster_token(session, environment)
 
-        resolved_fabric = self._get_resolved_fabric(environment)
         node_bindings = (resolved_fabric or {}).get("node_bindings", {})
         head_binding = node_bindings.get(str(head.node_id))
         head_host = (head_binding or {}).get("ip") or await self._host_of(session, head.node_id)
@@ -1320,6 +1337,24 @@ class RayEnvironmentManager:
         node, bundle = await node_and_bundle_for(session, node_id, driver="ray")
         return bundle, node
 
+    @staticmethod
+    def _machine_env(node: Any) -> dict[str, str]:
+        """What vLLM needs on this machine that no bundle can know.
+
+        A Windows machine runs the node in WSL2. vLLM sees "microsoft" in the
+        kernel name and turns pinned memory off, and then every engine dies on
+        start with "UVA is not available" (found serving the first model on a
+        TITAN RTX workstation). vLLM supports it on WSL2 kernels from 4.19.121
+        and only wants to be told: VLLM_WSL2_ENABLE_PIN_MEMORY=1.
+        """
+        os_name = str(((getattr(node, "capabilities_json", None) or {}).get("os")) or "")
+        if "microsoft" not in os_name.lower():
+            return {}
+        version = re.search(r"(\d+)\.(\d+)\.(\d+)", os_name)
+        if version and tuple(int(part) for part in version.groups()) < (4, 19, 121):
+            return {}  # vLLM keeps it off there for a reason: leave it
+        return {"VLLM_WSL2_ENABLE_PIN_MEMORY": "1"}
+
     @classmethod
     def _bundle_env(cls, environment, bundle, env_vars: dict[str, str]) -> dict[str, str]:
         """Merge the bundle's certified platform tuning into ``env_vars``."""
@@ -1436,6 +1471,8 @@ class RayEnvironmentManager:
                 env_vars.setdefault("UCX_NET_DEVICES", f"{head_binding['rdma_device']}:1")
 
         bundle, head_row = await self._bundle_of(session, head.node_id)
+        for key, value in self._machine_env(head_row).items():
+            env_vars.setdefault(key, value)  # the operator's own setting wins
         env_vars = self._bundle_env(environment, bundle, env_vars)
         bundle_payload = self._bundle_payload(bundle, node=head_row)
         if bundle_payload is not None:
@@ -1497,6 +1534,8 @@ class RayEnvironmentManager:
                     env_vars.setdefault("NCCL_IB_HCA", str(worker_binding["rdma_device"]))
                     env_vars.setdefault("UCX_NET_DEVICES", f"{worker_binding['rdma_device']}:1")
 
+            for key, value in self._machine_env(worker_row).items():
+                env_vars.setdefault(key, value)
             env_vars = self._bundle_env(environment, bundle, env_vars)
             if bundle_payload is not None:
                 payload["runtime_bundle"] = bundle_payload

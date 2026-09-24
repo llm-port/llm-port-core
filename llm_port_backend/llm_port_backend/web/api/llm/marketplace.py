@@ -292,15 +292,19 @@ async def model_detail(
     local = await _local(session)
     entry = curated_mod.curated_for(repo_id)
     hub_state = "online"
+    hub = await _hub(session)
     try:
-        detail = await (await _hub(session)).detail(repo_id)
+        detail = await hub.detail(repo_id)
     except HubNotFound as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"{repo_id} is not on Hugging Face, or needs access.") from exc
     except HubUnavailable:
-        if entry is None and repo_id not in local:
+        # The card a list fetched a moment ago still knows the model's size,
+        # which is what the fit needs; the curated entry alone does not.
+        cached = hub.cached_card(repo_id)
+        if cached is None and entry is None and repo_id not in local:
             raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="Hugging Face is not reachable from this server.") from None
         hub_state = "offline"
-        detail = _curated_card(entry) if entry else {
+        detail = dict(cached) if cached else _curated_card(entry) if entry else {
             "repo_id": repo_id, "name": repo_id.split("/")[-1], "capabilities": [], "task": "chat", "runnable": True,
         }
     if entry is not None:

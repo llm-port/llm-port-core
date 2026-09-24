@@ -525,7 +525,6 @@ export function adminPageTitle(
   if (pathname.startsWith("/admin/clusters")) return t("nav.clusters");
   if (pathname.startsWith("/admin/deployments/")) return t("inference.detail.page_title");
   if (pathname.startsWith("/admin/deployments")) return t("nav.deployments");
-  if (pathname.startsWith("/admin/nodes/onboarding")) return t("nodes.add_node");
   if (pathname.startsWith("/admin/nodes/profiles")) return t("nav.node_profiles");
   if (pathname.startsWith("/admin/nodes")) return t("nodes.fleet_title");
   if (pathname.startsWith("/admin/scheduler")) return t("scheduler.title");

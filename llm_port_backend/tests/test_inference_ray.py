@@ -490,6 +490,13 @@ async def probe_env(
         control_plane_id=cp.id,
         name=f"env-{uuid.uuid4().hex[:12]}",
         head_node_id=nodes[0].id,
+        # Its network confirmed, as applying a plan does: a cluster that never
+        # started waits for that before it starts.
+        observed_status_json={
+            "resolved_fabric": {
+                "node_bindings": {str(n.id): {"node_id": str(n.id), "ip": n.host} for n in nodes},
+            },
+        },
     )
     dbsession.add(env)
     await dbsession.flush()  # env.id must exist before membership rows reference it
@@ -616,6 +623,24 @@ async def test_environment_loop_runs_all_steps(probe_env, dbsession: AsyncSessio
     assert env.observed_generation == env.generation
     assert env.observed_status_json["observation"]["reconciled"] is True
     assert env.observed_status_json["cluster"]["num_nodes"] == 2
+
+
+async def test_a_new_cluster_waits_for_its_network_before_starting(probe_env, dbsession: AsyncSession) -> None:
+    """Found in an end-to-end run: the console creates the cluster, then asks which network to use.
+
+    The pass in between started Ray on the machine's own address, so an abandoned wizard left a
+    cluster that started itself (and failed there, on a port Redis held).
+    """
+    _cp, env, _nodes = probe_env
+    env.observed_status_json = {}
+    await dbsession.flush()
+    fake = _FakeNodeControl(result_json=_healthy_probe_result())
+    await _ray_driver().environment_manager.reconcile_environment(dbsession, env, node_control=fake)
+
+    assert fake.by_type(NodeCommandType.ENSURE_RAY_RUNTIME.value) == []
+    assert fake.by_type(NodeCommandType.START_RAY_HEAD.value) == []
+    assert env.status is EnvironmentStatus.PENDING
+    assert "network" in env.observed_status_json["observation"]["reason"]
 
 
 async def test_environment_loop_stopped_state_tears_down(probe_env, dbsession: AsyncSession) -> None:
@@ -1300,3 +1325,28 @@ async def test_reconcile_pass_hands_context_the_session_factory(monkeypatch: pyt
     await lifespan._run_inference_reconcile_pass(app)
     assert seen["factory"] is factory
     assert len(reconciled) == 2
+
+
+async def test_a_windows_machine_gets_pinned_memory_for_vllm(probe_env, dbsession: AsyncSession) -> None:
+    """Found serving the first model on a WSL2 node: every engine died with "UVA is not available"."""
+    _cp, env, nodes = probe_env
+    nodes[0].capabilities_json = {
+        **nodes[0].capabilities_json, "os": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.41",
+    }
+    await dbsession.flush()
+    fake = _FakeNodeControl(result_json=_healthy_probe_result())
+    await _ray_driver().environment_manager.reconcile_environment(dbsession, env, node_control=fake)
+
+    head = fake.by_type(NodeCommandType.START_RAY_HEAD.value)[0]
+    assert head["payload"]["env"]["VLLM_WSL2_ENABLE_PIN_MEMORY"] == "1"
+    worker = fake.by_type(NodeCommandType.JOIN_RAY_CLUSTER.value)[0]
+    assert "VLLM_WSL2_ENABLE_PIN_MEMORY" not in (worker["payload"].get("env") or {}), "a Linux machine is left alone"
+
+
+def test_an_old_wsl_kernel_and_an_operator_choice_are_respected() -> None:
+    from llm_port_backend.services.inference.drivers.ray.environment import RayEnvironmentManager
+
+    old = SimpleNamespace(capabilities_json={"os": "Linux-4.19.84-microsoft-standard-x86_64-with-glibc2.31"})
+    assert RayEnvironmentManager._machine_env(old) == {}  # noqa: SLF001
+    linux = SimpleNamespace(capabilities_json={"os": "Linux-6.8.0-1017-nvidia-aarch64-with-glibc2.39"})
+    assert RayEnvironmentManager._machine_env(linux) == {}  # noqa: SLF001

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import { useTranslation } from "react-i18next";
 import { nodesApi, type ManagedNode } from "~/api/nodes";
 import {
@@ -67,7 +67,9 @@ export default function NodeFleetPage() {
     { initialValue: [] as ManagedNode[] },
   );
   const [actionBusyKey, setActionBusyKey] = useState<string | null>(null);
-  const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const [params, setParams] = useSearchParams();
+  // ?add=1 (the dashboard's "Onboard a node") opens the drawer straight away.
+  const [onboardingOpen, setOnboardingOpen] = useState(params.get("add") === "1");
   const pendingJoins = usePendingJoins();
   const [deleteTarget, setDeleteTarget] = useState<ManagedNode | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -365,7 +367,13 @@ export default function NodeFleetPage() {
       />
       <NodeOnboardingDrawer
         open={onboardingOpen}
-        onClose={() => setOnboardingOpen(false)}
+        onClose={() => {
+          setOnboardingOpen(false);
+          if (params.has("add")) {
+            params.delete("add");
+            setParams(params, { replace: true });
+          }
+        }}
         // An approved machine is a new row here, and the operator is watching
         // for it — they should not have to reload to see the thing they just
         // let in.

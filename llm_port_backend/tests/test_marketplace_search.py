@@ -172,3 +172,95 @@ def test_the_recommended_list_has_the_current_generation() -> None:
     assert repos["Qwen/Qwen3.8-27B-FP8"].verified is not None, "served on the DGX pair"
     assert all(c.group in curated.GROUPS for c in curated.CURATED)
     assert all(c.blurb.startswith("marketplace.blurb.") for c in curated.CURATED)
+
+
+def test_only_the_weights_vllm_loads_are_counted() -> None:
+    names = ["model-00001-of-00002.safetensors", "model-00002-of-00002.safetensors",
+             "original/model.safetensors", "metal/model.bin", "config.json"]
+    assert hub.loaded_weight_files(names) == names[:2]
+    assert hub.has_extra_weight_copies(names)
+    # A Mistral repo with its own format and the Hugging Face shards side by side.
+    assert hub.loaded_weight_files(["consolidated.safetensors", "model-00001-of-00001.safetensors"]) == [
+        "model-00001-of-00001.safetensors",
+    ]
+    assert hub.loaded_weight_files(["consolidated.safetensors"]) == ["consolidated.safetensors"]
+    assert not hub.has_extra_weight_copies(["model.safetensors", "config.json"])
+
+
+def test_a_repo_with_a_second_copy_is_sized_from_its_own_files() -> None:
+    """Found live: gpt-oss-20b came out at 22.7 GB, as the Hub's dtype counts include original/.
+
+    It was "too large" for a 24 GB card that holds its 13.8 GB of weights.
+    """
+
+    class _Paths:
+        asked: ClassVar[list[list[str]]] = []
+
+        def get_paths_info(self, repo: str, paths: list[str]) -> list[SimpleNamespace]:
+            self.asked.append(paths)
+            return [SimpleNamespace(path=p, size=7_000_000_000) for p in paths]
+
+    data = {
+        "id": "openai/gpt-oss-20b",
+        "tags": [], "config": {}, "library_name": "transformers",
+        "safetensors_parameters": {"BF16": 1_804_459_584, "U8": 19_110_297_600},
+        "siblings": [{"name": "model-00001-of-00002.safetensors", "size": None},
+                     {"name": "model-00002-of-00002.safetensors", "size": None},
+                     {"name": "original/model.safetensors", "size": None}],
+    }
+    api = _Paths()
+    hub.fill_weight_sizes(api, data)
+    assert api.asked == [["model-00001-of-00002.safetensors", "model-00002-of-00002.safetensors"]]
+    assert hub.card_from_dict(data)["weights_bytes"] == 14_000_000_000
+
+    plain = {**data, "id": "Qwen/Qwen3-8B", "siblings": [{"name": "model.safetensors", "size": None}]}
+    api.asked.clear()
+    hub.fill_weight_sizes(api, plain)
+    assert api.asked == [], "one copy: the dtype counts are right, no extra call"
+
+
+async def test_a_dropped_connection_is_tried_once_more() -> None:
+    """Found live: resets from this network made one host dialog read "Size unknown"."""
+    import requests
+
+    attempts: list[int] = []
+
+    def flaky() -> str:
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise requests.exceptions.ConnectionError("Connection aborted: connection reset by peer")
+        return "answer"
+
+    assert await hub.HubClient._call(flaky) == "answer"  # noqa: SLF001
+    assert len(attempts) == 2
+
+    def down() -> str:
+        raise requests.exceptions.ConnectionError("Connection aborted: connection reset by peer")
+
+    with pytest.raises(hub.HubUnavailable):
+        await hub.HubClient._call(down)  # noqa: SLF001
+
+
+async def test_the_host_dialog_keeps_the_size_the_list_already_had(
+    fastapi_app: FastAPI, client: AsyncClient, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from llm_port_backend.db.models.users import User, current_active_user
+
+    user = MagicMock(spec=User)
+    user.id, user.is_active, user.is_superuser, user.is_verified = uuid.uuid4(), True, True, True
+    fastapi_app.dependency_overrides[current_active_user] = lambda: user
+
+    async def unreachable(self: Any, repo_id: str) -> dict[str, Any]:
+        raise hub.HubUnavailable("connection reset")
+
+    monkeypatch.setattr(hub.HubClient, "detail", unreachable)
+    hub._cache.put("card:False:Qwen/Qwen3-0.6B", {  # noqa: SLF001 - what the recommended list fetched
+        "repo_id": "Qwen/Qwen3-0.6B", "name": "Qwen3-0.6B", "capabilities": ["tools"], "task": "chat",
+        "runnable": True, "weights_bytes": 1_503_300_328,
+    }, 600)
+
+    r = await client.get("/api/llm/marketplace/models/Qwen/Qwen3-0.6B")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["hub"] == "offline"
+    assert body["model"]["weights_bytes"] == 1_503_300_328

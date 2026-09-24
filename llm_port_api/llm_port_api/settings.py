@@ -298,7 +298,10 @@ class Settings(BaseSettings):
             port=self.rabbit_port,
             user=self.rabbit_user,
             password=self.rabbit_pass,
-            path=self.rabbit_vhost,
+            # The vhost is the URL's path: "/" stays "/", a name gets its slash.
+            # A bare name ("llmport") used to crash start-up: yarl refuses a
+            # path without one next to a host.
+            path="/" + self.rabbit_vhost.lstrip("/"),
         )
 
     model_config = SettingsConfigDict(

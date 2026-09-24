@@ -279,8 +279,17 @@ class EnvironmentService:
     ) -> InferenceEnvironment:
         """Create an environment under an existing control plane."""
         wake_reconciler_after_commit(self.session)  # act now, not at the next tick
-        if not await self.control_plane_dao.get(control_plane_id):
+        control_plane = await self.control_plane_dao.get(control_plane_id)
+        if not control_plane:
             raise NotFoundError("control plane", control_plane_id)
+        if control_plane.driver == "ray":
+            from llm_port_backend.services.inference.drivers.ray.schemas import (  # noqa: PLC0415
+                NEW_CLUSTER_PORTS,
+            )
+
+            # Recorded on the cluster, so clusters made before keep the ports
+            # they run on; anything the caller set wins.
+            config = {**NEW_CLUSTER_PORTS, **(config or {})}
         try:
             return await self.dao.create(
                 control_plane_id=control_plane_id,

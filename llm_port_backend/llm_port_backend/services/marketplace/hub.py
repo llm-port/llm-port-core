@@ -16,9 +16,11 @@ import fnmatch
 import json
 import logging
 import re
+import tempfile
 import threading
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from llm_port_backend.services.marketplace import facts
@@ -68,10 +70,58 @@ def wildcard_parts(query: str) -> tuple[str, list[str]] | None:
     pieces = sorted(dict.fromkeys(p for p in re.split(r"[*?]+", q) if p), key=len, reverse=True)[:3]
     return f"*{q}*", pieces
 
+#: Where a model's config.json and README go when the marketplace reads them.
+#:
+#: Not the Hugging Face cache: a folder there is how the server recognises a
+#: model it keeps, so reading a model's details left a stub of it behind, and
+#: "On this server" then listed every model anyone had opened as ready to host.
+METADATA_CACHE = Path(tempfile.gettempdir()) / "llmport-hub-metadata"
+
 _EXPAND = [
     "safetensors", "config", "cardData", "tags", "gated", "downloads", "likes", "trendingScore",
-    "lastModified", "createdAt", "pipeline_tag", "library_name",
+    "lastModified", "createdAt", "pipeline_tag", "library_name", "siblings",
 ]
+
+
+def loaded_weight_files(names: list[str]) -> list[str]:
+    """The safetensors files vLLM loads: the set at the top of the repository.
+
+    A copy in a folder (gpt-oss: ``original/``) is for other runtimes, and a
+    Mistral repo that ships both its own ``consolidated.safetensors`` and the
+    Hugging Face shards holds the same weights twice: one set is counted.
+    """
+    top = [n for n in names if n.endswith(".safetensors") and "/" not in n]
+    shards = [n for n in top if not n.startswith("consolidated")]
+    return shards or top
+
+
+def has_extra_weight_copies(names: list[str]) -> bool:
+    """More safetensors in the repository than the set vLLM loads.
+
+    Then the Hub's dtype counts, which cover every safetensors file, overstate
+    the weights, and only the loaded files' own sizes are right.
+    """
+    loaded = loaded_weight_files(names)
+    return bool(loaded) and len(loaded) < sum(1 for n in names if n.endswith(".safetensors"))
+
+
+def fill_weight_sizes(api: Any, data: dict[str, Any]) -> None:
+    """Size the loaded files when the dtype counts would be wrong (one Hub call, rarely needed)."""
+    siblings = data.get("siblings") or []
+    names = [str(s.get("name") or "") for s in siblings]
+    if not has_extra_weight_copies(names):
+        return
+    loaded = set(loaded_weight_files(names))
+    if all(s.get("size") for s in siblings if s.get("name") in loaded):
+        return
+    try:
+        sizes = {f.path: getattr(f, "size", None) for f in api.get_paths_info(data["id"], sorted(loaded))}
+    except Exception as exc:  # the card still stands, sized less exactly
+        log.info("marketplace: no file sizes for %s: %s", data.get("id"), exc)
+        return
+    for sibling in siblings:
+        if sibling.get("name") in sizes:
+            sibling["size"] = sizes[sibling["name"]]
 
 
 class HubUnavailable(RuntimeError):
@@ -187,11 +237,16 @@ def card_from_dict(data: dict[str, Any]) -> dict[str, Any]:
     params_by_dtype = data.get("safetensors_parameters") or {}
     siblings = [s.get("name") or "" for s in data.get("siblings") or []]
     fmt = facts.detect_format(tags, data.get("library_name"), bool(params_by_dtype), siblings)
-    weights = facts.weights_bytes(params_by_dtype)
-    if weights is None and data.get("siblings"):
-        weight_files = [s for s in data["siblings"] if str(s.get("name", "")).endswith(".safetensors")]
-        if weight_files and all(s.get("size") for s in weight_files):
-            weights = sum(int(s["size"]) for s in weight_files)
+    # Sized from the files vLLM loads when their sizes are known. The Hub's
+    # dtype counts cover every safetensors file in the repository, so a model
+    # that also ships a copy for other runtimes came out too large: gpt-oss-20b
+    # at 22.7 GB for 13.8 GB of weights, "too large" for a 24 GB card it fits.
+    loaded = set(loaded_weight_files(siblings))
+    loaded_files = [s for s in data.get("siblings") or [] if s.get("name") in loaded]
+    if loaded_files and all(s.get("size") for s in loaded_files):
+        weights = sum(int(s["size"]) for s in loaded_files)
+    else:
+        weights = facts.weights_bytes(params_by_dtype)
     quant = facts.detect_quantization(repo_id, tags, config, params_by_dtype)
     params_count = sum(int(v) for v in params_by_dtype.values()) if params_by_dtype else None
     name_params = facts.params_from_name(repo_id)
@@ -304,6 +359,7 @@ class HubClient:
                     ):
                         data = info_to_dict(info)
                         if data["id"] and data["id"] not in seen:
+                            fill_weight_sizes(api, data)
                             seen[data["id"]] = card_from_dict(data)
             cards = list(seen.values())
             if wild:
@@ -331,7 +387,9 @@ class HubClient:
                 found: dict[str, dict[str, Any]] = {}
                 for repo in missing:
                     try:
-                        found[repo] = card_from_dict(info_to_dict(api.model_info(repo, expand=_EXPAND)))
+                        data = info_to_dict(api.model_info(repo, expand=_EXPAND))
+                        fill_weight_sizes(api, data)
+                        found[repo] = card_from_dict(data)
                     except Exception as exc:  # noqa: BLE001 - one missing repo is not the list failing
                         if _is_network_error(exc):
                             raise
@@ -368,7 +426,7 @@ class HubClient:
             config: dict[str, Any] = {}
             if "config.json" in names:
                 try:
-                    path = hf_hub_download(repo_id, "config.json", token=self.token)
+                    path = hf_hub_download(repo_id, "config.json", token=self.token, cache_dir=METADATA_CACHE)
                     with open(path, encoding="utf-8") as fh:
                         config = json.load(fh)
                 except Exception as exc:  # noqa: BLE001 - gated or broken config: the card still stands
@@ -376,7 +434,7 @@ class HubClient:
             summary = None
             if "README.md" in names:
                 try:
-                    path = hf_hub_download(repo_id, "README.md", token=self.token)
+                    path = hf_hub_download(repo_id, "README.md", token=self.token, cache_dir=METADATA_CACHE)
                     with open(path, encoding="utf-8", errors="replace") as fh:
                         summary = readme_summary(fh.read(200_000))
                 except Exception:  # noqa: BLE001
@@ -408,14 +466,27 @@ class HubClient:
 
     @staticmethod
     async def _call(fn: Any) -> Any:
-        try:
-            return await asyncio.to_thread(fn)
-        except (HubNotFound, HubUnavailable):
-            raise
-        except Exception as exc:
-            if _is_network_error(exc):
-                raise HubUnavailable(str(exc)) from exc
-            raise
+        # One more try on a dropped connection: a reset mid-request is common
+        # on some networks and gone a moment later, and treating it as "the
+        # Hub is offline" turned a host dialog into "Size unknown" for a model
+        # the list had just sized.
+        for attempt in range(2):
+            try:
+                return await asyncio.to_thread(fn)
+            except (HubNotFound, HubUnavailable):
+                raise
+            except Exception as exc:
+                if not _is_network_error(exc):
+                    raise
+                if attempt == 1:
+                    raise HubUnavailable(str(exc)) from exc
+                log.info("marketplace: the Hub dropped the connection, trying again: %s", type(exc).__name__)
+                await asyncio.sleep(0.5)
+        raise AssertionError("unreachable")
+
+    def cached_card(self, repo_id: str) -> dict[str, Any] | None:
+        """The card a list already fetched for *repo_id*, if it is still kept."""
+        return _cache.get(f"card:{bool(self.token)}:{repo_id}")
 
 
 def clear_cache() -> None:

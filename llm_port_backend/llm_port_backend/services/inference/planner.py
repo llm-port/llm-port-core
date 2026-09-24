@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import ipaddress
 import json
 import logging
 import secrets
@@ -193,6 +194,32 @@ def compute_fabric_fingerprint(
     return f"fabric-{digest}"
 
 
+#: RFC 6598 shared address space. Tailscale hands out its addresses from it,
+#: as do carrier-grade NATs: either way a tunnel or a NAT, never a cluster
+#: fabric.
+_OVERLAY_NETWORK = ipaddress.ip_network("100.64.0.0/10")
+
+
+def _not_a_shared_network(cidr: str | None) -> list[tuple[int, str]]:
+    """Penalties for a candidate that is no network the machines share.
+
+    Found on a Windows workstation: a Tailscale address (100.122.30.59/32)
+    has no default route, so it scored as an isolated fabric and was
+    recommended over the LAN -- a VPN overlay that another machine cannot
+    join as a peer, reported by WSL as "10 Gb/s ethernet".
+    """
+    try:
+        network = ipaddress.ip_network(cidr or "", strict=False)
+    except ValueError:
+        return []
+    penalties: list[tuple[int, str]] = []
+    if network.prefixlen == network.max_prefixlen:
+        penalties.append((6000, f"Host-only address (/{network.prefixlen}): no other machine is on it"))
+    if network.version == 4 and network.subnet_of(_OVERLAY_NETWORK):  # type: ignore[arg-type]
+        penalties.append((6000, "VPN or carrier-NAT address range 100.64.0.0/10 (e.g. Tailscale): a tunnel"))
+    return penalties
+
+
 def score_fabric_candidate(
     *,
     fabric_type: str,
@@ -200,10 +227,11 @@ def score_fabric_candidate(
     mtu: int,
     is_management: bool,
     bindings: list[NodeFabricBinding],
+    cidr: str | None = None,
 ) -> tuple[int, str, str, str, list[str]]:
     """Calculate deterministic recommendation score, confidence, and human rationale.
 
-    Score = S_type + S_speed + S_mtu - P_management
+    Score = S_type + S_speed + S_mtu - P_management - P_not_a_shared_network
     """
     score = 0
     reasons: list[str] = []
@@ -246,6 +274,16 @@ def score_fabric_candidate(
     else:
         confidence = "medium"
         isolation_level = "isolated_direct"
+
+    # Below the management penalty on purpose: the LAN, shared or not, is a
+    # network the machines are on; a host address or a VPN tunnel is not.
+    penalties = _not_a_shared_network(cidr)
+    for points, why in penalties:
+        score -= points
+        reasons.append(f"{why} (-{points})")
+    if penalties:
+        confidence = "low"
+        isolation_level = "external"
 
     return score, "; ".join(reasons), confidence, isolation_level, reasons
 
@@ -474,6 +512,7 @@ class MultiNodeFabricPlanner:
                 mtu=min_mtu,
                 is_management=any_mgmt,
                 bindings=bindings,
+                cidr=cidr,
             )
 
             candidates.append(

@@ -48,6 +48,15 @@ from llm_port_backend.settings import settings
 log = logging.getLogger(__name__)
 
 
+#: File types that hold model weights, in any of the formats a runtime loads.
+_WEIGHT_SUFFIXES = (".safetensors", ".bin", ".pt", ".pth", ".gguf", ".ckpt", ".msgpack", ".h5")
+
+
+def _has_weights(snapshot: Path) -> bool:
+    """Whether a cached snapshot holds any weights at all."""
+    return any(p.name.endswith(_WEIGHT_SUFFIXES) for p in snapshot.rglob("*"))
+
+
 class LLMService:
     """Facade that ties together adapters, DAOs, and Docker."""
 
@@ -373,6 +382,11 @@ class LLMService:
                     continue
                 snapshot_path = revisions[0].snapshot_path
                 if not snapshot_path.is_dir():
+                    continue
+                if not _has_weights(snapshot_path):
+                    # A config.json or README fetched on its own (by a model
+                    # page, a tokenizer lookup) is not a model on this server:
+                    # hosting it would have nothing to load.
                     continue
 
                 model = await model_dao.create(
