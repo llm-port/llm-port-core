@@ -64,6 +64,7 @@
     "floor_value": "(mínimo: {{value}})",
     "entities_count": "Entidades ({{count}})",
     "no_entities": "No hay entidades configuradas.",
-    "add_entity": "Agregar entidad"
+    "add_entity": "Agregar entidad",
+    "refresh": "Actualizar"
   }
 }

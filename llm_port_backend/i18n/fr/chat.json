@@ -64,6 +64,7 @@
     "floor_value": "(plancher : {{value}})",
     "entities_count": "Entités ({{count}})",
     "no_entities": "Aucune entité configurée.",
-    "add_entity": "Ajouter une entité"
+    "add_entity": "Ajouter une entité",
+    "refresh": "Actualiser"
   }
 }

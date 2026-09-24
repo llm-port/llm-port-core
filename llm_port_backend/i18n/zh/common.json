@@ -62,7 +62,8 @@
     "chat_attachments": "附件",
     "inference_group": "AI 基础设施",
     "clusters": "集群",
-    "deployments": "部署"
+    "deployments": "部署",
+    "admin": "管理面板"
   },
   "auth": {
     "logout": "退出登录",
@@ -161,7 +162,11 @@
     "component_server": "模型服务器（{{model}}）",
     "agent_of": "{{name}} 系统日志",
     "deleted_deployment": "已删除的部署（{{id}}）",
-    "open_in_logs": "在日志中打开"
+    "open_in_logs": "在日志中打开",
+    "empty": "没有日志输出。",
+    "lines_label": "行",
+    "scroll_bottom": "自动滚动",
+    "tail_label": "行数"
   },
   "language": {
     "label": "语言"
@@ -230,7 +235,9 @@
     "node_last_seen": "最近见到",
     "node_cpu": "CPU",
     "node_ram": "RAM",
-    "node_gpu_vram": "GPU VRAM"
+    "node_gpu_vram": "GPU VRAM",
+    "gpu_rescan": "重新检测 GPU",
+    "gpu_rescan_failed": "重新检测 GPU 失败"
   },
   "errors": {
     "oops": "哎呀！",
@@ -275,7 +282,16 @@
     "active": "启用",
     "inactive": "停用",
     "labels": "标签",
-    "unknown_error": "未知错误"
+    "unknown_error": "未知错误",
+    "all": "全部",
+    "continue": "继续",
+    "copy": "复制",
+    "enabled": "已启用",
+    "error_unexpected": "出现了问题。",
+    "refresh": "刷新",
+    "saving": "正在保存…",
+    "skip": "跳过",
+    "mode": "模式"
   },
   "containers": {
     "title": "容器",
@@ -622,7 +638,16 @@
     "model_source_sync_requires_download_short": "没有可用的本地模型。请先下载。",
     "no_runtime": "无运行时",
     "cluster_ready": "{{name}} 已就绪。部署在集群上的模型有多个副本，故障后会自动恢复并可扩缩；单台机器只运行一个容器。",
-    "deploy_on_cluster": "改为部署到集群"
+    "deploy_on_cluster": "改为部署到集群",
+    "deploy_target": "部署到",
+    "deploy_this_server": "本服务器（本地）",
+    "endpoint_url_help_optional": "可选——对于 Gemini、Anthropic 等托管提供商请留空。",
+    "litellm_provider": "提供商",
+    "model_source_hf": "从 Hugging Face 下载",
+    "model_source_hf_desc": "由机器自行下载模型（需要联网）。",
+    "model_source_sync_desc": "从本服务器的缓存复制模型（适用于无法联网的机器）。",
+    "select_or_type_model": "选择或输入模型…",
+    "test_to_discover": "测试连接以列出其模型"
   },
   "llm_models": {
     "title": "LLM 模型",
@@ -645,7 +670,12 @@
     "start_download": "开始下载",
     "display_name": "显示名称",
     "path_on_host": "主机路径",
-    "register": "注册"
+    "register": "注册",
+    "deployed_on": "部署于",
+    "not_deployed": "未部署",
+    "in_use_title": "模型正在使用",
+    "in_use_message": "“{{model}}”正被一个或多个活动运行时使用，无法删除。",
+    "go_to_runtime": "前往运行时"
   },
   "llm_model_detail": {
     "failed_load": "加载模型失败。",
@@ -693,7 +723,11 @@
     "image_pull_starting": "正在开始下载…",
     "image_pull_layers": "层",
     "image_pull_success": "镜像拉取成功。",
-    "image_pull_failed": "镜像拉取失败：{{error}}"
+    "image_pull_failed": "镜像拉取失败：{{error}}",
+    "image_auto_placeholder": "留空以自动检测",
+    "image_pull_on_node": "由机器自行拉取容器镜像。",
+    "image_transfer_ready": "镜像已在本服务器上——将复制到该机器。",
+    "engine_configuration": "引擎配置"
   },
   "llm_monitoring": {
     "section": "实时指标",
@@ -701,7 +735,18 @@
     "dashboard": "打开 Grafana 仪表板",
     "no_data": "无数据",
     "link": "监控",
-    "not_configured": "该提供商暂无实时指标"
+    "not_configured": "该提供商暂无实时指标",
+    "no_data_hint": "正在等待指标——引擎可能仍在预热",
+    "stale_hint": "指标已过期（引擎未上报）",
+    "stat": {
+      "running_requests": "运行中的请求",
+      "waiting_requests": "等待中的请求",
+      "kv_cache_usage": "KV 缓存使用率",
+      "prefix_cache_hit_rate": "前缀缓存命中率",
+      "mtp_acceptance": "MTP 接受率",
+      "generation_tokens_per_sec": "生成 tok/s",
+      "preemption_rate": "抢占次数/秒"
+    }
   },
   "llm_runtime_detail": {
     "failed_load": "加载运行时失败。",
@@ -719,7 +764,10 @@
     "extra_args_help": "传递给运行时引擎的额外命令行参数（每行一个，如 --enforce-eager）。",
     "save_and_restart": "保存并重启",
     "enforce_eager": "旧款 GPU 支持（为计算能力 < 8.0 的 GPU 启用 XFormers 后端，如 TITAN RTX、V100、GTX 10xx/20xx 系列）",
-    "swap_space_help": "每个 GPU 用于卸载的 CPU 交换空间（GiB，如 4）。留空使用 vLLM 默认值（旧款 GPU 模式下默认为 1 GiB）。"
+    "swap_space_help": "每个 GPU 用于卸载的 CPU 交换空间（GiB，如 4）。留空使用 vLLM 默认值（旧款 GPU 模式下默认为 1 GiB）。",
+    "model_id": "模型 ID",
+    "capabilities": "能力",
+    "supports_embeddings": "嵌入"
   },
   "llm_jobs": {
     "title": "下载任务",
@@ -853,7 +901,9 @@
     "confirm_disable_body": "将停止 {{module}} 模块的所有容器。进行中的请求将被中断。",
     "partial_error": "部分容器出错：{{errors}}",
     "action_success": "{{module}} {{action}} 成功。",
-    "logs": "日志"
+    "logs": "日志",
+    "logs_title": "{{module}} — 容器日志",
+    "module_settings": "模块设置"
   },
   "pii_dashboard": {
     "title": "PII 仪表盘",
@@ -1003,7 +1053,19 @@
     "no_local": "未配置本地提供商。",
     "no_remote": "未配置云端提供商。",
     "no_runtimes": "未部署运行时",
-    "runtimes_active": "{{active}} / {{total}} 运行时活跃"
+    "runtimes_active": "{{active}} / {{total}} 运行时活跃",
+    "bar_cloud_data": "云端数据",
+    "bar_local_data": "本地数据",
+    "cloud_data": "云端数据",
+    "local_data": "本地数据",
+    "data_bar_note": "基于实际令牌吞吐量（约 4 字节/令牌）",
+    "data_volume": "数据量",
+    "data_volume_title": "数据量",
+    "errors": "个错误",
+    "est_data": "≈ {{size}}",
+    "requests": "个请求",
+    "tokens": "个令牌",
+    "total_requests": "请求总数"
   },
   "profile": {
     "title": "我的资料",
@@ -1125,7 +1187,20 @@
     "version": "版本",
     "last_seen": "最后发现",
     "no_tools": "尚未发现工具。",
-    "search_tools": "搜索工具…"
+    "search_tools": "搜索工具…",
+    "provider_settings": "提供商设置",
+    "settings_saved": "设置已保存。",
+    "scan": "扫描网络",
+    "scan_title": "扫描 MCP 服务器",
+    "scan_host": "主机 / IP 地址",
+    "scan_port_start": "起始端口",
+    "scan_port_end": "结束端口",
+    "scanning": "正在扫描 {{host}} 的端口 {{start}}–{{end}}…",
+    "scanning_btn": "正在扫描…",
+    "no_servers_found": "在扫描的端口范围内未找到 MCP 服务器。",
+    "discovered_servers": "发现的服务器（{{count}}）",
+    "already_registered": "已注册",
+    "tools_count": "{{count}} 个工具"
   },
   "skills": {
     "list_title": "技能",
@@ -1170,7 +1245,9 @@
     "assign": "分配",
     "target_type": "目标类型",
     "target_id": "目标 ID",
-    "not_found": "技能未找到"
+    "not_found": "技能未找到",
+    "back_to_list": "技能",
+    "priority_hint": "0 = 最低，100 = 最高"
   },
   "nodes": {
     "back_to_fleet": "返回节点群",
@@ -1239,7 +1316,11 @@
     "bytes_free": "{{bytes}} 可用",
     "review_pending": "查看",
     "pending_joins_one": "{{count}} 台机器正在等待批准：{{names}}",
-    "pending_joins_other": "{{count}} 台机器正在等待批准：{{names}}"
+    "pending_joins_other": "{{count}} 台机器正在等待批准：{{names}}",
+    "delete_node": "删除机器",
+    "delete_node_title": "删除此机器？",
+    "delete_node_confirm": "这将永久删除机器“{{host}}”及其会话、清单快照、命令和事件，且无法撤销。",
+    "delete_node_type_host": "输入“{{host}}”以确认"
   },
   "rag_lite": {
     "documents_title": "RAG 文档",
@@ -1326,5 +1407,171 @@
     "route_explain": "此名称的请求会发往当前运行中的容器。机器上的任何内容都不会改变，您可以随时停止路由。",
     "name": "客户端使用的名称",
     "confirm_release": "停止路由 {{alias}}？容器会继续运行。"
+  },
+  "chat": {
+    "debug_panel_title": "请求调试",
+    "drop_here_no_project": "拖放到此处以从项目中移除",
+    "project_description": "描述",
+    "project_settings": "项目设置",
+    "system_prompt": "系统提示",
+    "system_prompt_hint": "系统提示会附加到该项目中的每条消息之前。可用于定义项目上下文、角色或约束。",
+    "system_prompt_placeholder": "你是一个擅长……的助手",
+    "title": "聊天",
+    "model": "模型",
+    "send": "发送",
+    "stop": "停止",
+    "attach_file": "附加文件",
+    "input_placeholder": "输入消息…",
+    "new_chat": "新建聊天",
+    "new_project": "新建项目",
+    "project_name": "项目名称",
+    "no_project": "无项目",
+    "untitled": "未命名聊天",
+    "move_to_project": "移动到项目",
+    "conversation": "对话",
+    "welcome_title": "我可以如何帮助你？",
+    "welcome_subtitle": "开始对话、上传文件，或尝试以下建议。",
+    "token_detail": "提示词：{{prompt}} · 补全：{{completion}} · 总计：{{total}}",
+    "no_models": "无可用模型",
+    "no_models_hint": "当前没有可用模型。请在管理面板中配置提供商和模型别名。"
+  },
+  "module_recommend": {
+    "apply": "应用",
+    "subtitle": "这些模块适合您的配置。启用模块可能会启动更多容器。",
+    "title": "推荐模块"
+  },
+  "profile_select": {
+    "subtitle": "这决定推荐哪些设置步骤。您以后可以更改，无论选择什么，所有功能都可使用。",
+    "title": "选择您的设置配置"
+  },
+  "tools": {
+    "executionMode": "执行",
+    "panel": {
+      "empty": "没有可用的工具。请检查 MCP 服务是否已配置并正在运行。",
+      "refresh": "刷新",
+      "title": "工具"
+    }
+  },
+  "vllm": {
+    "recipe": "配方",
+    "recipe_custom": "自定义",
+    "search_args": "搜索参数…",
+    "args_modified": "已修改 {{count}} 个参数",
+    "reset_all": "全部重置为默认值",
+    "suggested": "建议",
+    "raw_args": "额外参数",
+    "raw_args_help": "传给 vLLM 引擎容器的其他参数（例如 --enable-chunked-prefill 或 --max-num-seqs 64）。",
+    "raw_args_placeholder": "--enable-chunked-prefill --max-num-seqs 64",
+    "raw_args_invalid": "部分项无效，将被忽略：{{issues}}"
+  },
+  "rag_runtime": {
+    "title": "RAG 运行时配置",
+    "description": "嵌入和分块设置由 llm.port core 推送到 llm_port_rag。",
+    "failed_load": "无法加载运行时配置。",
+    "failed_save": "无法保存运行时配置。",
+    "saved": "运行时配置已更新。",
+    "health": "RAG 健康状态",
+    "embedding_provider": "嵌入提供商",
+    "embedding_model": "嵌入模型",
+    "embedding_base_url": "嵌入基础 URL",
+    "embedding_api_key_ref": "嵌入 API 密钥引用",
+    "embedding_api_key": "嵌入 API 密钥（可选，不保存）",
+    "embedding_dim": "嵌入维度",
+    "max_tokens": "最大令牌数",
+    "overlap": "重叠",
+    "by_headings": "按标题拆分",
+    "last_updated": "最近更新",
+    "not_configured": "尚未配置运行时。",
+    "lite_settings_hint": "RAG Lite 设置在“设置”页面的 RAG 类别中管理。",
+    "file_store": "文件存储"
+  },
+  "rag_collectors": {
+    "title": "RAG 采集器",
+    "collectors": "采集源",
+    "jobs": "导入任务",
+    "failed_load": "无法加载采集器/任务。",
+    "failed_run": "无法运行采集器。",
+    "collector_id": "采集器",
+    "job_id": "任务",
+    "type": "类型",
+    "tenant": "租户",
+    "workspace": "工作区",
+    "schedule": "计划",
+    "run_now": "立即运行",
+    "empty_collectors": "尚未配置采集器。",
+    "empty_jobs": "暂无导入任务。",
+    "search_collectors": "搜索采集器…",
+    "search_jobs": "搜索任务…"
+  },
+  "rag_explorer": {
+    "title": "RAG 浏览器",
+    "container": "容器",
+    "new_container": "新容器名称",
+    "uploads": "上传",
+    "upload_files": "上传文件",
+    "publish_now": "立即发布",
+    "schedule_for": "计划时间",
+    "schedule_publish": "计划发布",
+    "draft_ops": "草稿操作",
+    "no_draft": "未选择草稿。",
+    "no_ops": "暂无草稿操作。"
+  },
+  "rag_publishes": {
+    "title": "RAG 发布",
+    "publishes": "发布请求",
+    "jobs": "导入任务",
+    "empty_publishes": "暂无发布。",
+    "empty_jobs": "暂无任务。",
+    "search_publishes": "搜索发布…",
+    "search_jobs": "搜索任务…"
+  },
+  "rag_search": {
+    "title": "RAG 搜索",
+    "description": "针对已索引的 RAG 分块运行遵循访问控制的内部检索查询。",
+    "failed": "知识搜索失败。",
+    "tenant_id": "租户 ID",
+    "workspace_id": "工作区 ID（可选）",
+    "query": "查询",
+    "user_id": "主体用户 ID",
+    "group_ids": "组 ID（逗号分隔）",
+    "sources": "筛选来源（逗号分隔）",
+    "tags": "筛选标签（逗号分隔）",
+    "doc_types": "筛选文档类型（逗号分隔）",
+    "top_k": "Top K",
+    "mode": "模式",
+    "debug": "包含调试数据",
+    "search": "搜索",
+    "results": "结果（{{count}}）",
+    "debug_payload": "调试数据"
+  },
+  "system_updates": {
+    "title": "系统更新",
+    "button": "系统更新",
+    "tooltip": "检查并安装此机器上的系统软件包和固件更新",
+    "idle_message": "点击“检查更新”以扫描此机器上可用的系统软件包和固件更新。",
+    "checking": "正在检查更新…",
+    "applying": "正在应用更新…",
+    "check": "检查更新",
+    "apply_all": "全部更新",
+    "apply_system": "系统软件包",
+    "apply_firmware": "固件",
+    "retry": "重试",
+    "close": "关闭",
+    "cancel": "取消",
+    "up_to_date": "已是最新",
+    "all_up_to_date": "一切都是最新的",
+    "complete": "更新已成功应用",
+    "reboot_required": "需要重启系统才能完成更新，请尽快重启。",
+    "reboot_now": "立即重启",
+    "system_packages": "系统软件包",
+    "firmware": "固件更新",
+    "available": "个更新",
+    "col_package": "软件包",
+    "col_device": "设备",
+    "col_installed": "已安装",
+    "col_available": "可用",
+    "step_check_updates": "检查更新",
+    "step_apply_updates": "应用更新",
+    "step_done": "完成"
   }
 }

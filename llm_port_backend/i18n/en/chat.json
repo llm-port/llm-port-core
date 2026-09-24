@@ -64,6 +64,7 @@
     "floor_value": "(floor: {{value}})",
     "entities_count": "Entities ({{count}})",
     "no_entities": "No entities configured.",
-    "add_entity": "Add entity"
+    "add_entity": "Add entity",
+    "refresh": "Refresh"
   }
 }

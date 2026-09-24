@@ -62,7 +62,8 @@
     "chat_attachments": "Attachments",
     "inference_group": "AI Infrastructure",
     "clusters": "Clusters",
-    "deployments": "Deployments"
+    "deployments": "Deployments",
+    "admin": "Admin panel"
   },
   "auth": {
     "logout": "Logout",
@@ -161,7 +162,11 @@
     "component_server": "Model server ({{model}})",
     "agent_of": "{{name}} system log",
     "deleted_deployment": "Deleted deployment ({{id}})",
-    "open_in_logs": "Open in Logs"
+    "open_in_logs": "Open in Logs",
+    "empty": "No log output.",
+    "lines_label": "lines",
+    "scroll_bottom": "Auto-scroll",
+    "tail_label": "Lines"
   },
   "language": {
     "label": "Language"
@@ -230,7 +235,9 @@
     "node_last_seen": "Seen",
     "node_cpu": "CPU",
     "node_ram": "RAM",
-    "node_gpu_vram": "GPU VRAM"
+    "node_gpu_vram": "GPU VRAM",
+    "gpu_rescan": "Re-detect GPUs",
+    "gpu_rescan_failed": "GPU rescan failed"
   },
   "common": {
     "name": "Name",
@@ -270,7 +277,16 @@
     "active": "Active",
     "inactive": "Inactive",
     "labels": "Labels",
-    "unknown_error": "unknown error"
+    "unknown_error": "unknown error",
+    "all": "All",
+    "continue": "Continue",
+    "copy": "Copy",
+    "enabled": "Enabled",
+    "error_unexpected": "Something went wrong.",
+    "refresh": "Refresh",
+    "saving": "Saving…",
+    "skip": "Skip",
+    "mode": "Mode"
   },
   "containers": {
     "title": "Containers",
@@ -617,7 +633,16 @@
     "model_source_sync_requires_download_short": "No local model available. Download first.",
     "no_runtime": "No runtime",
     "cluster_ready": "{{name}} is ready. A model on a cluster gets several copies, comes back on its own after a failure and scales; a single machine runs one container.",
-    "deploy_on_cluster": "Deploy on the cluster instead"
+    "deploy_on_cluster": "Deploy on the cluster instead",
+    "deploy_target": "Deploy to",
+    "deploy_this_server": "This server (local)",
+    "endpoint_url_help_optional": "Optional — leave empty for hosted providers like Gemini or Anthropic.",
+    "litellm_provider": "Provider",
+    "model_source_hf": "Download from Hugging Face",
+    "model_source_hf_desc": "The machine downloads the model itself (needs internet).",
+    "model_source_sync_desc": "Copy the model from this server's cache (for machines without internet).",
+    "select_or_type_model": "Select or type a model…",
+    "test_to_discover": "Test the connection to list its models"
   },
   "llm_models": {
     "title": "LLM Models",
@@ -694,7 +719,10 @@
     "image_pull_layers": "layers",
     "image_pull_success": "Image pulled successfully.",
     "image_pull_failed": "Failed to pull image: {{error}}",
-    "engine_configuration": "Engine Configuration"
+    "engine_configuration": "Engine Configuration",
+    "image_auto_placeholder": "Leave blank to detect automatically",
+    "image_pull_on_node": "The machine pulls the container image itself.",
+    "image_transfer_ready": "The image is on this server — it will be copied to the machine."
   },
   "vllm": {
     "recipe": "Recipe",
@@ -1002,7 +1030,9 @@
     "confirm_disable_body": "This will stop all containers for the {{module}} module. Any in-flight requests will be interrupted.",
     "partial_error": "Some containers had errors: {{errors}}",
     "action_success": "{{module}} {{action}}d successfully.",
-    "logs": "Logs"
+    "logs": "Logs",
+    "logs_title": "{{module}} — container logs",
+    "module_settings": "Module settings"
   },
   "pii_dashboard": {
     "title": "PII Dashboard",
@@ -1152,7 +1182,19 @@
     "no_local": "No local providers configured.",
     "no_remote": "No cloud providers configured.",
     "no_runtimes": "No runtimes deployed",
-    "runtimes_active": "{{active}} / {{total}} runtimes active"
+    "runtimes_active": "{{active}} / {{total}} runtimes active",
+    "bar_cloud_data": "Cloud data",
+    "bar_local_data": "On-premises data",
+    "cloud_data": "Cloud data",
+    "local_data": "On-premises data",
+    "data_bar_note": "Based on actual token throughput (≈ 4 bytes per token)",
+    "data_volume": "Data volume",
+    "data_volume_title": "Data volume",
+    "errors": "errors",
+    "est_data": "≈ {{size}}",
+    "requests": "requests",
+    "tokens": "tokens",
+    "total_requests": "Total requests"
   },
   "profile": {
     "title": "My Profile",
@@ -1263,7 +1305,14 @@
     "welcome_subtitle": "Start a conversation, upload a file, or try one of these suggestions.",
     "token_detail": "Prompt: {{prompt}} · Completion: {{completion}} · Total: {{total}}",
     "no_models": "No models",
-    "no_models_hint": "No models are available. Configure a provider and model alias in the admin panel."
+    "no_models_hint": "No models are available. Configure a provider and model alias in the admin panel.",
+    "debug_panel_title": "Request Debug",
+    "drop_here_no_project": "Drop here to remove from project",
+    "project_description": "Description",
+    "project_settings": "Project Settings",
+    "system_prompt": "System prompt",
+    "system_prompt_hint": "System prompt is prepended to every message in this project. Use it to define the project context, persona, or constraints.",
+    "system_prompt_placeholder": "You are a helpful assistant that specialises in…"
   },
   "mcp": {
     "servers_title": "MCP Servers",
@@ -1305,7 +1354,9 @@
     "no_servers_found": "No MCP servers found in the scanned port range.",
     "discovered_servers": "Discovered Servers ({{count}})",
     "already_registered": "Already registered",
-    "tools_count": "{{count}} tools"
+    "tools_count": "{{count}} tools",
+    "provider_settings": "Provider settings",
+    "settings_saved": "Settings saved."
   },
   "skills": {
     "list_title": "Skills",
@@ -1350,7 +1401,9 @@
     "assign": "Assign",
     "target_type": "Target Type",
     "target_id": "Target ID",
-    "not_found": "Skill not found"
+    "not_found": "Skill not found",
+    "back_to_list": "Skills",
+    "priority_hint": "0 = lowest, 100 = highest"
   },
   "nodes": {
     "back_to_fleet": "Back to Fleet",
@@ -1419,7 +1472,11 @@
     "bytes_free": "{{bytes}} free",
     "review_pending": "Review",
     "pending_joins_one": "{{count}} machine is waiting for approval: {{names}}",
-    "pending_joins_other": "{{count}} machines are waiting for approval: {{names}}"
+    "pending_joins_other": "{{count}} machines are waiting for approval: {{names}}",
+    "delete_node": "Delete machine",
+    "delete_node_title": "Delete this machine?",
+    "delete_node_confirm": "This permanently removes the machine \"{{host}}\" with its sessions, inventory snapshots, commands and events. It cannot be undone.",
+    "delete_node_type_host": "Type \"{{host}}\" to confirm"
   },
   "node_profiles": {
     "page_title": "Machine Profiles",
@@ -1497,5 +1554,22 @@
     "route_explain": "Requests for this name go to the container as it runs now. Nothing on the machine changes, and you can stop routing at any time.",
     "name": "Name clients use",
     "confirm_release": "Stop routing {{alias}}? The container keeps running."
+  },
+  "module_recommend": {
+    "apply": "Apply",
+    "subtitle": "These modules suit your profile. Turning one on may start more containers.",
+    "title": "Recommended modules"
+  },
+  "profile_select": {
+    "subtitle": "This decides which setup steps are suggested. You can change it later, and every feature stays available whatever you choose.",
+    "title": "Choose your setup profile"
+  },
+  "tools": {
+    "executionMode": "Execution",
+    "panel": {
+      "empty": "No tools available. Check that the MCP services are set up and running.",
+      "refresh": "Refresh",
+      "title": "Tools"
+    }
   }
 }

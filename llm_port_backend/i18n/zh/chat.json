@@ -64,6 +64,7 @@
     "floor_value": "（下限：{{value}}）",
     "entities_count": "实体 ({{count}})",
     "no_entities": "未配置实体。",
-    "add_entity": "添加实体"
+    "add_entity": "添加实体",
+    "refresh": "刷新"
   }
 }

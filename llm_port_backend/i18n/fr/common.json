@@ -62,7 +62,8 @@
     "chat_attachments": "Pièces jointes",
     "inference_group": "Infrastructure IA",
     "clusters": "Clusters",
-    "deployments": "Déploiements"
+    "deployments": "Déploiements",
+    "admin": "Administration"
   },
   "auth": {
     "logout": "Déconnexion",
@@ -161,7 +162,11 @@
     "component_server": "Serveur de modèle ({{model}})",
     "agent_of": "Journal système de {{name}}",
     "deleted_deployment": "Déploiement supprimé ({{id}})",
-    "open_in_logs": "Ouvrir dans les journaux"
+    "open_in_logs": "Ouvrir dans les journaux",
+    "empty": "Aucune sortie de journal.",
+    "lines_label": "lignes",
+    "scroll_bottom": "Défilement automatique",
+    "tail_label": "Lignes"
   },
   "language": {
     "label": "Langue"
@@ -230,7 +235,9 @@
     "node_last_seen": "Vu",
     "node_cpu": "CPU",
     "node_ram": "RAM",
-    "node_gpu_vram": "GPU VRAM"
+    "node_gpu_vram": "GPU VRAM",
+    "gpu_rescan": "Redétecter les GPU",
+    "gpu_rescan_failed": "La redétection des GPU a échoué"
   },
   "common": {
     "name": "Nom",
@@ -270,7 +277,16 @@
     "active": "Actif",
     "inactive": "Inactif",
     "labels": "Étiquettes",
-    "unknown_error": "erreur inconnue"
+    "unknown_error": "erreur inconnue",
+    "all": "Tous",
+    "continue": "Continuer",
+    "copy": "Copier",
+    "enabled": "Activé",
+    "error_unexpected": "Une erreur est survenue.",
+    "refresh": "Actualiser",
+    "saving": "Enregistrement…",
+    "skip": "Passer",
+    "mode": "Mode"
   },
   "containers": {
     "title": "Conteneurs",
@@ -617,7 +633,16 @@
     "model_source_sync_requires_download_short": "Aucun modèle local disponible. Téléchargez-en un d'abord.",
     "no_runtime": "Aucun environnement",
     "cluster_ready": "{{name}} est prêt. Un modèle sur un cluster a plusieurs copies, se rétablit seul après une panne et passe à l'échelle ; une seule machine exécute un conteneur.",
-    "deploy_on_cluster": "Déployer plutôt sur le cluster"
+    "deploy_on_cluster": "Déployer plutôt sur le cluster",
+    "deploy_target": "Déployer sur",
+    "deploy_this_server": "Ce serveur (local)",
+    "endpoint_url_help_optional": "Facultatif — laissez vide pour les fournisseurs hébergés comme Gemini ou Anthropic.",
+    "litellm_provider": "Fournisseur",
+    "model_source_hf": "Télécharger depuis Hugging Face",
+    "model_source_hf_desc": "La machine télécharge le modèle elle-même (nécessite Internet).",
+    "model_source_sync_desc": "Copier le modèle depuis le cache de ce serveur (pour les machines sans Internet).",
+    "select_or_type_model": "Choisissez ou saisissez un modèle…",
+    "test_to_discover": "Testez la connexion pour lister ses modèles"
   },
   "llm_models": {
     "title": "Modèles LLM",
@@ -640,7 +665,12 @@
     "start_download": "Lancer le téléchargement",
     "display_name": "Nom d'affichage",
     "path_on_host": "Chemin sur l'hôte",
-    "register": "Enregistrer"
+    "register": "Enregistrer",
+    "deployed_on": "Déployé sur",
+    "not_deployed": "Non déployé",
+    "in_use_title": "Modèle utilisé",
+    "in_use_message": "« {{model}} » ne peut pas être supprimé car au moins un runtime actif l'utilise.",
+    "go_to_runtime": "Aller au runtime"
   },
   "llm_model_detail": {
     "failed_load": "Échec du chargement du modèle.",
@@ -689,7 +719,10 @@
     "image_pull_layers": "couches",
     "image_pull_success": "Image téléchargée avec succès.",
     "image_pull_failed": "Échec du téléchargement de l'image : {{error}}",
-    "engine_configuration": "Configuration du moteur"
+    "engine_configuration": "Configuration du moteur",
+    "image_auto_placeholder": "Laissez vide pour une détection automatique",
+    "image_pull_on_node": "La machine récupère elle-même l'image du conteneur.",
+    "image_transfer_ready": "L'image est sur ce serveur — elle sera copiée sur la machine."
   },
   "vllm": {
     "recipe": "Recette",
@@ -709,7 +742,18 @@
     "dashboard": "Ouvrir le tableau de bord Grafana",
     "no_data": "Aucune donnée",
     "link": "Moniteur",
-    "not_configured": "Aucune métrique en direct pour ce fournisseur"
+    "not_configured": "Aucune métrique en direct pour ce fournisseur",
+    "no_data_hint": "En attente des métriques — le moteur démarre peut-être encore",
+    "stale_hint": "Métriques obsolètes (le moteur ne remonte rien)",
+    "stat": {
+      "running_requests": "Requêtes en cours",
+      "waiting_requests": "Requêtes en attente",
+      "kv_cache_usage": "Utilisation du cache KV",
+      "prefix_cache_hit_rate": "Succès du cache de préfixes",
+      "mtp_acceptance": "Acceptation MTP",
+      "generation_tokens_per_sec": "Génération tok/s",
+      "preemption_rate": "Préemptions/s"
+    }
   },
   "llm_runtime_detail": {
     "failed_load": "Échec du chargement de l'environnement.",
@@ -988,7 +1032,9 @@
     "confirm_disable_body": "Cela arrêtera tous les conteneurs du module {{module}}. Toute requête en cours sera interrompue.",
     "partial_error": "Certains conteneurs ont rencontré des erreurs : {{errors}}",
     "action_success": "{{module}} {{action}} avec succès.",
-    "logs": "Journaux"
+    "logs": "Journaux",
+    "logs_title": "{{module}} — journaux du conteneur",
+    "module_settings": "Paramètres du module"
   },
   "pii_dashboard": {
     "title": "Tableau de bord PII",
@@ -1138,7 +1184,19 @@
     "no_local": "Aucun fournisseur local configuré.",
     "no_remote": "Aucun fournisseur cloud configuré.",
     "no_runtimes": "Aucun environnement déployé",
-    "runtimes_active": "{{active}} / {{total}} environnements actifs"
+    "runtimes_active": "{{active}} / {{total}} environnements actifs",
+    "bar_cloud_data": "Données cloud",
+    "bar_local_data": "Données sur site",
+    "cloud_data": "Données cloud",
+    "local_data": "Données sur site",
+    "data_bar_note": "D'après le débit réel de jetons (≈ 4 octets par jeton)",
+    "data_volume": "Volume de données",
+    "data_volume_title": "Volume de données",
+    "errors": "erreurs",
+    "est_data": "≈ {{size}}",
+    "requests": "requêtes",
+    "tokens": "jetons",
+    "total_requests": "Total des requêtes"
   },
   "profile": {
     "title": "Mon profil",
@@ -1249,7 +1307,14 @@
     "welcome_subtitle": "Démarrez une conversation, téléversez un fichier ou essayez l'une de ces suggestions.",
     "token_detail": "Prompt : {{prompt}} · Complétion : {{completion}} · Total : {{total}}",
     "no_models": "Aucun modèle",
-    "no_models_hint": "Aucun modèle n'est disponible. Configurez un fournisseur et un alias de modèle dans le panneau d'administration."
+    "no_models_hint": "Aucun modèle n'est disponible. Configurez un fournisseur et un alias de modèle dans le panneau d'administration.",
+    "debug_panel_title": "Débogage de la requête",
+    "drop_here_no_project": "Déposez ici pour retirer du projet",
+    "project_description": "Description",
+    "project_settings": "Paramètres du projet",
+    "system_prompt": "Prompt système",
+    "system_prompt_hint": "Le prompt système est ajouté avant chaque message dans ce projet. Utilisez-le pour définir le contexte, la persona ou les contraintes.",
+    "system_prompt_placeholder": "Vous êtes un assistant utile spécialisé dans…"
   },
   "mcp": {
     "servers_title": "Serveurs MCP",
@@ -1280,7 +1345,20 @@
     "version": "Version",
     "last_seen": "Dernière vue",
     "no_tools": "Aucun outil découvert pour le moment.",
-    "search_tools": "Rechercher des outils…"
+    "search_tools": "Rechercher des outils…",
+    "provider_settings": "Paramètres du fournisseur",
+    "settings_saved": "Paramètres enregistrés.",
+    "scan": "Analyser le réseau",
+    "scan_title": "Rechercher des serveurs MCP",
+    "scan_host": "Hôte / adresse IP",
+    "scan_port_start": "Port de début",
+    "scan_port_end": "Port de fin",
+    "scanning": "Analyse des ports {{start}}–{{end}} sur {{host}}…",
+    "scanning_btn": "Analyse…",
+    "no_servers_found": "Aucun serveur MCP trouvé dans la plage de ports analysée.",
+    "discovered_servers": "Serveurs découverts ({{count}})",
+    "already_registered": "Déjà enregistré",
+    "tools_count": "{{count}} outils"
   },
   "skills": {
     "list_title": "Compétences",
@@ -1325,7 +1403,9 @@
     "assign": "Attribuer",
     "target_type": "Type de cible",
     "target_id": "ID de cible",
-    "not_found": "Compétence non trouvée"
+    "not_found": "Compétence non trouvée",
+    "back_to_list": "Compétences",
+    "priority_hint": "0 = la plus basse, 100 = la plus haute"
   },
   "nodes": {
     "back_to_fleet": "Retour à la flotte",
@@ -1394,7 +1474,11 @@
     "bytes_free": "{{bytes}} libre",
     "review_pending": "Examiner",
     "pending_joins_one": "{{count}} machine attend une approbation : {{names}}",
-    "pending_joins_other": "{{count}} machines attendent une approbation : {{names}}"
+    "pending_joins_other": "{{count}} machines attendent une approbation : {{names}}",
+    "delete_node": "Supprimer la machine",
+    "delete_node_title": "Supprimer cette machine ?",
+    "delete_node_confirm": "La machine « {{host}} » est supprimée définitivement avec ses sessions, instantanés d'inventaire, commandes et événements. Action irréversible.",
+    "delete_node_type_host": "Saisissez « {{host}} » pour confirmer"
   },
   "node_profiles": {
     "page_title": "Profils de machine",
@@ -1442,5 +1526,52 @@
     "route_explain": "Les requêtes pour ce nom vont au conteneur tel qu'il tourne maintenant. Rien ne change sur la machine, et vous pouvez arrêter le routage à tout moment.",
     "name": "Nom utilisé par les clients",
     "confirm_release": "Arrêter le routage de {{alias}} ? Le conteneur continue de tourner."
+  },
+  "module_recommend": {
+    "apply": "Appliquer",
+    "subtitle": "Ces modules conviennent à votre profil. En activer un peut démarrer d'autres conteneurs.",
+    "title": "Modules recommandés"
+  },
+  "profile_select": {
+    "subtitle": "Cela détermine les étapes de configuration proposées. Vous pourrez le changer plus tard, et toutes les fonctions restent disponibles quel que soit votre choix.",
+    "title": "Choisissez votre profil de configuration"
+  },
+  "tools": {
+    "executionMode": "Exécution",
+    "panel": {
+      "empty": "Aucun outil disponible. Vérifiez que les services MCP sont configurés et en cours d'exécution.",
+      "refresh": "Actualiser",
+      "title": "Outils"
+    }
+  },
+  "system_updates": {
+    "title": "Mises à jour système",
+    "button": "Mises à jour système",
+    "tooltip": "Vérifier et installer les mises à jour des paquets système et du firmware sur cette machine",
+    "idle_message": "Cliquez sur « Rechercher des mises à jour » pour trouver les mises à jour de paquets et de firmware disponibles sur cette machine.",
+    "checking": "Recherche des mises à jour…",
+    "applying": "Installation des mises à jour…",
+    "check": "Rechercher des mises à jour",
+    "apply_all": "Tout mettre à jour",
+    "apply_system": "Paquets système",
+    "apply_firmware": "Firmware",
+    "retry": "Réessayer",
+    "close": "Fermer",
+    "cancel": "Annuler",
+    "up_to_date": "À jour",
+    "all_up_to_date": "Tout est à jour",
+    "complete": "Mises à jour installées",
+    "reboot_required": "Un redémarrage est nécessaire pour terminer la mise à jour. Redémarrez dès que possible.",
+    "reboot_now": "Redémarrer maintenant",
+    "system_packages": "Paquets système",
+    "firmware": "Mises à jour du firmware",
+    "available": "mise(s) à jour",
+    "col_package": "Paquet",
+    "col_device": "Périphérique",
+    "col_installed": "Installée",
+    "col_available": "Disponible",
+    "step_check_updates": "Rechercher des mises à jour",
+    "step_apply_updates": "Installer les mises à jour",
+    "step_done": "Terminé"
   }
 }

@@ -244,9 +244,9 @@ export default function PiiPanel({
             </Tooltip>
             <Stack direction="row" spacing={1}>
               <FormControl size="small" fullWidth>
-                <InputLabel>{t("common:mode", "Mode")}</InputLabel>
+                <InputLabel>{t("common:common.mode")}</InputLabel>
                 <Select
-                  label={t("common:mode", "Mode")}
+                  label={t("common:common.mode")}
                   value={egressMode}
                   onChange={(e) =>
                     save({
@@ -516,7 +516,7 @@ function AddEntityControl({
           }
         }}
       >
-        {t("common:add", "Add")}
+        {t("common:common.add")}
       </Button>
     </Stack>
   );

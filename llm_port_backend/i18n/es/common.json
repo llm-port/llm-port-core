@@ -62,7 +62,8 @@
     "chat_attachments": "Adjuntos",
     "inference_group": "Infraestructura de IA",
     "clusters": "Clústeres",
-    "deployments": "Despliegues"
+    "deployments": "Despliegues",
+    "admin": "Panel de administración"
   },
   "auth": {
     "logout": "Cerrar sesion",
@@ -161,7 +162,11 @@
     "component_server": "Servidor del modelo ({{model}})",
     "agent_of": "Registro del sistema de {{name}}",
     "deleted_deployment": "Despliegue eliminado ({{id}})",
-    "open_in_logs": "Abrir en Registros"
+    "open_in_logs": "Abrir en Registros",
+    "empty": "Sin salida de registro.",
+    "lines_label": "líneas",
+    "scroll_bottom": "Desplazamiento automático",
+    "tail_label": "Líneas"
   },
   "language": {
     "label": "Idioma"
@@ -230,7 +235,9 @@
     "node_last_seen": "Visto",
     "node_cpu": "CPU",
     "node_ram": "RAM",
-    "node_gpu_vram": "GPU VRAM"
+    "node_gpu_vram": "GPU VRAM",
+    "gpu_rescan": "Volver a detectar GPU",
+    "gpu_rescan_failed": "Falló la nueva detección de GPU"
   },
   "errors": {
     "oops": "Ups!",
@@ -275,7 +282,16 @@
     "active": "Active",
     "inactive": "Inactive",
     "labels": "Labels",
-    "unknown_error": "unknown error"
+    "unknown_error": "unknown error",
+    "all": "Todos",
+    "continue": "Continuar",
+    "copy": "Copiar",
+    "enabled": "Activado",
+    "error_unexpected": "Algo salió mal.",
+    "refresh": "Actualizar",
+    "saving": "Guardando…",
+    "skip": "Omitir",
+    "mode": "Modo"
   },
   "containers": {
     "title": "Containers",
@@ -622,7 +638,16 @@
     "model_source_sync_requires_download_short": "No hay modelo local disponible. Descárguelo primero.",
     "no_runtime": "Sin runtime",
     "cluster_ready": "{{name}} está listo. Un modelo en un clúster tiene varias copias, se recupera solo tras un fallo y escala; una sola máquina ejecuta un contenedor.",
-    "deploy_on_cluster": "Desplegar en el clúster"
+    "deploy_on_cluster": "Desplegar en el clúster",
+    "deploy_target": "Desplegar en",
+    "deploy_this_server": "Este servidor (local)",
+    "endpoint_url_help_optional": "Opcional: déjelo vacío para proveedores alojados como Gemini o Anthropic.",
+    "litellm_provider": "Proveedor",
+    "model_source_hf": "Descargar de Hugging Face",
+    "model_source_hf_desc": "La máquina descarga el modelo por sí misma (necesita internet).",
+    "model_source_sync_desc": "Copiar el modelo desde la caché de este servidor (para máquinas sin internet).",
+    "select_or_type_model": "Seleccione o escriba un modelo…",
+    "test_to_discover": "Pruebe la conexión para listar sus modelos"
   },
   "llm_models": {
     "title": "LLM Models",
@@ -645,7 +670,12 @@
     "start_download": "Start Download",
     "display_name": "Display Name",
     "path_on_host": "Path on host",
-    "register": "Register"
+    "register": "Register",
+    "deployed_on": "Desplegado en",
+    "not_deployed": "No desplegado",
+    "in_use_title": "Modelo en uso",
+    "in_use_message": "\"{{model}}\" no se puede eliminar porque lo usa al menos un runtime activo.",
+    "go_to_runtime": "Ir al runtime"
   },
   "llm_model_detail": {
     "failed_load": "Failed to load model.",
@@ -693,7 +723,11 @@
     "image_pull_starting": "Iniciando descarga…",
     "image_pull_layers": "capas",
     "image_pull_success": "Imagen descargada exitosamente.",
-    "image_pull_failed": "Error al descargar imagen: {{error}}"
+    "image_pull_failed": "Error al descargar imagen: {{error}}",
+    "image_auto_placeholder": "Déjelo vacío para detectarlo automáticamente",
+    "image_pull_on_node": "La máquina descarga la imagen del contenedor por sí misma.",
+    "image_transfer_ready": "La imagen está en este servidor: se copiará a la máquina.",
+    "engine_configuration": "Configuración del motor"
   },
   "llm_monitoring": {
     "section": "Métricas en vivo",
@@ -701,7 +735,18 @@
     "dashboard": "Abrir panel de Grafana",
     "no_data": "Sin datos",
     "link": "Monitor",
-    "not_configured": "Sin métricas en vivo para este proveedor"
+    "not_configured": "Sin métricas en vivo para este proveedor",
+    "no_data_hint": "Esperando métricas: puede que el motor aún se esté iniciando",
+    "stale_hint": "Las métricas están desactualizadas (el motor no informa)",
+    "stat": {
+      "running_requests": "Solicitudes en curso",
+      "waiting_requests": "Solicitudes en espera",
+      "kv_cache_usage": "Uso de la caché KV",
+      "prefix_cache_hit_rate": "Aciertos de la caché de prefijos",
+      "mtp_acceptance": "Aceptación MTP",
+      "generation_tokens_per_sec": "Generación tok/s",
+      "preemption_rate": "Expulsiones/s"
+    }
   },
   "llm_runtime_detail": {
     "failed_load": "Failed to load runtime.",
@@ -719,7 +764,10 @@
     "extra_args_help": "Argumentos de linea de comandos adicionales para el motor de runtime (uno por linea, p. ej. --enforce-eager).",
     "save_and_restart": "Guardar y reiniciar",
     "enforce_eager": "Soporte para GPUs antiguas (backend XFormers para capacidad de computo < 8.0 — p. ej. TITAN RTX, V100, serie GTX 10xx/20xx)",
-    "swap_space_help": "Espacio de intercambio de CPU por GPU en GiB (p. ej. 4). Dejar en blanco para el valor predeterminado de vLLM (1 GiB en modo GPU legacy)."
+    "swap_space_help": "Espacio de intercambio de CPU por GPU en GiB (p. ej. 4). Dejar en blanco para el valor predeterminado de vLLM (1 GiB en modo GPU legacy).",
+    "model_id": "ID del modelo",
+    "capabilities": "Capacidades",
+    "supports_embeddings": "Embeddings"
   },
   "llm_jobs": {
     "title": "Download Jobs",
@@ -853,7 +901,9 @@
     "confirm_disable_body": "Se detendran todos los contenedores del modulo {{module}}. Las solicitudes en curso seran interrumpidas.",
     "partial_error": "Algunos contenedores tuvieron errores: {{errors}}",
     "action_success": "{{module}} {{action}} exitosamente.",
-    "logs": "Logs"
+    "logs": "Logs",
+    "logs_title": "{{module}}: registros del contenedor",
+    "module_settings": "Configuración del módulo"
   },
   "pii_dashboard": {
     "title": "Panel PII",
@@ -1003,7 +1053,19 @@
     "no_local": "No hay proveedores locales configurados.",
     "no_remote": "No hay proveedores en la nube configurados.",
     "no_runtimes": "Sin runtimes desplegados",
-    "runtimes_active": "{{active}} / {{total}} runtimes activos"
+    "runtimes_active": "{{active}} / {{total}} runtimes activos",
+    "bar_cloud_data": "Datos en la nube",
+    "bar_local_data": "Datos locales",
+    "cloud_data": "Datos en la nube",
+    "local_data": "Datos locales",
+    "data_bar_note": "Basado en el rendimiento real de tokens (≈ 4 bytes por token)",
+    "data_volume": "Volumen de datos",
+    "data_volume_title": "Volumen de datos",
+    "errors": "errores",
+    "est_data": "≈ {{size}}",
+    "requests": "solicitudes",
+    "tokens": "tokens",
+    "total_requests": "Solicitudes totales"
   },
   "profile": {
     "title": "Mi Perfil",
@@ -1125,7 +1187,20 @@
     "version": "Versión",
     "last_seen": "Última vez visto",
     "no_tools": "Aún no se han descubierto herramientas.",
-    "search_tools": "Buscar herramientas…"
+    "search_tools": "Buscar herramientas…",
+    "provider_settings": "Configuración del proveedor",
+    "settings_saved": "Configuración guardada.",
+    "scan": "Explorar la red",
+    "scan_title": "Buscar servidores MCP",
+    "scan_host": "Host / dirección IP",
+    "scan_port_start": "Puerto inicial",
+    "scan_port_end": "Puerto final",
+    "scanning": "Explorando los puertos {{start}}–{{end}} en {{host}}…",
+    "scanning_btn": "Explorando…",
+    "no_servers_found": "No se encontraron servidores MCP en el rango de puertos explorado.",
+    "discovered_servers": "Servidores encontrados ({{count}})",
+    "already_registered": "Ya registrado",
+    "tools_count": "{{count}} herramientas"
   },
   "skills": {
     "list_title": "Habilidades",
@@ -1170,7 +1245,9 @@
     "assign": "Asignar",
     "target_type": "Tipo de destino",
     "target_id": "ID de destino",
-    "not_found": "Habilidad no encontrada"
+    "not_found": "Habilidad no encontrada",
+    "back_to_list": "Habilidades",
+    "priority_hint": "0 = la más baja, 100 = la más alta"
   },
   "nodes": {
     "back_to_fleet": "Volver a la flota",
@@ -1239,7 +1316,11 @@
     "bytes_free": "{{bytes}} libre",
     "review_pending": "Revisar",
     "pending_joins_one": "{{count}} máquina espera aprobación: {{names}}",
-    "pending_joins_other": "{{count}} máquinas esperan aprobación: {{names}}"
+    "pending_joins_other": "{{count}} máquinas esperan aprobación: {{names}}",
+    "delete_node": "Eliminar máquina",
+    "delete_node_title": "¿Eliminar esta máquina?",
+    "delete_node_confirm": "Esto elimina de forma permanente la máquina \"{{host}}\" con sus sesiones, instantáneas de inventario, comandos y eventos. No se puede deshacer.",
+    "delete_node_type_host": "Escriba \"{{host}}\" para confirmar"
   },
   "rag_lite": {
     "documents_title": "Documentos RAG",
@@ -1326,5 +1407,171 @@
     "route_explain": "Las solicitudes para este nombre van al contenedor tal como funciona ahora. Nada cambia en la máquina y puede dejar de enrutar cuando quiera.",
     "name": "Nombre que usan los clientes",
     "confirm_release": "¿Dejar de enrutar {{alias}}? El contenedor sigue funcionando."
+  },
+  "chat": {
+    "debug_panel_title": "Depuración de la solicitud",
+    "drop_here_no_project": "Suelta aquí para quitar del proyecto",
+    "project_description": "Descripción",
+    "project_settings": "Configuración del proyecto",
+    "system_prompt": "Prompt del sistema",
+    "system_prompt_hint": "El prompt del sistema se antepone a cada mensaje de este proyecto. Úsalo para definir contexto, rol o restricciones.",
+    "system_prompt_placeholder": "Eres un asistente útil especializado en…",
+    "title": "Chat",
+    "model": "Modelo",
+    "send": "Enviar",
+    "stop": "Detener",
+    "attach_file": "Adjuntar archivo",
+    "input_placeholder": "Escribe un mensaje…",
+    "new_chat": "Nuevo chat",
+    "new_project": "Nuevo proyecto",
+    "project_name": "Nombre del proyecto",
+    "no_project": "Sin proyecto",
+    "untitled": "Chat sin título",
+    "move_to_project": "Mover al proyecto",
+    "conversation": "Conversación",
+    "welcome_title": "¿Cómo puedo ayudarte?",
+    "welcome_subtitle": "Inicia una conversación, sube un archivo o prueba una de estas sugerencias.",
+    "token_detail": "Prompt: {{prompt}} · Completion: {{completion}} · Total: {{total}}",
+    "no_models": "Sin modelos",
+    "no_models_hint": "No hay modelos disponibles. Configura un proveedor y un alias de modelo en el panel de administración."
+  },
+  "module_recommend": {
+    "apply": "Aplicar",
+    "subtitle": "Estos módulos se ajustan a su perfil. Activar uno puede iniciar más contenedores.",
+    "title": "Módulos recomendados"
+  },
+  "profile_select": {
+    "subtitle": "Esto decide qué pasos de configuración se sugieren. Puede cambiarlo más tarde y todas las funciones siguen disponibles elija lo que elija.",
+    "title": "Elija su perfil de configuración"
+  },
+  "tools": {
+    "executionMode": "Ejecución",
+    "panel": {
+      "empty": "No hay herramientas disponibles. Compruebe que los servicios MCP estén configurados y en ejecución.",
+      "refresh": "Actualizar",
+      "title": "Herramientas"
+    }
+  },
+  "vllm": {
+    "recipe": "Plantilla",
+    "recipe_custom": "Personalizada",
+    "search_args": "Buscar parámetros…",
+    "args_modified": "{{count}} argumento(s) modificado(s)",
+    "reset_all": "Restablecer todo a los valores predeterminados",
+    "suggested": "sugerido",
+    "raw_args": "Argumentos adicionales",
+    "raw_args_help": "Opciones adicionales para el contenedor del motor vLLM (p. ej., --enable-chunked-prefill o --max-num-seqs 64).",
+    "raw_args_placeholder": "--enable-chunked-prefill --max-num-seqs 64",
+    "raw_args_invalid": "Algunos elementos no son válidos y se ignorarán: {{issues}}"
+  },
+  "rag_runtime": {
+    "title": "Configuración del runtime RAG",
+    "description": "La configuración de embeddings y fragmentación se envía desde llm.port core a llm_port_rag.",
+    "failed_load": "No se pudo cargar la configuración del runtime.",
+    "failed_save": "No se pudo guardar la configuración del runtime.",
+    "saved": "Configuración del runtime actualizada.",
+    "health": "Estado de RAG",
+    "embedding_provider": "Proveedor de embeddings",
+    "embedding_model": "Modelo de embeddings",
+    "embedding_base_url": "URL base de embeddings",
+    "embedding_api_key_ref": "Referencia de la clave API de embeddings",
+    "embedding_api_key": "Clave API de embeddings (opcional, no se guarda)",
+    "embedding_dim": "Dimensiones de embedding",
+    "max_tokens": "Tokens máximos",
+    "overlap": "Solapamiento",
+    "by_headings": "Dividir por encabezados",
+    "last_updated": "Última actualización",
+    "not_configured": "La configuración del runtime aún no está definida.",
+    "lite_settings_hint": "La configuración de RAG Lite se gestiona en la página Configuración, categoría RAG.",
+    "file_store": "Almacén de archivos"
+  },
+  "rag_collectors": {
+    "title": "Recolectores RAG",
+    "collectors": "Fuentes de recolección",
+    "jobs": "Trabajos de ingesta",
+    "failed_load": "No se pudieron cargar los recolectores o trabajos.",
+    "failed_run": "No se pudo ejecutar el recolector.",
+    "collector_id": "Recolector",
+    "job_id": "Trabajo",
+    "type": "Tipo",
+    "tenant": "Inquilino",
+    "workspace": "Espacio de trabajo",
+    "schedule": "Programación",
+    "run_now": "Ejecutar ahora",
+    "empty_collectors": "No hay recolectores configurados.",
+    "empty_jobs": "Aún no hay trabajos de ingesta.",
+    "search_collectors": "Buscar recolectores…",
+    "search_jobs": "Buscar trabajos…"
+  },
+  "rag_explorer": {
+    "title": "Explorador RAG",
+    "container": "Contenedor",
+    "new_container": "Nombre del nuevo contenedor",
+    "uploads": "Cargas",
+    "upload_files": "Subir archivos",
+    "publish_now": "Publicar ahora",
+    "schedule_for": "Programar para",
+    "schedule_publish": "Programar publicación",
+    "draft_ops": "Operaciones del borrador",
+    "no_draft": "No hay ningún borrador seleccionado.",
+    "no_ops": "Aún no hay operaciones en el borrador."
+  },
+  "rag_publishes": {
+    "title": "Publicaciones RAG",
+    "publishes": "Solicitudes de publicación",
+    "jobs": "Trabajos de ingesta",
+    "empty_publishes": "Aún no hay publicaciones.",
+    "empty_jobs": "Aún no hay trabajos.",
+    "search_publishes": "Buscar publicaciones…",
+    "search_jobs": "Buscar trabajos…"
+  },
+  "rag_search": {
+    "title": "Búsqueda RAG",
+    "description": "Ejecute consultas internas de recuperación, con control de acceso, sobre los fragmentos RAG indexados.",
+    "failed": "La búsqueda de conocimiento falló.",
+    "tenant_id": "ID del inquilino",
+    "workspace_id": "ID del espacio de trabajo (opcional)",
+    "query": "Consulta",
+    "user_id": "ID del usuario principal",
+    "group_ids": "ID de grupos (separados por comas)",
+    "sources": "Filtrar fuentes (separadas por comas)",
+    "tags": "Filtrar etiquetas (separadas por comas)",
+    "doc_types": "Filtrar tipos de documento (separados por comas)",
+    "top_k": "Top K",
+    "mode": "Modo",
+    "debug": "Incluir datos de depuración",
+    "search": "Buscar",
+    "results": "Resultados ({{count}})",
+    "debug_payload": "Datos de depuración"
+  },
+  "system_updates": {
+    "title": "Actualizaciones del sistema",
+    "button": "Actualizaciones del sistema",
+    "tooltip": "Comprobar e instalar actualizaciones de paquetes del sistema y firmware en esta máquina",
+    "idle_message": "Haga clic en \"Buscar actualizaciones\" para ver las actualizaciones de paquetes y firmware disponibles en esta máquina.",
+    "checking": "Buscando actualizaciones…",
+    "applying": "Aplicando actualizaciones…",
+    "check": "Buscar actualizaciones",
+    "apply_all": "Actualizar todo",
+    "apply_system": "Paquetes del sistema",
+    "apply_firmware": "Firmware",
+    "retry": "Reintentar",
+    "close": "Cerrar",
+    "cancel": "Cancelar",
+    "up_to_date": "Actualizado",
+    "all_up_to_date": "Todo está actualizado",
+    "complete": "Actualizaciones aplicadas correctamente",
+    "reboot_required": "Se necesita reiniciar el sistema para completar la actualización. Reinicie cuando pueda.",
+    "reboot_now": "Reiniciar ahora",
+    "system_packages": "Paquetes del sistema",
+    "firmware": "Actualizaciones de firmware",
+    "available": "actualización(es)",
+    "col_package": "Paquete",
+    "col_device": "Dispositivo",
+    "col_installed": "Instalada",
+    "col_available": "Disponible",
+    "step_check_updates": "Buscar actualizaciones",
+    "step_apply_updates": "Aplicar actualizaciones",
+    "step_done": "Completado"
   }
 }

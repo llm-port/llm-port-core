@@ -62,7 +62,8 @@
     "chat_attachments": "Anhänge",
     "inference_group": "KI-Infrastruktur",
     "clusters": "Cluster",
-    "deployments": "Deployments"
+    "deployments": "Deployments",
+    "admin": "Verwaltung"
   },
   "auth": {
     "logout": "Abmelden",
@@ -161,7 +162,11 @@
     "component_server": "Modellserver ({{model}})",
     "agent_of": "Systemprotokoll von {{name}}",
     "deleted_deployment": "Gelöschtes Deployment ({{id}})",
-    "open_in_logs": "In Logs öffnen"
+    "open_in_logs": "In Logs öffnen",
+    "empty": "Keine Protokollausgabe.",
+    "lines_label": "Zeilen",
+    "scroll_bottom": "Automatisch scrollen",
+    "tail_label": "Zeilen"
   },
   "language": {
     "label": "Sprache"
@@ -230,7 +235,9 @@
     "node_last_seen": "Gesehen",
     "node_cpu": "CPU",
     "node_ram": "RAM",
-    "node_gpu_vram": "GPU VRAM"
+    "node_gpu_vram": "GPU VRAM",
+    "gpu_rescan": "GPUs neu erkennen",
+    "gpu_rescan_failed": "Erneute GPU-Erkennung fehlgeschlagen"
   },
   "errors": {
     "oops": "Hoppla!",
@@ -275,7 +282,16 @@
     "active": "Aktiv",
     "inactive": "Inaktiv",
     "labels": "Labels",
-    "unknown_error": "Unbekannter Fehler"
+    "unknown_error": "Unbekannter Fehler",
+    "all": "Alle",
+    "continue": "Weiter",
+    "copy": "Kopieren",
+    "enabled": "Aktiviert",
+    "error_unexpected": "Etwas ist schiefgelaufen.",
+    "refresh": "Aktualisieren",
+    "saving": "Wird gespeichert…",
+    "skip": "Überspringen",
+    "mode": "Modus"
   },
   "containers": {
     "title": "Container",
@@ -622,7 +638,16 @@
     "model_source_sync_requires_download_short": "Kein lokales Modell verfuegbar. Bitte zuerst herunterladen.",
     "no_runtime": "Keine Laufzeit",
     "cluster_ready": "{{name}} ist bereit. Ein Modell auf einem Cluster bekommt mehrere Kopien, erholt sich nach Ausfällen selbst und skaliert; eine einzelne Maschine betreibt einen Container.",
-    "deploy_on_cluster": "Stattdessen auf dem Cluster bereitstellen"
+    "deploy_on_cluster": "Stattdessen auf dem Cluster bereitstellen",
+    "deploy_target": "Bereitstellen auf",
+    "deploy_this_server": "Dieser Server (lokal)",
+    "endpoint_url_help_optional": "Optional – für gehostete Anbieter wie Gemini oder Anthropic leer lassen.",
+    "litellm_provider": "Anbieter",
+    "model_source_hf": "Von Hugging Face herunterladen",
+    "model_source_hf_desc": "Die Maschine lädt das Modell selbst herunter (benötigt Internet).",
+    "model_source_sync_desc": "Das Modell aus dem Cache dieses Servers kopieren (für Maschinen ohne Internet).",
+    "select_or_type_model": "Modell wählen oder eingeben…",
+    "test_to_discover": "Verbindung testen, um die Modelle aufzulisten"
   },
   "llm_models": {
     "title": "LLM-Modelle",
@@ -645,7 +670,12 @@
     "start_download": "Download starten",
     "display_name": "Anzeigename",
     "path_on_host": "Pfad auf Host",
-    "register": "Registrieren"
+    "register": "Registrieren",
+    "deployed_on": "Bereitgestellt auf",
+    "not_deployed": "Nicht bereitgestellt",
+    "in_use_title": "Modell wird verwendet",
+    "in_use_message": "\"{{model}}\" kann nicht gelöscht werden, weil es von mindestens einer aktiven Runtime verwendet wird.",
+    "go_to_runtime": "Zur Runtime"
   },
   "llm_model_detail": {
     "failed_load": "Modell konnte nicht geladen werden.",
@@ -693,7 +723,11 @@
     "image_pull_starting": "Download wird gestartet…",
     "image_pull_layers": "Schichten",
     "image_pull_success": "Image erfolgreich heruntergeladen.",
-    "image_pull_failed": "Image-Download fehlgeschlagen: {{error}}"
+    "image_pull_failed": "Image-Download fehlgeschlagen: {{error}}",
+    "image_auto_placeholder": "Leer lassen für automatische Erkennung",
+    "image_pull_on_node": "Die Maschine lädt das Container-Image selbst herunter.",
+    "image_transfer_ready": "Das Image liegt auf diesem Server – es wird auf die Maschine kopiert.",
+    "engine_configuration": "Engine-Konfiguration"
   },
   "llm_monitoring": {
     "section": "Live-Metriken",
@@ -701,7 +735,18 @@
     "dashboard": "Grafana-Dashboard öffnen",
     "no_data": "Keine Daten",
     "link": "Monitor",
-    "not_configured": "Keine Live-Metriken für diesen Anbieter"
+    "not_configured": "Keine Live-Metriken für diesen Anbieter",
+    "no_data_hint": "Warte auf Metriken – die Engine startet möglicherweise noch",
+    "stale_hint": "Metriken sind veraltet (Engine meldet nichts)",
+    "stat": {
+      "running_requests": "Laufende Anfragen",
+      "waiting_requests": "Wartende Anfragen",
+      "kv_cache_usage": "KV-Cache-Auslastung",
+      "prefix_cache_hit_rate": "Präfix-Cache-Treffer",
+      "mtp_acceptance": "MTP-Akzeptanz",
+      "generation_tokens_per_sec": "Generierung tok/s",
+      "preemption_rate": "Verdrängungen/s"
+    }
   },
   "llm_runtime_detail": {
     "failed_load": "Runtime konnte nicht geladen werden.",
@@ -719,7 +764,10 @@
     "extra_args_help": "Weitere Befehlszeilenargumente fuer die Runtime-Engine (eines pro Zeile, z. B. --enforce-eager).",
     "save_and_restart": "Speichern & Neustart",
     "enforce_eager": "Unterstuetzung fuer aeltere GPUs (XFormers-Backend fuer Rechenkapazitaet < 8.0 — z. B. TITAN RTX, V100, GTX 10xx/20xx)",
-    "swap_space_help": "CPU-Swap-Speicher pro GPU in GiB zum Auslagern (z. B. 4). Leer lassen fuer vLLM-Standard (1 GiB im Legacy-GPU-Modus)."
+    "swap_space_help": "CPU-Swap-Speicher pro GPU in GiB zum Auslagern (z. B. 4). Leer lassen fuer vLLM-Standard (1 GiB im Legacy-GPU-Modus).",
+    "model_id": "Modell-ID",
+    "capabilities": "Fähigkeiten",
+    "supports_embeddings": "Embeddings"
   },
   "llm_jobs": {
     "title": "Download-Jobs",
@@ -853,7 +901,9 @@
     "confirm_disable_body": "Alle Container des Moduls {{module}} werden gestoppt. Laufende Anfragen werden unterbrochen.",
     "partial_error": "Einige Container hatten Fehler: {{errors}}",
     "action_success": "{{module}} erfolgreich {{action}}.",
-    "logs": "Logs"
+    "logs": "Logs",
+    "logs_title": "{{module}} – Container-Protokolle",
+    "module_settings": "Moduleinstellungen"
   },
   "pii_dashboard": {
     "title": "PII-Dashboard",
@@ -1003,7 +1053,19 @@
     "no_local": "Keine lokalen Provider konfiguriert.",
     "no_remote": "Keine Cloud-Provider konfiguriert.",
     "no_runtimes": "Keine Runtimes bereitgestellt",
-    "runtimes_active": "{{active}} / {{total}} Runtimes aktiv"
+    "runtimes_active": "{{active}} / {{total}} Runtimes aktiv",
+    "bar_cloud_data": "Cloud-Daten",
+    "bar_local_data": "Lokale Daten",
+    "cloud_data": "Cloud-Daten",
+    "local_data": "Lokale Daten",
+    "data_bar_note": "Basierend auf dem tatsächlichen Token-Durchsatz (≈ 4 Byte pro Token)",
+    "data_volume": "Datenmenge",
+    "data_volume_title": "Datenmenge",
+    "errors": "Fehler",
+    "est_data": "≈ {{size}}",
+    "requests": "Anfragen",
+    "tokens": "Tokens",
+    "total_requests": "Anfragen gesamt"
   },
   "profile": {
     "title": "Mein Profil",
@@ -1125,7 +1187,20 @@
     "version": "Version",
     "last_seen": "Zuletzt gesehen",
     "no_tools": "Noch keine Werkzeuge entdeckt.",
-    "search_tools": "Werkzeuge suchen…"
+    "search_tools": "Werkzeuge suchen…",
+    "provider_settings": "Anbietereinstellungen",
+    "settings_saved": "Einstellungen gespeichert.",
+    "scan": "Netzwerk durchsuchen",
+    "scan_title": "Nach MCP-Servern suchen",
+    "scan_host": "Host / IP-Adresse",
+    "scan_port_start": "Startport",
+    "scan_port_end": "Endport",
+    "scanning": "Durchsuche Ports {{start}}–{{end}} auf {{host}}…",
+    "scanning_btn": "Suche läuft…",
+    "no_servers_found": "Im durchsuchten Portbereich wurden keine MCP-Server gefunden.",
+    "discovered_servers": "Gefundene Server ({{count}})",
+    "already_registered": "Bereits registriert",
+    "tools_count": "{{count}} Tools"
   },
   "skills": {
     "list_title": "Fähigkeiten",
@@ -1170,7 +1245,9 @@
     "assign": "Zuweisen",
     "target_type": "Zieltyp",
     "target_id": "Ziel-ID",
-    "not_found": "Fähigkeit nicht gefunden"
+    "not_found": "Fähigkeit nicht gefunden",
+    "back_to_list": "Skills",
+    "priority_hint": "0 = niedrigste, 100 = höchste"
   },
   "nodes": {
     "back_to_fleet": "Zurück zur Flotte",
@@ -1239,7 +1316,11 @@
     "bytes_free": "{{bytes}} frei",
     "review_pending": "Prüfen",
     "pending_joins_one": "{{count}} Maschine wartet auf Freigabe: {{names}}",
-    "pending_joins_other": "{{count}} Maschinen warten auf Freigabe: {{names}}"
+    "pending_joins_other": "{{count}} Maschinen warten auf Freigabe: {{names}}",
+    "delete_node": "Maschine löschen",
+    "delete_node_title": "Diese Maschine löschen?",
+    "delete_node_confirm": "Die Maschine \"{{host}}\" wird mit ihren Sitzungen, Inventar-Snapshots, Befehlen und Ereignissen dauerhaft entfernt. Das lässt sich nicht rückgängig machen.",
+    "delete_node_type_host": "Zur Bestätigung \"{{host}}\" eingeben"
   },
   "rag_lite": {
     "documents_title": "RAG-Dokumente",
@@ -1326,5 +1407,171 @@
     "route_explain": "Anfragen für diesen Namen gehen an den Container, so wie er jetzt läuft. Auf der Maschine ändert sich nichts, und Sie können das Routing jederzeit beenden.",
     "name": "Name für Clients",
     "confirm_release": "Routing für {{alias}} beenden? Der Container läuft weiter."
+  },
+  "chat": {
+    "debug_panel_title": "Anfrage-Debug",
+    "drop_here_no_project": "Hier ablegen, um aus dem Projekt zu entfernen",
+    "project_description": "Beschreibung",
+    "project_settings": "Projekteinstellungen",
+    "system_prompt": "System-Prompt",
+    "system_prompt_hint": "Der System-Prompt wird jeder Nachricht in diesem Projekt vorangestellt. Verwenden Sie ihn, um Kontext, Persona oder Einschränkungen festzulegen.",
+    "system_prompt_placeholder": "Du bist ein hilfreicher Assistent, der auf … spezialisiert ist",
+    "title": "Chat",
+    "model": "Modell",
+    "send": "Senden",
+    "stop": "Stoppen",
+    "attach_file": "Datei anhängen",
+    "input_placeholder": "Nachricht eingeben…",
+    "new_chat": "Neuer Chat",
+    "new_project": "Neues Projekt",
+    "project_name": "Projektname",
+    "no_project": "Kein Projekt",
+    "untitled": "Unbenannter Chat",
+    "move_to_project": "In Projekt verschieben",
+    "conversation": "Konversation",
+    "welcome_title": "Wie kann ich helfen?",
+    "welcome_subtitle": "Starten Sie ein Gespräch, laden Sie eine Datei hoch oder probieren Sie einen dieser Vorschläge.",
+    "token_detail": "Prompt: {{prompt}} · Completion: {{completion}} · Gesamt: {{total}}",
+    "no_models": "Keine Modelle",
+    "no_models_hint": "Es sind keine Modelle verfügbar. Konfigurieren Sie im Admin-Bereich einen Provider und einen Modell-Alias."
+  },
+  "module_recommend": {
+    "apply": "Übernehmen",
+    "subtitle": "Diese Module passen zu Ihrem Profil. Das Aktivieren kann weitere Container starten.",
+    "title": "Empfohlene Module"
+  },
+  "profile_select": {
+    "subtitle": "Davon hängen die vorgeschlagenen Einrichtungsschritte ab. Sie können es später ändern; alle Funktionen bleiben in jedem Fall verfügbar.",
+    "title": "Einrichtungsprofil wählen"
+  },
+  "tools": {
+    "executionMode": "Ausführung",
+    "panel": {
+      "empty": "Keine Tools verfügbar. Prüfen Sie, ob die MCP-Dienste eingerichtet sind und laufen.",
+      "refresh": "Aktualisieren",
+      "title": "Tools"
+    }
+  },
+  "vllm": {
+    "recipe": "Vorlage",
+    "recipe_custom": "Benutzerdefiniert",
+    "search_args": "Parameter suchen…",
+    "args_modified": "{{count}} Argument(e) geändert",
+    "reset_all": "Alle auf Standard zurücksetzen",
+    "suggested": "empfohlen",
+    "raw_args": "Zusätzliche Argumente",
+    "raw_args_help": "Weitere Flags für den vLLM-Engine-Container (z. B. --enable-chunked-prefill oder --max-num-seqs 64).",
+    "raw_args_placeholder": "--enable-chunked-prefill --max-num-seqs 64",
+    "raw_args_invalid": "Einige Einträge sind ungültig und werden ignoriert: {{issues}}"
+  },
+  "rag_runtime": {
+    "title": "RAG-Runtime-Konfiguration",
+    "description": "Embedding- und Chunking-Einstellungen werden von llm.port core an llm_port_rag übertragen.",
+    "failed_load": "Runtime-Konfiguration konnte nicht geladen werden.",
+    "failed_save": "Runtime-Konfiguration konnte nicht gespeichert werden.",
+    "saved": "Runtime-Konfiguration aktualisiert.",
+    "health": "RAG-Zustand",
+    "embedding_provider": "Embedding-Anbieter",
+    "embedding_model": "Embedding-Modell",
+    "embedding_base_url": "Embedding-Basis-URL",
+    "embedding_api_key_ref": "Referenz des Embedding-API-Schlüssels",
+    "embedding_api_key": "Embedding-API-Schlüssel (optional, wird nicht gespeichert)",
+    "embedding_dim": "Embedding-Dimensionen",
+    "max_tokens": "Max. Tokens",
+    "overlap": "Überlappung",
+    "by_headings": "Nach Überschriften teilen",
+    "last_updated": "Zuletzt aktualisiert",
+    "not_configured": "Die Runtime-Konfiguration ist noch nicht eingerichtet.",
+    "lite_settings_hint": "RAG-Lite-Einstellungen finden Sie auf der Einstellungsseite in der Kategorie RAG.",
+    "file_store": "Dateispeicher"
+  },
+  "rag_collectors": {
+    "title": "RAG-Kollektoren",
+    "collectors": "Kollektorquellen",
+    "jobs": "Aufnahmejobs",
+    "failed_load": "Kollektoren/Jobs konnten nicht geladen werden.",
+    "failed_run": "Kollektor konnte nicht ausgeführt werden.",
+    "collector_id": "Kollektor",
+    "job_id": "Job",
+    "type": "Typ",
+    "tenant": "Mandant",
+    "workspace": "Arbeitsbereich",
+    "schedule": "Zeitplan",
+    "run_now": "Jetzt ausführen",
+    "empty_collectors": "Keine Kollektoren eingerichtet.",
+    "empty_jobs": "Noch keine Aufnahmejobs.",
+    "search_collectors": "Kollektoren suchen…",
+    "search_jobs": "Jobs suchen…"
+  },
+  "rag_explorer": {
+    "title": "RAG-Explorer",
+    "container": "Container",
+    "new_container": "Name des neuen Containers",
+    "uploads": "Uploads",
+    "upload_files": "Dateien hochladen",
+    "publish_now": "Jetzt veröffentlichen",
+    "schedule_for": "Planen für",
+    "schedule_publish": "Veröffentlichung planen",
+    "draft_ops": "Entwurfsvorgänge",
+    "no_draft": "Kein Entwurf ausgewählt.",
+    "no_ops": "Noch keine Entwurfsvorgänge."
+  },
+  "rag_publishes": {
+    "title": "RAG-Veröffentlichungen",
+    "publishes": "Veröffentlichungsanfragen",
+    "jobs": "Aufnahmejobs",
+    "empty_publishes": "Noch keine Veröffentlichungen.",
+    "empty_jobs": "Noch keine Jobs.",
+    "search_publishes": "Veröffentlichungen suchen…",
+    "search_jobs": "Jobs suchen…"
+  },
+  "rag_search": {
+    "title": "RAG-Suche",
+    "description": "Interne, berechtigungsbewusste Abfragen gegen indizierte RAG-Chunks ausführen.",
+    "failed": "Wissenssuche fehlgeschlagen.",
+    "tenant_id": "Mandanten-ID",
+    "workspace_id": "Arbeitsbereich-ID (optional)",
+    "query": "Abfrage",
+    "user_id": "Benutzer-ID des Prinzipals",
+    "group_ids": "Gruppen-IDs (kommagetrennt)",
+    "sources": "Quellen filtern (kommagetrennt)",
+    "tags": "Tags filtern (kommagetrennt)",
+    "doc_types": "Dokumenttypen filtern (kommagetrennt)",
+    "top_k": "Top K",
+    "mode": "Modus",
+    "debug": "Debug-Daten einschließen",
+    "search": "Suchen",
+    "results": "Ergebnisse ({{count}})",
+    "debug_payload": "Debug-Daten"
+  },
+  "system_updates": {
+    "title": "Systemaktualisierungen",
+    "button": "Systemaktualisierungen",
+    "tooltip": "Betriebssystem-Pakete und Firmware-Updates auf dieser Maschine prüfen und installieren",
+    "idle_message": "Klicken Sie auf \"Nach Updates suchen\", um verfügbare System- und Firmware-Updates auf dieser Maschine zu finden.",
+    "checking": "Suche nach Updates…",
+    "applying": "Updates werden installiert…",
+    "check": "Nach Updates suchen",
+    "apply_all": "Alles aktualisieren",
+    "apply_system": "Systempakete",
+    "apply_firmware": "Firmware",
+    "retry": "Erneut versuchen",
+    "close": "Schließen",
+    "cancel": "Abbrechen",
+    "up_to_date": "Aktuell",
+    "all_up_to_date": "Alles ist aktuell",
+    "complete": "Updates erfolgreich installiert",
+    "reboot_required": "Zum Abschluss des Updates ist ein Neustart nötig. Bitte starten Sie bei nächster Gelegenheit neu.",
+    "reboot_now": "Jetzt neu starten",
+    "system_packages": "Systempakete",
+    "firmware": "Firmware-Updates",
+    "available": "Update(s)",
+    "col_package": "Paket",
+    "col_device": "Gerät",
+    "col_installed": "Installiert",
+    "col_available": "Verfügbar",
+    "step_check_updates": "Nach Updates suchen",
+    "step_apply_updates": "Updates installieren",
+    "step_done": "Fertig"
   }
 }
