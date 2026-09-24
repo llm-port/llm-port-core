@@ -378,6 +378,94 @@ class LLMAdapter:
             )
 
 
+    async def rerank(
+        self,
+        *,
+        provider_type: ProviderType,
+        base_url: str | None,
+        api_key_encrypted: str | None,
+        litellm_provider: str | None,
+        litellm_model: str | None,
+        extra_params: dict[str, Any] | None,
+        requested_model: str,
+        query: str,
+        documents: list[str],
+        top_n: int | None = None,
+        instance_id: uuid.UUID | None = None,
+        ssl_verify_mode: str | None = None,
+        ssl_ca_bundle_pem: str | None = None,
+        ssl_client_cert_pem: str | None = None,
+        ssl_client_key_pem: str | None = None,
+    ) -> CompletionResult:
+        """Score *documents* against *query*: ``results`` of ``index`` and ``relevance_score``.
+
+        Local engines and OpenAI-compatible servers serve the Cohere / Jina
+        shape at ``/v1/rerank`` (vLLM, llama.cpp, Infinity), which LiteLLM
+        reaches as ``hosted_vllm``; its ``openai`` provider, which chat and
+        embeddings use, has no rerank. A remote API goes by its own provider
+        (``cohere``, ``jina_ai``, ...). The documents are not asked back: the
+        gateway has them, as the client sent them.
+        """
+        model = litellm_model or requested_model
+        if provider_type in _RERANK_AS_VLLM and not litellm_provider:
+            model_name = f"hosted_vllm/{model}"
+        else:
+            model_name = _build_litellm_model_name(
+                provider_type=provider_type,
+                litellm_provider=litellm_provider,
+                litellm_model=litellm_model,
+                requested_model=requested_model,
+            )
+        kwargs: dict[str, Any] = {
+            "model": model_name,
+            "query": query,
+            "documents": documents,
+            "return_documents": False,
+        }
+        if top_n is not None:
+            kwargs["top_n"] = top_n
+        kwargs.update(
+            _upstream_kwargs(
+                base_url=base_url,
+                api_key=_resolve_api_key(api_key_encrypted),
+                provider_type=provider_type,
+            )
+        )
+        if extra_params:
+            kwargs.update(extra_params)
+        if instance_id is not None:
+            kwargs.update(
+                build_ssl_kwargs(
+                    instance_id=instance_id,
+                    ssl_verify_mode=ssl_verify_mode,
+                    ssl_ca_bundle_pem=ssl_ca_bundle_pem,
+                    ssl_client_cert_pem=ssl_client_cert_pem,
+                    ssl_client_key_pem=ssl_client_key_pem,
+                ),
+            )
+        try:
+            response = await litellm.arerank(**kwargs)
+            return CompletionResult(status_code=200, payload=response.model_dump())  # type: ignore[union-attr]
+        except litellm.exceptions.AuthenticationError as exc:
+            return CompletionResult(status_code=401, payload=_error_payload("authentication_error", str(exc)))
+        except litellm.exceptions.RateLimitError as exc:
+            return CompletionResult(status_code=429, payload=_error_payload("rate_limit_error", str(exc)))
+        except litellm.exceptions.BadRequestError as exc:
+            return CompletionResult(status_code=400, payload=_error_payload("invalid_request_error", str(exc)))
+        except Exception as exc:
+            logger.exception("LiteLLM rerank failed")
+            return CompletionResult(status_code=502, payload=_error_payload("server_error", str(exc)))
+
+
+#: Providers whose rerank API is the Cohere / Jina shape at ``/v1/rerank``.
+_RERANK_AS_VLLM = (
+    ProviderType.VLLM,
+    ProviderType.LLAMACPP,
+    ProviderType.REMOTE_OPENAI,
+    ProviderType.REMOTE_CUSTOM,
+)
+
+
 def _error_payload(error_type: str, message: str) -> dict[str, Any]:
     return {
         "error": {

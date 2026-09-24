@@ -136,13 +136,91 @@ class StreamingGatewayResponse:
 _ENDPOINT_KINDS: dict[str, set[str | None]] = {
     "/v1/chat/completions": {"chat", None},
     "/v1/embeddings": {"embeddings", None},
+    "/v1/rerank": {"scoring", None},
 }
 
 _KIND_ADVICE = {
     "chat": "is a chat model: send it to /v1/chat/completions",
     "embeddings": "is an embeddings model: send it to /v1/embeddings",
-    "scoring": "is a scoring (rerank) model, which the gateway does not serve requests for yet",
+    "scoring": "is a scoring (rerank) model: send it to /v1/rerank",
 }
+
+
+def _as_input(rerank: dict[str, Any]) -> dict[str, Any]:
+    """A rerank request as the pipeline knows texts: ``input``, query first.
+
+    PII, the limits and the trace read ``messages`` or ``input`` -- a rerank
+    request's ``query`` and ``documents`` would have gone out unscanned.
+    """
+    documents = [d if isinstance(d, str) else str(d.get("text", "")) for d in rerank["documents"]]
+    return {"model": rerank["model"], "input": [rerank["query"], *documents]}
+
+
+def _reranked(result: dict[str, Any], rerank: dict[str, Any], alias: str) -> dict[str, Any]:
+    """The upstream's scores, with the client's own documents when it asked for them.
+
+    The documents come from the request, not from upstream: they went out
+    PII-scanned, and would have come back with its tokens.
+    """
+    results = []
+    for item in result.get("results") or []:
+        entry = {"index": item["index"], "relevance_score": item["relevance_score"]}
+        if rerank.get("return_documents", True):
+            document = rerank["documents"][item["index"]]
+            entry["document"] = document if isinstance(document, dict) else {"text": document}
+        results.append(entry)
+    tokens = ((result.get("meta") or {}).get("billed_units") or {}).get("total_tokens") or 0
+    return {
+        "id": result.get("id"),
+        "model": alias,
+        "results": results,
+        "usage": {"prompt_tokens": tokens, "total_tokens": tokens},
+    }
+
+
+#: Qwen3-Reranker's instruction format, as its model card and vLLM's example
+#: give it. The server expects the client to apply it; raw text ranked a
+#: sentence about bananas first for "When is the Aurora launch?".
+_QWEN3_PREFIX = (
+    "<|im_start|>system\nJudge whether the Document meets the requirements based on the "
+    'Query and the Instruct provided. Note that the answer can only be "yes" or "no".'
+    "<|im_end|>\n<|im_start|>user\n"
+)
+_QWEN3_SUFFIX = "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+_QWEN3_INSTRUCTION = "Given a question, retrieve passages that answer the question"
+
+
+def _in_model_format(candidate: Any, alias: str, query: str, documents: list[str]) -> tuple[str, list[str]]:
+    """*query* and *documents* as the route's reranker expects them.
+
+    Qwen3-Reranker gets its instruction format -- unless the query has it
+    already: a client that formats for the model is not wrapped twice.
+    """
+    name = f"{getattr(candidate, 'litellm_model', None) or ''} {alias}".lower()
+    if "qwen3" not in name or "rerank" not in name or query.startswith("<|im_start|>"):
+        return query, documents
+    return (
+        f"{_QWEN3_PREFIX}<Instruct>: {_QWEN3_INSTRUCTION}\n<Query>: {query}\n",
+        [f"<Document>: {d}{_QWEN3_SUFFIX}" for d in documents],
+    )
+
+
+def _rerank_routes(alias: str, candidates: list[Any]) -> list[Any]:
+    """The routes that can take a rerank request.
+
+    A model LLM.Port serves on a cluster runs under Ray Serve, whose API has
+    ``/v1/score`` and no ``/v1/rerank``.
+    """
+    routes = [c for c in candidates if getattr(c, "source_kind", None) != "inference_deployment"]
+    if not routes:
+        raise GatewayError(
+            status_code=400,
+            message=f"{alias} runs on a cluster (Ray Serve), which serves no rerank API.",
+            error_type="invalid_request_error",
+            code="rerank_not_supported",
+            param="model",
+        )
+    return routes
 
 
 def _check_kind(endpoint: str, alias: str, candidates: list[Any]) -> None:
@@ -436,6 +514,9 @@ class GatewayService:
         session_id: str | None = None,
     ) -> GatewayResponse:
         started = time.perf_counter()
+        rerank: dict[str, Any] | None = None
+        if endpoint == "/v1/rerank":
+            rerank, payload = payload, _as_input(payload)
         model_alias = _require_model(payload)
         policy = await self.dao.get_tenant_policy(auth.tenant_id)
 
@@ -451,6 +532,8 @@ class GatewayService:
             alias=model_alias, tenant_id=auth.tenant_id,
         )
         _check_kind(endpoint, model_alias, candidates)
+        if rerank is not None:
+            candidates = _rerank_routes(model_alias, candidates)
 
         req = _Prepared(payload=payload)
         result: UpstreamResult | None = None
@@ -486,6 +569,16 @@ class GatewayService:
                         adapter_result = await self.adapter.embedding(
                             **_candidate_adapter_kwargs(decision.candidate),
                             payload=req.egress_payload,
+                        )
+                    elif rerank is not None:
+                        texts = req.egress_payload["input"]
+                        query, documents = _in_model_format(decision.candidate, model_alias, texts[0], texts[1:])
+                        adapter_result = await self.adapter.rerank(
+                            **_candidate_adapter_kwargs(decision.candidate),
+                            requested_model=model_alias,
+                            query=query,
+                            documents=documents,
+                            top_n=rerank.get("top_n"),
                         )
                     else:
                         adapter_result = await self.adapter.completion(
@@ -528,6 +621,10 @@ class GatewayService:
             # The model is done with this request: its slot is free for the
             # next one while the answer is saved and logged.
             await self._release(req)
+            if rerank is not None and result.status_code == 200:
+                result = UpstreamResult(
+                    status_code=200, payload=_reranked(result.payload, rerank, model_alias), headers={},
+                )
 
             # Extract finish_reason from the final result
             _choices = (result.payload or {}).get("choices") or []

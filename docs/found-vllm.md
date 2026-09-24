@@ -80,7 +80,6 @@ The button is greyed out, with the reason below it, for a container that:
 |---|---|
 | It is not running. | There is nothing to send requests to. Start it the way it is normally started. |
 | Its port is not published on the machine | Only other containers on that machine could reach it. |
-| It serves scoring (rerank) requests | The gateway serves chat and embeddings. It has no route for rerank requests yet. |
 | It asks for an API key | A key is not handled yet. Routing would need LLM.Port to store it, and keys for remote providers are still stored unencrypted. |
 | No answer from ... | LLM.Port asked it `GET /v1/models` and got no answer: it is still loading, or a firewall is in the way. |
 
@@ -108,6 +107,13 @@ What that gives you:
   embedding model gets a 400 that says where to send it instead:
   "qwen3-embedding-0.6b is an embeddings model: send it to /v1/embeddings".
   It is not sent to the model first.
+- **A reranker answers at `/v1/rerank`.** A scoring model takes rerank
+  requests in the Cohere / Jina shape (`query`, `documents`, `top_n`) and
+  answers with `results` of `index` and `relevance_score`. The query and
+  documents pass through PII like any other request. Qwen3-Reranker is given
+  its instruction format by the gateway: sent raw, it ranked "Bananas are
+  yellow" first for "When is the Aurora launch?". A model deployed on a
+  cluster runs under Ray Serve, which has no rerank API, and is refused.
 
 Checked on the DGX pair with 40 requests at once, half chat and half
 embeddings. All 40 answered, and each came back from the model it was meant

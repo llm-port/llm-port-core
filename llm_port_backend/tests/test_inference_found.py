@@ -121,7 +121,7 @@ async def test_found_containers_are_listed_with_where_to_reach_them(
     [
         ({"state": "exited"}, "not running"),
         ({"host_port": None}, "port is not published"),
-        ({"task": "scoring", "name": "Qwen3-Rerank"}, "does not route yet"),
+        ({"task": "transcription", "name": "Whisper"}, "does not route"),
         ({"api_key_required": True}, "asks for an API key"),
     ],
 )
@@ -133,6 +133,13 @@ async def test_what_cannot_be_routed_says_why(
     entry = _entry(await found_vllm.found(dbsession, check=False), node, container["name"])
     assert entry["can_route"] is False
     assert says in entry["reason"]
+
+
+async def test_a_reranker_can_be_routed(dbsession: AsyncSession, answers: dict) -> None:
+    """The gateway serves /v1/rerank: a found scoring container is routed like the others."""
+    node = await _machine(dbsession, [_embed(task="scoring", name="Qwen3-Rerank")])
+    entry = _entry(await found_vllm.found(dbsession, check=False), node, "Qwen3-Rerank")
+    assert entry["can_route"] is True and entry["reason"] is None
 
 
 async def test_a_container_that_does_not_answer_says_so(dbsession: AsyncSession, answers: dict) -> None:

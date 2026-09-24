@@ -40,9 +40,9 @@ SOURCE_KIND = "found_container"
 #: How long asking a found container what it serves may take.
 _PROBE_TIMEOUT_SEC = 3.0
 
-#: Tasks the gateway can serve requests for. Scoring (rerank) models are
-#: found and listed, but the gateway has no route for their requests yet.
-_ROUTABLE_TASKS = {None, "chat", "embeddings"}
+#: Tasks the gateway can serve requests for: chat, embeddings, and scoring
+#: (rerank) at /v1/rerank.
+_ROUTABLE_TASKS = {None, "chat", "embeddings", "scoring"}
 
 _ALIAS = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
 
@@ -120,7 +120,7 @@ def _refusal(node: InfraNode, container: dict[str, Any], url: str | None) -> str
     if not url:
         return "Its port is not published on the machine, so nothing outside the machine can reach it."
     if container.get("task") not in _ROUTABLE_TASKS:
-        return "It serves scoring (rerank) requests, which the gateway does not route yet."
+        return f"It serves {container.get('task')} requests, which the gateway does not route."
     if container.get("api_key_required"):
         return "It asks for an API key, which routing a found container does not handle yet."
     return None

@@ -26,6 +26,18 @@ class EmbeddingsRequest(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class RerankRequest(BaseModel):
+    """Score documents against a query: the Cohere / Jina / vLLM rerank shape."""
+
+    model: str = Field(min_length=1)
+    query: str = Field(min_length=1)
+    documents: list[str | dict[str, Any]] = Field(min_length=1)
+    top_n: int | None = Field(default=None, ge=1)
+    return_documents: bool = True
+
+    model_config = ConfigDict(extra="allow")
+
+
 class ModelObject(BaseModel):
     """OpenAI model object shape."""
 
