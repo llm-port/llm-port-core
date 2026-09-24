@@ -347,3 +347,12 @@ async def test_the_token_is_sealed_before_the_command_result_is_stored(dbsession
     assert unseal_token(stored.result_json["cluster_token_sealed"]) == "plain-secret"
     events = await dao.list_command_events(command_id=cmd.id)
     assert "plain-secret" not in str([e.payload_json for e in events])
+
+    # Delivered twice (seen live): the agent answers the second delivery from
+    # its result store, which does not keep the token. The first result stands.
+    await service.record_command_result(node_id=node.id, command_id=cmd.id, payload={
+        "success": True, "result": {"attached": True, "replayed": True}})
+    await dbsession.commit()
+    await dbsession.refresh(stored)
+    assert unseal_token(stored.result_json["cluster_token_sealed"]) == "plain-secret"
+    assert (await dao.list_command_events(command_id=cmd.id))[-1].phase == "duplicate"

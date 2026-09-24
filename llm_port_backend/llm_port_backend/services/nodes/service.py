@@ -1052,6 +1052,24 @@ class NodeControlService:
         success = bool(payload.get("success", False))
         status = NodeCommandStatus.SUCCEEDED if success else NodeCommandStatus.FAILED
         result_json = payload.get("result") if isinstance(payload.get("result"), dict) else {}
+        if result_json.get("replayed") and command.status in {
+            NodeCommandStatus.SUCCEEDED.value,
+            NodeCommandStatus.FAILED.value,
+        }:
+            # Delivery is at-least-once: a command re-sent before its ack
+            # lands reaches the agent twice, and the agent answers the second
+            # from its result store. That answer is the first one minus what
+            # the agent will not keep -- a takeover's cluster token -- so
+            # taking it over the stored result lost the token (seen live on
+            # the DGX pair). The first result stands, and its side effects
+            # are not applied twice.
+            await self._dao.append_command_event(
+                command_id=command.id,
+                phase="duplicate",
+                message="Delivered twice; the agent replayed its result. The first result stands.",
+                payload_json=None,
+            )
+            return
         if command.command_type == NodeCommandType.DESCRIBE_RAY_CLUSTER.value and "cluster_token" in result_json:
             # A takeover asks the machine for its cluster's token. Stored as it
             # arrived, it would sit in plain text in the command and its event;
