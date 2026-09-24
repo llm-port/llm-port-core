@@ -18,7 +18,8 @@ from llmport.core import schedule
 @pytest.fixture()
 def crontab(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     lines = ["MAILTO=ops@example.com", "15 * * * * /usr/bin/something-else"]
-    monkeypatch.setattr(schedule, "available", lambda: True)
+    monkeypatch.setattr(schedule, "_systemd_user", lambda: False)
+    monkeypatch.setattr(schedule, "_cron", lambda: True)
     monkeypatch.setattr(schedule, "_read", lambda: list(lines))
 
     def write(new: list[str]) -> None:
@@ -89,3 +90,44 @@ def test_backup_without_a_subcommand_still_backs_up(tmp_path: Path, monkeypatch:
     result = CliRunner().invoke(backup_cmd, ["-y", "--retain", "3"])
     assert result.exit_code == 0, result.output
     assert len(ran) == 1
+
+
+def test_with_systemd_a_user_timer_is_installed_and_lingering_switched_on(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ubuntu 26.04 server has no cron: the release VM could not schedule anything."""
+    install = _configure(tmp_path, monkeypatch)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    monkeypatch.setenv("USER", "ops")
+    monkeypatch.setattr(schedule, "_systemd_user", lambda: True)
+    monkeypatch.setattr(schedule, "_cron", lambda: False)
+    monkeypatch.setattr(schedule, "_cli", lambda: ["/home/ops/.local/bin/llmport"])
+    ran: list[list[str]] = []
+    linger = {"on": False}
+
+    class _Done:
+        def __init__(self, stdout: str = "") -> None:
+            self.stdout, self.stderr, self.returncode = stdout, "", 0
+
+    def fake_run(cmd: list[str], **_k: object) -> _Done:
+        ran.append(cmd)
+        if cmd[:2] == ["loginctl", "enable-linger"]:
+            linger["on"] = True
+        if cmd[:2] == ["loginctl", "show-user"]:
+            return _Done("Linger=yes" if linger["on"] else "Linger=no")
+        return _Done()
+
+    monkeypatch.setattr(schedule, "_run", fake_run)
+    result = CliRunner().invoke(backup_cmd, ["schedule", "--at", "01:15", "--retain", "4"])
+    assert result.exit_code == 0, result.output
+
+    units = tmp_path / "xdg" / "systemd" / "user"
+    timer = (units / "llmport-backup.timer").read_text()
+    service = (units / "llmport-backup.service").read_text()
+    assert "OnCalendar=*-*-* 01:15:00" in timer and "Persistent=true" in timer
+    assert "ExecStart=/home/ops/.local/bin/llmport backup -y --retain 4" in service
+    assert "LLMPORT_CONFIG=" in service
+    assert f"append:{install / 'backups' / 'backup.log'}" in service
+    assert ["systemctl", "--user", "enable", "--now", "llmport-backup.timer"] in ran
+    assert ["loginctl", "enable-linger", "ops"] in ran, "or it only runs while someone is logged in"
+    assert "Lingering is off" not in result.output

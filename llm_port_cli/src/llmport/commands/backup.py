@@ -118,7 +118,7 @@ def schedule_cmd(*, at: str, retain: int, off: bool) -> None:
     from llmport.core import schedule  # noqa: PLC0415
 
     if not schedule.available():
-        error("No crontab on this machine: schedule `llmport backup -y` with your own scheduler.")
+        error("No systemd user manager or cron here: schedule `llmport backup -y` with your own scheduler.")
         sys.exit(1)
     if off:
         if schedule.remove():
@@ -142,6 +142,12 @@ def schedule_cmd(*, at: str, retain: int, off: bool) -> None:
         sys.exit(1)
     backups = cfg.install_path / "backups"
     backups.mkdir(parents=True, exist_ok=True)
-    schedule.install(hour=hour, minute=minute, retain=retain, log=backups / "backup.log")
-    success(f"Backing up every night at {hour:02d}:{minute:02d}, keeping {retain}: {backups}")
+    try:
+        how, warnings = schedule.install(hour=hour, minute=minute, retain=retain, log=backups / "backup.log")
+    except (RuntimeError, OSError) as exc:
+        error(f"Could not schedule the backup: {exc}")
+        sys.exit(1)
+    success(f"Backing up every night at {hour:02d}:{minute:02d}, keeping {retain}: {backups} ({how})")
+    for message in warnings:
+        warning(message)
     warning("The backups are on the same disk as the data; copy them elsewhere too.")

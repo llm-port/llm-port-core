@@ -675,8 +675,17 @@ def deploy_cmd(
         if yes or click.confirm("  Back up every night at 03:00, keeping the last 7?", default=True):
             backups = shared_dir / "backups"
             backups.mkdir(parents=True, exist_ok=True)
-            schedule.install(hour=3, minute=0, retain=7, log=backups / "backup.log")
-            success(f"Nightly backups into {backups} (change: llmport backup schedule --at HH:MM, stop: --off).")
+            try:
+                how, notes = schedule.install(hour=3, minute=0, retain=7, log=backups / "backup.log")
+            except (RuntimeError, OSError) as exc:
+                warning(f"Could not schedule nightly backups: {exc}")
+            else:
+                success(
+                    f"Nightly backups into {backups} ({how}; change: llmport backup schedule --at HH:MM,"
+                    " stop: --off)."
+                )
+                for note in notes:
+                    warning(note)
 
     # ── 8. Endpoint summary ───────────────────────────────────────
     console.print("\n[bold green]✨ Deployment complete![/bold green]\n")
