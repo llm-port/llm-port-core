@@ -9,6 +9,7 @@ them, as the user, between rounds of the model's answer.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
 from typing import Any
@@ -63,13 +64,14 @@ class _Model:
 
 
 def _whole(kind: str, value: Any) -> CompletionResult:
+    calls = [value] if kind == "call" else value if kind == "calls" else None
     message = (
-        {"role": "assistant", "content": None, "tool_calls": [value]} if kind == "call"
+        {"role": "assistant", "content": None, "tool_calls": calls} if calls
         else {"role": "assistant", "content": value}
     )
     return CompletionResult(status_code=200, payload={
         "id": "c", "object": "chat.completion", "model": ALIAS,
-        "choices": [{"index": 0, "message": message, "finish_reason": "tool_calls" if kind == "call" else "stop"}],
+        "choices": [{"index": 0, "message": message, "finish_reason": "tool_calls" if calls else "stop"}],
         "usage": {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8},
     })
 
@@ -345,3 +347,31 @@ async def test_search_results_use_the_questions_tokens(
     sent_back = model.sent[1]["messages"][-1]["content"]
     assert "Alice" not in sent_back and "[PERSON_1] leads the launch" in sent_back
     assert text == "Alice leads the launch."
+
+
+@pytest.mark.anyio
+async def test_calls_made_together_run_together_and_answer_in_order(
+    fastapi_app: FastAPI, client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two searches in one message took as long as both; now as the slower one."""
+    await _seed(db_session, provider=ProviderType.VLLM, pii=None, node_metadata=CAN_CALL_TOOLS)
+    fastapi_app.state.gateway_observability = _Observability()
+    _Knowledge(monkeypatch)
+    events: list[str] = []
+
+    async def search(self: RagLiteClient, **kwargs: Any) -> list[dict[str, Any]]:
+        events.append(f"start {kwargs['query']}")
+        await asyncio.sleep(0.2 if kwargs["query"] == "slow" else 0.05)
+        events.append(f"end {kwargs['query']}")
+        return [{**HIT, "chunk_text": kwargs["query"]}]
+
+    monkeypatch.setattr(RagLiteClient, "search", search)
+    both = [_call("knowledge_search", {"query": "slow"}, "call_1")[1],
+            _call("knowledge_search", {"query": "fast"}, "call_2")[1]]
+    model = _Model(monkeypatch, ("calls", both), _say("Done."))
+
+    assert (await _ask(client)).status_code == 200
+    assert events[:2] == ["start slow", "start fast"], "the second began before the first ended"
+    answers = [m for m in model.sent[1]["messages"] if m["role"] == "tool"]
+    assert [a["tool_call_id"] for a in answers] == ["call_1", "call_2"]
+    assert '"slow"' in answers[0]["content"] and '"fast"' in answers[1]["content"]

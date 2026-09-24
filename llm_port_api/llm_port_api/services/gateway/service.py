@@ -1599,8 +1599,7 @@ class GatewayService:
         if not all(ours(name) for name in names):
             return None
 
-        answers: list[dict[str, Any]] = []
-        for call, name in zip(calls, names, strict=True):
+        async def run(call: dict[str, Any], name: str) -> tuple[dict[str, Any], dict[str, Any]]:
             arguments = _tool_arguments(call)
             started = time.perf_counter()
             row: dict[str, Any] = {"iteration": iteration, "tool_name": name, "mcp_server": None}
@@ -1639,8 +1638,21 @@ class GatewayService:
                 is_error=is_error,
                 error_message=content[:500] if is_error else None,
             )
+            return row, {"role": "tool", "tool_call_id": call.get("id", ""), "content": content}
+
+        # Calls the model makes together are independent -- it asked for them
+        # before seeing any result -- so they run together: two searches take
+        # as long as the slower one, not both. The tool router's run one at a
+        # time, as they always have: some of them run on the user's machine.
+        pairs = list(zip(calls, names, strict=True))
+        if router_session is None:
+            done = await _together(*(run(call, name) for call, name in pairs))
+        else:
+            done = [await run(call, name) for call, name in pairs]
+        answers: list[dict[str, Any]] = []
+        for row, answer in done:
             req.tool_calls.append(row)
-            answers.append({"role": "tool", "tool_call_id": call.get("id", ""), "content": content})
+            answers.append(answer)
         return await self._scan_tool_results(req, answers)
 
     async def _scan_tool_results(self, req: _Prepared, answers: list[dict[str, Any]]) -> list[dict[str, Any]]:
