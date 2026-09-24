@@ -844,6 +844,47 @@ class RayContainerRuntime:
         except Exception:  # noqa: BLE001 - a probe failure is "not running"
             return False
 
+    async def run_python(
+        self,
+        script: str,
+        container_name: str = DEFAULT_CONTAINER_NAME,
+        *,
+        timeout_sec: float = 90,
+    ) -> tuple[int, str, str]:
+        """Run *script* with the container's Python, fed on stdin: ``(rc, stdout, stderr)``.
+
+        For reading what the cluster runs (``inspect.py``) with the exact Ray
+        it runs, on an image whose helper predates the question.
+        """
+        handler = self._handler(self._spec_for(container_name))
+        return await handler.exec_(
+            container_name,
+            ["python3", "-"],
+            stdin=script,
+            timeout_sec=timeout_sec,
+            raise_on_error=False,
+        )
+
+    async def facts(self, container_name: str = DEFAULT_CONTAINER_NAME) -> dict[str, Any] | None:
+        """The runtime container's image and state, or ``None`` when there is none."""
+        handler = self._handler(self._spec_for(container_name))
+        try:
+            if not await handler.exists(container_name):
+                return None
+            info = await handler.inspect(container_name)
+        except Exception:  # noqa: BLE001 - a probe failure is "none"
+            return None
+        if not isinstance(info, dict):
+            return None
+        state = info.get("State") or {}
+        return {
+            "container": container_name,
+            "running": bool(state.get("Running")),
+            "started_at": state.get("StartedAt"),
+            "image": (info.get("Config") or {}).get("Image"),
+            "image_id": info.get("Image"),
+        }
+
     async def _helper(
         self,
         container_name: str,

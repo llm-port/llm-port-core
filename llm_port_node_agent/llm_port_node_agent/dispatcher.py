@@ -20,6 +20,17 @@ ProgressEmitter = Callable[[dict[str, Any]], Awaitable[None]]
 log = logging.getLogger(__name__)
 
 
+#: Result keys that hold secrets for the backend alone.
+SECRET_RESULT_KEYS = frozenset({"cluster_token"})
+
+
+def _without_secrets(normalized: dict[str, Any]) -> dict[str, Any]:
+    result = normalized.get("result")
+    if not isinstance(result, dict) or not SECRET_RESULT_KEYS & result.keys():
+        return normalized
+    return {**normalized, "result": {k: v for k, v in result.items() if k not in SECRET_RESULT_KEYS}}
+
+
 class CommandDispatcher:
     """Dispatch backend commands to local handlers."""
 
@@ -116,14 +127,19 @@ class CommandDispatcher:
                 "result": {},
             }
 
+        # A result can carry a secret for the backend alone -- the cluster
+        # token a takeover asks for. It goes back on the command's own reply
+        # and nowhere else: not into the replay cache on disk, not into the
+        # events the backend stores.
+        kept = _without_secrets(normalized)
         try:
-            self._state.remember_command_result(command_id, normalized)
+            self._state.remember_command_result(command_id, kept)
         except OSError:
             log.warning("Failed to persist command result for %s (filesystem error)", command_id)
         self._events.add(
             event_type="command.finished",
             severity="info" if normalized.get("success") else "error",
-            payload={"command_id": command_id, "command_type": command_type, **normalized},
+            payload={"command_id": command_id, "command_type": command_type, **kept},
             correlation_id=command_id,
         )
         return normalized
@@ -203,6 +219,10 @@ class CommandDispatcher:
             if not self._ray:
                 raise RuntimeManagerError("Ray manager not available")
             return await self._ray.get_serve_status(payload)
+        if command_type == NodeCommandType.DESCRIBE_RAY_CLUSTER.value:
+            if not self._ray:
+                raise RuntimeManagerError("Ray manager not available")
+            return await self._ray.describe_cluster(payload)
         if command_type == NodeCommandType.RUN_SERVE_APP.value:
             if not self._ray:
                 raise RuntimeManagerError("Ray manager not available")

@@ -35,6 +35,9 @@ class NodeCommandType(enum.StrEnum):
     STOP_RAY = "stop_ray"
     GET_RAY_STATUS = "get_ray_status"
     GET_RAY_SERVE_STATUS = "get_ray_serve_status"
+    #: What the cluster this machine runs is serving, read from Ray, for a
+    #: server taking it over (``ray/inspect.py``).
+    DESCRIBE_RAY_CLUSTER = "describe_ray_cluster"
 
     # --- Ray Serve application lifecycle (Phase 3) ---
     RUN_SERVE_APP = "run_serve_app"

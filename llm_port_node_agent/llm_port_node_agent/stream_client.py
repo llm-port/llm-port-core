@@ -171,6 +171,7 @@ class StreamClient:
             gpu_snapshot = await collect_gpu_snapshot(self._gpu_collector)
             inventory = await collect_inventory(self._static_capabilities, gpu_snapshot=gpu_snapshot)
             inventory["vllm_containers"] = await self._find_vllm()
+            inventory["ray_runtime"] = await self._ray_runtime()
             utilization = await collect_utilization(gpu_snapshot=gpu_snapshot)
             await self._send_json(
                 ws,
@@ -199,6 +200,21 @@ class StreamClient:
         except Exception as exc:  # noqa: BLE001 - an inventory without this is still an inventory
             log.debug("vLLM discovery skipped: %s", exc)
             return []
+
+    async def _ray_runtime(self) -> dict[str, Any] | None:
+        """Whether this machine runs LLM.Port's Ray runtime -- what a new server looks for.
+
+        Cheap (one ``inspect``), bounded, and never able to hold up the
+        inventory: ``None`` when there is no runtime container or no answer.
+        """
+        from llm_port_node_agent.ray.container import DEFAULT_CONTAINER_NAME  # noqa: PLC0415
+        from llm_port_node_agent.ray.inspect import runtime_summary  # noqa: PLC0415
+
+        try:
+            return await asyncio.wait_for(runtime_summary(self._runtime, DEFAULT_CONTAINER_NAME), timeout=10)
+        except Exception as exc:  # noqa: BLE001 - an inventory without this is still an inventory
+            log.debug("Ray runtime summary skipped: %s", exc)
+            return None
 
     async def _event_flush_loop(self, ws: websockets.WebSocketClientProtocol) -> None:
         while True:

@@ -715,6 +715,40 @@ class RayManager:
             )
         return await asyncio.to_thread(self._serve.delete_app, spec.app_name)
 
+    async def describe_cluster(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """What the cluster this machine runs is serving, read from Ray itself.
+
+        For a server taking the cluster over after losing its own record of
+        it (``ray/inspect.py``). ``verify`` carries the configurations that
+        server would deploy, to be checked against what runs.
+        ``hand_over_token`` adds the cluster's token -- which the running
+        cluster keeps and the new server needs to let machines join it; the
+        backend encrypts it the moment the result arrives.
+        """
+        from llm_port_node_agent.ray import inspect  # noqa: PLC0415
+
+        facts = await self._container.facts()
+        if facts is None or not facts.get("running"):
+            return {"running": False, "container": facts}
+        code, out, err = await self._container.run_python(inspect.script(payload.get("verify")))
+        doc = inspect.parse(out)
+        if doc is None:
+            detail = (err or out or "").strip()[-800:]
+            return {"running": True, "container": facts, "attached": False,
+                    "error": f"inspection produced no result (exit {code}): {detail}"}
+        result: dict[str, Any] = {"running": True, "container": facts, **doc}
+        if payload.get("hand_over_token") and doc.get("attached"):
+            try:
+                token = self._token_file.read_text(encoding="utf-8").strip()
+            except OSError as exc:
+                result["token_error"] = f"cluster token unreadable: {exc}"
+            else:
+                if token:
+                    result["cluster_token"] = token
+                else:
+                    result["token_error"] = "cluster token file is empty"
+        return result
+
     async def get_serve_status(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Serve-tier status command (additive; Dashboard-independent).
 
