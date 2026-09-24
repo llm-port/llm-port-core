@@ -77,6 +77,7 @@ class ProviderAdapter(ABC):
         model: LLMModel,
         artifacts: list[ModelArtifact],
         model_store_root: str,
+        hf_token: str | None = None,
     ) -> ContainerSpec:
         """
         Translate a runtime configuration into a concrete container spec.

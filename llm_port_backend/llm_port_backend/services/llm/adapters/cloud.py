@@ -51,6 +51,7 @@ class CloudAdapter(ProviderAdapter):
         model: LLMModel,
         artifacts: list[ModelArtifact],
         model_store_root: str,
+        hf_token: str | None = None,
     ) -> ContainerSpec:
         raise NotImplementedError(
             "Cloud providers do not run local containers"

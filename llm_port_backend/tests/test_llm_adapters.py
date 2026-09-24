@@ -87,6 +87,7 @@ def _build(
     *,
     generic: dict | None = None,
     provider_cfg: dict | None = None,
+    hf_token: str | None = None,
 ) -> object:
     monkeypatch.setattr(vllm_adapter_module, "detect_gpus", lambda: inventory)
     runtime = _make_runtime(generic_config=generic or {}, provider_config=provider_cfg or {})
@@ -96,6 +97,7 @@ def _build(
         model=_make_model(),  # type: ignore[arg-type]
         artifacts=[],
         model_store_root="/host/models",
+        hf_token=hf_token,
     )
 
 
@@ -327,3 +329,27 @@ def test_cloud_adapter_build_spec_raises() -> None:
         CloudAdapter().build_container_spec(  # type: ignore[arg-type]
             _make_runtime(), _make_provider(), _make_model(), [], "/host/models"
         )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# The Hugging Face token reaches a container only when it can use it
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_an_offline_container_never_gets_the_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    spec = _build(monkeypatch, _inventory(GpuVendor.NVIDIA), hf_token="hf_secret_value")
+    env = spec.env or []  # type: ignore[attr-defined]
+    assert "HF_HUB_OFFLINE=1" in env
+    assert not any("hf_secret_value" in e for e in env)
+
+
+def test_a_container_fetching_model_code_gets_the_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    spec = _build(
+        monkeypatch,
+        _inventory(GpuVendor.NVIDIA),
+        provider_cfg={"engine_args": {"trust-remote-code": True}},
+        hf_token="hf_secret_value",
+    )
+    env = spec.env or []  # type: ignore[attr-defined]
+    assert "HF_HUB_OFFLINE=0" in env
+    assert "HF_TOKEN=hf_secret_value" in env

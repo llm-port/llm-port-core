@@ -37,6 +37,7 @@ class OllamaAdapter(ProviderAdapter):
         model: LLMModel,
         artifacts: list[ModelArtifact],
         model_store_root: str,
+        hf_token: str | None = None,
     ) -> ContainerSpec:
         raise NotImplementedError("Ollama adapter is not yet implemented")
 

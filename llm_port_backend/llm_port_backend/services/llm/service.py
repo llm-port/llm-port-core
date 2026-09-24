@@ -63,6 +63,14 @@ class LLMService:
         self._caps: dict[str, int | None] = _caps if _caps is not None else {}
 
     @staticmethod
+    async def _hf_token(session: Any) -> str | None:
+        """This server's Hugging Face token, for a container that may fetch model code."""
+        from llm_port_backend.services.llm import hf_token  # noqa: PLC0415
+
+        token, _source = await hf_token.resolve(session)
+        return token
+
+    @staticmethod
     def _node_container_name(runtime_name: str) -> str:
         """Deterministic Docker container name for node-deployed runtimes."""
         slug = runtime_name.replace("_", "-").replace("/", "-").replace(" ", "-").lower()
@@ -548,6 +556,7 @@ class LLMService:
             model=model,
             artifacts=artifacts,
             model_store_root=settings.model_store_root,
+            hf_token=await self._hf_token(runtime_dao.session),
         )
 
         # Commit the runtime record *before* starting slow Docker
@@ -834,6 +843,7 @@ class LLMService:
             model=model,
             artifacts=artifacts,
             model_store_root=settings.model_store_root,
+            hf_token=await self._hf_token(runtime_dao.session),
         )
 
         # Commit DB changes *before* starting slow Docker operations so

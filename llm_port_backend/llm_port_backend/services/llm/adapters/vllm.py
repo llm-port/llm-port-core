@@ -82,6 +82,7 @@ class VLLMAdapter(ProviderAdapter):
         model: LLMModel,
         artifacts: list[ModelArtifact],
         model_store_root: str,
+        hf_token: str | None = None,
     ) -> ContainerSpec:
         """
         Build a Docker container spec for vLLM.
@@ -240,17 +241,20 @@ class VLLMAdapter(ProviderAdapter):
             # Allow network access for custom-code models so transformers
             # can fetch tokenizer/processor scripts not in the cache.
             env += ["HF_HUB_OFFLINE=0", "TRANSFORMERS_OFFLINE=0"]
-            if not settings.hf_token:
+            # Only a container allowed onto the network gets the token: an
+            # offline one cannot use it, and a container's environment is
+            # readable by anyone who can inspect it.
+            if hf_token:
+                env.append(f"HF_TOKEN={hf_token}")
+            else:
                 log.warning(
-                    "Runtime %r uses --trust-remote-code but no HF_TOKEN is "
+                    "Runtime %r uses --trust-remote-code but no Hugging Face token is "
                     "configured. Download of custom model code may fail.",
                     runtime.name,
                 )
         else:
             # Prevent vLLM from attempting downloads inside the container
             env += ["HF_HUB_OFFLINE=1", "TRANSFORMERS_OFFLINE=1"]
-        if settings.hf_token:
-            env.append(f"HF_TOKEN={settings.hf_token}")
         if gc.get("log_level"):
             env.append(f"VLLM_LOG_LEVEL={gc['log_level']}")
 

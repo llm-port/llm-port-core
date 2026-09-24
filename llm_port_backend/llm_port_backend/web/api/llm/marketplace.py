@@ -35,18 +35,10 @@ _READ = require_permission("llm.models", "read")
 
 async def _hub(session: AsyncSession) -> HubClient:
     """A Hub client carrying this server's Hugging Face token, when one is set."""
-    from llm_port_backend.db.dao.system_settings_dao import SystemSettingsDAO  # noqa: PLC0415
-    from llm_port_backend.services.system_settings.crypto import SettingsCrypto  # noqa: PLC0415
-    from llm_port_backend.settings import settings  # noqa: PLC0415
+    from llm_port_backend.services.llm import hf_token  # noqa: PLC0415
 
-    token = None
-    try:
-        secret = await SystemSettingsDAO(session).get_secret("llm_backend.hf_token")
-        if secret and secret.ciphertext:
-            token = SettingsCrypto(settings.settings_master_key).decrypt(secret.ciphertext)
-    except Exception:  # noqa: BLE001 - anonymous access still browses public models
-        log.info("marketplace: no usable Hugging Face token", exc_info=True)
-    return HubClient(token=token or settings.hf_token or None)
+    token, _source = await hf_token.resolve(session)
+    return HubClient(token=token)
 
 
 async def _local(session: AsyncSession) -> dict[str, dict[str, Any]]:
@@ -293,6 +285,6 @@ async def host_model(
             revision=(body.revision or "").strip() or None,
         ))
     except HostError as exc:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
     except InferenceError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, detail=str(exc)) from exc

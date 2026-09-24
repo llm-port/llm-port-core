@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 from llm_port_backend.db.models.llm import (
     ArtifactFormat,
@@ -351,15 +351,25 @@ class DownloadJobDTO(BaseModel):
 
 
 class HFTokenStatusDTO(BaseModel):
-    """Whether an HF token is configured."""
+    """Whether an HF token is configured, and whom it belongs to -- never the token."""
 
     configured: bool
+    # "database" (set here) or "environment" (LLM_PORT_BACKEND_HF_TOKEN).
+    source: Literal["database", "environment"] | None = None
+    # False while the settings master key is the published default.
+    storage_safe: bool = True
+    # What Hugging Face said about it: "ok", "invalid" or "offline".
+    check: Literal["ok", "invalid", "offline"] | None = None
+    username: str | None = None
+    token_name: str | None = None
+    role: str | None = None
 
 
 class HFTokenSetRequest(BaseModel):
     """Request body for setting the HF token."""
 
-    token: str = Field(..., min_length=1)
+    # SecretStr keeps the value out of reprs and logs.
+    token: SecretStr = Field(..., min_length=1, max_length=512)
 
 
 # -----------------------------------------------------------------------

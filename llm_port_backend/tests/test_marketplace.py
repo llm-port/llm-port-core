@@ -220,6 +220,13 @@ def test_host_specs_compile_for_ray(gpus: float, extra: dict[str, Any]) -> None:
     assert compiled["llm_configs"][0]["engine_kwargs"]["gpu_memory_utilization"] == min(0.5, gpus)
 
 
+def test_a_shared_card_is_not_over_claimed_by_vllms_default() -> None:
+    spec = build_spec(_request(gpus_per_copy=0.25, engine_config={}))
+    assert spec["engine"]["config"]["gpu_memory_utilization"] == 0.25
+    whole = build_spec(_request(gpus_per_copy=1, engine_config={}))
+    assert "gpu_memory_utilization" not in whole["engine"]["config"]
+
+
 def test_host_refuses_impossible_shapes() -> None:
     with pytest.raises(HostError):
         build_spec(_request(gpus_per_copy=1.5))

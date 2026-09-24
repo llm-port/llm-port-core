@@ -14,32 +14,16 @@ HF_TOKEN_KEY = "llm_backend.hf_token"
 
 
 async def _resolve_hf_token() -> str | None:
-    """Read the HF token from DB (encrypted secret), falling back to env var.
-
-    Priority:
-      1. Encrypted secret in ``system_setting_secret`` table
-      2. ``LLM_PORT_BACKEND_HF_TOKEN`` env-var (pydantic Settings fallback)
-      3. ``None`` (anonymous Hugging Face access)
-    """
-    from llm_port_backend.db.dao.system_settings_dao import SystemSettingsDAO  # noqa: PLC0415
-    from llm_port_backend.services.system_settings.crypto import SettingsCrypto  # noqa: PLC0415
-    from llm_port_backend.settings import settings  # noqa: PLC0415
+    """The token this server uses: the stored one, else ``LLM_PORT_BACKEND_HF_TOKEN``, else anonymous."""
+    from llm_port_backend.services.llm import hf_token  # noqa: PLC0415
 
     app = broker.state.fastapi_app
     session = app.state.db_session_factory()
     try:
-        dao = SystemSettingsDAO(session)
-        secret = await dao.get_secret(HF_TOKEN_KEY)
-        if secret and secret.ciphertext:
-            crypto = SettingsCrypto(settings.settings_master_key)
-            return crypto.decrypt(secret.ciphertext)
-    except Exception:
-        log.warning("Could not read HF token from DB, falling back to env var", exc_info=True)
+        token, _source = await hf_token.resolve(session)
+        return token
     finally:
         await session.close()
-
-    # Fallback to env var
-    return settings.hf_token or None
 
 
 def _run_download_sync(

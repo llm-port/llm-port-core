@@ -50,9 +50,9 @@ def build_spec(request: HostRequest) -> dict[str, Any]:
     if gpus >= 1 and not float(gpus).is_integer():
         raise HostError("More than one accelerator per copy must be a whole number.")
     tp = int(gpus) if gpus >= 1 else 1
-    if gpus < 1 and "gpu_memory_utilization" in engine and float(engine["gpu_memory_utilization"]) > gpus + 1e-9:
-        # A copy told it may use more of the card than it reserved would crowd
-        # the others it shares the card with.
+    if gpus < 1 and float(engine.get("gpu_memory_utilization") or 1.0) > gpus + 1e-9:
+        # A copy told it may use more of the card than it reserved -- vLLM's
+        # own default is 0.9 -- would crowd the others it shares the card with.
         engine["gpu_memory_utilization"] = round(gpus, 2)
     spec: dict[str, Any] = {
         "api_version": "inference.llmport.ai/v1alpha1",
