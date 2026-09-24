@@ -92,3 +92,38 @@ def test_the_shipped_clickhouse_config_turns_off_what_the_cli_drops() -> None:
     text = config.read_text(encoding="utf-8")
     for name in clickhouse.DISABLED_LOGS:
         assert f'<{name} remove="1"/>' in text
+
+
+def test_a_backup_takes_the_databases_the_server_has(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The fixed list named ``pii`` (absent: a failed dump) and missed ``rag`` (never backed up)."""
+    from llmport.core import backup
+
+    dumped: list[str] = []
+
+    def run(cmd: list[str], **_: Any) -> subprocess.CompletedProcess[bytes]:
+        if "psql" in cmd:
+            return subprocess.CompletedProcess(cmd, 0, b"langfuse\nllm_api\nllm_port_backend\nrag\n", b"")
+        dumped.append(cmd[-1])
+        return subprocess.CompletedProcess(cmd, 0, b"dump", b"")
+
+    monkeypatch.setattr(backup.subprocess, "run", run)
+    monkeypatch.setattr(backup, "_docker_bin", lambda: "docker")
+    assert set(backup.dump_databases(tmp_path)) == {"langfuse", "llm_api", "llm_port_backend", "rag"}
+    assert dumped == ["langfuse", "llm_api", "llm_port_backend", "rag"]
+
+
+def test_the_fixed_list_is_the_fallback(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from llmport.core import backup
+
+    dumped: list[str] = []
+
+    def run(cmd: list[str], **_: Any) -> subprocess.CompletedProcess[bytes]:
+        if "psql" in cmd:
+            return subprocess.CompletedProcess(cmd, 2, b"", b"no server")
+        dumped.append(cmd[-1])
+        return subprocess.CompletedProcess(cmd, 0, b"dump", b"")
+
+    monkeypatch.setattr(backup.subprocess, "run", run)
+    monkeypatch.setattr(backup, "_docker_bin", lambda: "docker")
+    backup.dump_databases(tmp_path)
+    assert "llm_port_backend" in dumped

@@ -91,6 +91,27 @@ def _docker_bin() -> str:
     return docker
 
 
+def existing_databases(docker: str) -> list[str] | None:
+    """The databases the Postgres server holds, or ``None`` when it cannot say.
+
+    A backup takes these rather than a fixed list: the list named ``pii``,
+    absent where the PII module was never on (a failed dump, a warning), and
+    missed ``rag``, which an install had -- so it was never backed up.
+    """
+    proc = subprocess.run(  # noqa: S603
+        [
+            docker, "exec", POSTGRES_CONTAINER, "psql", "-U", "postgres", "-tAc",
+            "SELECT datname FROM pg_database WHERE NOT datistemplate AND datname <> 'postgres' ORDER BY 1",
+        ],
+        capture_output=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        return None
+    names = [line.strip() for line in proc.stdout.decode("utf-8", errors="replace").splitlines() if line.strip()]
+    return names or None
+
+
 def dump_databases(
     backup_dir: Path,
     *,
@@ -102,7 +123,7 @@ def dump_databases(
     databases that were successfully dumped.
     """
     docker = _docker_bin()
-    targets = databases or list(DATABASES)
+    targets = databases or existing_databases(docker) or list(DATABASES)
     results: dict[str, str] = {}
 
     for db in targets:
