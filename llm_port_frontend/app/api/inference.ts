@@ -516,6 +516,78 @@ export interface FoundEntry {
 }
 
 // ---------------------------------------------------------------------------
+// Clusters the machines still run that this server does not manage
+// ---------------------------------------------------------------------------
+
+/** A machine in a found cluster, matched to this fleet by its address. */
+export interface FoundClusterMember {
+  ip: string | null;
+  hostname: string | null;
+  role: "head" | "worker";
+  gpus: number | null;
+  runtime_node_id: string | null;
+  /** The machine in this fleet, or null when none has that address. */
+  node_id: string | null;
+  name: string | null;
+}
+
+/** A model a found cluster serves, as it would be taken over. */
+export interface FoundClusterApp {
+  app_name: string;
+  deployment_id: string;
+  model_id: string;
+  model_source: string;
+  hf_repo_id: string | null;
+  copies: number;
+  gpus_per_copy: number | null;
+  engine: Record<string, unknown>;
+  status: string | null;
+  running_copies: number;
+  suggested_alias: string;
+  /** What could not be carried over, in words. */
+  notes: string[];
+  already_known: boolean;
+}
+
+export interface FoundCluster {
+  address: string | null;
+  runtime_version: string | null;
+  image: string | null;
+  head: FoundClusterMember | null;
+  members: FoundClusterMember[];
+  apps: FoundClusterApp[];
+  /** Apps LLM.Port did not deploy; they keep running and are not managed. */
+  other_apps: string[];
+  can_take_over: boolean;
+  /** Why it cannot be taken over, in words. */
+  blockers: string[];
+  errors: string[];
+  /** The machine that described it: the one to take it over through. */
+  described_by: string;
+}
+
+export interface FoundClusters {
+  clusters: FoundCluster[];
+  /** Machines that run the runtime but could not say what. */
+  unreadable: { node_id: string; name: string; error: string }[];
+}
+
+export interface TakeOverPayload {
+  node_id: string;
+  name: string;
+  /** The gateway name for each model, by app name. */
+  aliases: Record<string, string>;
+}
+
+export interface TakeOverResult {
+  environment_id: string;
+  name: string;
+  control_plane: string;
+  members: FoundClusterMember[];
+  deployments: { deployment_id: string; name: string; alias: string; model: string; notes: string[] }[];
+}
+
+// ---------------------------------------------------------------------------
 // Transport
 // ---------------------------------------------------------------------------
 
@@ -776,5 +848,18 @@ export const inferenceApi = {
   },
   releaseFound(adoptionId: string) {
     return request<FoundAdoption>(`/found/${enc(adoptionId)}/release`, { method: "POST" });
+  },
+
+  // -- Clusters the machines run that this server lost --------------------
+
+  /** Asks each machine that runs the runtime outside a cluster here; takes seconds. */
+  foundClusters() {
+    return request<FoundClusters>("/found-clusters");
+  },
+  takeOverCluster(payload: TakeOverPayload) {
+    return request<TakeOverResult>("/found-clusters/take-over", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
   },
 };

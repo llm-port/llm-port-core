@@ -54,6 +54,7 @@ function mockFleet() {
   vi.spyOn(inferenceApi, "listControlPlanes").mockResolvedValue([controlPlane]);
   vi.spyOn(inferenceApi, "listDrivers").mockResolvedValue(["ray"]);
   vi.spyOn(nodesApi, "list").mockResolvedValue(managedNodes);
+  vi.spyOn(inferenceApi, "foundClusters").mockResolvedValue({ clusters: [], unreadable: [] });
 }
 
 function mockClusterDetail() {

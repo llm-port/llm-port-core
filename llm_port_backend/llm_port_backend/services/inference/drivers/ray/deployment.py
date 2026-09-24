@@ -624,7 +624,12 @@ class RayDeploymentManager:
         allow_remote_fetch = bool(artifacts_cfg.get("allow_remote_fetch", False))
         offline_only = bool(artifacts_cfg.get("offline_only", False))
 
-        if readiness is not None and not readiness.all_ready:
+        # A deployment that loads from a path on the machines says the files
+        # are there: there is nothing to copy, and the coordinator must not
+        # start copying a model over the one a running engine is reading
+        # (a taken-over deployment is one, see takeover.py).
+        local_path = ((facts.spec_data or {}).get("artifacts") or {}).get("source") == "local_path"
+        if readiness is not None and not readiness.all_ready and not local_path:
             # Evidence that a sync was *attempted and failed*.  That is the
             # case which used to slip through: readiness already knew exactly
             # why ("model_sync payload with files is required"), and we

@@ -349,6 +349,35 @@ class RayClusterClient:
         )
         return _parse_cluster_status(result)
 
+    async def describe_cluster(
+        self,
+        *,
+        node_id: str | uuid.UUID,
+        verify: dict[str, Any] | None = None,
+        hand_over_token: bool = False,
+        budget_sec: float | None = 90,
+    ) -> dict[str, Any] | None:
+        """Ask a machine what the Ray cluster it runs is serving (DESCRIBE_RAY_CLUSTER).
+
+        ``verify`` -- ``{app name: llm_serving_args}`` -- has the machine say
+        whether each is what runs. With ``hand_over_token`` the result carries
+        the cluster token, sealed (``cluster_token_sealed``) as it was
+        recorded. ``None`` when the machine did not answer in time.
+        """
+        payload: dict[str, Any] = {}
+        if verify:
+            payload["verify"] = verify
+        if hand_over_token:
+            payload["hand_over_token"] = True
+        return await self._dispatch_and_poll(
+            node_id=node_id,
+            command_type=NodeCommandType.DESCRIBE_RAY_CLUSTER.value,
+            payload=payload,
+            idem_prefix="inference-takeover:describe",
+            timeout_sec=120,
+            wait_budget_sec=budget_sec,
+        )
+
     async def probe_serve(
         self,
         *,

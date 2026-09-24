@@ -89,6 +89,15 @@ container is not touched. See [vLLM you already run](found-vllm.md).
 
 ## Clusters
 
+### I rebuilt the server and lost its database. Do I recreate my clusters?
+
+No. The machines keep running the clusters and models, and the new server can
+take them over as they run. Approve the machines in the new server (re-run
+the install line on each). **Clusters** then lists what they run under
+**Running on your machines, not managed here**, and **Take over…** records it.
+No model restarts. See
+[Taking over clusters your machines still run](taking-over-clusters.md).
+
 ### My cluster says it is restarting itself.
 
 Part of it stopped: Ray on the head, or a worker dropped out. LLM.Port

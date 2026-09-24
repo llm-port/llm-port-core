@@ -94,6 +94,19 @@ async def store_cluster_token(
     return ref
 
 
+def seal_token(token: str) -> str:
+    """*token* encrypted with the settings key, for where it has to be stored in passing."""
+    return _crypto().encrypt(token)
+
+
+def unseal_token(sealed: str) -> str | None:
+    """The token :func:`seal_token` sealed, or ``None`` when it will not decrypt."""
+    try:
+        return _crypto().decrypt(sealed)
+    except Exception:  # noqa: BLE001 - a bad key or a mangled value is "no token"
+        return None
+
+
 async def retrieve_cluster_token(
     session: AsyncSession, credential_ref: str | None
 ) -> str | None:

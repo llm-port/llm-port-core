@@ -19,6 +19,7 @@ from llm_port_backend.web.api.inference.environments import (
     router as environments_router,
 )
 from llm_port_backend.web.api.inference.found import router as found_router
+from llm_port_backend.web.api.inference.found_clusters import router as found_clusters_router
 
 inference_router = APIRouter()
 inference_router.include_router(
@@ -39,6 +40,11 @@ inference_router.include_router(
 inference_router.include_router(
     found_router,
     prefix="/found",
+    tags=["inference-found"],
+)
+inference_router.include_router(
+    found_clusters_router,
+    prefix="/found-clusters",
     tags=["inference-found"],
 )
 

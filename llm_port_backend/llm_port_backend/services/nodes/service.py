@@ -1052,6 +1052,15 @@ class NodeControlService:
         success = bool(payload.get("success", False))
         status = NodeCommandStatus.SUCCEEDED if success else NodeCommandStatus.FAILED
         result_json = payload.get("result") if isinstance(payload.get("result"), dict) else {}
+        if command.command_type == NodeCommandType.DESCRIBE_RAY_CLUSTER.value and "cluster_token" in result_json:
+            # A takeover asks the machine for its cluster's token. Stored as it
+            # arrived, it would sit in plain text in the command and its event;
+            # it is sealed with the settings key before either is written.
+            from llm_port_backend.services.inference.drivers.ray.secrets import seal_token  # noqa: PLC0415
+
+            result_json = dict(result_json)
+            result_json["cluster_token_sealed"] = seal_token(str(result_json.pop("cluster_token")))
+            payload = {**payload, "result": result_json}
         await self._dao.set_command_status(
             command,
             status=status,

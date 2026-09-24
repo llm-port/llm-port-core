@@ -30,6 +30,7 @@ import MemoryIcon from "@mui/icons-material/Memory";
 
 import { ControlPlanesDialog } from "../inference/ControlPlanesDialog";
 import { CreateClusterWizard } from "./CreateClusterWizard";
+import { FoundClustersCard } from "./FoundClustersCard";
 import { NextStepBanner } from "./NextStepBanner";
 import { clusterStatusColor, memberSummary } from "./presentation";
 import { fleetReadiness, gpuCount } from "./readiness";
@@ -122,6 +123,14 @@ export default function ClustersPage() {
       {error && <Alert severity="error">{error}</Alert>}
 
       <NextStepBanner step={step} onAction={handleNextStep} />
+
+      {/* Only there when the machines run a cluster this server lost. */}
+      <FoundClustersCard
+        onTakenOver={(id) => {
+          void refresh();
+          navigate(`/admin/clusters/${id}`);
+        }}
+      />
 
       <Stack direction="row" alignItems="center" spacing={1}>
         <Typography variant="h6" sx={{ flexGrow: 1 }}>

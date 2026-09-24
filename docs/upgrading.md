@@ -178,3 +178,7 @@ backup were both back as they had been, and chat still answered.
 
 To go back to the version you came from as well, check it out and run
 `llmport upgrade --no-backup` to rebuild it.
+
+A backup older than a cluster doesn't have that cluster in it, but the
+machines are still running it. Take it over from **Clusters** instead of
+recreating it. See [Taking over clusters your machines still run](taking-over-clusters.md).
