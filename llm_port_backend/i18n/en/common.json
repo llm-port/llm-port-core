@@ -1947,7 +1947,8 @@
       "delete_running": "It is running. It will be stopped first, so nothing is left behind on its machines, and then deleted. The machines stay enrolled.",
       "delete_stopped": "The cluster is removed. Its machines stay enrolled and can join another.",
       "remove_title": "Remove this machine?",
-      "remove_message": "{{name}} will leave the cluster. Its share of any running model stops."
+      "remove_message": "{{name}} will leave the cluster. Its share of any running model stops.",
+      "page_title": "Cluster"
     }
   },
   "inference": {
@@ -2054,7 +2055,8 @@
       "traffic_failed_empty": "A failure rate over no requests is unknown, not zero.",
       "traffic_window_one": "Measured at the gateway, last minute",
       "traffic_window_other": "Measured at the gateway, last {{count}} minutes",
-      "engine_reported": "Reported by the engine"
+      "engine_reported": "Reported by the engine",
+      "page_title": "Deployment"
     },
     "engine": {
       "title": "Engine settings",
@@ -2284,7 +2286,9 @@
     "kept_note": "This server already keeps this model: nothing is downloaded from Hugging Face.",
     "busy_warning": "Not every copy fits in the memory free right now (room for {{count}}). The rest start when other models make room.",
     "creating": "Creating the deployment…",
-    "host": "Host"
+    "host": "Host",
+    "revision_label": "Revision (optional)",
+    "revision_help": "A branch, tag or commit on Hugging Face. Leave empty for the latest."
   },
   "marketplace": {
     "title": "Model marketplace",
@@ -2311,7 +2315,7 @@
       "recent": "Newest"
     },
     "only_fits": "Only show models that fit",
-    "local_empty": "This server keeps no models from Hugging Face yet.",
+    "local_empty": "This server keeps no models yet. Host one from Recommended or Search, or add one from a path on this server.",
     "search_empty": "No models found.",
     "show_unrunnable_one": "Show {{count}} model vLLM cannot serve",
     "show_unrunnable_other": "Show {{count}} models vLLM cannot serve",
@@ -2410,7 +2414,9 @@
       "files_other": "{{count}} files · {{size}}",
       "all_files_one": "Show all {{count}} file",
       "all_files_other": "Show all {{count}} files",
-      "fewer_files": "Show fewer"
+      "fewer_files": "Show fewer",
+      "download_only": "Download to this server",
+      "download_started": "Downloading to this server. Follow it under On this server; it carries on if you leave."
     },
     "blurb": {
       "tiny_verified": "The smallest useful chat model, tested on this setup: the quickest way to see a deployment work end to end.",
@@ -2437,6 +2443,49 @@
       "dropped": "Not used here (it names files from vLLM's source, or JSON options):",
       "opt_in_title": "Optional, from the recipe:",
       "opt_in_manual": "The recipe also offers, set by hand if you need it: {{features}}."
+    },
+    "kept": {
+      "summary_one": "{{count}} model on this server · {{size}}",
+      "summary_other": "{{count}} models on this server · {{size}}",
+      "scan": "Look for models already on this server",
+      "scan_found_one": "Found {{count}} model already in this server's model store and added it.",
+      "scan_found_other": "Found {{count}} models already in this server's model store and added them.",
+      "scan_none": "Nothing new in this server's model store.",
+      "add_path": "Add from a path",
+      "add_path_title": "Add a model from a path on this server",
+      "add_path_help": "A folder on the LLM.Port server that holds a model's files: its config.json and weights. The files stay where they are and are never deleted by LLM.Port.",
+      "path_label": "Folder on this server",
+      "name_label": "Name",
+      "added": "Added {{name}}.",
+      "from_path": "From a path on this server",
+      "ready": "Ready",
+      "on_disk": "{{size}} on this server",
+      "size_unknown": "Size not recorded",
+      "used_by": "Used by",
+      "unused": "Nothing yet.",
+      "deployment_on": "{{name}} on {{cluster}}",
+      "deployment_removing": "{{name}} (being removed)",
+      "runtime": "{{name}} ({{status}})",
+      "delete_title": "Delete {{name}}?",
+      "delete_in_use": "It is still in use by {{names}}. Delete those first; one being removed from its cluster lets go within a minute.",
+      "delete_confirm": "It is removed from this server's list of models. Deployments cannot use it any more.",
+      "delete_files": "Also delete its files from this server",
+      "delete_files_size": "Also delete its files from this server (frees {{size}})",
+      "delete_path_kept": "Its files were added from a path and are left where they are.",
+      "deleted": "Deleted {{name}}.",
+      "deleted_with_files": "Deleted {{name}} and its files."
+    },
+    "downloads": {
+      "title": "Downloads",
+      "help": "Downloads run on the server. Leave this page and come back: they carry on, and this shows where they have got to.",
+      "queued": "Waiting to start",
+      "progress": "{{pct}}%",
+      "cancel": "Cancel",
+      "canceled": "Canceled.",
+      "failed": "Failed: {{error}}",
+      "retry": "Try again",
+      "chip_one": "{{count}} downloading",
+      "chip_other": "{{count}} downloading"
     }
   },
   "container_resources": {
@@ -2456,5 +2505,15 @@
     "cpus_help": "CPU cores the container may use. Empty: no limit.",
     "port": "Port inside the container",
     "port_help": "Where vLLM listens inside the container. Empty: 8000."
+  },
+  "page_help": {
+    "marketplace": {
+      "title": "Model marketplace",
+      "description": "Find a model on Hugging Face, see whether it fits your clusters, host it, and manage the models this server keeps.",
+      "action_find": "Browse the recommended models, or search Hugging Face.",
+      "action_fit": "Pick a cluster: every model says whether it fits, and how.",
+      "action_host": "Host a model: choose the cluster, the size of each copy and vLLM's settings.",
+      "action_manage": "On this server: follow downloads, add models from a path, delete what is no longer needed."
+    }
   }
 }

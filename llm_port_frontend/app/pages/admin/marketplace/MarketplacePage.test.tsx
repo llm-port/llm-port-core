@@ -60,6 +60,7 @@ function renderPage(url = "/admin/marketplace") {
 
 beforeEach(() => {
   vi.spyOn(marketplaceApi, "clusters").mockResolvedValue([PAIR]);
+  vi.spyOn(marketplaceApi, "kept").mockResolvedValue({ items: [] });
   vi.spyOn(llmSettings, "getHFToken").mockResolvedValue({
     configured: false, source: null, storage_safe: true, check: null, username: null, token_name: null, role: null,
   });
@@ -131,5 +132,22 @@ describe("MarketplacePage", () => {
 
     await userEvent.click(screen.getByTestId("market-task-embedding"));
     await waitFor(() => expect(search).toHaveBeenLastCalledWith(expect.objectContaining({ task: "embedding" })));
+  });
+
+  it("says from any tab that something is downloading, and takes you to it", async () => {
+    vi.spyOn(marketplaceApi, "recommended").mockResolvedValue({ hub: "online", cluster_id: null, groups: [], items: [] });
+    vi.spyOn(marketplaceApi, "kept").mockResolvedValue({
+      items: [{
+        model_id: "m9", display_name: "Qwen3-8B", hf_repo_id: "Qwen/Qwen3-8B", hf_revision: null, source: "huggingface",
+        status: "downloading", created_at: null, size_bytes: null, deployments: [], runtimes: [],
+        download: { job_id: "j9", status: "running", progress: 63, error: null, updated_at: null },
+      }],
+    });
+    renderPage();
+
+    const chip = await screen.findByTestId("market-downloads-chip");
+    expect(chip).toHaveTextContent("1 downloading");
+    await userEvent.click(chip);
+    expect(await screen.findByTestId("download-m9")).toHaveTextContent("63%");
   });
 });

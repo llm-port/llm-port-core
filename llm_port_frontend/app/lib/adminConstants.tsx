@@ -38,7 +38,6 @@ import StorefrontIcon from "@mui/icons-material/Storefront";
 import DescriptionIcon from "@mui/icons-material/Description";
 import LlmIcon from "~/components/LlmIcon";
 import SettingsRemoteIcon from "@mui/icons-material/SettingsRemote";
-import ModelTrainingIcon from "@mui/icons-material/ModelTraining";
 import DownloadIcon from "@mui/icons-material/Download";
 import ScheduleIcon from "@mui/icons-material/Schedule";
 import SettingsIcon from "@mui/icons-material/Settings";
@@ -271,12 +270,6 @@ export const NAV: NavEntry[] = [
         labelKey: "nav.providers",
         icon: <AccountTreeIcon />,
         permission: "llm.providers:read",
-      },
-      {
-        to: "/admin/llm/models",
-        labelKey: "nav.models",
-        icon: <ModelTrainingIcon />,
-        permission: "llm.models:read",
       },
       {
         to: "/admin/llm/endpoint",
@@ -522,21 +515,19 @@ export function adminPageTitle(
   if (pathname.startsWith("/admin/stacks")) return t("stacks.title");
   if (pathname.startsWith("/admin/llm/providers"))
     return t("llm_providers.title");
-  if (pathname.startsWith("/admin/llm/models/"))
-    return t("llm_model_detail.page_title");
-  if (pathname.startsWith("/admin/llm/models")) return t("llm_models.title");
+  if (pathname.startsWith("/admin/llm/models")) return t("marketplace.title");
+  if (pathname.startsWith("/admin/marketplace")) return t("marketplace.title");
   if (pathname.startsWith("/admin/llm/runtimes/"))
     return t("llm_runtime_detail.page_title");
   if (pathname.startsWith("/admin/llm/runtimes"))
     return t("llm_providers.title");
-  if (pathname.startsWith("/admin/clusters/")) return "Cluster";
+  if (pathname.startsWith("/admin/clusters/")) return t("clusters.detail.page_title");
   if (pathname.startsWith("/admin/clusters")) return t("nav.clusters");
-  if (pathname.startsWith("/admin/deployments/")) return "Deployment";
+  if (pathname.startsWith("/admin/deployments/")) return t("inference.detail.page_title");
   if (pathname.startsWith("/admin/deployments")) return t("nav.deployments");
   if (pathname.startsWith("/admin/nodes/onboarding")) return t("nodes.add_node");
   if (pathname.startsWith("/admin/nodes/profiles")) return t("nav.node_profiles");
   if (pathname.startsWith("/admin/nodes")) return t("nodes.fleet_title");
-  if (pathname.startsWith("/admin/llm/jobs")) return t("scheduler.title");
   if (pathname.startsWith("/admin/scheduler")) return t("scheduler.title");
   if (pathname.startsWith("/admin/llm/endpoint")) return t("nav.endpoint");
   if (pathname.startsWith("/admin/pii/dashboard"))

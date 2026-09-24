@@ -178,6 +178,7 @@ async def scan_local_models(
 @router.delete("/{model_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_model(
     model_id: uuid.UUID,
+    files: bool = False,
     user: User = Depends(require_permission("llm.models", "delete")),
     llm_service: LLMService = Depends(get_llm_service),
     model_dao: ModelDAO = Depends(),
@@ -185,13 +186,18 @@ async def delete_model(
     artifact_dao: ArtifactDAO = Depends(),
     audit_dao: AuditDAO = Depends(),
 ) -> None:
-    """Delete a model, cancel active jobs, and remove all related data."""
+    """Delete a model, cancel active jobs, and remove all related data.
+
+    ``files=true`` also removes a downloaded model's files from this server's
+    model store (never the files of a model registered from a path).
+    """
     try:
         await llm_service.delete_model(
             model_dao,
             model_id,
             job_dao=job_dao,
             artifact_dao=artifact_dao,
+            remove_files=files,
         )
     except ValueError as exc:
         raise HTTPException(

@@ -66,6 +66,7 @@ async def test_do_download_success(
     model_dao.set_status = AsyncMock()
     job_dao = MagicMock()
     job_dao.update_progress = AsyncMock()
+    job_dao.status_of = AsyncMock(return_value=DownloadJobStatus.RUNNING)
     artifact_dao = MagicMock()
     artifact_dao.create_batch = AsyncMock()
 
@@ -113,6 +114,7 @@ async def test_do_download_no_artifacts_skips_batch(
     model_dao.set_status = AsyncMock()
     job_dao = MagicMock()
     job_dao.update_progress = AsyncMock()
+    job_dao.status_of = AsyncMock(return_value=DownloadJobStatus.RUNNING)
     artifact_dao = MagicMock()
     artifact_dao.create_batch = AsyncMock()
 
@@ -234,3 +236,81 @@ async def test_download_model_task_invalid_uuid_raises(
             None,
             _TARGET,
         )
+
+
+# -- progress follows bytes, and cancel stops the download ------------------
+
+
+def _fake_hub(monkeypatch: pytest.MonkeyPatch, sizes: dict[str, int], seen: list[str]) -> None:
+    import huggingface_hub
+    from types import SimpleNamespace
+
+    class _Api:
+        def __init__(self, token: str | None = None) -> None:
+            pass
+
+        def model_info(self, repo_id: str, revision: str | None = None, files_metadata: bool = False):
+            return SimpleNamespace(
+                siblings=[SimpleNamespace(rfilename=n, size=b) for n, b in sizes.items()], sha="abc123",
+            )
+
+    def _download(repo_id: str, filename: str, **_: object) -> str:
+        seen.append(filename)
+        return filename
+
+    monkeypatch.setattr(huggingface_hub, "HfApi", _Api)
+    monkeypatch.setattr(huggingface_hub, "hf_hub_download", _download)
+
+
+def test_progress_follows_the_bytes_not_the_file_count(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    """One 16 GB weights file and nine small ones: counting files read 90% before the weights started."""
+    sizes = {f"small-{i}.json": 1_000 for i in range(9)} | {"model.safetensors": 16_000_000_000}
+    seen: list[str] = []
+    _fake_hub(monkeypatch, sizes, seen)
+    reported: list[int] = []
+
+    tasks_mod._run_download_sync("org/m", "main", str(tmp_path), None, reported.append)
+
+    assert len(seen) == 10
+    small_done = [pct for pct, name in zip(reported, seen) if name.startswith("small")]
+    assert max(small_done) == 0, "nine small files are almost none of the bytes"
+    assert reported[-1] == 85
+
+
+def test_a_canceled_download_stops_before_the_next_file(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    import threading
+
+    seen: list[str] = []
+    _fake_hub(monkeypatch, {"a.safetensors": 10, "b.safetensors": 10, "c.safetensors": 10}, seen)
+    canceled = threading.Event()
+
+    def progress(pct: int) -> None:
+        canceled.set()  # the job is canceled while the first file downloads
+
+    with pytest.raises(tasks_mod.DownloadCanceled):
+        tasks_mod._run_download_sync("org/m", "main", str(tmp_path), None, progress, canceled)
+    assert seen == ["a.safetensors"]
+
+
+async def test_a_canceled_job_leaves_the_model_failed_not_available(monkeypatch: pytest.MonkeyPatch) -> None:
+    model_dao = MagicMock()
+    model_dao.set_status = AsyncMock()
+    job_dao = MagicMock()
+    job_dao.update_progress = AsyncMock()
+    job_dao.status_of = AsyncMock(return_value=DownloadJobStatus.CANCELED)
+    monkeypatch.setattr(llm_dao_mod, "ModelDAO", lambda session: model_dao)
+    monkeypatch.setattr(llm_dao_mod, "DownloadJobDAO", lambda session: job_dao)
+    monkeypatch.setattr(llm_dao_mod, "ArtifactDAO", lambda session: MagicMock())
+
+    def _canceled(*_a: object, **_k: object) -> str:
+        raise tasks_mod.DownloadCanceled("org/m")
+
+    monkeypatch.setattr(tasks_mod, "_run_download_sync", _canceled)
+    result = await tasks_mod._do_download(
+        session=_fake_session(), model_id=_MODEL_ID, job_id=_JOB_ID, hf_repo_id=_HF_REPO,
+        hf_revision=None, target_dir=_TARGET, hf_token=None,
+    )
+    assert result == {"status": "canceled"}
+    model_dao.set_status.assert_awaited_once_with(_MODEL_ID, ModelStatus.FAILED)
+    assert all(call.args[2] is not DownloadJobStatus.SUCCESS for call in job_dao.update_progress.await_args_list)
+

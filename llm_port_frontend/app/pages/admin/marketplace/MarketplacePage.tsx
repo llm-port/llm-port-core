@@ -7,12 +7,14 @@
  * of one, several, or not at all -- so the operator picks from what will run
  * rather than finding out after a download.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useSearchParams } from "react-router";
 
+import { models as modelsApi, type Model } from "~/api/llm";
 import {
   marketplaceApi,
+  type KeptModel,
   type MarketCluster,
   type MarketList,
   type MarketModel,
@@ -28,6 +30,7 @@ import { useCan } from "~/lib/useCan";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
+import Chip from "@mui/material/Chip";
 import CircularProgress from "@mui/material/CircularProgress";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import Grid from "@mui/material/Grid";
@@ -42,8 +45,10 @@ import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import Typography from "@mui/material/Typography";
 
+import DownloadingIcon from "@mui/icons-material/Downloading";
 import SearchIcon from "@mui/icons-material/Search";
 
+import { KeptModels, isDownloading } from "./KeptModels";
 import { ModelCard } from "./ModelCard";
 import { ModelDetailDrawer } from "./ModelDetailDrawer";
 
@@ -51,6 +56,23 @@ type TabId = "recommended" | "search" | "local";
 const TABS: TabId[] = ["recommended", "search", "local"];
 const SORTS: MarketSort[] = ["trending", "downloads", "likes", "recent"];
 const TASKS: ModelTask[] = ["chat", "embedding", "vision"];
+
+/** What the host dialog needs of a kept model. */
+function asModel(k: KeptModel): Model {
+  return {
+    id: k.model_id,
+    display_name: k.display_name,
+    source: k.source as Model["source"],
+    hf_repo_id: k.hf_repo_id,
+    hf_revision: k.hf_revision,
+    license_ack_required: false,
+    tags: null,
+    status: k.status as Model["status"],
+    instances: [],
+    created_at: k.created_at ?? "",
+    updated_at: k.created_at ?? "",
+  };
+}
 
 function fits(model: MarketModel): boolean {
   return model.runnable && (model.fit?.status === "fits" || model.fit?.status === "unknown" || !model.fit);
@@ -103,6 +125,7 @@ export default function MarketplacePage() {
   const [showUnrunnable, setShowUnrunnable] = useState(false);
   const [openRepo, setOpenRepo] = useState<string | null>(null);
   const [hostRepo, setHostRepo] = useState<string | null>(null);
+  const [hostKept, setHostKept] = useState<KeptModel | null>(null);
 
   useEffect(() => {
     const handle = window.setTimeout(() => setDebounced(query.trim()), 400);
@@ -120,13 +143,38 @@ export default function MarketplacePage() {
 
   const list = useAsyncData<MarketList | null>(
     () => {
+      if (tab === "local") return Promise.resolve(null);
       if (tab === "recommended") return marketplaceApi.recommended(clusterId);
-      if (tab === "local") return marketplaceApi.local(clusterId);
       return marketplaceApi.search({ q: debounced, sort, task, clusterId, limit: 48 });
     },
     [tab, clusterId, debounced, sort, task],
     { initialValue: null },
   );
+
+  // The models this server keeps, and their downloads: read on every tab for
+  // the downloads chip, every few seconds while anything moves.
+  const kept = useAsyncData(() => marketplaceApi.kept().then((r) => r.items), [], {
+    initialValue: [] as KeptModel[],
+  });
+  const activeDownloads = kept.data.filter(isDownloading).length;
+  useEffect(() => {
+    const handle = window.setInterval(() => void kept.refresh(true), activeDownloads > 0 ? 3000 : 30000);
+    return () => window.clearInterval(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeDownloads]);
+
+  // Models copied into the server's cache by hand are picked up once per
+  // visit, as the old models page did on every load.
+  const scanned = useRef(false);
+  useEffect(() => {
+    if (tab !== "local" || scanned.current || !can("llm.models:create")) return;
+    scanned.current = true;
+    modelsApi
+      .scanLocal()
+      .then((r) => (r.imported_count > 0 ? kept.refresh(true) : undefined))
+      .catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
 
   function setTab(next: TabId) {
     const p = new URLSearchParams(params);
@@ -196,6 +244,15 @@ export default function MarketplacePage() {
                 </MenuItem>
               ))}
             </TextField>
+          )}
+          {activeDownloads > 0 && (
+            <Chip
+              icon={<DownloadingIcon />}
+              color="info"
+              label={t("marketplace.downloads.chip", { count: activeDownloads })}
+              onClick={() => setTab("local")}
+              data-testid="market-downloads-chip"
+            />
           )}
           <HuggingFaceAccessButton onChanged={() => void list.refresh(true)} />
         </Stack>
@@ -282,7 +339,17 @@ export default function MarketplacePage() {
         />
       )}
 
-      {list.loading && !list.data ? (
+      {tab === "local" ? (
+        <KeptModels
+          items={kept.data}
+          loading={kept.loading}
+          error={kept.error}
+          onChanged={() => kept.refresh(true)}
+          onHost={(k) => setHostKept(k)}
+          onOpen={open}
+          can={(permission) => can(permission)}
+        />
+      ) : list.loading && !list.data ? (
         <Loading />
       ) : tab === "recommended" ? (
         <Stack spacing={3}>
@@ -304,7 +371,7 @@ export default function MarketplacePage() {
         </Stack>
       ) : shown.length === 0 && !list.loading ? (
         <Typography variant="body2" color="text.secondary" sx={{ py: 4, textAlign: "center" }}>
-          {tab === "local" ? t("marketplace.local_empty") : t("marketplace.search_empty")}
+          {t("marketplace.search_empty")}
         </Typography>
       ) : (
         <Box sx={{ position: "relative" }}>
@@ -337,6 +404,7 @@ export default function MarketplacePage() {
         onClose={() => setOpenRepo(null)}
         onHost={host}
         canHost={canHost}
+        onDownloaded={() => void kept.refresh(true)}
       />
       <HostModelDialog
         open={hostRepo !== null}
@@ -345,6 +413,17 @@ export default function MarketplacePage() {
         onClose={() => setHostRepo(null)}
         onHosted={(id) => {
           setHostRepo(null);
+          navigate(`/admin/deployments/${id}`);
+        }}
+      />
+      <HostModelDialog
+        open={hostKept !== null}
+        models={hostKept ? [asModel(hostKept)] : []}
+        keptModelId={hostKept?.model_id ?? null}
+        clusterId={clusterId}
+        onClose={() => setHostKept(null)}
+        onHosted={(id) => {
+          setHostKept(null);
           navigate(`/admin/deployments/${id}`);
         }}
       />

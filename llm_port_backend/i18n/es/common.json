@@ -1949,7 +1949,8 @@
       "delete_running": "Está en ejecución. Primero se detendrá, para no dejar nada en sus máquinas, y luego se eliminará. Las máquinas siguen registradas.",
       "delete_stopped": "Se elimina el clúster. Sus máquinas siguen registradas y pueden unirse a otro.",
       "remove_title": "¿Quitar esta máquina?",
-      "remove_message": "{{name}} saldrá del clúster. Su parte de cualquier modelo en ejecución se detiene."
+      "remove_message": "{{name}} saldrá del clúster. Su parte de cualquier modelo en ejecución se detiene.",
+      "page_title": "Clúster"
     }
   },
   "inference": {
@@ -2056,7 +2057,8 @@
       "traffic_failed_empty": "Una tasa de fallos sin solicitudes es desconocida, no cero.",
       "traffic_window_one": "Medido en la pasarela, último minuto",
       "traffic_window_other": "Medido en la pasarela, últimos {{count}} minutos",
-      "engine_reported": "Informado por el motor"
+      "engine_reported": "Informado por el motor",
+      "page_title": "Despliegue"
     },
     "engine": {
       "title": "Ajustes del motor",
@@ -2286,7 +2288,9 @@
     "kept_note": "Este servidor ya guarda este modelo: no se descarga nada de Hugging Face.",
     "busy_warning": "No todas las copias caben en la memoria libre ahora mismo (hay sitio para {{count}}). Las demás arrancan cuando otros modelos dejen espacio.",
     "creating": "Creando el despliegue…",
-    "host": "Alojar"
+    "host": "Alojar",
+    "revision_label": "Revisión (opcional)",
+    "revision_help": "Una rama, etiqueta o commit en Hugging Face. Déjelo vacío para la más reciente."
   },
   "marketplace": {
     "title": "Mercado de modelos",
@@ -2313,7 +2317,7 @@
       "recent": "Más recientes"
     },
     "only_fits": "Mostrar solo los modelos que caben",
-    "local_empty": "Este servidor aún no guarda modelos de Hugging Face.",
+    "local_empty": "Este servidor aún no guarda modelos. Aloje uno desde Recomendados o Buscar, o añada uno desde una ruta de este servidor.",
     "search_empty": "No se encontraron modelos.",
     "show_unrunnable_one": "Mostrar {{count}} modelo que vLLM no puede servir",
     "show_unrunnable_other": "Mostrar {{count}} modelos que vLLM no puede servir",
@@ -2412,7 +2416,9 @@
       "files_other": "{{count}} archivos · {{size}}",
       "all_files_one": "Mostrar {{count}} archivo",
       "all_files_other": "Mostrar los {{count}} archivos",
-      "fewer_files": "Mostrar menos"
+      "fewer_files": "Mostrar menos",
+      "download_only": "Descargar en este servidor",
+      "download_started": "Descargando en este servidor. Sígalo en «En este servidor»; continúa aunque salga de la página."
     },
     "blurb": {
       "tiny_verified": "El modelo de chat útil más pequeño, probado en esta configuración: la forma más rápida de ver un despliegue funcionar de principio a fin.",
@@ -2439,6 +2445,49 @@
       "dropped": "No se usa aquí (menciona archivos del código fuente de vLLM u opciones JSON):",
       "opt_in_title": "Opcional, de la receta:",
       "opt_in_manual": "La receta también ofrece, para ajustar a mano si lo necesita: {{features}}."
+    },
+    "kept": {
+      "summary_one": "{{count}} modelo en este servidor · {{size}}",
+      "summary_other": "{{count}} modelos en este servidor · {{size}}",
+      "scan": "Buscar modelos que ya estén en este servidor",
+      "scan_found_one": "Se encontró {{count}} modelo en el almacén de modelos de este servidor y se añadió.",
+      "scan_found_other": "Se encontraron {{count}} modelos en el almacén de modelos de este servidor y se añadieron.",
+      "scan_none": "Nada nuevo en el almacén de modelos de este servidor.",
+      "add_path": "Añadir desde una ruta",
+      "add_path_title": "Añadir un modelo desde una ruta de este servidor",
+      "add_path_help": "Una carpeta del servidor LLM.Port con los archivos de un modelo: su config.json y sus pesos. Los archivos se quedan donde están y LLM.Port nunca los borra.",
+      "path_label": "Carpeta en este servidor",
+      "name_label": "Nombre",
+      "added": "{{name}} añadido.",
+      "from_path": "Desde una ruta de este servidor",
+      "ready": "Listo",
+      "on_disk": "{{size}} en este servidor",
+      "size_unknown": "Tamaño no registrado",
+      "used_by": "Usado por",
+      "unused": "Nada todavía.",
+      "deployment_on": "{{name}} en {{cluster}}",
+      "deployment_removing": "{{name}} (retirándose)",
+      "runtime": "{{name}} ({{status}})",
+      "delete_title": "¿Eliminar {{name}}?",
+      "delete_in_use": "Todavía lo usa {{names}}. Elimínelos primero; uno que se está retirando de su clúster lo libera en menos de un minuto.",
+      "delete_confirm": "Se quita de la lista de modelos de este servidor. Los despliegues ya no podrán usarlo.",
+      "delete_files": "Eliminar también sus archivos de este servidor",
+      "delete_files_size": "Eliminar también sus archivos de este servidor (libera {{size}})",
+      "delete_path_kept": "Sus archivos se añadieron desde una ruta y se quedan donde están.",
+      "deleted": "{{name}} eliminado.",
+      "deleted_with_files": "{{name}} y sus archivos eliminados."
+    },
+    "downloads": {
+      "title": "Descargas",
+      "help": "Las descargas se ejecutan en el servidor. Salga de esta página y vuelva: continúan, y aquí verá cuánto llevan.",
+      "queued": "Esperando para empezar",
+      "progress": "{{pct}} %",
+      "cancel": "Cancelar",
+      "canceled": "Cancelada.",
+      "failed": "Error: {{error}}",
+      "retry": "Reintentar",
+      "chip_one": "{{count}} descargando",
+      "chip_other": "{{count}} descargando"
     }
   },
   "container_resources": {
@@ -2458,5 +2507,15 @@
     "cpus_help": "Núcleos de CPU que puede usar el contenedor. Vacío: sin límite.",
     "port": "Puerto dentro del contenedor",
     "port_help": "Dónde escucha vLLM dentro del contenedor. Vacío: 8000."
+  },
+  "page_help": {
+    "marketplace": {
+      "title": "Mercado de modelos",
+      "description": "Encuentre un modelo en Hugging Face, compruebe si cabe en sus clústeres, alójelo y gestione los modelos de este servidor.",
+      "action_find": "Explore los modelos recomendados o busque en Hugging Face.",
+      "action_fit": "Elija un clúster: cada modelo indica si cabe y cómo.",
+      "action_host": "Aloje un modelo: elija el clúster, el tamaño de cada copia y los ajustes de vLLM.",
+      "action_manage": "En este servidor: siga las descargas, añada modelos desde una ruta y elimine lo que ya no necesite."
+    }
   }
 }

@@ -17,8 +17,8 @@ the ones that matter for the model already filled in.
   newest. Models vLLM cannot serve are hidden, with a button to show them and
   the reason. Examples: GGUF files (they are for llama.cpp and Ollama), MLX
   weights, and repositories with no weights.
-- **On this server.** Models this server has already downloaded. Hosting one
-  of these downloads nothing.
+- **On this server.** Models this server keeps, and their downloads. Hosting
+  one of these downloads nothing. See [On this server](#on-this-server).
 
 ## What "fits" means
 
@@ -115,9 +115,36 @@ or in **Settings → LLM → Hugging Face**.
 - `LLM_PORT_BACKEND_HF_TOKEN` in the environment still works. A token saved
   in the interface takes its place.
 
+## On this server
+
+The **On this server** tab replaces the old **LLM → Models** page. It is
+where the models this server keeps are looked after.
+
+- **Downloads.** Every download shows its progress, measured in bytes, and
+  can be canceled or tried again. A download runs on the server, not in the
+  page. Leave the page, or close the browser, and it carries on. Come back
+  and the tab shows where it has got to. While anything downloads, a chip in
+  the marketplace header says so from every tab. A canceled download stops
+  after the file it is on. Models are split into files of a few GB at most,
+  so that is soon.
+- **Download without hosting.** Open a model and press **Download to this
+  server** to have it ready before anyone deploys it.
+- **Add from a path.** Register a folder on the server that already holds a
+  model's files (its `config.json` and weights). LLM.Port never deletes
+  those files.
+- **Models already in the store.** Models copied into the server's model
+  store by other means are picked up when the tab opens, or with **Look for
+  models already on this server**.
+- **What uses a model.** Each model lists the deployments and legacy
+  runtimes that use it, with links to them.
+- **Delete.** A model a deployment still uses is not deleted. The dialog
+  names the deployments to remove first. For a downloaded model, **Also
+  delete its files from this server** frees its disk space. A model added
+  from a path keeps its files.
+
 ## Without internet access
 
 A server that cannot reach Hugging Face still shows the recommended list and
 the models it keeps, with sizes estimated from their names. Search is not
 available. You can host models that are already on the server, and models
-added from a local path under **LLM → Models**.
+added from a path under **On this server**.

@@ -347,14 +347,16 @@ Downloading Qwen/Qwen3-4B to the LLM.Port server (43%).
 It is copied to the cluster as soon as it is there.
 ```
 
-You can still download it ahead of time in **Models** — worth doing for a big
-model you want ready before anyone deploys it. A model that was *imported*
+You can still download it ahead of time: in the **Model marketplace**, open
+the model and press **Download to this server** — worth doing for a big model
+you want ready before anyone deploys it. A model that was *imported*
 rather than downloaded has no repository to fetch from, so that one does have
 to be on the server first, and the deployment says so if it is not.
 
 If the server's download fails — a gated model without a token, a mistyped
 repository — the deployment shows the reason and waits. Retry the download
-from **Models**; the deployment picks it up once the model is there.
+under **Model marketplace → On this server**; the deployment picks it up once
+the model is there.
 
 ---
 
@@ -528,7 +530,8 @@ Something on the machine already holds Ray's port. Change the cluster's ports
 (Step 2). On a machine that also runs Redis, 6379 is always taken.
 
 **A deployment sits on "Copying the model".**
-The server has no copy to send. Finish the download in **Models** (Step 5).
+The server has no copy to send. Finish the download under **Model
+marketplace → On this server** (Step 5).
 
 **A deployment's copies stay below what was asked for.**
 Read the message on its page. "cannot start: each copy needs …" means the

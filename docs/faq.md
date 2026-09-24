@@ -268,7 +268,8 @@ first. The deployment waits for that and then copies the model to the
 machines, and the page shows the download's progress. If the server's
 download fails (for example a gated model without a token, or a mistyped
 repository), the deployment shows the reason and waits. Retry the download
-from **Models**, and the deployment picks it up once the model is there.
+under **Model marketplace → On this server**, and the deployment picks it up
+once the model is there.
 
 ### The deployment reaches "Starting" and then fails.
 

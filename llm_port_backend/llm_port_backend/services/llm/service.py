@@ -1159,20 +1159,37 @@ class LLMService:
         *,
         job_dao: DownloadJobDAO | None = None,
         artifact_dao: ArtifactDAO | None = None,
-    ) -> None:
-        """Delete a model, its jobs, and artifacts.
+        remove_files: bool = False,
+    ) -> int:
+        """Delete a model, its jobs, and artifacts; with *remove_files*, its files on this server too.
 
         Running / queued jobs are automatically cancelled before deletion.
-        Raises ValueError if the model is used by a currently-running runtime.
+        Raises ValueError if the model is in use: by a running runtime, or by
+        a cluster deployment (the database would refuse the delete anyway, as
+        an error nobody could read). Returns the bytes of files removed.
         """
         if await model_dao.is_used_by_running_runtime(model_id):
             raise ValueError("Cannot delete model that is used by a running runtime")
+        in_use = await self._deployments_using(model_dao.session, model_id)
+        if in_use:
+            raise ValueError(
+                "The model is used by deployment " + ", ".join(in_use)
+                + ". Delete the deployment first; one being removed from its cluster lets go within a minute."
+            )
+
+        model = await model_dao.get(model_id)
+        store_dir = self._own_store_dir(model) if (remove_files and model is not None) else None
+        if store_dir is not None and model is not None and await self._repo_kept_elsewhere(model_dao, model):
+            store_dir = None  # another record still uses these files
 
         # Cancel any active download jobs first
         if job_dao is not None:
             cancelled = await job_dao.cancel_active_for_model(model_id)
             if cancelled:
                 log.info("Cancelled %d active jobs for model %s", cancelled, model_id)
+                # A download stops at its next file, and would write into a
+                # directory removed under it: leave the files this time.
+                store_dir = None
             await job_dao.delete_by_model(model_id)
 
         # Delete artifacts
@@ -1183,6 +1200,50 @@ class LLMService:
         deleted = await model_dao.delete(model_id)
         if not deleted:
             raise ValueError(f"Model {model_id} not found")
+
+        if store_dir is None:
+            return 0
+        return await asyncio.to_thread(_remove_tree, store_dir)
+
+    @staticmethod
+    async def _deployments_using(session: Any, model_id: uuid.UUID) -> list[str]:
+        """Names of the cluster deployments using *model_id*, deleted-but-not-yet-gone included."""
+        from sqlalchemy import select  # noqa: PLC0415
+
+        from llm_port_backend.db.models.inference import InferenceDeployment  # noqa: PLC0415
+
+        rows = await session.execute(select(InferenceDeployment.name).where(InferenceDeployment.model_id == model_id))
+        return [str(name) for name in rows.scalars().all()]
+
+    @staticmethod
+    async def _repo_kept_elsewhere(model_dao: ModelDAO, model: LLMModel) -> bool:
+        """Whether another model record uses the same repository, and so the same files."""
+        from sqlalchemy import func, select  # noqa: PLC0415
+
+        count = await model_dao.session.scalar(
+            select(func.count()).select_from(LLMModel).where(
+                LLMModel.hf_repo_id == model.hf_repo_id, LLMModel.id != model.id,
+            )
+        )
+        return bool(count)
+
+    @staticmethod
+    def _own_store_dir(model: LLMModel) -> Path | None:
+        """The model's directory in this server's model store, when removing it is ours to do.
+
+        Only a model this server downloaded from Hugging Face: one registered
+        from a path is the operator's own files, and anything outside the
+        store is not ours to remove.
+        """
+        from llm_port_backend.settings import settings  # noqa: PLC0415
+
+        if not model.hf_repo_id or str(getattr(model.source, "value", model.source)) != "huggingface":
+            return None
+        root = Path(settings.model_store_root).resolve()
+        target = (root / f"models--{model.hf_repo_id.replace('/', '--')}").resolve()
+        if root not in target.parents or not target.is_dir():
+            return None
+        return target
 
     # ------------------------------------------------------------------
     # Helpers
@@ -1252,3 +1313,21 @@ class LLMService:
         from llm_port_backend.services.llm.artifacts import build_model_sync_payload
 
         return build_model_sync_payload(model, source=source)
+
+
+def _remove_tree(path: Path) -> int:
+    """Remove *path*; the bytes it held. Best effort: what cannot be removed is logged."""
+    import shutil  # noqa: PLC0415
+
+    size = 0
+    for file in path.rglob("*"):
+        try:
+            if file.is_file() and not file.is_symlink():
+                size += file.stat().st_size
+        except OSError:
+            pass
+    try:
+        shutil.rmtree(path)
+    except OSError:
+        log.warning("Could not remove every file under %s", path, exc_info=True)
+    return size

@@ -35,8 +35,9 @@ export default [
     route("/admin/groups", "pages/admin/GroupsPage.tsx"),
     route("/admin/auth-providers", "pages/admin/AuthProvidersPage.tsx"),
     route("/admin/llm/providers", "pages/admin/llm/ProvidersPage.tsx"),
-    route("/admin/llm/models", "pages/admin/llm/ModelsPage.tsx"),
-    route("/admin/llm/models/:id", "pages/admin/llm/ModelDetailPage.tsx"),
+    // The models pages moved into the marketplace; old links land there.
+    route("/admin/llm/models", "pages/admin/marketplace/ModelsRedirect.tsx", { id: "legacy-models" }),
+    route("/admin/llm/models/:id", "pages/admin/marketplace/ModelsRedirect.tsx", { id: "legacy-model-detail" }),
     route("/admin/llm/runtimes", "pages/admin/llm/RuntimesPage.tsx"),
     route("/admin/llm/runtimes/:id", "pages/admin/llm/RuntimeDetailPage.tsx"),
     // Clusters and deployments - separate from the legacy Runtime screens

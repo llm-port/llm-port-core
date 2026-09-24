@@ -1949,7 +1949,8 @@
       "delete_running": "Er läuft. Er wird zuerst gestoppt, damit nichts auf den Maschinen zurückbleibt, und dann gelöscht. Die Maschinen bleiben registriert.",
       "delete_stopped": "Der Cluster wird entfernt. Seine Maschinen bleiben registriert und können einem anderen beitreten.",
       "remove_title": "Diese Maschine entfernen?",
-      "remove_message": "{{name}} verlässt den Cluster. Ihr Anteil an laufenden Modellen wird beendet."
+      "remove_message": "{{name}} verlässt den Cluster. Ihr Anteil an laufenden Modellen wird beendet.",
+      "page_title": "Cluster"
     }
   },
   "inference": {
@@ -2056,7 +2057,8 @@
       "traffic_failed_empty": "Eine Fehlerrate ohne Anfragen ist unbekannt, nicht null.",
       "traffic_window_one": "Am Gateway gemessen, letzte Minute",
       "traffic_window_other": "Am Gateway gemessen, letzte {{count}} Minuten",
-      "engine_reported": "Von der Engine gemeldet"
+      "engine_reported": "Von der Engine gemeldet",
+      "page_title": "Bereitstellung"
     },
     "engine": {
       "title": "Engine-Einstellungen",
@@ -2286,7 +2288,9 @@
     "kept_note": "Dieser Server hält das Modell bereits vor: Von Hugging Face wird nichts heruntergeladen.",
     "busy_warning": "Nicht jede Kopie passt in den gerade freien Speicher (Platz für {{count}}). Die übrigen starten, sobald andere Modelle Platz machen.",
     "creating": "Bereitstellung wird erstellt…",
-    "host": "Bereitstellen"
+    "host": "Bereitstellen",
+    "revision_label": "Revision (optional)",
+    "revision_help": "Ein Branch, Tag oder Commit auf Hugging Face. Leer lassen für den neuesten Stand."
   },
   "marketplace": {
     "title": "Modell-Marktplatz",
@@ -2313,7 +2317,7 @@
       "recent": "Neueste"
     },
     "only_fits": "Nur passende Modelle zeigen",
-    "local_empty": "Dieser Server hält noch keine Modelle von Hugging Face vor.",
+    "local_empty": "Dieser Server hält noch keine Modelle vor. Stellen Sie eines aus „Empfohlen“ oder der Suche bereit, oder fügen Sie eines aus einem Pfad auf diesem Server hinzu.",
     "search_empty": "Keine Modelle gefunden.",
     "show_unrunnable_one": "{{count}} Modell zeigen, das vLLM nicht bedienen kann",
     "show_unrunnable_other": "{{count}} Modelle zeigen, die vLLM nicht bedienen kann",
@@ -2412,7 +2416,9 @@
       "files_other": "{{count}} Dateien · {{size}}",
       "all_files_one": "Alle {{count}} Datei zeigen",
       "all_files_other": "Alle {{count}} Dateien zeigen",
-      "fewer_files": "Weniger zeigen"
+      "fewer_files": "Weniger zeigen",
+      "download_only": "Auf diesen Server herunterladen",
+      "download_started": "Wird auf diesen Server heruntergeladen. Verfolgen Sie es unter „Auf diesem Server“; es läuft weiter, wenn Sie die Seite verlassen."
     },
     "blurb": {
       "tiny_verified": "Das kleinste brauchbare Chat-Modell, auf diesem Aufbau getestet: der schnellste Weg, eine Bereitstellung von Anfang bis Ende laufen zu sehen.",
@@ -2439,6 +2445,49 @@
       "dropped": "Hier nicht verwendet (verweist auf Dateien aus dem vLLM-Quellcode oder JSON-Optionen):",
       "opt_in_title": "Optional, aus dem Rezept:",
       "opt_in_manual": "Das Rezept bietet außerdem an, bei Bedarf von Hand zu setzen: {{features}}."
+    },
+    "kept": {
+      "summary_one": "{{count}} Modell auf diesem Server · {{size}}",
+      "summary_other": "{{count}} Modelle auf diesem Server · {{size}}",
+      "scan": "Nach Modellen suchen, die schon auf diesem Server liegen",
+      "scan_found_one": "{{count}} Modell im Modellspeicher dieses Servers gefunden und hinzugefügt.",
+      "scan_found_other": "{{count}} Modelle im Modellspeicher dieses Servers gefunden und hinzugefügt.",
+      "scan_none": "Nichts Neues im Modellspeicher dieses Servers.",
+      "add_path": "Aus einem Pfad hinzufügen",
+      "add_path_title": "Ein Modell aus einem Pfad auf diesem Server hinzufügen",
+      "add_path_help": "Ein Ordner auf dem LLM.Port-Server mit den Dateien eines Modells: seiner config.json und den Gewichten. Die Dateien bleiben, wo sie sind, und werden von LLM.Port nie gelöscht.",
+      "path_label": "Ordner auf diesem Server",
+      "name_label": "Name",
+      "added": "{{name}} hinzugefügt.",
+      "from_path": "Aus einem Pfad auf diesem Server",
+      "ready": "Bereit",
+      "on_disk": "{{size}} auf diesem Server",
+      "size_unknown": "Größe nicht erfasst",
+      "used_by": "Verwendet von",
+      "unused": "Noch nichts.",
+      "deployment_on": "{{name}} auf {{cluster}}",
+      "deployment_removing": "{{name}} (wird entfernt)",
+      "runtime": "{{name}} ({{status}})",
+      "delete_title": "{{name}} löschen?",
+      "delete_in_use": "Es wird noch verwendet von {{names}}. Löschen Sie diese zuerst; eine Bereitstellung, die gerade von ihrem Cluster entfernt wird, gibt es innerhalb einer Minute frei.",
+      "delete_confirm": "Es wird aus der Modellliste dieses Servers entfernt. Bereitstellungen können es nicht mehr verwenden.",
+      "delete_files": "Auch seine Dateien auf diesem Server löschen",
+      "delete_files_size": "Auch seine Dateien auf diesem Server löschen (gibt {{size}} frei)",
+      "delete_path_kept": "Seine Dateien wurden aus einem Pfad hinzugefügt und bleiben, wo sie sind.",
+      "deleted": "{{name}} gelöscht.",
+      "deleted_with_files": "{{name}} und seine Dateien gelöscht."
+    },
+    "downloads": {
+      "title": "Downloads",
+      "help": "Downloads laufen auf dem Server. Verlassen Sie diese Seite und kommen Sie zurück: Sie laufen weiter, und hier sehen Sie, wie weit sie sind.",
+      "queued": "Wartet auf den Start",
+      "progress": "{{pct}} %",
+      "cancel": "Abbrechen",
+      "canceled": "Abgebrochen.",
+      "failed": "Fehlgeschlagen: {{error}}",
+      "retry": "Erneut versuchen",
+      "chip_one": "{{count}} Download läuft",
+      "chip_other": "{{count}} Downloads laufen"
     }
   },
   "container_resources": {
@@ -2458,5 +2507,15 @@
     "cpus_help": "CPU-Kerne, die der Container nutzen darf. Leer: kein Limit.",
     "port": "Port im Container",
     "port_help": "Wo vLLM im Container lauscht. Leer: 8000."
+  },
+  "page_help": {
+    "marketplace": {
+      "title": "Modell-Marktplatz",
+      "description": "Finden Sie ein Modell auf Hugging Face, sehen Sie, ob es auf Ihre Cluster passt, stellen Sie es bereit und verwalten Sie die Modelle dieses Servers.",
+      "action_find": "Stöbern Sie in den empfohlenen Modellen oder durchsuchen Sie Hugging Face.",
+      "action_fit": "Wählen Sie einen Cluster: Jedes Modell zeigt, ob und wie es passt.",
+      "action_host": "Stellen Sie ein Modell bereit: Cluster, Größe jeder Kopie und vLLM-Einstellungen wählen.",
+      "action_manage": "Auf diesem Server: Downloads verfolgen, Modelle aus einem Pfad hinzufügen, Nicht-mehr-Benötigtes löschen."
+    }
   }
 }

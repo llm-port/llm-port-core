@@ -173,29 +173,81 @@ async def search(
     }
 
 
-@router.get("/local")
-async def kept_models(
-    cluster_id: str | None = None,
+@router.get("/kept")
+async def kept(
     _user: User = Depends(_READ),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
-    """The models this server already keeps: host one without downloading anything."""
-    hardware = await cluster_hardware(session)
-    cluster = _cluster(hardware, cluster_id)
-    local = await _local(session)
-    hub_state = "online"
-    try:
-        cards = await (await _hub(session)).cards_for(sorted(local))
-    except HubUnavailable:
-        hub_state, cards = "offline", {}
+    """Every model this server keeps, for managing them: status, size, download, what uses it.
+
+    One answer for the whole "On this server" view, polled while anything
+    downloads. A download is the worker's job, not the page's: leaving and
+    coming back finds it where it has got to.
+    """
+    from sqlalchemy import func, select  # noqa: PLC0415
+
+    from llm_port_backend.db.models.inference import InferenceDeployment, InferenceEnvironment  # noqa: PLC0415
+    from llm_port_backend.db.models.llm import (  # noqa: PLC0415
+        DownloadJob,
+        LLMModel,
+        LLMRuntime,
+        ModelArtifact,
+        ModelStatus,
+    )
+
+    def _value(v: Any) -> Any:
+        return getattr(v, "value", v)
+
+    models = list((await session.execute(
+        select(LLMModel).where(LLMModel.status != ModelStatus.DELETING).order_by(LLMModel.created_at.desc()),
+    )).scalars())
+    sizes = dict((await session.execute(
+        select(ModelArtifact.model_id, func.coalesce(func.sum(ModelArtifact.size_bytes), 0))
+        .group_by(ModelArtifact.model_id),
+    )).all())
+    latest_jobs: dict[Any, Any] = {}
+    for job in (await session.execute(select(DownloadJob).order_by(DownloadJob.created_at.asc()))).scalars():
+        latest_jobs[job.model_id] = job
+    deployments: dict[Any, list[dict[str, Any]]] = {}
+    rows = await session.execute(
+        select(InferenceDeployment, InferenceEnvironment.name)
+        .join(InferenceEnvironment, InferenceEnvironment.id == InferenceDeployment.environment_id, isouter=True),
+    )
+    for dep, env_name in rows.all():
+        deployments.setdefault(dep.model_id, []).append({
+            "id": str(dep.id),
+            "name": dep.name,
+            "cluster": env_name,
+            "phase": dep.phase,
+            "desired_state": dep.desired_state,
+        })
+    runtimes: dict[Any, list[dict[str, Any]]] = {}
+    for rt in (await session.execute(select(LLMRuntime))).scalars():
+        runtimes.setdefault(rt.model_id, []).append({"id": str(rt.id), "name": rt.name, "status": _value(rt.status)})
+
     items = []
-    for repo_id in sorted(local):
-        card = cards.get(repo_id) or {
-            "repo_id": repo_id, "name": repo_id.split("/")[-1], "author": repo_id.split("/")[0],
-            "weights_bytes": None, "capabilities": [], "task": "chat", "runnable": True, "format": "safetensors",
-        }
-        items.append(_decorate(card, cluster, local))
-    return {"hub": hub_state, "cluster_id": cluster.environment_id if cluster else None, "items": items}
+    for model in models:
+        job = latest_jobs.get(model.id)
+        items.append({
+            "model_id": str(model.id),
+            "display_name": model.display_name,
+            "hf_repo_id": model.hf_repo_id,
+            "hf_revision": model.hf_revision,
+            "source": _value(model.source),
+            "status": _value(model.status),
+            "created_at": model.created_at.isoformat() if model.created_at else None,
+            "size_bytes": int(sizes.get(model.id) or 0) or None,
+            "download": None if job is None else {
+                "job_id": str(job.id),
+                "status": _value(job.status),
+                "progress": job.progress,
+                "error": job.error_message,
+                "updated_at": job.updated_at.isoformat() if job.updated_at else None,
+            },
+            "deployments": deployments.get(model.id, []),
+            "runtimes": runtimes.get(model.id, []),
+        })
+    return {"items": items}
 
 
 @router.get("/models/{repo_id:path}")

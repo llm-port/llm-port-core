@@ -4,11 +4,19 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import uuid
 
 from llm_port_backend.tkq import broker
 
 log = logging.getLogger(__name__)
+
+#: How often the size of the file being downloaded is read for progress.
+_PROGRESS_POLL_SEC = 2.0
+
+
+class DownloadCanceled(Exception):
+    """The download job was canceled while it ran."""
 
 
 async def _resolve_hf_token() -> str | None:
@@ -30,12 +38,21 @@ def _run_download_sync(
     target_dir: str,
     hf_token: str | None,
     progress_callback: object,
+    cancel_event: threading.Event | None = None,
 ) -> str:
-    """Run the HF download in a thread — calls *progress_callback(pct)* periodically.
+    """Run the HF download in a thread -- calls *progress_callback(pct)* as bytes arrive.
 
     Downloads into the standard HuggingFace hub cache structure under
     *target_dir* (used as ``cache_dir``).  Returns the absolute path to
     the snapshot directory that contains the model files.
+
+    Progress follows bytes, not files: a model is mostly one or a few large
+    weight files, and counting files left it on one number for the whole of
+    each. While a file downloads, the size of its ``.incomplete`` blob in the
+    cache is read every couple of seconds. *cancel_event* is checked with each
+    reading and before each file; a file already under way finishes first
+    (the Hub client has no way to stop one), which with sharded weights is
+    at most one shard.
     """
     from pathlib import Path  # noqa: PLC0415
 
@@ -68,17 +85,48 @@ def _run_download_sync(
         hf_revision,
     )
 
-    for idx, sibling in enumerate(siblings, start=1):
-        hf_hub_download(
-            repo_id=hf_repo_id,
-            filename=sibling.rfilename,
-            revision=hf_revision,
-            cache_dir=target_dir,
-            token=hf_token,
-        )
+    total_bytes = sum(int(getattr(s, "size", 0) or 0) for s in siblings)
+    blobs = Path(target_dir) / f"models--{hf_repo_id.replace('/', '--')}" / "blobs"
+    done_bytes = 0
+    done_files = 0
+
+    def _report(partial: int = 0) -> None:
         # 0-85% is downloading, 85-90% is scanning, 90-100% is finalising
-        pct = int((idx / total_files) * 85)
+        if total_bytes > 0:
+            pct = int(min(done_bytes + partial, total_bytes) / total_bytes * 85)
+        else:
+            pct = int(done_files / total_files * 85)
         progress_callback(pct)  # type: ignore[operator]
+
+    stop = threading.Event()
+
+    def _watch() -> None:
+        while not stop.wait(_PROGRESS_POLL_SEC):
+            try:
+                partial = sum(p.stat().st_size for p in blobs.glob("*.incomplete")) if blobs.is_dir() else 0
+            except OSError:
+                partial = 0
+            _report(partial)
+
+    watcher = threading.Thread(target=_watch, name=f"download-progress-{hf_repo_id}", daemon=True)
+    watcher.start()
+    try:
+        for sibling in siblings:
+            if cancel_event is not None and cancel_event.is_set():
+                raise DownloadCanceled(hf_repo_id)
+            hf_hub_download(
+                repo_id=hf_repo_id,
+                filename=sibling.rfilename,
+                revision=hf_revision,
+                cache_dir=target_dir,
+                token=hf_token,
+            )
+            done_bytes += int(getattr(sibling, "size", 0) or 0)
+            done_files += 1
+            _report()
+    finally:
+        stop.set()
+        watcher.join(timeout=_PROGRESS_POLL_SEC * 2)
 
     # Derive the snapshot directory from the HF cache structure:
     # {cache_dir}/models--{org}--{model}/snapshots/{commit_hash}/
@@ -164,9 +212,14 @@ async def _do_download(
 
     _last_pct = 0
     _loop = asyncio.get_running_loop()
+    canceled = threading.Event()
 
     async def _flush_progress(pct: int) -> None:
         nonlocal _last_pct
+        # Canceling only marks the job: this is where the download hears of it.
+        if await job_dao.status_of(job_id) == DownloadJobStatus.CANCELED:
+            canceled.set()
+            return
         if pct <= _last_pct:
             return
         _last_pct = pct
@@ -191,14 +244,22 @@ async def _do_download(
     # Run the blocking HF download in a thread with progress callbacks.
     # target_dir is used as the HF hub cache_dir; the function returns
     # the snapshot directory containing the actual model files.
-    snapshot_dir = await asyncio.to_thread(
-        _run_download_sync,
-        hf_repo_id,
-        revision,
-        target_dir,
-        hf_token,
-        _sync_progress,
-    )
+    try:
+        snapshot_dir = await asyncio.to_thread(
+            _run_download_sync,
+            hf_repo_id,
+            revision,
+            target_dir,
+            hf_token,
+            _sync_progress,
+            canceled,
+        )
+    except DownloadCanceled:
+        # The job already says canceled; the model has no complete copy.
+        await model_dao.set_status(model_id, ModelStatus.FAILED)
+        await session.commit()  # type: ignore[union-attr]
+        log.info("Download canceled: %s", hf_repo_id)
+        return {"status": "canceled"}
 
     # 90%: scanning artifacts
     await _flush_progress(90)

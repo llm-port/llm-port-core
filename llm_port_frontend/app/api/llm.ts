@@ -414,8 +414,9 @@ export const models = {
       body: JSON.stringify(payload),
     });
   },
-  delete(id: string) {
-    return request<void>(`/models/${id}`, { method: "DELETE" });
+  /** ``files``: also remove a downloaded model's files from this server's store. */
+  delete(id: string, options: { files?: boolean } = {}) {
+    return request<void>(`/models/${id}${options.files ? "?files=true" : ""}`, { method: "DELETE" });
   },
   artifacts(id: string) {
     return request<Artifact[]>(`/models/${id}/artifacts`);

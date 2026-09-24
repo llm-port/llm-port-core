@@ -558,6 +558,15 @@ class DownloadJobDAO:
         job.error_message = error_message
         return job
 
+    async def status_of(self, job_id: uuid.UUID) -> DownloadJobStatus | None:
+        """The job's status as stored now -- not the copy this session loaded earlier.
+
+        The download runs in the worker's session while "cancel" is written by
+        the API's; only a fresh read tells the worker it was canceled.
+        """
+        result = await self.session.execute(select(DownloadJob.status).where(DownloadJob.id == job_id))
+        return result.scalar_one_or_none()
+
     async def set_canceled(self, job_id: uuid.UUID) -> DownloadJob | None:
         """Mark a job as canceled."""
         job = await self.get(job_id)

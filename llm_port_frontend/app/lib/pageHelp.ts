@@ -174,25 +174,15 @@ const ROUTE_MAP: RouteMapping[] = [
     },
   },
   {
-    prefix: "/admin/llm/models/",
+    prefix: "/admin/marketplace",
     entry: {
-      titleKey: "page_help.model_detail.title",
-      descriptionKey: "page_help.model_detail.description",
+      titleKey: "page_help.marketplace.title",
+      descriptionKey: "page_help.marketplace.description",
       actionKeys: [
-        "page_help.model_detail.action_params",
-        "page_help.model_detail.action_test",
-      ],
-    },
-  },
-  {
-    prefix: "/admin/llm/models",
-    entry: {
-      titleKey: "page_help.models.title",
-      descriptionKey: "page_help.models.description",
-      actionKeys: [
-        "page_help.models.action_browse",
-        "page_help.models.action_pull",
-        "page_help.models.action_assign",
+        "page_help.marketplace.action_find",
+        "page_help.marketplace.action_fit",
+        "page_help.marketplace.action_host",
+        "page_help.marketplace.action_manage",
       ],
     },
   },

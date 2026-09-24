@@ -4,6 +4,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { models as modelsApi } from "~/api/llm";
 import { marketplaceApi, type MarketDetail } from "~/api/marketplace";
 import { formatBytes, formatTokens } from "~/lib/engine";
 import { fitDetail, fitSummary, formatCount, formatParams } from "~/lib/hosting";
@@ -39,15 +40,39 @@ export interface ModelDetailDrawerProps {
   onClose: () => void;
   onHost: (repoId: string) => void;
   canHost: boolean;
+  /** With this, a model not on the server yet can be downloaded without hosting it. */
+  onDownloaded?: () => void;
 }
 
-export function ModelDetailDrawer({ repoId, clusterId, onClose, onHost, canHost }: ModelDetailDrawerProps) {
+export function ModelDetailDrawer({ repoId, clusterId, onClose, onHost, canHost, onDownloaded }: ModelDetailDrawerProps) {
   const { t } = useTranslation();
+  const [downloading, setDownloading] = useState(false);
+  const [downloadNote, setDownloadNote] = useState<{ ok: boolean; text: string } | null>(null);
   const state = useAsyncData(
     () => (repoId ? marketplaceApi.detail(repoId, clusterId) : Promise.resolve(null)),
     [repoId, clusterId],
     { initialValue: null as MarketDetail | null },
   );
+
+  async function downloadOnly() {
+    if (!repoId) return;
+    setDownloading(true);
+    setDownloadNote(null);
+    try {
+      const result = await modelsApi.download({ hf_repo_id: repoId, display_name: repoId.split("/").pop() ?? repoId });
+      setDownloadNote(
+        result.dispatched === false
+          ? { ok: false, text: result.dispatch_error ?? t("common.unknown_error") }
+          : { ok: true, text: t("marketplace.detail.download_started") },
+      );
+      onDownloaded?.();
+      await state.refresh(true);
+    } catch (err) {
+      setDownloadNote({ ok: false, text: err instanceof Error ? err.message : t("common.action_failed") });
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   return (
     <Drawer
@@ -90,8 +115,18 @@ export function ModelDetailDrawer({ repoId, clusterId, onClose, onHost, canHost 
       {repoId && canHost && (
         <>
           <Divider />
+          {downloadNote && (
+            <Alert severity={downloadNote.ok ? "success" : "error"} sx={{ mx: 2, mt: 2 }}>
+              {downloadNote.text}
+            </Alert>
+          )}
           <Stack direction="row" spacing={1} sx={{ p: 2 }} justifyContent="flex-end">
             <Button onClick={onClose}>{t("common.close")}</Button>
+            {onDownloaded && state.data && state.data.model.runnable && !state.data.local && (
+              <Button disabled={downloading} onClick={() => void downloadOnly()} data-testid="detail-download">
+                {t("marketplace.detail.download_only")}
+              </Button>
+            )}
             <Button
               variant="contained"
               disabled={!state.data || !state.data.model.runnable}

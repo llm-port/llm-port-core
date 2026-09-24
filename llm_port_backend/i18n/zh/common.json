@@ -1949,7 +1949,8 @@
       "delete_running": "它正在运行。会先将其停止，以免在机器上留下任何内容，然后再删除。机器仍保持注册。",
       "delete_stopped": "集群将被删除。其机器仍保持注册，并可加入其他集群。",
       "remove_title": "移除此机器？",
-      "remove_message": "{{name}} 将离开集群，其承担的正在运行的模型部分会停止。"
+      "remove_message": "{{name}} 将离开集群，其承担的正在运行的模型部分会停止。",
+      "page_title": "集群"
     }
   },
   "inference": {
@@ -2056,7 +2057,8 @@
       "traffic_failed_empty": "没有请求时失败率未知，而不是零。",
       "traffic_window_one": "在网关测量，最近 1 分钟",
       "traffic_window_other": "在网关测量，最近 {{count}} 分钟",
-      "engine_reported": "由引擎上报"
+      "engine_reported": "由引擎上报",
+      "page_title": "部署"
     },
     "engine": {
       "title": "引擎设置",
@@ -2286,7 +2288,9 @@
     "kept_note": "本服务器已保存此模型：无需从 Hugging Face 下载任何内容。",
     "busy_warning": "当前空闲显存放不下所有副本（可容纳 {{count}} 个）。其余副本会在其他模型腾出空间后启动。",
     "creating": "正在创建部署…",
-    "host": "托管"
+    "host": "托管",
+    "revision_label": "修订版本（可选）",
+    "revision_help": "Hugging Face 上的分支、标签或提交。留空则使用最新版本。"
   },
   "marketplace": {
     "title": "模型市场",
@@ -2313,7 +2317,7 @@
       "recent": "最新"
     },
     "only_fits": "只显示放得下的模型",
-    "local_empty": "本服务器尚未保存来自 Hugging Face 的模型。",
+    "local_empty": "本服务器尚未保存任何模型。可从“推荐”或“搜索”中托管一个，或从本服务器上的路径添加一个。",
     "search_empty": "未找到模型。",
     "show_unrunnable_one": "显示 {{count}} 个 vLLM 无法提供服务的模型",
     "show_unrunnable_other": "显示 {{count}} 个 vLLM 无法提供服务的模型",
@@ -2412,7 +2416,9 @@
       "files_other": "{{count}} 个文件 · {{size}}",
       "all_files_one": "显示全部 {{count}} 个文件",
       "all_files_other": "显示全部 {{count}} 个文件",
-      "fewer_files": "收起"
+      "fewer_files": "收起",
+      "download_only": "下载到本服务器",
+      "download_started": "正在下载到本服务器。可在“本服务器上”查看进度；离开页面也会继续下载。"
     },
     "blurb": {
       "tiny_verified": "最小的实用聊天模型，已在此环境中测试：最快看到部署端到端运行的方式。",
@@ -2439,6 +2445,49 @@
       "dropped": "此处未使用（引用了 vLLM 源码中的文件或 JSON 选项）：",
       "opt_in_title": "配方中的可选项：",
       "opt_in_manual": "配方还提供以下选项，如有需要请手动设置：{{features}}。"
+    },
+    "kept": {
+      "summary_one": "本服务器上有 {{count}} 个模型 · {{size}}",
+      "summary_other": "本服务器上有 {{count}} 个模型 · {{size}}",
+      "scan": "查找本服务器上已有的模型",
+      "scan_found_one": "在本服务器的模型存储中找到并添加了 {{count}} 个模型。",
+      "scan_found_other": "在本服务器的模型存储中找到并添加了 {{count}} 个模型。",
+      "scan_none": "本服务器的模型存储中没有新内容。",
+      "add_path": "从路径添加",
+      "add_path_title": "从本服务器上的路径添加模型",
+      "add_path_help": "LLM.Port 服务器上存放模型文件（config.json 和权重）的文件夹。文件保留在原处，LLM.Port 永远不会删除它们。",
+      "path_label": "本服务器上的文件夹",
+      "name_label": "名称",
+      "added": "已添加 {{name}}。",
+      "from_path": "来自本服务器上的路径",
+      "ready": "就绪",
+      "on_disk": "本服务器上占用 {{size}}",
+      "size_unknown": "未记录大小",
+      "used_by": "使用者",
+      "unused": "暂无。",
+      "deployment_on": "{{cluster}} 上的 {{name}}",
+      "deployment_removing": "{{name}}（正在移除）",
+      "runtime": "{{name}}（{{status}}）",
+      "delete_title": "删除 {{name}}？",
+      "delete_in_use": "它仍被 {{names}} 使用。请先删除它们；正在从集群中移除的部署会在一分钟内释放它。",
+      "delete_confirm": "它将从本服务器的模型列表中移除，部署将无法再使用它。",
+      "delete_files": "同时删除它在本服务器上的文件",
+      "delete_files_size": "同时删除它在本服务器上的文件（释放 {{size}}）",
+      "delete_path_kept": "它的文件是从路径添加的，将保留在原处。",
+      "deleted": "已删除 {{name}}。",
+      "deleted_with_files": "已删除 {{name}} 及其文件。"
+    },
+    "downloads": {
+      "title": "下载",
+      "help": "下载在服务器上运行。离开此页面再回来，下载会继续进行，这里会显示进度。",
+      "queued": "等待开始",
+      "progress": "{{pct}}%",
+      "cancel": "取消",
+      "canceled": "已取消。",
+      "failed": "失败：{{error}}",
+      "retry": "重试",
+      "chip_one": "{{count}} 个正在下载",
+      "chip_other": "{{count}} 个正在下载"
     }
   },
   "container_resources": {
@@ -2458,5 +2507,15 @@
     "cpus_help": "容器可使用的 CPU 核数。留空：不限制。",
     "port": "容器内端口",
     "port_help": "vLLM 在容器内监听的端口。留空：8000。"
+  },
+  "page_help": {
+    "marketplace": {
+      "title": "模型市场",
+      "description": "在 Hugging Face 上查找模型，查看它能否放入您的集群，托管它，并管理本服务器保存的模型。",
+      "action_find": "浏览推荐模型，或搜索 Hugging Face。",
+      "action_fit": "选择一个集群：每个模型都会说明能否放下以及如何放下。",
+      "action_host": "托管模型：选择集群、每个副本的规模和 vLLM 设置。",
+      "action_manage": "本服务器上：跟踪下载、从路径添加模型、删除不再需要的模型。"
+    }
   }
 }

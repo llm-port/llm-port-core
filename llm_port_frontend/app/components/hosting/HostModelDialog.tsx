@@ -63,6 +63,8 @@ export interface HostModelDialogProps {
   repoId?: string | null;
   /** Models the server keeps, offered when no repository is given. */
   models?: Model[];
+  /** One of *models* to host, chosen already: the dialog opens on where. */
+  keptModelId?: string | null;
   /** The cluster to preselect. */
   clusterId?: string | null;
   /** Opened from a cluster's own page: that cluster only. */
@@ -94,11 +96,13 @@ export function HostModelDialog({
   models = [],
   clusterId,
   lockCluster = false,
+  keptModelId = null,
 }: HostModelDialogProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
 
-  const steps: StepId[] = repoId ? ["where", "settings", "review"] : ["model", "where", "settings", "review"];
+  const chosenAlready = Boolean(repoId || keptModelId);
+  const steps: StepId[] = chosenAlready ? ["where", "settings", "review"] : ["model", "where", "settings", "review"];
   const [step, setStep] = useState<StepId>(steps[0]);
   const [keptId, setKeptId] = useState<string>("");
   const [clusters, setClusters] = useState<MarketCluster[] | null>(null);
@@ -113,6 +117,7 @@ export function HostModelDialog({
   const [edited, setEdited] = useState(false);
   const [name, setName] = useState("");
   const [chatName, setChatName] = useState("");
+  const [revision, setRevision] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -123,8 +128,8 @@ export function HostModelDialog({
   // A fresh dialog each time it opens.
   useEffect(() => {
     if (!open) return;
-    setStep(repoId ? "where" : "model");
-    setKeptId("");
+    setStep(chosenAlready ? "where" : "model");
+    setKeptId(keptModelId ?? "");
     setCluster(clusterId ?? "");
     setDetail(null);
     setDetailState("idle");
@@ -132,8 +137,10 @@ export function HostModelDialog({
     setConfig({});
     setExtra("");
     setEdited(false);
-    setName(suggestDeploymentName(repoId ?? ""));
-    setChatName(suggestChatName(repoId ?? ""));
+    const preset = models.find((m) => m.id === keptModelId);
+    setName(suggestDeploymentName(preset ?? repoId ?? ""));
+    setChatName(suggestChatName(preset ?? repoId ?? ""));
+    setRevision("");
     setCopies(1);
     setError(null);
     setBusy(false);
@@ -152,7 +159,8 @@ export function HostModelDialog({
     return () => {
       live = false;
     };
-  }, [open, repoId, clusterId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, repoId, clusterId, keptModelId]);
 
   // What the model is and how it fits, measured against the chosen cluster.
   useEffect(() => {
@@ -267,6 +275,7 @@ export function HostModelDialog({
           copies,
           gpus_per_copy: gpus,
           engine_config: engineConfig,
+          ...(revision.trim() ? { revision: revision.trim() } : {}),
         });
         deploymentId = result.deployment_id;
       } else {
@@ -446,6 +455,17 @@ export function HostModelDialog({
                 </Stack>
               </Paper>
 
+              {willDownload && (
+                <TextField
+                  label={t("hosting.revision_label")}
+                  value={revision}
+                  size="small"
+                  fullWidth
+                  helperText={t("hosting.revision_help")}
+                  onChange={(e) => setRevision(e.target.value)}
+                  slotProps={{ htmlInput: { "data-testid": "host-revision", spellCheck: false } }}
+                />
+              )}
               {willDownload && (
                 <Alert severity="info" data-testid="host-download-note">
                   {model?.weights_bytes

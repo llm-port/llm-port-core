@@ -1949,7 +1949,8 @@
       "delete_running": "Il est en marche. Il sera d'abord arrêté, pour ne rien laisser sur ses machines, puis supprimé. Les machines restent inscrites.",
       "delete_stopped": "Le cluster est supprimé. Ses machines restent inscrites et peuvent en rejoindre un autre.",
       "remove_title": "Retirer cette machine ?",
-      "remove_message": "{{name}} quittera le cluster. Sa part de tout modèle en cours s'arrête."
+      "remove_message": "{{name}} quittera le cluster. Sa part de tout modèle en cours s'arrête.",
+      "page_title": "Cluster"
     }
   },
   "inference": {
@@ -2056,7 +2057,8 @@
       "traffic_failed_empty": "Un taux d'échec sans requêtes est inconnu, pas nul.",
       "traffic_window_one": "Mesuré à la passerelle, dernière minute",
       "traffic_window_other": "Mesuré à la passerelle, {{count}} dernières minutes",
-      "engine_reported": "Remonté par le moteur"
+      "engine_reported": "Remonté par le moteur",
+      "page_title": "Déploiement"
     },
     "engine": {
       "title": "Réglages du moteur",
@@ -2286,7 +2288,9 @@
     "kept_note": "Ce serveur conserve déjà ce modèle : rien n'est téléchargé depuis Hugging Face.",
     "busy_warning": "Toutes les copies ne tiennent pas dans la mémoire libre en ce moment (place pour {{count}}). Les autres démarrent quand d'autres modèles libèrent de la place.",
     "creating": "Création du déploiement…",
-    "host": "Héberger"
+    "host": "Héberger",
+    "revision_label": "Révision (facultatif)",
+    "revision_help": "Une branche, un tag ou un commit sur Hugging Face. Laissez vide pour la plus récente."
   },
   "marketplace": {
     "title": "Catalogue de modèles",
@@ -2313,7 +2317,7 @@
       "recent": "Plus récents"
     },
     "only_fits": "N'afficher que les modèles qui tiennent",
-    "local_empty": "Ce serveur ne conserve encore aucun modèle de Hugging Face.",
+    "local_empty": "Ce serveur ne conserve encore aucun modèle. Hébergez-en un depuis Recommandés ou la recherche, ou ajoutez-en un depuis un chemin de ce serveur.",
     "search_empty": "Aucun modèle trouvé.",
     "show_unrunnable_one": "Afficher {{count}} modèle que vLLM ne peut pas servir",
     "show_unrunnable_other": "Afficher {{count}} modèles que vLLM ne peut pas servir",
@@ -2412,7 +2416,9 @@
       "files_other": "{{count}} fichiers · {{size}}",
       "all_files_one": "Afficher {{count}} fichier",
       "all_files_other": "Afficher les {{count}} fichiers",
-      "fewer_files": "Afficher moins"
+      "fewer_files": "Afficher moins",
+      "download_only": "Télécharger sur ce serveur",
+      "download_started": "Téléchargement sur ce serveur. Suivez-le dans « Sur ce serveur » ; il continue si vous quittez la page."
     },
     "blurb": {
       "tiny_verified": "Le plus petit modèle de chat utile, testé sur cette installation : le moyen le plus rapide de voir un déploiement fonctionner de bout en bout.",
@@ -2439,6 +2445,49 @@
       "dropped": "Non utilisé ici (fait référence à des fichiers du code source de vLLM ou à des options JSON) :",
       "opt_in_title": "En option, d'après la recette :",
       "opt_in_manual": "La recette propose aussi, à régler à la main si besoin : {{features}}."
+    },
+    "kept": {
+      "summary_one": "{{count}} modèle sur ce serveur · {{size}}",
+      "summary_other": "{{count}} modèles sur ce serveur · {{size}}",
+      "scan": "Rechercher les modèles déjà présents sur ce serveur",
+      "scan_found_one": "{{count}} modèle trouvé dans le stockage de modèles de ce serveur et ajouté.",
+      "scan_found_other": "{{count}} modèles trouvés dans le stockage de modèles de ce serveur et ajoutés.",
+      "scan_none": "Rien de nouveau dans le stockage de modèles de ce serveur.",
+      "add_path": "Ajouter depuis un chemin",
+      "add_path_title": "Ajouter un modèle depuis un chemin de ce serveur",
+      "add_path_help": "Un dossier du serveur LLM.Port contenant les fichiers d'un modèle : son config.json et ses poids. Les fichiers restent où ils sont et LLM.Port ne les supprime jamais.",
+      "path_label": "Dossier sur ce serveur",
+      "name_label": "Nom",
+      "added": "{{name}} ajouté.",
+      "from_path": "Depuis un chemin de ce serveur",
+      "ready": "Prêt",
+      "on_disk": "{{size}} sur ce serveur",
+      "size_unknown": "Taille non enregistrée",
+      "used_by": "Utilisé par",
+      "unused": "Rien pour l'instant.",
+      "deployment_on": "{{name}} sur {{cluster}}",
+      "deployment_removing": "{{name}} (en cours de retrait)",
+      "runtime": "{{name}} ({{status}})",
+      "delete_title": "Supprimer {{name}} ?",
+      "delete_in_use": "Il est encore utilisé par {{names}}. Supprimez-les d'abord ; un déploiement en cours de retrait de son cluster le libère en moins d'une minute.",
+      "delete_confirm": "Il est retiré de la liste des modèles de ce serveur. Les déploiements ne peuvent plus l'utiliser.",
+      "delete_files": "Supprimer aussi ses fichiers de ce serveur",
+      "delete_files_size": "Supprimer aussi ses fichiers de ce serveur (libère {{size}})",
+      "delete_path_kept": "Ses fichiers ont été ajoutés depuis un chemin et restent où ils sont.",
+      "deleted": "{{name}} supprimé.",
+      "deleted_with_files": "{{name}} et ses fichiers supprimés."
+    },
+    "downloads": {
+      "title": "Téléchargements",
+      "help": "Les téléchargements tournent sur le serveur. Quittez cette page et revenez : ils continuent, et vous voyez ici où ils en sont.",
+      "queued": "En attente de démarrage",
+      "progress": "{{pct}} %",
+      "cancel": "Annuler",
+      "canceled": "Annulé.",
+      "failed": "Échec : {{error}}",
+      "retry": "Réessayer",
+      "chip_one": "{{count}} téléchargement",
+      "chip_other": "{{count}} téléchargements"
     }
   },
   "container_resources": {
@@ -2458,5 +2507,15 @@
     "cpus_help": "Cœurs de CPU que le conteneur peut utiliser. Vide : aucune limite.",
     "port": "Port dans le conteneur",
     "port_help": "Où vLLM écoute dans le conteneur. Vide : 8000."
+  },
+  "page_help": {
+    "marketplace": {
+      "title": "Catalogue de modèles",
+      "description": "Trouvez un modèle sur Hugging Face, voyez s'il tient sur vos clusters, hébergez-le et gérez les modèles de ce serveur.",
+      "action_find": "Parcourez les modèles recommandés ou cherchez sur Hugging Face.",
+      "action_fit": "Choisissez un cluster : chaque modèle indique s'il tient, et comment.",
+      "action_host": "Hébergez un modèle : choisissez le cluster, la taille de chaque copie et les réglages de vLLM.",
+      "action_manage": "Sur ce serveur : suivez les téléchargements, ajoutez des modèles depuis un chemin, supprimez ce qui ne sert plus."
+    }
   }
 }

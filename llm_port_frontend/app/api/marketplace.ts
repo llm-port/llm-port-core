@@ -152,6 +152,30 @@ export interface HostResult {
   download_error: string | null;
 }
 
+/** A download as the worker last recorded it; the page only reads it. */
+export interface KeptDownload {
+  job_id: string;
+  status: "queued" | "running" | "success" | "failed" | "canceled";
+  progress: number;
+  error: string | null;
+  updated_at: string | null;
+}
+
+/** A model this server keeps, with what the "On this server" view needs. */
+export interface KeptModel {
+  model_id: string;
+  display_name: string;
+  hf_repo_id: string | null;
+  hf_revision: string | null;
+  source: "huggingface" | "local_path" | "archive_import" | "remote" | string;
+  status: "available" | "downloading" | "failed" | "deleting" | string;
+  created_at: string | null;
+  size_bytes: number | null;
+  download: KeptDownload | null;
+  deployments: { id: string; name: string; cluster: string | null; phase: string; desired_state: string }[];
+  runtimes: { id: string; name: string; status: string }[];
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     ...init,
@@ -196,8 +220,8 @@ export const marketplaceApi = {
       `/search${query({ q: params.q, sort: params.sort, task: params.task, cluster_id: params.clusterId, limit: params.limit })}`,
     );
   },
-  local(clusterId?: string | null) {
-    return request<MarketList>(`/local${query({ cluster_id: clusterId })}`);
+  kept() {
+    return request<{ items: KeptModel[] }>("/kept");
   },
   detail(repoId: string, clusterId?: string | null, context?: number | null) {
     return request<MarketDetail>(`/models/${repoId}${query({ cluster_id: clusterId, context })}`);
