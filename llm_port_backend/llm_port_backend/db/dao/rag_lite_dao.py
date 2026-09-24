@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 import uuid
 from typing import Any
 
@@ -378,69 +379,78 @@ class RagLiteChunkDAO:
         search it pulled good results down (RAGBench hit@1 0.92 -> 0.72 on
         hotpotqa).
 
-        The words go into the query as the lexemes they already are
-        (``simple``, no second stemming). A chunk's length is its count of
-        distinct words -- what a ``tsvector`` keeps (``content_len``). The
-        per-word counts are computed once (``MATERIALIZED``): inlined,
-        Postgres re-ran them for every matched word of every chunk -- 2.2 s
-        for one search.
+        Scoring every chunk that shares a word with the query does not scale:
+        on 200,000 chunks a 13-word question matched 85,625 of them and took
+        1.9 s. So, as search engines do (Lucene's MaxScore):
 
-        Every chunk with a telling word is scored, on the query's words alone:
-        ``setweight`` marks them in the chunk's ``tsvector`` and ``ts_filter``
-        keeps the marked ones, so a chunk is taken apart into a few words, not
-        all of its hundred. Shortlisting the 500 best by ``ts_rank_cd`` first
-        cost more than it saved (techqa: 115 ms against 49 ms) and dropped
-        chunks BM25 ranks in the top ten.
+        - The candidates are the chunks with the query's *rarest* words, as
+          many words as fit a budget of matches. A chunk sharing only common
+          words with the query cannot reach the top -- common words weigh
+          next to nothing -- and it is not scored. Every candidate is scored
+          on all of the query's words.
+        - A collection's size and average chunk length, and each word's
+          document count, are kept a minute per process (``_Bm25Stats``):
+          they change only with ingestion, and BM25 barely moves with them.
+        - A word's document count is counted up to a cap; one past it is
+          common, and its (small) weight comes from Postgres's own column
+          statistics.
+
+        A chunk is scored on the query's words alone: ``setweight`` marks them
+        in its ``tsvector`` and ``ts_filter`` keeps the marked ones, so it is
+        taken apart into a few words, not all of its hundred.
         """
         filters = ""
-        params: dict[str, Any] = {"query": query, "top_k": top_k}
+        scope: dict[str, Any] = {}
         if collection_ids:
             filters = "AND c.collection_id = ANY(CAST(:cids AS uuid[]))"
-            params["cids"] = [str(cid) for cid in collection_ids]
+            scope["cids"] = [str(cid) for cid in collection_ids]
+        key = tuple(sorted(scope.get("cids", ["*"])))
+
+        lexemes: list[str] = (await self.session.execute(
+            text("SELECT tsvector_to_array(to_tsvector('english', :query))"), {"query": query},
+        )).scalar_one() or []
+        if not lexemes:
+            return []
+        n, avgdl = await self._collection_stats(key, filters, scope)
+        if not n:
+            return []
+        df = await self._document_counts(key, lexemes, n, filters, scope)
+        known = sorted((t for t in lexemes if df[t] > 0), key=lambda t: df[t])
+        candidates: list[str] = []
+        matched = 0.0
+        for term in known:
+            if _is_common(df[term], n) or (candidates and matched + df[term] > _CANDIDATE_BUDGET):
+                break
+            candidates.append(term)
+            matched += df[term]
+        if not candidates:
+            return []
+
         sql = text(
             f"""
-            WITH terms AS MATERIALIZED (
-                SELECT DISTINCT lexeme
-                FROM unnest(tsvector_to_array(to_tsvector('english', :query))) AS lexeme
+            WITH df AS (
+                SELECT * FROM unnest(CAST(:lexemes AS text[]), CAST(:dfs AS float8[])) AS t(lexeme, df)
             ),
-            stats AS MATERIALIZED (
-                SELECT count(*)::float8 AS n, greatest(avg(c.content_len), 1)::float8 AS avgdl
-                FROM rag_lite_chunks c
-                WHERE TRUE {filters}
-            ),
-            df AS MATERIALIZED (
-                SELECT t.lexeme,
-                       (SELECT count(*) FROM rag_lite_chunks c
-                        WHERE c.content_tsv @@ to_tsquery('simple', quote_literal(t.lexeme)) {filters}
-                       )::float8 AS df
-                FROM terms t
-            ),
-            -- Candidates by the words that tell chunks apart: one in more than
-            -- half the collection weighs next to nothing in BM25, yet matched
-            -- nearly every chunk of a large collection, and each was scored.
             q AS MATERIALIZED (
-                SELECT to_tsquery('simple', string_agg(quote_literal(df.lexeme), ' | ')) AS query,
-                       array_agg(df.lexeme) AS lexemes
-                FROM df, stats
-                WHERE df.df > 0 AND df.df <= stats.n * 0.5
+                SELECT to_tsquery('simple', string_agg(quote_literal(term), ' | ')) AS query
+                FROM unnest(CAST(:candidates AS text[])) AS term
             ),
             matches AS MATERIALIZED (
-                SELECT c.id, ts_filter(setweight(c.content_tsv, 'A', q.lexemes), '{{a}}') AS hits,
+                SELECT c.id, ts_filter(setweight(c.content_tsv, 'A', CAST(:lexemes AS text[])), '{{a}}') AS hits,
                        c.content_len::float8 AS dl
                 FROM rag_lite_chunks c, q
-                WHERE q.query IS NOT NULL AND c.content_tsv @@ q.query {filters}
+                WHERE c.content_tsv @@ q.query {filters}
             ),
             scored AS (
                 SELECT m.id,
                        sum(
-                           ln(1 + (st.n - df.df + 0.5) / (df.df + 0.5))
+                           ln(1 + (:n - df.df + 0.5) / (df.df + 0.5))
                            * (array_length(u.positions, 1) * 2.2)
-                           / (array_length(u.positions, 1) + 1.2 * (0.25 + 0.75 * m.dl / st.avgdl))
+                           / (array_length(u.positions, 1) + 1.2 * (0.25 + 0.75 * m.dl / :avgdl))
                        ) AS score
                 FROM matches m
                 CROSS JOIN LATERAL unnest(m.hits) AS u(lexeme, positions, weights)
                 JOIN df ON df.lexeme = u.lexeme
-                CROSS JOIN stats st
                 GROUP BY m.id
                 ORDER BY score DESC
                 LIMIT :top_k
@@ -452,6 +462,10 @@ class RagLiteChunkDAO:
             ORDER BY s.score DESC
             """,
         )
+        params = {
+            **scope, "lexemes": known, "dfs": [df[t] for t in known], "candidates": candidates,
+            "n": float(n), "avgdl": avgdl, "top_k": top_k,
+        }
         rows = (await self.session.execute(sql, params)).mappings().all()
         return [
             {
@@ -464,6 +478,138 @@ class RagLiteChunkDAO:
             }
             for r in rows
         ]
+
+    async def _collection_stats(
+        self, key: tuple[str, ...], filters: str, scope: dict[str, Any],
+    ) -> tuple[int, float]:
+        """How many chunks the searched collections hold, and their average length."""
+        cached = _BM25_STATS.stats(key)
+        if cached is not None:
+            return cached
+        row = (await self.session.execute(
+            text(
+                "SELECT count(*), coalesce(avg(c.content_len), 1) FROM rag_lite_chunks c "
+                f"WHERE c.content_len IS NOT NULL {filters}",
+            ),
+            scope,
+        )).one()
+        stats = (int(row[0]), max(float(row[1]), 1.0))
+        _BM25_STATS.keep_stats(key, stats)
+        return stats
+
+    async def _document_counts(
+        self, key: tuple[str, ...], lexemes: list[str], n: int, filters: str, scope: dict[str, Any],
+    ) -> dict[str, float]:
+        """How many chunks of the searched collections hold each word.
+
+        Counted up to ``_DF_CAP``: a word past it is common, and its count is
+        estimated from the column statistics Postgres keeps (the share of
+        chunks that hold each of the thousand most common words), or counted
+        in full when it is not among them.
+        """
+        counts = {t: _BM25_STATS.count(key, t) for t in lexemes}
+        missing = [t for t, v in counts.items() if v is None]
+        if missing:
+            rows = (await self.session.execute(
+                text(
+                    f"""
+                    SELECT t.lexeme,
+                           (SELECT count(*) FROM (
+                                SELECT 1 FROM rag_lite_chunks c
+                                WHERE c.content_tsv @@ to_tsquery('simple', quote_literal(t.lexeme)) {filters}
+                                LIMIT :cap
+                           ) hit) AS df
+                    FROM unnest(CAST(:lexemes AS text[])) AS t(lexeme)
+                    """,
+                ),
+                {**scope, "lexemes": missing, "cap": _DF_CAP},
+            )).all()
+            found = {r[0]: float(r[1]) for r in rows}
+            capped = [t for t, v in found.items() if v >= _DF_CAP]
+            if capped:
+                shares = dict((await self.session.execute(
+                    text(
+                        """
+                        SELECT e.lexeme, e.share FROM pg_stats s
+                        CROSS JOIN LATERAL unnest(s.most_common_elems::text::text[], s.most_common_elem_freqs)
+                            AS e(lexeme, share)
+                        WHERE s.tablename = 'rag_lite_chunks' AND s.attname = 'content_tsv'
+                          AND e.lexeme = ANY(CAST(:capped AS text[]))
+                        """,
+                    ),
+                    {"capped": capped},
+                )).all())
+                for term in capped:
+                    if term in shares:
+                        found[term] = max(float(_DF_CAP), float(shares[term]) * n)
+                    else:
+                        found[term] = float((await self.session.execute(
+                            text(
+                                "SELECT count(*) FROM rag_lite_chunks c "
+                                f"WHERE c.content_tsv @@ to_tsquery('simple', quote_literal(:term)) {filters}",
+                            ),
+                            {**scope, "term": term},
+                        )).scalar_one())
+            for term, value in found.items():
+                counts[term] = value
+                if value > 0:  # a word no chunk has yet may arrive with the next document
+                    _BM25_STATS.keep_count(key, term, value)
+        return {t: float(v or 0.0) for t, v in counts.items()}
+
+
+#: How many matches the candidate words may have between them (see
+#: ``search_lexical``). Past it, only rarer words find candidates.
+_CANDIDATE_BUDGET = 4000
+#: How far a word's document count is counted.
+_DF_CAP = 2000
+
+
+def _is_common(df: float, n: int) -> bool:
+    """A word in more than half the chunks: it finds no candidates on its own."""
+    return df > n * 0.5
+
+
+class _Bm25Stats:
+    """What BM25 needs besides the chunks, kept a minute per process.
+
+    The collections' size and average chunk length, and each word's document
+    count, change only as documents are ingested, and BM25 barely moves with
+    them; counting them was most of a search's time on a large collection.
+    A word no chunk holds is not kept: the next document may bring it.
+    """
+
+    TTL = 60.0
+    MAX_COUNTS = 50_000
+
+    def __init__(self) -> None:
+        self._stats: dict[tuple[str, ...], tuple[float, tuple[int, float]]] = {}
+        self._counts: dict[tuple[tuple[str, ...], str], tuple[float, float]] = {}
+
+    def stats(self, key: tuple[str, ...]) -> tuple[int, float] | None:
+        hit = self._stats.get(key)
+        return hit[1] if hit and hit[0] > time.monotonic() else None
+
+    def keep_stats(self, key: tuple[str, ...], stats: tuple[int, float]) -> None:
+        self._stats[key] = (time.monotonic() + self.TTL, stats)
+
+    def count(self, key: tuple[str, ...], term: str) -> float | None:
+        hit = self._counts.get((key, term))
+        return hit[1] if hit and hit[0] > time.monotonic() else None
+
+    def keep_count(self, key: tuple[str, ...], term: str, value: float) -> None:
+        if len(self._counts) >= self.MAX_COUNTS:
+            now = time.monotonic()
+            self._counts = {k: v for k, v in self._counts.items() if v[0] > now}
+            if len(self._counts) >= self.MAX_COUNTS:
+                self._counts.clear()
+        self._counts[(key, term)] = (time.monotonic() + self.TTL, value)
+
+    def clear(self) -> None:
+        self._stats.clear()
+        self._counts.clear()
+
+
+_BM25_STATS = _Bm25Stats()
 
 
 # -----------------------------------------------------------------------

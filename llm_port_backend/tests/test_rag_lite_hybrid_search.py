@@ -186,18 +186,20 @@ async def test_bm25_scores_are_exact(dbsession: AsyncSession) -> None:
                           size_bytes=1, sha256=uuid.uuid4().hex, file_store_key="k")
     dbsession.add(doc)
     await dbsession.flush()
+    # "manual" is in four of the six: common, it finds no candidates, but it
+    # counts, a little, for the chunks the rarer words find.
     texts = [
-        "Restart the queue manager after changing the channel definition.",
+        "Restart the queue manager after changing the channel definition, says the manual.",
         "The channel stops when the queue manager is restarted twice; restart the channel.",
-        "Firmware updates reset the channel list on the television.",
-        "Queue depth alerts are raised by the monitoring agent.",
-        "Nothing here matches.",
+        "Firmware updates reset the channel list on the television, the manual says.",
+        "Queue depth alerts are raised by the monitoring agent (see the manual).",
+        "Nothing here matches, manual or not.",
         "Another unrelated sentence about gardening.",
     ]
     for i, t in enumerate(texts):
         dbsession.add(RagLiteChunk(document_id=doc.id, collection_id=collection.id, chunk_index=i, chunk_text=t))
     await dbsession.flush()
-    query = "how to restart the channel of a queue manager"
+    query = "how to restart the channel of a queue manager, from the manual"
 
     rows = (await dbsession.execute(
         text("SELECT chunk_text, content_tsv::text AS tsv, content_len FROM rag_lite_chunks WHERE collection_id = :c"),
@@ -225,6 +227,8 @@ async def test_bm25_scores_are_exact(dbsession: AsyncSession) -> None:
     assert {h["chunk_text"]: pytest.approx(h["score"]) for h in hits} == {
         k: pytest.approx(v) for k, v in expected.items()
     }
+    assert "manual" in query_terms and df["manual"] > n * 0.5
+    assert not any(h["chunk_text"].startswith("Nothing here") for h in hits), "only the common word: not a candidate"
     scores = [h["score"] for h in hits]
     assert scores == sorted(scores, reverse=True)
 
@@ -287,3 +291,51 @@ async def test_a_reranker_without_a_shared_client_does_not_build_an_ssl_context(
     monkeypatch.setattr(rerank_module.httpx, "AsyncClient", client)
     assert await RerankClient("http://r:1", "m").rerank("q", ["d"]) == [0.5]
     assert made == [default_httpx_verify()]
+
+
+
+async def _collection_of(dbsession: AsyncSession, texts: list[str]) -> RagLiteCollection:
+    collection = RagLiteCollection(name=f"bm25-{uuid.uuid4().hex[:6]}")
+    dbsession.add(collection)
+    await dbsession.flush()
+    doc = RagLiteDocument(filename="kb.txt", doc_type="txt", collection_id=collection.id,
+                          size_bytes=1, sha256=uuid.uuid4().hex, file_store_key="k")
+    dbsession.add(doc)
+    await dbsession.flush()
+    for i, t in enumerate(texts):
+        dbsession.add(RagLiteChunk(document_id=doc.id, collection_id=collection.id, chunk_index=i, chunk_text=t))
+    await dbsession.flush()
+    return collection
+
+
+async def test_past_the_budget_only_the_rarest_words_find_candidates(
+    dbsession: AsyncSession, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """On 200,000 chunks, scoring every chunk with any word of the query took 1.9 s."""
+    from llm_port_backend.db.dao import rag_lite_dao
+
+    monkeypatch.setattr(rag_lite_dao, "_CANDIDATE_BUDGET", 2)
+    collection = await _collection_of(dbsession, [
+        "The zeppelin hangar is in Friedrichshafen.",
+        "A hangar for aircraft.", "Another hangar.", "The hangar door.",
+        "Unrelated text.", "More unrelated text.", "Still more.", "And more.",
+    ])
+    hits = await RagLiteChunkDAO(dbsession).search_lexical("zeppelin hangar", top_k=10, collection_ids=[collection.id])
+    assert [h["chunk_text"] for h in hits] == ["The zeppelin hangar is in Friedrichshafen."]
+
+
+async def test_a_word_no_chunk_had_is_found_once_a_document_brings_it(dbsession: AsyncSession) -> None:
+    """Document counts are kept a minute; a count of nought is not, or the new document would hide."""
+    collection = await _collection_of(dbsession, ["Bananas are yellow.", "Apples are red.", "Pears are green."])
+    dao = RagLiteChunkDAO(dbsession)
+    assert await dao.search_lexical("quokka", top_k=5, collection_ids=[collection.id]) == []
+
+    doc = RagLiteDocument(filename="new.txt", doc_type="txt", collection_id=collection.id,
+                          size_bytes=1, sha256=uuid.uuid4().hex, file_store_key="k2")
+    dbsession.add(doc)
+    await dbsession.flush()
+    dbsession.add(RagLiteChunk(document_id=doc.id, collection_id=collection.id, chunk_index=0,
+                               chunk_text="A quokka lives on Rottnest Island."))
+    await dbsession.flush()
+    hits = await dao.search_lexical("quokka", top_k=5, collection_ids=[collection.id])
+    assert [h["chunk_text"] for h in hits] == ["A quokka lives on Rottnest Island."]
