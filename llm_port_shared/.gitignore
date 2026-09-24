@@ -2,3 +2,5 @@
 .empty-hf-cache/
 .bootstrap-credentials
 rabbitmq/definitions.json
+# Backups made by llmport backup / upgrade: database dumps and .env copies.
+backups/
