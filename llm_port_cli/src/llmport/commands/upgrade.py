@@ -188,6 +188,14 @@ def upgrade_cmd(
         env_vars = default_env_vars(profiles=list(cfg.profiles))
         write_env_file(env_path, env_vars, preserve_secrets=True)
         success(".env refreshed (secrets preserved).")
+        # RabbitMQ makes its users from definitions.json on every start; the
+        # services log in with the passwords in .env. Written only by deploy,
+        # the file kept an older install's passwords, and after an upgrade
+        # the gateway and backend were refused ("invalid credentials").
+        from llmport.commands.deploy import _regenerate_rmq_definitions  # noqa: PLC0415
+
+        _regenerate_rmq_definitions(shared_dir, read_env_file(env_path), cfg.profiles)
+        success("RabbitMQ users written from .env.")
     else:
         warning("No .env file found — skipping env refresh.")
 

@@ -6,6 +6,7 @@
 #   context   — relative path to the build context (e.g. llm_port_backend)
 #   registry  — GHCR registry path (default: ghcr.io/llm-port)
 #   platforms — comma-separated platforms (default: linux/amd64)
+#   build-contexts — named build contexts, name=path per line (optional)
 
 name: Build Docker Image
 
@@ -26,6 +27,10 @@ on:
         required: false
         type: string
         default: linux/amd64
+      build-contexts:
+        required: false
+        type: string
+        default: ""
 
 jobs:
   build-and-push:
@@ -66,6 +71,7 @@ jobs:
         with:
           context: ${{ inputs.context }}
           file: ${{ inputs.context }}/Dockerfile
+          build-contexts: ${{ inputs.build-contexts }}
           platforms: ${{ inputs.platforms }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}

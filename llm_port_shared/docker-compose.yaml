@@ -394,6 +394,9 @@ services:
       context: ../llm_port_backend
       dockerfile: Dockerfile
       target: prod
+      # The runtime manifests the Dockerfile copies in (see there).
+      additional_contexts:
+        runtime_manifests: ../llm_port_runtime_image
       args:
         BASE_IMAGE: ${REGISTRY:-ghcr.io/llm-port}/base:${VERSION:-latest}
     container_name: llm-port-backend

@@ -72,7 +72,7 @@ jobs:
         with:
           filters: |
             api:      ['llm_port_api/**']
-            backend:  ['llm_port_backend/**']
+            backend:  ['llm_port_backend/**', 'llm_port_runtime_image/runtime-manifest*.json']
             frontend: ['llm_port_frontend/**']
             pii:      ['llm_port_pii/**']
             mcp:      ['llm_port_mcp/**']
@@ -112,6 +112,8 @@ jobs:
     with:
       service: backend
       context: llm_port_backend
+      # The runtime manifests the Dockerfile copies in.
+      build-contexts: runtime_manifests=llm_port_runtime_image
       registry: ${{ github.event.inputs.registry || 'ghcr.io/llm-port' }}
 
   frontend:
