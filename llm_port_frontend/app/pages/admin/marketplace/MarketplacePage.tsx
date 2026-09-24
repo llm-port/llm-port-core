@@ -220,7 +220,13 @@ export default function MarketplacePage() {
       )}
       {list.error && <Alert severity="error">{list.error}</Alert>}
 
-      <Tabs value={tab} onChange={(_, v: TabId) => setTab(v)} sx={{ borderBottom: 1, borderColor: "divider" }}>
+      <Tabs
+        value={tab}
+        onChange={(_, v: TabId) => setTab(v)}
+        variant="scrollable"
+        allowScrollButtonsMobile
+        sx={{ borderBottom: 1, borderColor: "divider" }}
+      >
         {TABS.map((id) => (
           <Tab key={id} value={id} label={t(`marketplace.tab.${id}`)} data-testid={`market-tab-${id}`} />
         ))}
