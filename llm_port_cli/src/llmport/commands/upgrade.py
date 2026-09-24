@@ -143,6 +143,24 @@ def upgrade_cmd(
     else:
         console.print("\n[dim]Skipping pre-flight checks (--skip-doctor).[/dim]")
 
+    # Before the backup and the builds, not after: compose cannot replace a
+    # container it did not create, and the restart would stop on it.
+    from llmport.core.compose import foreign_containers  # noqa: PLC0415
+
+    foreign = foreign_containers(ctx)
+    if foreign:
+        error(
+            "These containers have names this installation uses, but it did not create them,\n"
+            "  so it cannot replace them:\n"
+            + "".join(
+                f"    {name}  (made by {f'compose project {owner}' if owner else 'docker run'})\n"
+                for name, owner in foreign
+            )
+            + "  Remove them -- their data volumes stay -- and run the upgrade again:\n"
+            f"    docker rm -f {' '.join(name for name, _ in foreign)}"
+        )
+        sys.exit(1)
+
     # ── 2. Pre-upgrade backup ─────────────────────────────────
     if not no_backup:
         step += 1
@@ -211,6 +229,18 @@ def upgrade_cmd(
         error(f"docker compose up failed (exit code {rc}).")
         sys.exit(rc)
     success("All services restarted.")
+
+    # ClickHouse's diagnostic logs are off from this release; what they hold
+    # stays until dropped (41 GB of trace_log filled one install's disk).
+    from llmport.core.clickhouse import drop_stale_logs  # noqa: PLC0415
+
+    try:
+        dropped = drop_stale_logs(ctx)
+    except RuntimeError as exc:
+        warning(f"Could not clear ClickHouse's old diagnostic logs: {exc}")
+    else:
+        if dropped:
+            success(f"Dropped ClickHouse's old diagnostic logs: {', '.join(dropped)}.")
 
     # ── 6. Health gate ────────────────────────────────────────
     step += 1

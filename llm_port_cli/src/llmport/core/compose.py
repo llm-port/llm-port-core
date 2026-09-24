@@ -12,6 +12,7 @@ never need to assemble raw CLI flags.
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 import sys
@@ -348,6 +349,41 @@ def ps(ctx: ComposeContext) -> list[ComposeService]:
         except (ValueError, KeyError):
             continue
     return services
+
+
+def foreign_containers(ctx: ComposeContext) -> list[tuple[str, str]]:
+    """Containers holding a name this compose file gives, made by something else.
+
+    Compose cannot replace a container it did not create: ``up`` stops with
+    "The container name ... is already in use". An upgrade met one -- a
+    Prometheus recreated by hand with ``docker run`` -- after building images
+    for a quarter of an hour. Returns ``(name, made by)`` pairs, where *made
+    by* is the other compose project, or ``""`` for a plain ``docker run``.
+    """
+    config = _run(ctx.base_cmd() + ["config", "--format", "json"], capture=True)
+    if config.returncode != 0:
+        return []
+    try:
+        spec = json.loads(config.stdout or "{}")
+    except ValueError:
+        return []
+    project = spec.get("name", "")
+    wanted = {
+        s.get("container_name")
+        for s in (spec.get("services") or {}).values()
+        if isinstance(s, dict) and s.get("container_name")
+    }
+    docker = shutil.which("docker") or "docker"
+    listed = _run(
+        [docker, "ps", "-a", "--format", '{{.Names}}\t{{.Label "com.docker.compose.project"}}'],
+        capture=True,
+    )
+    found = []
+    for line in (listed.stdout or "").splitlines():
+        name, _, owner = line.partition("\t")
+        if name in wanted and owner != project:
+            found.append((name, owner))
+    return sorted(found)
 
 
 def exec_cmd(

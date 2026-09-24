@@ -1,0 +1,26 @@
+<!--
+  ClickHouse's own diagnostic logs, which Langfuse never reads.
+
+  Left at ClickHouse's defaults they have no retention: trace_log (the query
+  profiler's samples) grew by about 3 GB a day on an idle install and filled
+  a 98 GB disk in two weeks (41 GB), after which Postgres, ClickHouse, Loki
+  and Grafana crash-looped. Disabled as Langfuse's self-hosting guide does
+  (Scaling > ClickHouse system log tables); query_log and part_log are kept
+  for debugging, with a month's retention.
+-->
+<clickhouse>
+    <trace_log remove="1"/>
+    <text_log remove="1"/>
+    <opentelemetry_span_log remove="1"/>
+    <asynchronous_metric_log remove="1"/>
+    <metric_log remove="1"/>
+    <latency_log remove="1"/>
+    <!-- A TTL, not an engine: the default config sets partition_by for
+         these, and ClickHouse refuses an engine next to it (Code 36). -->
+    <query_log>
+        <ttl>event_date + INTERVAL 30 DAY DELETE</ttl>
+    </query_log>
+    <part_log>
+        <ttl>event_date + INTERVAL 30 DAY DELETE</ttl>
+    </part_log>
+</clickhouse>
