@@ -11,11 +11,12 @@ import type { PaletteMode } from "@mui/material";
 import { ThemeProvider } from "@mui/material/styles";
 import CssBaseline from "@mui/material/CssBaseline";
 import Box from "@mui/material/Box";
+import CircularProgress from "@mui/material/CircularProgress";
 import Typography from "@mui/material/Typography";
 import { useTranslation } from "react-i18next";
 import { getAppTheme } from "./theme";
 import { ThemeModeContext } from "./theme-mode";
-import "./i18n";
+import i18n from "./i18n";
 
 import type { Route } from "./+types/root";
 import "./app.css";
@@ -83,7 +84,38 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * Whether the translations are in (``i18n.ts`` loads them from /api/i18n).
+ *
+ * Only the browser can load them: the server has no backend to ask. It
+ * rendered every page with raw keys ("auth.login_title") where the browser
+ * had text, so hydration failed on every page load and React threw the
+ * server's tree away. Starting from ``false`` keeps the server render and the
+ * hydration render identical; the pages render once the translations are in.
+ */
+function useTranslationsReady(): boolean {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    if (i18n.isInitialized) {
+      setReady(true);
+      return;
+    }
+    const done = () => setReady(true);
+    i18n.on("initialized", done);
+    return () => i18n.off("initialized", done);
+  }, []);
+  return ready;
+}
+
 export default function App() {
+  const ready = useTranslationsReady();
+  if (!ready) {
+    return (
+      <Box sx={{ display: "flex", justifyContent: "center", pt: 12 }} data-testid="app-loading">
+        <CircularProgress />
+      </Box>
+    );
+  }
   return <Outlet />;
 }
 
