@@ -121,7 +121,7 @@ env = [
 ]
 
 [tool.ruff]
-target-version = "0.0.3"
+target-version = "py312"
 # List of enabled rulsets.
 # See https://docs.astral.sh/ruff/rules/ for more information.
 lint.select = [ "E",     # Error
