@@ -1,0 +1,224 @@
+# Build and publish the Ray runtime images: the containers models run in on
+# every machine of a cluster.
+#
+#   gb10     llm_port_runtime_image/Dockerfile          -> ghcr.io/llm-port/ray-runtime-gb10:<version>
+#   x86_64   llm_port_runtime_image/Dockerfile.x86_64   -> ghcr.io/llm-port/ray-runtime-x86_64:<version>
+#
+# Release: llm-port-dev/scripts/release-runtime.ps1 -Version 2.58.0-1, which
+# tags runtime-v2.58.0-1 and pushes the tag. Or run this by hand
+# (workflow_dispatch) with push off, to check the images still build.
+#
+# Each image is built on a runner of its own architecture -- NVIDIA's vLLM base
+# for the GB10 image exists only for arm64, and emulating a 20 GB build is not
+# an option -- validated inside itself before anything is pushed, then pushed
+# and its manifest minted from the pushed image by the same script developers
+# use (rebuild_runtime_image.py). The manifests are attached to a pre-release.
+#
+# They say "uncertified": CI has no GB10 pair and no NVIDIA card. Certify each
+# image on its hardware, commit its manifest to llm_port_runtime_image/, and the
+# next core release builds the backend with it. Until then the backend keeps
+# pointing at the previous, certified build.
+#
+# Runners: the defaults are GitHub's standard ones. The images are large; if a
+# build runs out of disk, point the repository variables RUNTIME_RUNNER_GB10 /
+# RUNTIME_RUNNER_X86_64 at larger runners. A private NGC registry key, if one
+# is ever needed for the base image, goes in the secret NGC_API_KEY.
+
+name: Release Runtime Images
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Image version (e.g. 2.58.0-1)"
+        required: true
+        type: string
+      flavors:
+        description: "Which images"
+        required: true
+        default: both
+        type: choice
+        options: [both, gb10, x86_64]
+      push:
+        description: "Push to GHCR (off: build and validate only)"
+        required: true
+        default: false
+        type: boolean
+  push:
+    tags:
+      - "runtime-v*"
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: runtime-images-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io/llm-port
+  IMAGE_DIR: llm_port_runtime_image
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      push: ${{ steps.plan.outputs.push }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - name: Version, images and whether to push
+        id: plan
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_FLAVORS: ${{ inputs.flavors }}
+          INPUT_PUSH: ${{ inputs.push }}
+          RUNNER_GB10: ${{ vars.RUNTIME_RUNNER_GB10 || 'ubuntu-24.04-arm' }}
+          RUNNER_X86_64: ${{ vars.RUNTIME_RUNNER_X86_64 || 'ubuntu-24.04' }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" == refs/tags/runtime-v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/runtime-v}"
+            FLAVORS=both
+            PUSH=true
+          else
+            VERSION="$INPUT_VERSION"
+            FLAVORS="$INPUT_FLAVORS"
+            PUSH="$INPUT_PUSH"
+          fi
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::Version must look like 2.58.0 or 2.58.0-1, got '$VERSION'"
+            exit 1
+          fi
+          GB10="{\"flavor\":\"gb10\",\"runner\":\"$RUNNER_GB10\"}"
+          X86="{\"flavor\":\"x86_64\",\"runner\":\"$RUNNER_X86_64\"}"
+          case "$FLAVORS" in
+            gb10)   MATRIX="[$GB10]" ;;
+            x86_64) MATRIX="[$X86]" ;;
+            *)      MATRIX="[$GB10,$X86]" ;;
+          esac
+          {
+            echo "version=$VERSION"
+            echo "push=$PUSH"
+            echo "matrix={\"include\":$MATRIX}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Version $VERSION, images $FLAVORS, push $PUSH"
+
+  build:
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 240
+    env:
+      FLAVOR: ${{ matrix.flavor }}
+      TAG: ghcr.io/llm-port/ray-runtime-${{ matrix.flavor }}:${{ needs.plan.outputs.version }}
+      # Secrets cannot appear in a step's `if`; an env value can.
+      NGC_API_KEY: ${{ secrets.NGC_API_KEY }}
+    steps:
+      - name: Make room for a 20 GB image
+        shell: bash
+        run: |
+          set -uo pipefail
+          df -h / /mnt 2>/dev/null || df -h /
+          # Toolchains these builds never use.
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/share/swift 2>/dev/null || true
+          sudo docker system prune -af >/dev/null 2>&1 || true
+          # Where a runner has a bigger scratch disk at /mnt, keep Docker's data there.
+          ROOT_FREE=$(df --output=avail -BG / | tail -1 | tr -dc 0-9)
+          MNT_FREE=$(df --output=avail -BG /mnt 2>/dev/null | tail -1 | tr -dc 0-9 || echo 0)
+          if [ "${MNT_FREE:-0}" -gt "${ROOT_FREE:-0}" ]; then
+            sudo systemctl stop docker docker.socket
+            sudo mkdir -p /mnt/docker
+            CONF=/etc/docker/daemon.json
+            [ -s "$CONF" ] || echo '{}' | sudo tee "$CONF" >/dev/null
+            sudo python3 -c "import json,sys; p=sys.argv[1]; d=json.load(open(p)); d['data-root']='/mnt/docker'; json.dump(d, open(p,'w'))" "$CONF"
+            sudo systemctl start docker
+            echo "Docker data moved to /mnt ($MNT_FREE G free there, $ROOT_FREE G on /)"
+          fi
+          df -h / /mnt 2>/dev/null || df -h /
+
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: ${{ env.IMAGE_DIR }}
+
+      - name: Log in to GHCR
+        if: needs.plan.outputs.push == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to NGC (only when a key is configured)
+        if: matrix.flavor == 'gb10' && env.NGC_API_KEY != ''
+        run: echo "$NGC_API_KEY" | docker login nvcr.io --username '$oauthtoken' --password-stdin
+
+      - name: Build
+        working-directory: ${{ env.IMAGE_DIR }}
+        # Builds natively and mints a local manifest: proves the helper answers
+        # and the architecture probe works before anything leaves the runner.
+        run: python3 rebuild_runtime_image.py --flavor "$FLAVOR" --tag "$TAG" --build --manifest "$RUNNER_TEMP/local-manifest.json"
+
+      - name: Validate inside the image
+        # Imports, pip check, and Ray's LLMConfig against LLM.Port's own
+        # deployment shapes. No GPU needed; a failure here publishes nothing.
+        run: docker run --rm --entrypoint python3 "$TAG" /opt/llm-port/runtime/test_local_validation.py
+
+      - name: Push and mint the manifest
+        if: needs.plan.outputs.push == 'true'
+        working-directory: ${{ env.IMAGE_DIR }}
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/manifest"
+          mkdir -p "$OUT"
+          NAME=$(python3 -c "import sys; sys.path.insert(0, '.'); import rebuild_runtime_image as r; print(r.FLAVORS['$FLAVOR'].manifest)")
+          python3 rebuild_runtime_image.py --flavor "$FLAVOR" --tag "$TAG" --push --manifest "$OUT/$NAME"
+          {
+            echo "### $FLAVOR"
+            echo ""
+            echo "- Image: \`$TAG\`"
+            echo "- Registry digest: \`$(python3 -c "import json; print(json.load(open('$OUT/$NAME'))['repo_digest'])")\`"
+            echo "- Manifest: \`$NAME\` (uncertified)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: needs.plan.outputs.push == 'true'
+        with:
+          name: manifest-${{ matrix.flavor }}
+          path: ${{ runner.temp }}/manifest/*.json
+          retention-days: 90
+
+  release:
+    needs: [plan, build]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/runtime-v')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: manifests
+          pattern: manifest-*
+          merge-multiple: true
+
+      - name: Create the pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: runtime-v${{ needs.plan.outputs.version }}
+          name: "Runtime images ${{ needs.plan.outputs.version }}"
+          prerelease: true
+          body: |
+            The Ray runtime images models run in, for this version:
+
+            - `ghcr.io/llm-port/ray-runtime-gb10:${{ needs.plan.outputs.version }}` (aarch64, NVIDIA DGX Spark / GB10)
+            - `ghcr.io/llm-port/ray-runtime-x86_64:${{ needs.plan.outputs.version }}` (x86_64, NVIDIA Turing to Blackwell)
+
+            The manifests attached were minted from the pushed images and say
+            **uncertified**: CI has no GPU. Certify each image on its hardware,
+            then commit its manifest to `llm_port_runtime_image/`. The next core
+            release builds the backend with it; until then the backend keeps its
+            current, certified build.
+          files: manifests/*.json

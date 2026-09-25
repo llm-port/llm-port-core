@@ -1,50 +1,56 @@
 #!/usr/bin/env python3
-"""Rebuild the certified runtime image and emit its manifest (Phase 4B blocker B-1).
+"""Build a runtime image and emit its manifest, from the image itself.
 
-Runs anywhere that can produce ``linux/arm64`` images -- a DGX node natively,
-or a workstation with ``docker buildx`` and binfmt/QEMU (``--platform
-linux/arm64``, which is what ``--platform`` below sets).
+Two images, one per platform (see the README):
 
-The image is the **official NVIDIA vLLM image plus one thin layer**: pip
-installs and the ``llm_port_ray_runtime`` helper. Nothing in it compiles
-against the local CUDA stack and no step needs a GPU, so hardware is not a
-build requirement. The build-time assertions do *execute* aarch64 (importing
-the metrics stack, running the helper's verbs), which emulation handles.
+    gb10     Dockerfile           aarch64, NVIDIA DGX Spark (GB10)
+    x86_64   Dockerfile.x86_64    generic x86_64 NVIDIA, Turing to Blackwell
 
-What still requires the hardware is **certification**, not the build: two GB10
-nodes and the 200 Gb/s link. A build asserts that the image is well-formed; the
-certification run is what earns ``overall_status``.
+Runs anywhere that can produce the image's platform: natively (a DGX node or
+an arm64 CI runner for ``gb10``, any x86_64 machine for ``x86_64``) or through
+``docker buildx`` with binfmt/QEMU (``--platform``). No step needs a GPU:
+nothing compiles against the local CUDA stack, and the build-time assertions
+only *execute* the target architecture, which emulation handles.
+
+What still requires the hardware is **certification**, not the build. A build
+asserts that the image is well-formed; a certification run on real machines is
+what earns ``overall_status``. So every manifest written here says
+``uncertified``, whatever the previous one said.
 
 Why this script exists
 ----------------------
-The deployed image drifted from every record of it: ``runtime-manifest.json``
-named a build that exists on neither node, ``build_report.json`` named one that
-exists only on the head, and the two nodes held byte-identical content under
-different config IDs. The cause was not the build -- it was that identity was
-**transcribed by hand** into three places that then disagreed.
+The deployed image once drifted from every record of it: the manifest named a
+build that existed on neither DGX node, and the two nodes held byte-identical
+content under different config IDs. The cause was not the build -- it was that
+identity was **transcribed by hand** into places that then disagreed.
 
-So this script does not transcribe anything. It emits ``rootfs_layers`` (the
-RootFS layer diff IDs, which are what actually survives a save/load transfer)
-and lets the backend derive the content digest from them through
+So nothing is transcribed. The manifest carries ``rootfs_layers`` (the RootFS
+layer diff IDs, which survive a save/load transfer and a registry round trip)
+and the backend derives the content digest from them through
 ``RuntimeBundleManifest.from_runtime_manifest``. The digest algorithm lives in
 exactly one place -- ``llm_port_backend.services.inference.bundles`` -- and is
 deliberately *not* reimplemented here.
 
 Stack versions come from the helper inside the finished image
-(``llm-port-ray-runtime versions``), which is the same source the agent and the
-``system_fingerprint`` use. Reading them any other way is how the manifest came
-to record ``vllm 0.27.1+93523f72.dev`` while the bundle catalog recorded
-``0.27.1+93523f72.nv26.8.64249418`` -- both real, from two different APIs.
+(``llm-port-ray-runtime versions``), the same source the agent and the
+``system_fingerprint`` use. The architectures the image's torch was compiled
+for are read from torch itself, without a GPU (``get_arch_list`` returns
+nothing on a machine that has none, which is every CI runner).
 
 Usage
 -----
-    python3 rebuild_runtime_image.py --build                       # on a DGX node
-    python3 rebuild_runtime_image.py --build --platform linux/arm64  # off-node
+    python3 rebuild_runtime_image.py --build                          # gb10, on a DGX node
+    python3 rebuild_runtime_image.py --flavor x86_64 --build          # on any x86_64 box
+    python3 rebuild_runtime_image.py --build --platform linux/arm64   # gb10, off-node
     python3 rebuild_runtime_image.py --build --distribute sachi@10.88.10.71
     python3 rebuild_runtime_image.py --verify-peer sachi@10.88.10.71
 
-The last form re-reads both nodes' layer lists and fails if they differ, which
-is the check that would have caught the original drift.
+    # CI (.github/workflows/runtime-image-release.yml):
+    python3 rebuild_runtime_image.py --flavor x86_64 --build --push \\
+        --tag ghcr.io/llm-port/ray-runtime-x86_64:2.58.0-1
+
+``--verify-peer`` re-reads both nodes' layer lists and fails if they differ,
+which is the check that would have caught the original drift.
 """
 
 from __future__ import annotations
@@ -52,14 +58,56 @@ from __future__ import annotations
 import argparse
 import json
 import pprint
+import re
 import shlex
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-DEFAULT_TAG = "llmport/ray-vllm-gb10:ray2.58-nv26.08"
-MANIFEST_PATH = HERE / "runtime-manifest.json"
+
+
+@dataclass(frozen=True)
+class Flavor:
+    """One runtime image: how it is built and where its manifest goes."""
+
+    dockerfile: str
+    manifest: str
+    default_tag: str
+    runtime_id: str
+    hardware_target: str
+    #: The catalogue entry in bundles.py this manifest feeds (for the hint).
+    bundle: str
+
+
+FLAVORS: dict[str, Flavor] = {
+    "gb10": Flavor(
+        dockerfile="Dockerfile",
+        manifest="runtime-manifest.json",
+        default_tag="llmport/ray-vllm-gb10:ray2.58-nv26.08",
+        runtime_id="llmport-ray-vllm-gb10-ray2.58-nv26.08",
+        hardware_target="NVIDIA DGX Spark (GB10) pair",
+        bundle="bundle-dgx-spark-gb10-v1",
+    ),
+    "x86_64": Flavor(
+        dockerfile="Dockerfile.x86_64",
+        manifest="runtime-manifest-x86_64.json",
+        default_tag="llmport-ray-runtime-x86_64:2.58.0",
+        runtime_id="llmport-ray-vllm-x86_64-ray2.58",
+        hardware_target="generic x86_64 NVIDIA",
+        bundle="bundle-generic-x86_64-nvidia-v1",
+    ),
+}
+
+#: Read inside the image, with no GPU: the SM architectures torch was built for
+#: and the machine it runs on. ``torch.cuda.get_arch_list()`` would say [] on a
+#: runner without a GPU, so this asks the compiled-in flags directly.
+_ARCH_PROBE = (
+    "import json, platform, torch\n"
+    "flags = torch._C._cuda_getArchFlags() if hasattr(torch._C, '_cuda_getArchFlags') else ''\n"
+    "print(json.dumps({'machine': platform.machine(), 'arch_list': (flags or '').split()}))\n"
+)
 
 
 class BuildError(RuntimeError):
@@ -85,26 +133,45 @@ def _ssh(target: str, remote_cmd: str) -> str:
     return _run(["ssh", target, remote_cmd])
 
 
-def build(tag: str, *, no_cache: bool, platform: str | None = None) -> None:
-    """Build the image from the Dockerfile in this directory.
+def _json_from(raw: str, what: str) -> dict:
+    """The JSON document in a command's output, tolerating log lines around it."""
+    for line in reversed(raw.splitlines()):
+        line = line.strip()
+        if line.startswith("{") and line.endswith("}"):
+            return json.loads(line)
+    start = raw.find("{")
+    if start < 0:
+        raise BuildError(f"{what} produced no JSON: {raw[:200]}")
+    return json.loads(raw[start:])
 
-    The Dockerfile asserts both the metrics import path and the helper's verb
+
+def build(tag: str, flavor: Flavor, *, no_cache: bool, platform: str | None = None) -> None:
+    """Build the image from its Dockerfile in this directory.
+
+    The Dockerfiles assert both the metrics import path and the helper's verb
     surface, so a build that would strand a node fails here instead of on a
     node at deploy time.
 
-    *platform* selects a cross build: off a DGX node, pass ``linux/arm64`` and
-    the build runs through ``buildx`` with binfmt/QEMU. ``--load`` puts the
-    result in the local image store, which is what ``inspect_image`` reads.
+    *platform* selects a cross build through ``buildx`` with binfmt/QEMU;
+    ``--load`` puts the result in the local image store, which is what
+    ``inspect_image`` reads.
     """
     if platform:
         cmd = ["docker", "buildx", "build", "--platform", platform, "--load", "-t", tag]
     else:
         cmd = ["docker", "build", "-t", tag]
+    cmd += ["-f", str(HERE / flavor.dockerfile)]
     if no_cache:
         cmd.append("--no-cache")
     cmd.append(str(HERE))
-    print(f"==> docker build {tag}")
+    print(f"==> docker build {tag} ({flavor.dockerfile})")
     subprocess.run(cmd, check=True)
+
+
+def push(tag: str) -> None:
+    """Push to the registry the tag names, so the manifest can record its digest."""
+    print(f"==> docker push {tag}")
+    subprocess.run(["docker", "push", tag], check=True)
 
 
 def inspect_image(tag: str) -> dict:
@@ -117,11 +184,19 @@ def inspect_image(tag: str) -> dict:
     layers = list((entry.get("RootFS") or {}).get("Layers") or [])
     if not layers:
         raise BuildError(f"{tag} reports no RootFS layers; cannot establish identity")
-    repo_digests = entry.get("RepoDigests") or []
+    # The digest of *this* reference, when it has been pushed or pulled; a
+    # side-loaded image has none, which the backend accepts.
+    repository = tag.rsplit(":", 1)[0] if ":" in tag.rsplit("/", 1)[-1] else tag
+    repo_digest = None
+    for ref in entry.get("RepoDigests") or []:
+        name, _, digest = ref.partition("@")
+        if name == repository:
+            repo_digest = digest
+            break
     return {
         "image_id": entry.get("Id"),
         "rootfs_layers": layers,
-        "repo_digest": repo_digests[0].split("@", 1)[-1] if repo_digests else None,
+        "repo_digest": repo_digest,
         "architecture": entry.get("Architecture"),
         "os": entry.get("Os"),
     }
@@ -131,20 +206,33 @@ def read_stack_versions(tag: str, *, platform: str | None = None) -> dict:
     """Ask the helper inside the image what it actually has.
 
     One source for the versions, so the bundle catalog and the helper's own
-    report cannot disagree.  On a cross build the helper runs under emulation,
-    which is slower but reports the same thing.
+    report cannot disagree. Under emulation the helper runs slower but reports
+    the same thing.
     """
     cmd = ["docker", "run", "--rm"]
     if platform:
         cmd += ["--platform", platform]
     cmd += ["--entrypoint", "llm-port-ray-runtime", tag, "versions"]
-    raw = _run(cmd)
-    # The helper prints a JSON document; tolerate leading log noise.
-    start = raw.find("{")
-    if start < 0:
-        raise BuildError(f"helper 'versions' produced no JSON: {raw[:200]}")
-    report = json.loads(raw[start:])
+    report = _json_from(_run(cmd), "helper 'versions'")
     return {key: value for key, value in report.items() if value is not None}
+
+
+def read_arch(tag: str, *, platform: str | None = None) -> dict:
+    """The SM architectures the image's torch was compiled for, as capabilities too."""
+    cmd = ["docker", "run", "--rm"]
+    if platform:
+        cmd += ["--platform", platform]
+    cmd += ["--entrypoint", "python3", tag, "-c", _ARCH_PROBE]
+    facts = _json_from(_run(cmd), "architecture probe")
+    arch_list = [a for a in facts.get("arch_list") or [] if a.startswith("sm_")]
+    # sm_75 -> "7.5", sm_121a -> "12.1": the form the node agent reports.
+    # NVIDIA's builds name family-specific targets with a suffix.
+    numbers = {m.group(1) for a in arch_list if (m := re.match(r"sm_(\d{2,3})", a))}
+    caps = sorted(
+        {f"{n[:-1]}.{n[-1]}" for n in numbers},
+        key=lambda c: tuple(int(part) for part in c.split(".")),
+    )
+    return {"machine": facts.get("machine"), "arch_list": arch_list, "compute_capabilities": caps}
 
 
 def remote_layers(target: str, tag: str) -> list[str]:
@@ -159,10 +247,10 @@ def remote_layers(target: str, tag: str) -> list[str]:
 def distribute(tag: str, target: str) -> None:
     """Stream the image to a peer node.
 
-    ``docker save | ssh docker load`` rather than a registry push: the pair is
-    air-gapped, and this is the transfer under which the config ID changes but
-    the layer diff IDs do not -- which is exactly why identity is based on the
-    latter.
+    ``docker save | ssh docker load`` rather than a registry push: a site's
+    nodes may be air-gapped, and this is the transfer under which the config
+    ID changes but the layer diff IDs do not -- which is exactly why identity
+    is based on the latter.
     """
     print(f"==> transferring {tag} to {target}")
     save = subprocess.Popen(["docker", "save", tag], stdout=subprocess.PIPE)
@@ -192,8 +280,10 @@ def verify_peer(tag: str, target: str, local_layers: list[str]) -> None:
     print(f"==> {target} holds identical content ({len(peer)} layers)")
 
 
-def write_manifest(tag: str, identity: dict, stack: dict, previous: dict) -> dict:
-    """Write ``runtime-manifest.json`` with generated identity.
+def write_manifest(
+    path: Path, tag: str, flavor: Flavor, identity: dict, stack: dict, arch: dict, previous: dict,
+) -> dict:
+    """Write the manifest with generated identity.
 
     ``rootfs_digest`` is deliberately absent: the backend computes it from
     ``rootfs_layers``. Writing both would reintroduce the transcription this
@@ -201,72 +291,74 @@ def write_manifest(tag: str, identity: dict, stack: dict, previous: dict) -> dic
     """
     manifest = {
         "schema_version": "1.1.0",
-        "runtime_id": previous.get("runtime_id", "llmport-ray-vllm-gb10-ray2.58-nv26.08"),
+        "runtime_id": previous.get("runtime_id", flavor.runtime_id),
         "release_tag": tag,
         "image_id": identity["image_id"],
         "rootfs_layers": identity["rootfs_layers"],
         "repo_digest": identity.get("repo_digest"),
+        # What the image is built on and for carries over; it is not read
+        # from the image (the base's digest is not recorded in it).
         "base_image": previous.get("base_image", {}),
         "target_hardware": previous.get("target_hardware", {}),
         "stack_components": stack,
+        "machine": arch.get("machine") or identity.get("architecture"),
+        "arch_list": arch.get("arch_list", []),
+        "compute_capabilities": arch.get("compute_capabilities", []),
         # Certification is evidence from a run, not from a build, so none of
         # it survives a rebuild. Only what the image is *for* carries over.
         #
         # This used to spread the previous certification and override the
         # status, which carried the old run's checks, counts and timestamp
-        # along with it. The result was a manifest reading "uncertified" and
-        # "11/11 checks passed" at once, the passes describing a token
-        # generation and a metrics scrape performed against a different
-        # image. Anything that displays the counts shows a proof that was
-        # never run.
+        # along with it: a manifest reading "uncertified" and "11/11 checks
+        # passed" at once, the passes describing a run against a different
+        # image.
         "certification": {
-            "hardware_target": (previous.get("certification") or {}).get("hardware_target"),
+            "hardware_target": (previous.get("certification") or {}).get("hardware_target")
+            or flavor.hardware_target,
             "overall_status": "uncertified",
             "checks": [],
             "checks_passed": 0,
             "checks_total": 0,
             "timestamp": None,
-            "detail": "rebuilt; re-run remote_certify_2node.py to certify this image",
+            "detail": "built; certify it on its hardware before the catalogue points at it",
         },
     }
-    MANIFEST_PATH.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-    print(f"==> wrote {MANIFEST_PATH}")
+    path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    print(f"==> wrote {path}")
     return manifest
 
 
-def print_bundle_block(manifest: dict) -> None:
-    """Print the catalog entry to paste into ``bundles.py``.
-
-    Generated text, not a hand transcription: the layer list travels with it so
-    ``from_runtime_manifest`` derives the content digest itself.
-    """
-    block = {
+def print_summary(manifest: dict, flavor: Flavor) -> None:
+    """What was minted, in the terms the catalogue uses."""
+    summary = {
+        "bundle": flavor.bundle,
         "release_tag": manifest["release_tag"],
         "image_id": manifest["image_id"],
-        "rootfs_layers": manifest["rootfs_layers"],
+        "repo_digest": manifest["repo_digest"],
+        "layers": len(manifest["rootfs_layers"]),
         "stack_components": manifest["stack_components"],
-        "certification": manifest["certification"],
+        "compute_capabilities": manifest["compute_capabilities"],
     }
-    print(
-        "\n==> paste into llm_port_backend/services/inference/bundles.py as\n"
-        "    _CERTIFIED_DGX_SPARK_RUNTIME_MANIFEST (rootfs_digest is derived,\n"
-        "    so do not add one):\n"
-    )
-    print(pprint.pformat(block, indent=4, width=100, sort_dicts=False))
+    print("\n==> minted:")
+    print(pprint.pformat(summary, indent=4, width=100, sort_dicts=False))
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--tag", default=DEFAULT_TAG, help="image tag to build/inspect")
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--flavor", choices=sorted(FLAVORS), default="gb10", help="which runtime image (default gb10)")
+    parser.add_argument("--tag", help="image reference to build/inspect (default: the flavor's local tag)")
     parser.add_argument("--build", action="store_true", help="run docker build first")
     parser.add_argument("--no-cache", action="store_true", help="build without the layer cache")
     parser.add_argument(
         "--platform",
         metavar="OS/ARCH",
-        help=(
-            "cross-build through buildx for this platform (e.g. linux/arm64). "
-            "Omit on a DGX node, where the build is native."
-        ),
+        help="cross-build through buildx for this platform (e.g. linux/arm64); omit for a native build",
+    )
+    parser.add_argument("--push", action="store_true", help="push the tag and record its registry digest")
+    parser.add_argument(
+        "--manifest",
+        metavar="PATH",
+        help="where to write the manifest (default: the flavor's manifest in this directory)",
     )
     parser.add_argument(
         "--distribute",
@@ -279,35 +371,42 @@ def main(argv: list[str] | None = None) -> int:
         help="only compare this node's layers against a peer's, then exit",
     )
     args = parser.parse_args(argv)
+    flavor = FLAVORS[args.flavor]
+    tag = args.tag or flavor.default_tag
+    manifest_path = Path(args.manifest) if args.manifest else HERE / flavor.manifest
 
     try:
         if args.verify_peer and not args.build:
-            identity = inspect_image(args.tag)
-            verify_peer(args.tag, args.verify_peer, identity["rootfs_layers"])
+            identity = inspect_image(tag)
+            verify_peer(tag, args.verify_peer, identity["rootfs_layers"])
             return 0
 
         if args.build:
-            build(args.tag, no_cache=args.no_cache, platform=args.platform)
+            build(tag, flavor, no_cache=args.no_cache, platform=args.platform)
+        if args.push:
+            push(tag)
 
-        identity = inspect_image(args.tag)
-        stack = read_stack_versions(args.tag, platform=args.platform)
+        identity = inspect_image(tag)
+        stack = read_stack_versions(tag, platform=args.platform)
+        arch = read_arch(tag, platform=args.platform)
         previous = {}
-        if MANIFEST_PATH.exists():
+        committed = HERE / flavor.manifest
+        if committed.exists():
             try:
-                previous = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+                previous = json.loads(committed.read_text(encoding="utf-8"))
             except ValueError:
                 previous = {}
 
-        manifest = write_manifest(args.tag, identity, stack, previous)
+        manifest = write_manifest(manifest_path, tag, flavor, identity, stack, arch, previous)
 
         if args.distribute:
-            distribute(args.tag, args.distribute)
-            verify_peer(args.tag, args.distribute, identity["rootfs_layers"])
+            distribute(tag, args.distribute)
+            verify_peer(tag, args.distribute, identity["rootfs_layers"])
 
-        print_bundle_block(manifest)
+        print_summary(manifest, flavor)
         print(
-            "\n==> next: re-run remote_certify_2node.py, then update the bundle "
-            "catalog with the block above."
+            f"\n==> next: certify it on its hardware, then commit {flavor.manifest}; "
+            f"the backend's catalogue ({flavor.bundle}) reads it."
         )
         return 0
     except (BuildError, subprocess.CalledProcessError) as exc:

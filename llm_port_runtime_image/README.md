@@ -24,8 +24,7 @@ it is.
 | `setup.py` | packaging for that helper |
 | `fixtures.json`, `test_local_validation.py` | copied into the image; validate imports, dependencies and `LLMConfig` shapes from inside it |
 | `runtime-manifest.json`, `runtime-manifest-x86_64.json` | the minted identity of each built image |
-| `rebuild_runtime_image.py` | builds an image and emits its manifest |
-| `mint_x86_manifest.py` | mints the x86_64 manifest from a built image |
+| `rebuild_runtime_image.py` | builds either image (`--flavor gb10` or `x86_64`), optionally pushes it, and emits its manifest |
 
 ## The manifests are minted, not written
 
@@ -39,10 +38,25 @@ find out.
 So a manifest is only ever updated by rebuilding:
 
 ```bash
-python rebuild_runtime_image.py            # aarch64 / GB10
-python mint_x86_manifest.py                # x86_64, from an already-built image
+python rebuild_runtime_image.py --build                   # aarch64 / GB10, on a DGX node
+python rebuild_runtime_image.py --flavor x86_64 --build   # x86_64, on any x86_64 machine
 ```
 
 Then certify the result against real hardware before the catalogue points at
 it -- the suite for that is in
 `llm-port-dev/llm_port_ray_migration/runtime_image/`.
+
+## Releases
+
+A `runtime-v<version>` tag (pushed by `llm-port-dev/scripts/release-runtime.ps1`)
+runs `.github/workflows/runtime-image-release.yml`: each image is built on a
+runner of its own architecture, pushed to
+`ghcr.io/llm-port/ray-runtime-gb10:<version>` and
+`ghcr.io/llm-port/ray-runtime-x86_64:<version>`, and its manifest -- minted by
+the same script, with the registry digest -- is attached to the
+`runtime-v<version>` GitHub release.
+
+Those manifests say `uncertified`, because CI has no GB10 pair or NVIDIA card.
+Certify each image on its hardware, then commit its manifest here; the next
+core release builds the backend with it, and from then on the catalogue points
+at the published image.

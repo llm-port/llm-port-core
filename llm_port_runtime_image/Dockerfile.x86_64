@@ -11,8 +11,28 @@
 # `llm-port-ray-runtime <verb>` inside this container, so the SDK version that
 # answers is always the one the cluster is running. An image without the
 # helper starts a cluster that then reads as dead, because nothing can be
-# asked about it -- which is exactly what the smoke image did.
-FROM llmport-agent-ray-smoke:2.58.0
+# asked about it.
+#
+# Built from public images only, so CI can build it: it used to start from
+# `llmport-agent-ray-smoke:2.58.0`, an image that existed on one workstation.
+# That image was python:3.12.14-slim (trixie) plus `ray[serve,llm]==2.58.0`,
+# whose `llm` extra pins vLLM 0.26.0 exactly -- the stack the manifest
+# records. vLLM is named here as well, so the version shows where people read
+# it. CUDA comes with the torch and vLLM wheels; the host only needs the
+# NVIDIA driver and container toolkit.
+FROM python:3.12.14-slim-trixie
+
+ENV PIP_NO_CACHE_DIR=1 \
+    PYTHONUNBUFFERED=1 \
+    DEBIAN_FRONTEND=noninteractive
+
+# gcc/libc6-dev: Triton compiles its launcher stubs at first use.
+# procps: Ray's own process management shells out to ps/pkill.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends gcc libc6-dev curl procps \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN pip install "ray[serve,llm]==2.58.0" "vllm==0.26.0"
 
 # Air-gapped runtime defaults and telemetry suppression.
 ENV HF_HUB_OFFLINE=1 \
