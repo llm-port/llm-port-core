@@ -395,6 +395,10 @@ class LLMGatewayRequestLog(Base):
     session_id: Mapped[str | None] = mapped_column(
         String(128), nullable=True, index=True,
     )
+    # Who the usage is attributed to beyond the user: the usage group the
+    # backend stores on the user, and the chat project the session is in.
+    group_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    project_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     finish_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
     retry_count: Mapped[int | None] = mapped_column(
         Integer, nullable=True, server_default="0",

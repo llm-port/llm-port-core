@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { adminUsers, type AdminUser, type RbacRole } from "~/api/admin";
+import { adminGroups, adminUsers, type AdminUser, type Group, type RbacRole } from "~/api/admin";
 import { DataTable, type ColumnDef } from "~/components/DataTable";
 import { ConfirmDialog } from "~/components/ConfirmDialog";
 import { FormDialog } from "~/components/FormDialog";
@@ -14,6 +14,7 @@ import Chip from "@mui/material/Chip";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import FormGroup from "@mui/material/FormGroup";
 import IconButton from "@mui/material/IconButton";
+import MenuItem from "@mui/material/MenuItem";
 import Stack from "@mui/material/Stack";
 import Switch from "@mui/material/Switch";
 import TextField from "@mui/material/TextField";
@@ -27,22 +28,27 @@ export default function UsersPage() {
 
   // ── Data loading via useAsyncData ──
   const {
-    data: { users, roles },
+    data: { users, roles, groups },
     loading,
     error,
     refresh: load,
     setError,
   } = useAsyncData(
     async () => {
-      const [allUsers, allRoles] = await Promise.all([adminUsers.list(), adminUsers.listRoles()]);
-      return { users: allUsers, roles: allRoles };
+      const [allUsers, allRoles, allGroups] = await Promise.all([
+        adminUsers.list(),
+        adminUsers.listRoles(),
+        adminGroups.list(),
+      ]);
+      return { users: allUsers, roles: allRoles, groups: allGroups };
     },
     [],
-    { initialValue: { users: [] as AdminUser[], roles: [] as RbacRole[] } },
+    { initialValue: { users: [] as AdminUser[], roles: [] as RbacRole[], groups: [] as Group[] } },
   );
 
   const [editing, setEditing] = useState<AdminUser | null>(null);
   const [selectedRoleIds, setSelectedRoleIds] = useState<string[]>([]);
+  const [selectedUsageGroupId, setSelectedUsageGroupId] = useState<string>("");
   const [saving, setSaving] = useState(false);
 
   // Create user dialog
@@ -60,6 +66,7 @@ export default function UsersPage() {
   function openEdit(user: AdminUser) {
     setEditing(user);
     setSelectedRoleIds(user.roles.map((role) => role.id));
+    setSelectedUsageGroupId(user.usage_group_id ?? "");
   }
 
   function toggleRole(roleId: string) {
@@ -73,10 +80,20 @@ export default function UsersPage() {
     setSaving(true);
     try {
       await adminUsers.setUserRoles(editing.id, selectedRoleIds);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t("users.failed_update_roles"));
+      setSaving(false);
+      return;
+    }
+    try {
+      const nextGroup = selectedUsageGroupId || null;
+      if (nextGroup !== (editing.usage_group_id ?? null)) {
+        await adminUsers.setUsageGroup(editing.id, nextGroup);
+      }
       setEditing(null);
       await load();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t("users.failed_update_roles"));
+      setError(err instanceof Error ? err.message : t("users.failed_update_usage_group"));
     } finally {
       setSaving(false);
     }
@@ -190,6 +207,20 @@ export default function UsersPage() {
       minWidth: 260,
     },
     {
+      key: "usage_group",
+      label: t("users.usage_group"),
+      sortable: true,
+      sortValue: (u) => u.usage_group_name ?? "",
+      searchValue: (u) => u.usage_group_name ?? "",
+      render: (u) =>
+        u.usage_group_name ? (
+          <Chip size="small" variant="outlined" label={u.usage_group_name} />
+        ) : (
+          <Typography variant="body2" color="text.secondary">{t("users.usage_group_none")}</Typography>
+        ),
+      minWidth: 160,
+    },
+    {
       key: "permissions",
       label: t("users.permissions"),
       sortable: true,
@@ -276,6 +307,24 @@ export default function UsersPage() {
               <Typography variant="body2" color="text.secondary">{t("users.no_roles_available")}</Typography>
             </Box>
           )}
+          <TextField
+            select
+            fullWidth
+            size="small"
+            sx={{ mt: 2 }}
+            label={t("users.usage_group")}
+            value={selectedUsageGroupId}
+            onChange={(e) => setSelectedUsageGroupId(e.target.value)}
+            helperText={t("users.usage_group_help")}
+            disabled={saving}
+          >
+            <MenuItem value="">{t("users.usage_group_none")}</MenuItem>
+            {groups.map((g) => (
+              <MenuItem key={g.id} value={g.id}>
+                {g.name}
+              </MenuItem>
+            ))}
+          </TextField>
       </FormDialog>
 
       {/* ── Create user dialog ── */}

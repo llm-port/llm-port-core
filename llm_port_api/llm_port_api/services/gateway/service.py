@@ -15,6 +15,7 @@ from llm_port_api.db.dao.gateway_dao import GatewayDAO
 from llm_port_api.db.dao.session_dao import SessionDAO
 from llm_port_api.db.models.gateway import ProviderType
 from llm_port_api.services.gateway.audit import AuditService
+from llm_port_api.services.gateway.usage_group import UsageGroupResolver
 from llm_port_api.services.gateway.auth import AuthContext
 from llm_port_api.services.gateway import attachment_search, knowledge
 from llm_port_api.services.gateway.errors import GatewayError
@@ -445,6 +446,8 @@ class _Prepared:
     fallback_outcome: str = "not_used"
     pii_policy: PIIPolicy | None = None
     session_id: str | None = None
+    group_id: str | None = None  # the user's usage group, for attribution
+    project_id: str | None = None  # the session's chat project, for attribution
     skills: list[ResolvedSkill] = field(default_factory=list)
     rag_context: dict[str, Any] | None = None
     trace_context: Any = None
@@ -495,6 +498,7 @@ class GatewayService:
         mcp_tool_cache: MCPToolCache | None = None,
         skills_client: SkillsClient | None = None,
         tool_router: ToolRouter | None = None,
+        usage_groups: UsageGroupResolver | None = None,
     ) -> None:
         self.dao = dao
         self.router = router
@@ -511,6 +515,7 @@ class GatewayService:
         self.mcp_tool_cache = mcp_tool_cache
         self.skills_client = skills_client
         self.tool_router = tool_router
+        self.usage_groups = usage_groups
         self.stream_buffer: StreamBuffer | None = None
 
     async def list_models(self, auth: AuthContext) -> dict[str, Any]:
@@ -752,6 +757,8 @@ class GatewayService:
                     if req.decision is not None else None
                 ),
                 session_id=req.session_id or session_id,
+                group_id=req.group_id,
+                project_id=req.project_id,
                 finish_reason=finish_reason,
                 retry_count=retry_count,
                 skills_used=_skills_used(req.skills),
@@ -901,6 +908,8 @@ class GatewayService:
                             if req.decision is not None else None
                         ),
                         session_id=req.session_id or session_id,
+                        group_id=req.group_id,
+                        project_id=req.project_id,
                         finish_reason=req.finish_reason,
                         retry_count=0,
                         skills_used=_skills_used(req.skills),
@@ -980,6 +989,8 @@ class GatewayService:
                         if req.decision is not None else None
                     ),
                     session_id=session_id,
+                    group_id=req.group_id,
+                    project_id=req.project_id,
                     finish_reason=None,
                     retry_count=0,
                     skills_used=_skills_used(req.skills),
@@ -1041,11 +1052,12 @@ class GatewayService:
         searchable = chat and payload.get("tool_choice") != "none" and all(
             knowledge.calls_tools(c) for c in candidates
         )
-        (payload, req.session_id), req.skills, mcp_tools = await _together(
+        (payload, req.session_id, req.project_id), req.skills, mcp_tools, req.group_id = await _together(
             self._inject_session_context(payload, auth, session_id, req=req if searchable else None)
-            if chat else _value((payload, None)),
+            if chat else _value((payload, None, None)),
             self._resolve_skills(question, auth, session_id) if chat else _value([]),
             self.mcp_tool_cache.get_tools(auth.tenant_id) if chat and self.mcp_tool_cache else _value(None),
+            self.usage_groups.resolve(auth.user_id) if self.usage_groups else _value(None),
         )
         for skill in req.skills:  # each after the last: they keep their order
             payload = _insert_after_system(payload, {
@@ -1342,7 +1354,7 @@ class GatewayService:
         auth: AuthContext,
         session_id_str: str | None,
         req: _Prepared | None = None,
-    ) -> tuple[dict[str, Any], str | None]:
+    ) -> tuple[dict[str, Any], str | None, str | None]:
         """Inject session history and memory into the payload.
 
         Returns ``(updated_payload, resolved_session_id_hex)``
@@ -1351,7 +1363,7 @@ class GatewayService:
         to search, and go on ``req.attachments``.
         """
         if not session_id_str or not self.session_dao:
-            return payload, None
+            return payload, None, None
 
         import uuid as _uuid  # noqa: PLC0415
 
@@ -1360,13 +1372,13 @@ class GatewayService:
         try:
             sid = _uuid.UUID(session_id_str)
         except ValueError:
-            return payload, None
+            return payload, None, None
 
         sess = await self.session_dao.get_session(
             session_id=sid, tenant_id=auth.tenant_id, user_id=auth.user_id,
         )
         if not sess:
-            return payload, None
+            return payload, None, None
 
         # Resolve project if the session belongs to one
         project = None
@@ -1454,7 +1466,7 @@ class GatewayService:
         if current_messages:
             await self.session_dao.session.commit()
 
-        return payload, str(sid)
+        return payload, str(sid), (str(sess.project_id) if sess.project_id else None)
 
     # ── Skills helpers ───────────────────────────────────────────────────────
 

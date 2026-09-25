@@ -223,6 +223,8 @@ class GatewayDAO:
         rag_context: dict | None = None,
         mcp_tool_call_count: int | None = None,
         mcp_tool_loop_iterations: int | None = None,
+        group_id: str | None = None,
+        project_id: str | None = None,
     ) -> LLMGatewayRequestLog:
         """Insert request audit log row."""
         row = LLMGatewayRequestLog(
@@ -255,6 +257,8 @@ class GatewayDAO:
             rag_context=rag_context,
             mcp_tool_call_count=mcp_tool_call_count,
             mcp_tool_loop_iterations=mcp_tool_loop_iterations,
+            group_id=group_id,
+            project_id=project_id,
         )
         self.session.add(row)
         await self.session.flush()

@@ -13,7 +13,10 @@ from fastapi_users.authentication import (
 )
 from fastapi_users.db import SQLAlchemyBaseUserTableUUID, SQLAlchemyUserDatabase
 from pydantic import ConfigDict
+from sqlalchemy import ForeignKey
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Mapped, mapped_column
 
 from llm_port_backend.db.base import Base
 from llm_port_backend.db.dependencies import get_db_session
@@ -24,6 +27,16 @@ log = logging.getLogger(__name__)
 
 class User(SQLAlchemyBaseUserTableUUID, Base):
     """Represents a user entity."""
+
+    # The group this user's LLM usage is attributed to -- for usage reports,
+    # and for the budgets the enterprise edition builds on them. Group
+    # membership stays RBAC; this is the one answer to "whose usage is this".
+    usage_group_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("groups.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
 
 class UserRead(schemas.BaseUser[uuid.UUID]):

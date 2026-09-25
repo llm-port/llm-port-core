@@ -29,6 +29,7 @@ from llm_port_api.services.gateway.pricing import PricingService
 from llm_port_api.services.gateway.proxy import create_shared_http_client
 from llm_port_api.services.gateway.jwt_secret import load_jwt_secret_from_backend_db
 from llm_port_api.services.gateway.settings_loader import load_system_settings_from_backend_db
+from llm_port_api.services.gateway.usage_group import build_usage_group_resolver
 from llm_port_api.services.rabbit.lifespan import init_rabbit, shutdown_rabbit
 from llm_port_api.services.cache import NoOpCache, RedisCache
 from llm_port_api.services.registry import service_registry
@@ -250,6 +251,8 @@ async def lifespan_setup(
 
     await _load_jwt_secret_from_backend_db()
     await load_system_settings_from_backend_db()
+    # Who each user's usage is attributed to; one cached lookup per user, off the hot path.
+    app.state.usage_group_resolver = build_usage_group_resolver(settings)
     # Connect to RabbitMQ with retries — RMQ may still be starting.
     if not broker.is_worker_process:
         import asyncio
@@ -320,6 +323,8 @@ async def lifespan_setup(
     pricing_task.cancel()
     if not broker.is_worker_process:
         await broker.shutdown()
+    if getattr(app.state, "usage_group_resolver", None) is not None:
+        await app.state.usage_group_resolver.close()
     await app.state.http_client.aclose()
     await app.state.db_engine.dispose()
     app.state.gateway_observability.shutdown()

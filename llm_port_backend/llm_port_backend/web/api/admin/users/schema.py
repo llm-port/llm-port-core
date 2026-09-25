@@ -52,6 +52,8 @@ class AdminUserDTO(BaseModel):
     is_active: bool
     is_superuser: bool
     is_verified: bool
+    usage_group_id: uuid.UUID | None = None
+    usage_group_name: str | None = None
     roles: list[RoleDTO] = Field(default_factory=list)
     permissions: list[PermissionDTO] = Field(default_factory=list)
 
@@ -94,6 +96,12 @@ class ApiTokenResponse(BaseModel):
 
     token: str
     expires_in: int | None = None
+
+
+class UpdateUserUsageGroupRequest(BaseModel):
+    """The group a user's usage is attributed to; ``null`` clears it."""
+
+    usage_group_id: uuid.UUID | None = None
 
 
 class CreateUserRequest(BaseModel):

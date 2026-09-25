@@ -10,8 +10,10 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette import status
 
+from llm_port_backend.db.dao.groups_dao import GroupDAO
 from llm_port_backend.db.dao.rbac_dao import RbacDAO
 from llm_port_backend.db.dependencies import get_db_session
+from llm_port_backend.db.models.groups import Group
 from llm_port_backend.db.models.rbac import Permission, Role
 from llm_port_backend.db.models.users import User, current_active_user
 from llm_port_backend.web.api.admin.dependencies import require_superuser
@@ -30,6 +32,7 @@ from llm_port_backend.web.api.admin.users.schema import (
     RoleDTO,
     UpdateRoleRequest,
     UpdateUserRolesRequest,
+    UpdateUserUsageGroupRequest,
 )
 
 router = APIRouter()
@@ -61,6 +64,9 @@ def _permissions_to_dto(permissions: list[Permission]) -> list[PermissionDTO]:
 async def _build_admin_user_dto(user: User, rbac_dao: RbacDAO) -> AdminUserDTO:
     roles = await rbac_dao.get_user_roles(user.id)
     permissions = await rbac_dao.get_user_permissions(user.id)
+    usage_group = (
+        await rbac_dao.session.get(Group, user.usage_group_id) if user.usage_group_id else None
+    )
     return AdminUserDTO(
         id=user.id,
         email=user.email,
@@ -69,6 +75,8 @@ async def _build_admin_user_dto(user: User, rbac_dao: RbacDAO) -> AdminUserDTO:
         is_verified=user.is_verified,
         roles=[_role_to_dto(role) for role in sorted(roles, key=lambda r: r.name)],
         permissions=_permissions_to_dto(permissions),
+        usage_group_id=user.usage_group_id,
+        usage_group_name=usage_group.name if usage_group else None,
     )
 
 
@@ -267,6 +275,33 @@ async def set_user_roles(
     await session.flush()
 
     return await _build_admin_user_dto(target_user, rbac_dao)
+
+
+@router.put("/{user_id}/usage-group", response_model=AdminUserDTO, name="set_user_usage_group")
+async def set_user_usage_group(
+    user_id: uuid.UUID,
+    payload: UpdateUserUsageGroupRequest,
+    _user: Annotated[User, Depends(require_superuser)] = None,  # type: ignore[assignment]
+    session: AsyncSession = Depends(get_db_session),
+) -> AdminUserDTO:
+    """Set the group a user's LLM usage is attributed to; ``null`` clears it."""
+    user_result = await session.execute(select(User).where(User.id == user_id))
+    target_user = user_result.scalar_one_or_none()
+    if target_user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    if payload.usage_group_id is not None:
+        group = await GroupDAO(session).get_group_by_id(payload.usage_group_id)
+        if group is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unknown group id: {payload.usage_group_id}",
+            )
+
+    target_user.usage_group_id = payload.usage_group_id
+    await session.flush()
+
+    return await _build_admin_user_dto(target_user, RbacDAO(session))
 
 
 @router.post("/", response_model=AdminUserDTO, status_code=status.HTTP_201_CREATED, name="create_user")

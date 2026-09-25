@@ -159,6 +159,7 @@ def get_gateway_service(
         mcp_tool_cache=mcp_tool_cache,
         skills_client=skills_client,
         tool_router=tool_router,
+        usage_groups=getattr(request.app.state, "usage_group_resolver", None),
     )
     service.stream_buffer = getattr(request.app.state, "stream_buffer", None)
     return service

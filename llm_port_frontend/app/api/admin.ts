@@ -567,6 +567,8 @@ export interface AdminUser {
   is_active: boolean;
   is_superuser: boolean;
   is_verified: boolean;
+  usage_group_id: string | null;
+  usage_group_name: string | null;
   roles: RbacRole[];
   permissions: RbacPermission[];
 }
@@ -621,6 +623,12 @@ export const adminUsers = {
     return request<AdminUser>(`/users/${userId}/roles`, {
       method: "PUT",
       body: JSON.stringify({ role_ids: roleIds }),
+    });
+  },
+  setUsageGroup(userId: string, groupId: string | null) {
+    return request<AdminUser>(`/users/${userId}/usage-group`, {
+      method: "PUT",
+      body: JSON.stringify({ usage_group_id: groupId }),
     });
   },
   createUser(payload: {
