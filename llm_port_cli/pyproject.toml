@@ -10,7 +10,7 @@ packages = ["src/llmport"]
 
 [project]
 name = "llmport-cli"
-version = "0.2.9"
+version = "0.3.0"
 requires-python = ">=3.12,<4.0"
 description = "CLI installer and management tool for the llm.port platform"
 authors = [
