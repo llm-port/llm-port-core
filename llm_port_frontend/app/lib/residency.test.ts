@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Provider, Residency } from "~/api/llm";
 
-import { badgeFor, residencyKind, splitByResidency } from "./residency";
+import { badgeFor, residencyKind, shares, splitByResidency } from "./residency";
 
 function provider(target: Provider["target"], residency?: Partial<Residency> | null): Provider {
   return {
@@ -56,6 +56,16 @@ describe("data residency", () => {
       provider("remote_endpoint", null),
     ]);
     expect(thirds.insidePct + thirds.externalPct + thirds.unknownPct).toBe(100);
+  });
+
+  it("keeps token shares whole and never negative", () => {
+    for (const [inside, unknown, external] of [[0, 495, 505], [1, 1, 1], [0, 1, 1], [7, 0, 0], [0, 0, 3]]) {
+      const s = shares(inside, unknown, external);
+      expect(s.insidePct + s.unknownPct + s.externalPct).toBe(100);
+      expect(Math.min(s.insidePct, s.unknownPct, s.externalPct)).toBeGreaterThanOrEqual(0);
+    }
+    expect(shares(0, 0, 0)).toEqual({ insidePct: 100, unknownPct: 0, externalPct: 0 });
+    expect(shares(50, 25, 25)).toEqual({ insidePct: 50, unknownPct: 25, externalPct: 25 });
   });
 
   it("never calls a setup air-gapped while a provider is unknown", () => {

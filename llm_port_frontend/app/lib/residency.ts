@@ -44,20 +44,32 @@ export function splitByResidency(providers: Provider[]): ResidencySplit {
     else if (kind === "external") external.push(p);
     else unknown.push(p);
   }
-  const total = providers.length;
-  const pct = (n: number) => (total > 0 ? Math.round((n / total) * 100) : 0);
-  const externalPct = pct(external.length);
-  const unknownPct = pct(unknown.length);
   return {
     inside,
     external,
     unknown,
     badge: badgeFor(inside.length, external.length, unknown.length),
-    // The remainder, so the three always add up to 100 despite rounding.
-    insidePct: total > 0 ? 100 - externalPct - unknownPct : 100,
-    externalPct,
-    unknownPct,
+    ...shares(inside.length, unknown.length, external.length),
   };
+}
+
+export interface Shares {
+  insidePct: number;
+  unknownPct: number;
+  externalPct: number;
+}
+
+/**
+ * Percent shares of what stays inside, what is unknown and what leaves --
+ * providers or tokens. They always add up to 100 despite rounding; with
+ * nothing at all, everything is inside.
+ */
+export function shares(inside: number, unknown: number, external: number): Shares {
+  const total = inside + unknown + external;
+  if (total <= 0) return { insidePct: 100, unknownPct: 0, externalPct: 0 };
+  const externalPct = Math.round((external / total) * 100);
+  const unknownPct = Math.min(Math.round((unknown / total) * 100), 100 - externalPct);
+  return { insidePct: 100 - externalPct - unknownPct, unknownPct, externalPct };
 }
 
 /**

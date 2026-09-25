@@ -1114,9 +1114,9 @@
     "no_remote": "Keine externen Provider.",
     "no_runtimes": "Keine Runtimes bereitgestellt",
     "runtimes_active": "{{active}} / {{total}} Runtimes aktiv",
-    "bar_cloud_data": "Cloud-Daten",
+    "bar_cloud_data": "Externe Daten",
     "bar_local_data": "Lokale Daten",
-    "cloud_data": "Cloud-Daten",
+    "cloud_data": "Externe Daten",
     "local_data": "Lokale Daten",
     "data_bar_note": "Basierend auf dem tatsächlichen Token-Durchsatz (≈ 4 Byte pro Token)",
     "data_volume": "Datenmenge",
@@ -1149,7 +1149,8 @@
     "residency_detected": "Automatisch erkennen",
     "unknown_providers": "Unbekannt",
     "unknown_title": "Unbekannt, wohin diese Prompts senden",
-    "unknown_desc": "Ihr Endpunkt lässt sich von diesem Server aus nicht auflösen, oder es ist keiner gesetzt. Solange niemand angibt, wo sie sind, gilt die Umgebung nicht als air-gapped."
+    "unknown_desc": "Ihr Endpunkt lässt sich von diesem Server aus nicht auflösen, oder es ist keiner gesetzt. Solange niemand angibt, wo sie sind, gilt die Umgebung nicht als air-gapped.",
+    "unknown_data": "Unbekannte Daten"
   },
   "profile": {
     "title": "Mein Profil",

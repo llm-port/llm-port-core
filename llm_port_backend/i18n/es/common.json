@@ -1114,9 +1114,9 @@
     "no_remote": "No hay proveedores externos.",
     "no_runtimes": "Sin runtimes desplegados",
     "runtimes_active": "{{active}} / {{total}} runtimes activos",
-    "bar_cloud_data": "Datos en la nube",
+    "bar_cloud_data": "Datos externos",
     "bar_local_data": "Datos locales",
-    "cloud_data": "Datos en la nube",
+    "cloud_data": "Datos externos",
     "local_data": "Datos locales",
     "data_bar_note": "Basado en el rendimiento real de tokens (≈ 4 bytes por token)",
     "data_volume": "Volumen de datos",
@@ -1149,7 +1149,8 @@
     "residency_detected": "Detectar automáticamente",
     "unknown_providers": "Desconocido",
     "unknown_title": "Se desconoce adónde envían los prompts",
-    "unknown_desc": "Su endpoint no se resuelve desde este servidor, o no hay ninguno. Hasta que alguien indique dónde están, la configuración no cuenta como air-gapped."
+    "unknown_desc": "Su endpoint no se resuelve desde este servidor, o no hay ninguno. Hasta que alguien indique dónde están, la configuración no cuenta como air-gapped.",
+    "unknown_data": "Datos desconocidos"
   },
   "profile": {
     "title": "Mi Perfil",

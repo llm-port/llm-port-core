@@ -7,6 +7,7 @@ import json
 import logging
 from collections.abc import AsyncGenerator, Callable
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
@@ -28,6 +29,34 @@ TRACE_PING_INTERVAL_SEC = 15.0
 TRACE_DEFAULT_LIMIT = 100
 TRACE_MAX_LIMIT = 500
 log = logging.getLogger(__name__)
+
+
+class ProviderOwners:
+    """Which backend provider a gateway instance serves.
+
+    A runtime is published under its own id. A cluster deployment and a found
+    container are published under an id of the gateway's, with their source
+    (``inference_deployment`` / ``found_container`` and the source's id) --
+    and the provider they own carries that same source. Going by runtime ids
+    alone, their traffic was nobody's.
+    """
+
+    def __init__(self, *, runtimes: list[Any], providers: list[Any]) -> None:
+        self._by_runtime = {str(rt.id): str(rt.provider_id) for rt in runtimes}
+        self._by_source = {
+            (str(p.source_kind), str(p.source_id)): str(p.id)
+            for p in providers
+            if getattr(p, "source_kind", None) and getattr(p, "source_id", None)
+        }
+
+    def provider_for(
+        self, instance_id: str, source_kind: str | None, source_id: str | None,
+    ) -> str | None:
+        """The provider id, or None for an instance whose provider is gone."""
+        found = self._by_runtime.get(instance_id)
+        if found is None and source_kind and source_id:
+            found = self._by_source.get((source_kind, source_id))
+        return found
 
 
 class LLMGraphService:
@@ -144,24 +173,33 @@ class LLMGraphService:
         return TraceSnapshotResponseDTO(items=events, next_cursor=next_cursor)
 
     async def get_data_usage(self) -> DataUsageSummaryDTO:
-        """Aggregate token/request usage per provider instance from gateway logs."""
+        """Aggregate token/request usage per provider instance from gateway logs.
+
+        Each instance is attributed to the provider it serves (``provider_id``).
+        """
         if self._trace_session_factory is None:
             return DataUsageSummaryDTO(
                 generated_at=datetime.now(tz=UTC),
                 instances=[],
             )
 
+        # The instance's source comes along: a cluster deployment or a found
+        # container is known to the gateway by its source, not by a runtime.
         query = """
             SELECT
-                provider_instance_id,
-                COUNT(*)                    AS total_requests,
-                COALESCE(SUM(prompt_tokens), 0)     AS total_prompt_tokens,
-                COALESCE(SUM(completion_tokens), 0)  AS total_completion_tokens,
-                COALESCE(SUM(total_tokens), 0)       AS total_tokens,
-                SUM(CASE WHEN status_code >= 400 OR error_code IS NOT NULL THEN 1 ELSE 0 END) AS error_count
-            FROM llm_gateway_request_log
-            WHERE provider_instance_id IS NOT NULL
-            GROUP BY provider_instance_id
+                l.provider_instance_id,
+                MAX(pi.source_kind)                    AS source_kind,
+                MAX(CAST(pi.source_id AS TEXT))        AS source_id,
+                COUNT(*)                               AS total_requests,
+                COALESCE(SUM(l.prompt_tokens), 0)      AS total_prompt_tokens,
+                COALESCE(SUM(l.completion_tokens), 0)  AS total_completion_tokens,
+                COALESCE(SUM(l.total_tokens), 0)       AS total_tokens,
+                SUM(CASE WHEN l.status_code >= 400 OR l.error_code IS NOT NULL THEN 1 ELSE 0 END)
+                                                       AS error_count
+            FROM llm_gateway_request_log l
+            LEFT JOIN llm_provider_instance pi ON pi.id = l.provider_instance_id
+            WHERE l.provider_instance_id IS NOT NULL
+            GROUP BY l.provider_instance_id
         """
         try:
             async with self._trace_session_factory() as session:
@@ -174,12 +212,19 @@ class LLMGraphService:
                 instances=[],
             )
 
+        owners = ProviderOwners(
+            runtimes=await self._runtime_dao.list_all(),
+            providers=await self._provider_dao.list_all(),
+        )
         instances: list[DataUsagePerInstanceDTO] = []
         grand_requests = 0
         grand_tokens = 0
         for row in rows:
             inst = DataUsagePerInstanceDTO(
                 provider_instance_id=str(row["provider_instance_id"]),
+                provider_id=owners.provider_for(
+                    str(row["provider_instance_id"]), row["source_kind"], row["source_id"],
+                ),
                 total_requests=int(row["total_requests"]),
                 total_prompt_tokens=int(row["total_prompt_tokens"]),
                 total_completion_tokens=int(row["total_completion_tokens"]),

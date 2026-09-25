@@ -140,3 +140,32 @@ async def test_graph_stream_respects_last_event_id_header(client: AsyncClient, a
         text = await response.aread()
         assert b"event: trace" in text
     assert service.cursor_seen == 41
+
+
+def test_usage_is_attributed_to_the_provider_each_instance_serves() -> None:
+    """A cluster deployment and a found container have no runtime row.
+
+    The map summed usage by runtime id, so their traffic -- on a cluster
+    setup, nearly all of it -- counted for nobody.
+    """
+    from types import SimpleNamespace  # noqa: PLC0415
+
+    from llm_port_backend.services.llm.graph_service import ProviderOwners  # noqa: PLC0415
+
+    docker, remote, cluster, found = (str(uuid.uuid4()) for _ in range(4))
+    runtime_id, deployment_id, adoption_id = (str(uuid.uuid4()) for _ in range(3))
+    owners = ProviderOwners(
+        runtimes=[SimpleNamespace(id=runtime_id, provider_id=docker)],
+        providers=[
+            SimpleNamespace(id=docker, source_kind=None, source_id=None),
+            SimpleNamespace(id=remote, source_kind=None, source_id=None),
+            SimpleNamespace(id=cluster, source_kind="inference_deployment", source_id=deployment_id),
+            SimpleNamespace(id=found, source_kind="found_container", source_id=adoption_id),
+        ],
+    )
+    assert owners.provider_for(runtime_id, None, None) == docker
+    gateway_id = str(uuid.uuid4())  # a deployment is published under an id of the gateway's
+    assert owners.provider_for(gateway_id, "inference_deployment", deployment_id) == cluster
+    assert owners.provider_for(adoption_id, "found_container", adoption_id) == found
+    assert owners.provider_for(str(uuid.uuid4()), None, None) is None, "its provider is gone"
+    assert owners.provider_for(gateway_id, "inference_deployment", str(uuid.uuid4())) is None

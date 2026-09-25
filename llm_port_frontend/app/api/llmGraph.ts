@@ -52,6 +52,8 @@ export interface TraceSnapshotResponse {
 
 export interface DataUsagePerInstance {
   provider_instance_id: string;
+  /** The provider it serves: a cluster or found container has no runtime to go by. */
+  provider_id?: string | null;
   total_requests: number;
   total_prompt_tokens: number;
   total_completion_tokens: number;

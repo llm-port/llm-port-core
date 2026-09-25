@@ -475,6 +475,10 @@ class DataUsagePerInstanceDTO(BaseModel):
     """Token and request usage for a single provider instance (runtime)."""
 
     provider_instance_id: str
+    #: The backend provider this instance serves, when there still is one. A
+    #: cluster deployment or a found container has no runtime row, so the
+    #: instance id alone did not lead to it.
+    provider_id: str | None = None
     total_requests: int = 0
     total_prompt_tokens: int = 0
     total_completion_tokens: int = 0

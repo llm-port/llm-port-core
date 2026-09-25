@@ -1246,9 +1246,9 @@
     "no_remote": "No external providers.",
     "no_runtimes": "No runtimes deployed",
     "runtimes_active": "{{active}} / {{total}} runtimes active",
-    "bar_cloud_data": "Cloud data",
+    "bar_cloud_data": "External data",
     "bar_local_data": "On-premises data",
-    "cloud_data": "Cloud data",
+    "cloud_data": "External data",
     "local_data": "On-premises data",
     "data_bar_note": "Based on actual token throughput (≈ 4 bytes per token)",
     "data_volume": "Data volume",
@@ -1281,7 +1281,8 @@
     "residency_detected": "Detect automatically",
     "unknown_providers": "Unknown",
     "unknown_title": "Where these send prompts is unknown",
-    "unknown_desc": "Their endpoint does not resolve from this server, or none is set. Until someone says where they are, the setup is not counted as air-gapped."
+    "unknown_desc": "Their endpoint does not resolve from this server, or none is set. Until someone says where they are, the setup is not counted as air-gapped.",
+    "unknown_data": "Unknown data"
   },
   "profile": {
     "title": "My Profile",

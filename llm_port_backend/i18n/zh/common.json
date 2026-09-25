@@ -1114,9 +1114,9 @@
     "no_remote": "没有外部提供商。",
     "no_runtimes": "未部署运行时",
     "runtimes_active": "{{active}} / {{total}} 运行时活跃",
-    "bar_cloud_data": "云端数据",
+    "bar_cloud_data": "外部数据",
     "bar_local_data": "本地数据",
-    "cloud_data": "云端数据",
+    "cloud_data": "外部数据",
     "local_data": "本地数据",
     "data_bar_note": "基于实际令牌吞吐量（约 4 字节/令牌）",
     "data_volume": "数据量",
@@ -1149,7 +1149,8 @@
     "residency_detected": "自动检测",
     "unknown_providers": "未知",
     "unknown_title": "无法确定这些提供商把提示发往何处",
-    "unknown_desc": "其端点无法从本服务器解析，或未设置端点。在有人指明其位置之前，此部署不会被视为物理隔离（air-gapped）。"
+    "unknown_desc": "其端点无法从本服务器解析，或未设置端点。在有人指明其位置之前，此部署不会被视为物理隔离（air-gapped）。",
+    "unknown_data": "未知数据"
   },
   "profile": {
     "title": "我的资料",

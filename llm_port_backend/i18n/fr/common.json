@@ -1248,9 +1248,9 @@
     "no_remote": "Aucun fournisseur externe.",
     "no_runtimes": "Aucun environnement déployé",
     "runtimes_active": "{{active}} / {{total}} environnements actifs",
-    "bar_cloud_data": "Données cloud",
+    "bar_cloud_data": "Données externes",
     "bar_local_data": "Données sur site",
-    "cloud_data": "Données cloud",
+    "cloud_data": "Données externes",
     "local_data": "Données sur site",
     "data_bar_note": "D'après le débit réel de jetons (≈ 4 octets par jeton)",
     "data_volume": "Volume de données",
@@ -1283,7 +1283,8 @@
     "residency_detected": "Détecter automatiquement",
     "unknown_providers": "Inconnu",
     "unknown_title": "Destination des prompts inconnue",
-    "unknown_desc": "Leur point d'accès ne se résout pas depuis ce serveur, ou aucun n'est défini. Tant que personne n'indique où ils se trouvent, l'installation n'est pas considérée comme air-gapped."
+    "unknown_desc": "Leur point d'accès ne se résout pas depuis ce serveur, ou aucun n'est défini. Tant que personne n'indique où ils se trouvent, l'installation n'est pas considérée comme air-gapped.",
+    "unknown_data": "Données inconnues"
   },
   "profile": {
     "title": "Mon profil",

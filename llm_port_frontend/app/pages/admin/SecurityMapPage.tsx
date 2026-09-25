@@ -9,7 +9,6 @@ import Chip from "@mui/material/Chip";
 import CircularProgress from "@mui/material/CircularProgress";
 import Divider from "@mui/material/Divider";
 import Grid from "@mui/material/Grid";
-import LinearProgress from "@mui/material/LinearProgress";
 import List from "@mui/material/List";
 import ListItem from "@mui/material/ListItem";
 import ListItemIcon from "@mui/material/ListItemIcon";
@@ -46,7 +45,14 @@ import {
   type DataUsageSummary,
   type DataUsagePerInstance,
 } from "~/api/llmGraph";
-import { residencyKind, residencyReason, splitByResidency, staysInside, type ResidencyBadge } from "~/lib/residency";
+import {
+  residencyKind,
+  residencyReason,
+  shares,
+  splitByResidency,
+  staysInside,
+  type ResidencyBadge,
+} from "~/lib/residency";
 import { useCan } from "~/lib/useCan";
 import ResidencyBar from "~/components/ResidencyBar";
 
@@ -126,7 +132,7 @@ function formatTokens(tokens: number): string {
   return `${(tokens / 1_000_000_000).toFixed(2)}B`;
 }
 
-/** Aggregate usage for a set of runtime IDs. */
+/** Usage summed over gateway instances. */
 interface AggregatedUsage {
   totalRequests: number;
   totalTokens: number;
@@ -135,32 +141,55 @@ interface AggregatedUsage {
   errorCount: number;
 }
 
-function aggregateUsage(
-  runtimeIds: Set<string>,
-  usageByInstance: Map<string, DataUsagePerInstance>,
-): AggregatedUsage {
-  let totalRequests = 0;
-  let totalTokens = 0;
-  let totalPromptTokens = 0;
-  let totalCompletionTokens = 0;
-  let errorCount = 0;
-  for (const rid of runtimeIds) {
-    const u = usageByInstance.get(rid);
-    if (u) {
-      totalRequests += u.total_requests;
-      totalTokens += u.total_tokens;
-      totalPromptTokens += u.total_prompt_tokens;
-      totalCompletionTokens += u.total_completion_tokens;
-      errorCount += u.error_count;
-    }
+const NO_USAGE: AggregatedUsage = {
+  totalRequests: 0,
+  totalTokens: 0,
+  totalPromptTokens: 0,
+  totalCompletionTokens: 0,
+  errorCount: 0,
+};
+
+function addUsage(into: AggregatedUsage, u: AggregatedUsage): void {
+  into.totalRequests += u.totalRequests;
+  into.totalTokens += u.totalTokens;
+  into.totalPromptTokens += u.totalPromptTokens;
+  into.totalCompletionTokens += u.totalCompletionTokens;
+  into.errorCount += u.errorCount;
+}
+
+/**
+ * Usage per provider. The backend says which provider each gateway instance
+ * serves; going by runtime ids alone -- the only way before -- the traffic of
+ * cluster deployments and found containers, which have no runtime, was nobody's.
+ */
+function usagePerProvider(
+  instances: DataUsagePerInstance[],
+  runtimeOwner: Map<string, string>,
+): Map<string, AggregatedUsage> {
+  const out = new Map<string, AggregatedUsage>();
+  for (const u of instances) {
+    const providerId = u.provider_id ?? runtimeOwner.get(u.provider_instance_id);
+    if (!providerId) continue; // its provider is gone
+    const acc = out.get(providerId) ?? { ...NO_USAGE };
+    addUsage(acc, {
+      totalRequests: u.total_requests,
+      totalTokens: u.total_tokens,
+      totalPromptTokens: u.total_prompt_tokens,
+      totalCompletionTokens: u.total_completion_tokens,
+      errorCount: u.error_count,
+    });
+    out.set(providerId, acc);
   }
-  return {
-    totalRequests,
-    totalTokens,
-    totalPromptTokens,
-    totalCompletionTokens,
-    errorCount,
-  };
+  return out;
+}
+
+function sumUsage(providers: Provider[], usage: Map<string, AggregatedUsage>): AggregatedUsage {
+  const acc = { ...NO_USAGE };
+  for (const p of providers) {
+    const u = usage.get(p.id);
+    if (u) addUsage(acc, u);
+  }
+  return acc;
 }
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
@@ -169,7 +198,7 @@ interface ProviderCardProps {
   provider: Provider;
   runtimes: Runtime[];
   modelNames: Map<string, string>;
-  usageByInstance: Map<string, DataUsagePerInstance>;
+  usage: AggregatedUsage;
   t: (key: string, opts?: Record<string, unknown>) => string;
   /** Present when the viewer may say where a provider's prompts go. */
   onSetResidency?: (provider: Provider, override: ResidencyOverride) => void;
@@ -179,7 +208,7 @@ function ProviderCard({
   provider,
   runtimes,
   modelNames,
-  usageByInstance,
+  usage,
   t,
   onSetResidency,
 }: ProviderCardProps) {
@@ -187,8 +216,6 @@ function ProviderCard({
   const isLocal = staysInside(kind);
   const reason = residencyReason(t, provider.residency);
   const activeRuntimes = runtimes.filter((r) => r.status === "running").length;
-  const runtimeIds = new Set(runtimes.map((r) => r.id));
-  const usage = aggregateUsage(runtimeIds, usageByInstance);
   const estimatedBytes = tokensToBytes(usage.totalTokens);
 
   return (
@@ -458,10 +485,11 @@ export default function SecurityMapPage() {
     unknownPct,
     localRuntimeCount,
     remoteRuntimeCount,
-    usageByInstance,
+    usageByProvider,
     localUsage,
     remoteUsage,
-    localDataPct,
+    unknownUsage,
+    dataShares,
   } = useMemo(() => {
     const split = splitByResidency(allProviders);
     const local = split.inside;
@@ -482,22 +510,11 @@ export default function SecurityMapPage() {
       0,
     );
 
-    // Build per-instance usage map and side aggregates
-    const instMap = new Map<string, DataUsagePerInstance>();
-    if (dataUsage) {
-      for (const inst of dataUsage.instances) {
-        instMap.set(inst.provider_instance_id, inst);
-      }
-    }
-    const localRtIds = new Set(
-      local.flatMap((p) => (runtimeMap.get(p.id) ?? []).map((r) => r.id)),
-    );
-    const remoteRtIds = new Set(
-      remote.flatMap((p) => (runtimeMap.get(p.id) ?? []).map((r) => r.id)),
-    );
-    const localUsg = aggregateUsage(localRtIds, instMap);
-    const remoteUsg = aggregateUsage(remoteRtIds, instMap);
-    const totalTokens = localUsg.totalTokens + remoteUsg.totalTokens;
+    const runtimeOwner = new Map(allRuntimes.map((rt) => [rt.id, rt.provider_id]));
+    const perProvider = usagePerProvider(dataUsage?.instances ?? [], runtimeOwner);
+    const localUsg = sumUsage(local, perProvider);
+    const remoteUsg = sumUsage(remote, perProvider);
+    const unknownUsg = sumUsage(split.unknown, perProvider);
 
     return {
       localProviders: local,
@@ -511,13 +528,11 @@ export default function SecurityMapPage() {
       unknownPct: split.unknownPct,
       localRuntimeCount: localRt,
       remoteRuntimeCount: remoteRt,
-      usageByInstance: instMap,
+      usageByProvider: perProvider,
       localUsage: localUsg,
       remoteUsage: remoteUsg,
-      localDataPct:
-        totalTokens > 0
-          ? Math.round((localUsg.totalTokens / totalTokens) * 100)
-          : 100,
+      unknownUsage: unknownUsg,
+      dataShares: shares(localUsg.totalTokens, unknownUsg.totalTokens, remoteUsg.totalTokens),
     };
   }, [allProviders, allRuntimes, allModels, dataUsage]);
 
@@ -643,7 +658,7 @@ export default function SecurityMapPage() {
           </Stack>
 
           {/* Data volume stats */}
-          {(localUsage.totalTokens > 0 || remoteUsage.totalTokens > 0) && (
+          {localUsage.totalTokens + unknownUsage.totalTokens + remoteUsage.totalTokens > 0 && (
             <>
               <Divider sx={{ my: 2 }} />
               <Stack
@@ -691,15 +706,31 @@ export default function SecurityMapPage() {
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
                       {t("security_map.cloud_data", {
-                        defaultValue: "Cloud Data",
+                        defaultValue: "External data",
                       })}
                     </Typography>
                   </Stack>
                 </Tooltip>
+                {unknownUsage.totalTokens > 0 && (
+                  <Tooltip
+                    title={`${unknownUsage.totalTokens.toLocaleString()} tokens (${unknownUsage.totalPromptTokens.toLocaleString()} prompt + ${unknownUsage.totalCompletionTokens.toLocaleString()} completion)`}
+                  >
+                    <Stack alignItems="center">
+                      <Typography variant="h5" fontWeight={700} color="text.secondary">
+                        {formatBytes(tokensToBytes(unknownUsage.totalTokens))}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {t("security_map.unknown_data")}
+                      </Typography>
+                    </Stack>
+                  </Tooltip>
+                )}
                 <Stack alignItems="center">
                   <Typography variant="h5" fontWeight={700}>
                     {(
-                      localUsage.totalRequests + remoteUsage.totalRequests
+                      localUsage.totalRequests +
+                      unknownUsage.totalRequests +
+                      remoteUsage.totalRequests
                     ).toLocaleString()}
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
@@ -725,32 +756,25 @@ export default function SecurityMapPage() {
                     {t("security_map.bar_local_data", {
                       defaultValue: "On-Premises Data",
                     })}{" "}
-                    {localDataPct}%
+                    {dataShares.insidePct}%
                   </Typography>
+                  {dataShares.unknownPct > 0 && (
+                    <Typography variant="caption" fontWeight={600} color="text.secondary">
+                      {t("security_map.unknown_data")} {dataShares.unknownPct}%
+                    </Typography>
+                  )}
                   <Typography
                     variant="caption"
                     fontWeight={600}
                     color="warning.main"
                   >
                     {t("security_map.bar_cloud_data", {
-                      defaultValue: "Cloud Data",
+                      defaultValue: "External data",
                     })}{" "}
-                    {100 - localDataPct}%
+                    {dataShares.externalPct}%
                   </Typography>
                 </Stack>
-                <LinearProgress
-                  variant="determinate"
-                  value={localDataPct}
-                  sx={{
-                    height: 12,
-                    borderRadius: 1.5,
-                    bgcolor: "warning.light",
-                    "& .MuiLinearProgress-bar": {
-                      bgcolor: "success.main",
-                      borderRadius: 1.5,
-                    },
-                  }}
-                />
+                <ResidencyBar {...dataShares} />
                 <Typography
                   variant="caption"
                   color="text.secondary"
@@ -850,7 +874,7 @@ export default function SecurityMapPage() {
                     provider={p}
                     runtimes={runtimesByProvider.get(p.id) ?? []}
                     modelNames={modelNames}
-                    usageByInstance={usageByInstance}
+                    usage={usageByProvider.get(p.id) ?? NO_USAGE}
                     t={t}
                     onSetResidency={residencySetter}
                   />
@@ -909,7 +933,7 @@ export default function SecurityMapPage() {
                     provider={p}
                     runtimes={runtimesByProvider.get(p.id) ?? []}
                     modelNames={modelNames}
-                    usageByInstance={usageByInstance}
+                    usage={usageByProvider.get(p.id) ?? NO_USAGE}
                     t={t}
                     onSetResidency={residencySetter}
                   />
@@ -939,7 +963,7 @@ export default function SecurityMapPage() {
                 provider={p}
                 runtimes={runtimesByProvider.get(p.id) ?? []}
                 modelNames={modelNames}
-                usageByInstance={usageByInstance}
+                usage={usageByProvider.get(p.id) ?? NO_USAGE}
                 t={t}
                 onSetResidency={residencySetter}
               />
