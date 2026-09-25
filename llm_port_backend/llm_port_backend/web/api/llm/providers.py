@@ -30,7 +30,9 @@ from llm_port_backend.db.models.llm import (
     ProviderType,
 )
 from llm_port_backend.db.models.users import User
+from llm_port_backend.services.llm import remote_health
 from llm_port_backend.services.llm import residency as residency_mod
+from llm_port_backend.services.llm.gateway_sync import _normalize_base_url
 from llm_port_backend.services.llm.monitoring import get_monitoring_provisioner
 from llm_port_backend.services.llm.service import LLMService
 from llm_port_backend.services.tls import default_httpx_verify
@@ -51,16 +53,7 @@ from llm_port_backend.web.api.rbac import require_permission
 log = logging.getLogger(__name__)
 
 # ── Known provider health-check URLs (used when no endpoint_url given) ───────
-_PROVIDER_HEALTH_URLS: dict[str, str] = {
-    "openai": "https://api.openai.com/v1/models",
-    "anthropic": "https://api.anthropic.com/v1/models",
-    "gemini": "https://generativelanguage.googleapis.com/v1beta/models",
-    "mistral": "https://api.mistral.ai/v1/models",
-    "groq": "https://api.groq.com/openai/v1/models",
-    "deepseek": "https://api.deepseek.com/v1/models",
-    "cohere": "https://api.cohere.com/v2/models",
-    "openrouter": "https://openrouter.ai/api/v1/models",
-}
+_PROVIDER_HEALTH_URLS = remote_health.KNOWN_API_URLS
 
 _PROVIDER_AUTH_HEADER: dict[str, tuple[str, str]] = {
     # provider -> (header_name_template, value_template)
@@ -201,6 +194,12 @@ async def _residencies(
     )
     found = await residency_mod.classify_all(providers, ctx)
     return {pid: ResidencyDTO(**r.to_dict()) for pid, r in found.items()}
+
+
+async def _dto_with_residency(session: AsyncSession, provider: LLMProvider) -> ProviderDTO:
+    """A provider as the API answers it, with where its prompts go."""
+    residencies = await _residencies(session, [provider])
+    return _provider_to_dto(provider).model_copy(update={"residency": residencies.get(str(provider.id))})
 
 
 async def _resolve_owners(
@@ -513,7 +512,7 @@ async def create_provider(
         severity="normal",
         audit_dao=audit_dao,
     )
-    return _provider_to_dto(provider)
+    return await _dto_with_residency(provider_dao.session, provider)
 
 
 @router.get("/{provider_id}", response_model=ProviderDTO)
@@ -526,8 +525,7 @@ async def get_provider(
     provider = await provider_dao.get(provider_id)
     if provider is None:
         raise HTTPException(status_code=404, detail="Provider not found")
-    residencies = await _residencies(provider_dao.session, [provider])
-    return _provider_to_dto(provider).model_copy(update={"residency": residencies.get(str(provider.id))})
+    return await _dto_with_residency(provider_dao.session, provider)
 
 
 @router.put("/{provider_id}/residency", response_model=ProviderDTO)
@@ -559,8 +557,7 @@ async def set_provider_residency(
         audit_dao=audit_dao,
         metadata_json=json.dumps({"override": body.override}),
     )
-    residencies = await _residencies(provider_dao.session, [provider])
-    return _provider_to_dto(provider).model_copy(update={"residency": residencies.get(str(provider.id))})
+    return await _dto_with_residency(provider_dao.session, provider)
 
 
 def _refuse_if_derived(provider: object, action: str) -> None:
@@ -661,6 +658,7 @@ async def update_provider(
     runtime_dao: RuntimeDAO = Depends(),
     model_dao: ModelDAO = Depends(),
     audit_dao: AuditDAO = Depends(),
+    llm_service: LLMService = Depends(get_llm_service),
 ) -> ProviderDTO:
     """Patch writable fields on a provider."""
     existing = await provider_dao.get(provider_id)
@@ -692,11 +690,13 @@ async def update_provider(
             next_capabilities.pop("remote_model", None)
         capabilities_changed = True
 
+    # Normalised as on create, so the gateway does not ask for /v1/v1/...
+    endpoint_url = _normalize_base_url(body.endpoint_url) if body.endpoint_url else body.endpoint_url
     provider = await provider_dao.update(
         provider_id,
         name=body.name,
         capabilities=next_capabilities if capabilities_changed else None,
-        endpoint_url=body.endpoint_url if body.endpoint_url is not None else ...,
+        endpoint_url=endpoint_url if endpoint_url is not None else ...,
         api_key_encrypted=body.api_key if body.api_key is not None else ...,
         litellm_provider=body.litellm_provider if "litellm_provider" in body.model_fields_set else ...,
         litellm_model=body.litellm_model if "litellm_model" in body.model_fields_set else ...,
@@ -726,6 +726,13 @@ async def update_provider(
             if rt.name == old_remote_model:
                 rt.name = new_remote_model
 
+    # Where prompts go and how they get there reach the routes too: they were
+    # copied into each runtime and its gateway route when it was made, and an
+    # edit left the gateway sending prompts to the old address.
+    routing_fields = {"endpoint_url", "api_key", "litellm_provider", "litellm_model", "extra_params"}
+    if existing.target == ProviderTarget.REMOTE_ENDPOINT and routing_fields & body.model_fields_set:
+        await llm_service.sync_remote_routes(runtime_dao, provider)
+
     await audit_action(
         action="llm.provider.update",
         target_type="llm_provider",
@@ -735,7 +742,7 @@ async def update_provider(
         severity="normal",
         audit_dao=audit_dao,
     )
-    return _provider_to_dto(provider)
+    return await _dto_with_residency(provider_dao.session, provider)
 
 
 @router.delete("/{provider_id}", status_code=status.HTTP_204_NO_CONTENT)

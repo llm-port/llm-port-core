@@ -39,6 +39,7 @@ from llm_port_backend.db.models.node_control import InfraNode, NodeCommandType, 
 from llm_port_backend.services.docker.client import DockerService
 from llm_port_backend.services.llm.base import ContainerSpec
 from llm_port_backend.services.llm.gateway_sync import GatewaySyncService, _normalize_base_url
+from llm_port_backend.services.llm import remote_health
 from llm_port_backend.services.llm.monitoring import deprovision_for_runtime
 from llm_port_backend.services.llm.registry import get_adapter
 from llm_port_backend.services.llm.scanner import scan_model_directory
@@ -55,6 +56,17 @@ _WEIGHT_SUFFIXES = (".safetensors", ".bin", ".pt", ".pth", ".gguf", ".ckpt", ".m
 def _has_weights(snapshot: Path) -> bool:
     """Whether a cached snapshot holds any weights at all."""
     return any(p.name.endswith(_WEIGHT_SUFFIXES) for p in snapshot.rglob("*"))
+
+
+def _remote_base_url(provider: LLMProvider) -> str:
+    """Where a remote provider's runtimes send prompts."""
+    if provider.endpoint_url:
+        return provider.endpoint_url
+    if provider.litellm_provider:
+        # LiteLLM handles routing internally; use a sentinel so
+        # the gateway sync still has a non-null base_url.
+        return f"litellm://{provider.litellm_provider}"
+    raise ValueError("Remote provider has no endpoint_url configured")
 
 
 class LLMService:
@@ -467,14 +479,7 @@ class LLMService:
 
         # ── Remote endpoint providers — no container needed ──────────
         if provider.target == ProviderTarget.REMOTE_ENDPOINT:
-            endpoint_url = provider.endpoint_url
-            if not endpoint_url:
-                if provider.litellm_provider:
-                    # LiteLLM handles routing internally; use a sentinel so
-                    # the gateway sync still has a non-null base_url.
-                    endpoint_url = f"litellm://{provider.litellm_provider}"
-                else:
-                    raise ValueError("Remote provider has no endpoint_url configured")
+            endpoint_url = _remote_base_url(provider)
             runtime.execution_target = "remote"
             await runtime_dao.set_container_ref(runtime.id, None, endpoint_url)
             await runtime_dao.set_status(runtime.id, RuntimeStatus.RUNNING)
@@ -483,19 +488,9 @@ class LLMService:
                 runtime.name,
                 endpoint_url,
             )
-            # Publish to gateway — remote runtimes are immediately routable
-            await self.gateway_sync.publish_runtime(
-                runtime_id=runtime.id,
-                alias=runtime.name,
-                base_url=endpoint_url,
-                backend_provider_type=provider.type.value,
-                is_remote=True,
-                health_status="healthy",
-                api_key_encrypted=provider.api_key_encrypted,
-                litellm_provider=provider.litellm_provider,
-                litellm_model=provider.litellm_model,
-                extra_params=provider.extra_params,
-            )
+            # Publish to gateway — remote runtimes are immediately routable;
+            # from then on remote_health holds them to their endpoint.
+            await self._publish_remote_runtime(runtime, provider, endpoint_url, healthy=True)
             return runtime
 
         # ── Node cluster mode (backend scheduler + node commands) ─────────
@@ -654,10 +649,7 @@ class LLMService:
 
         # Remote runtimes have no container — just mark as running
         if not runtime.container_ref:
-            await runtime_dao.set_status(runtime_id, RuntimeStatus.RUNNING)
-            await self.gateway_sync.set_instance_health(
-                runtime_id=runtime_id, health_status="healthy",
-            )
+            await self._resume_remote_runtime(runtime_dao, runtime_id)
             return runtime
 
         await self.docker.start(runtime.container_ref)
@@ -710,6 +702,55 @@ class LLMService:
         )
         return runtime
 
+    async def _resume_remote_runtime(self, runtime_dao: RuntimeDAO, runtime_id: uuid.UUID) -> None:
+        """Mark a remote runtime running and route to it; the next probe checks it."""
+        await runtime_dao.set_status(runtime_id, RuntimeStatus.RUNNING)
+        remote_health.forget(runtime_id)
+        await self.gateway_sync.set_instance_health(runtime_id=runtime_id, health_status="healthy")
+
+    async def _publish_remote_runtime(
+        self, runtime: LLMRuntime, provider: LLMProvider, base_url: str, *, healthy: bool,
+    ) -> None:
+        await self.gateway_sync.publish_runtime(
+            runtime_id=runtime.id,
+            alias=runtime.name,
+            base_url=base_url,
+            backend_provider_type=provider.type.value,
+            is_remote=True,
+            health_status="healthy" if healthy else "unhealthy",
+            api_key_encrypted=provider.api_key_encrypted,
+            litellm_provider=provider.litellm_provider,
+            litellm_model=provider.litellm_model,
+            extra_params=provider.extra_params,
+        )
+
+    async def sync_remote_routes(self, runtime_dao: RuntimeDAO, provider: LLMProvider) -> int:
+        """Bring a remote provider's runtimes and gateway routes into line with it.
+
+        Its endpoint, key and LiteLLM settings are copied into each runtime and
+        its route when the runtime is made. An edit to the provider reached
+        neither: the gateway kept sending prompts to the old address while the
+        data residency map, which reads the provider, placed the new one.
+
+        A runtime that was down is given another chance at the new address;
+        a stopped one stays stopped. Returns how many runtimes were updated.
+        """
+        base_url = _remote_base_url(provider)
+        runtimes = await runtime_dao.list_by_provider(provider.id)
+        for runtime in runtimes:
+            runtime.endpoint_url = base_url
+            remote_health.forget(runtime.id)
+            if runtime.status == RuntimeStatus.ERROR:
+                await runtime_dao.set_status(runtime.id, RuntimeStatus.RUNNING)
+            await self._publish_remote_runtime(
+                runtime, provider, base_url, healthy=runtime.status == RuntimeStatus.RUNNING,
+            )
+        if runtimes:
+            log.info(
+                "Remote provider %r now routes to %s (%d runtimes)", provider.name, base_url, len(runtimes),
+            )
+        return len(runtimes)
+
     async def restart_runtime(
         self,
         runtime_dao: RuntimeDAO,
@@ -736,9 +777,10 @@ class LLMService:
             await runtime_dao.set_status(runtime_id, RuntimeStatus.STARTING)
             return runtime
 
-        # Remote runtimes have no container — just toggle status
+        # Remote runtimes have no container — back into routing, like a start:
+        # after a stop, a restart left the status running and the route off.
         if not runtime.container_ref:
-            await runtime_dao.set_status(runtime_id, RuntimeStatus.RUNNING)
+            await self._resume_remote_runtime(runtime_dao, runtime_id)
             return runtime
 
         await runtime_dao.session.commit()
@@ -841,7 +883,7 @@ class LLMService:
         # Remote runtimes — just mark running, nothing else to do
         provider = await provider_dao.get(runtime.provider_id)
         if provider and provider.target == ProviderTarget.REMOTE_ENDPOINT:
-            await runtime_dao.set_status(runtime_id, RuntimeStatus.RUNNING)
+            await self._resume_remote_runtime(runtime_dao, runtime_id)
             return runtime
 
         # Prepare everything we need from the DB before Docker work

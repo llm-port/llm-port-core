@@ -26,6 +26,7 @@ before DTO serialization.
 """
 
 import uuid
+from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
@@ -48,6 +49,9 @@ from llm_port_backend.db.models.llm import (
     RuntimeStatus,
 )
 from llm_port_backend.db.models.users import User, current_active_user
+from llm_port_backend.services.llm.gateway_sync import GatewaySyncService
+from llm_port_backend.services.llm.service import LLMService
+from llm_port_backend.web.api.llm.dependencies import get_llm_service
 
 
 # ---------------------------------------------------------------------------
@@ -68,6 +72,14 @@ async def _seed_user(dbsession: AsyncSession, *, is_superuser: bool, email: str)
     dbsession.add(user)
     await dbsession.flush()
     return user
+
+
+@pytest.fixture(autouse=True)
+def llm_service(fastapi_app: FastAPI) -> LLMService:
+    """The service the app holds once started; the test app is never started."""
+    service = LLMService(SimpleNamespace(), gateway_sync=GatewaySyncService(None))  # type: ignore[arg-type]
+    fastapi_app.dependency_overrides[get_llm_service] = lambda: service
+    return service
 
 
 @pytest.fixture
@@ -209,7 +221,8 @@ async def test_patch_provider_name_and_endpoint(client, fastapi_app, dbsession, 
     )
     assert resp.status_code == status.HTTP_200_OK
     assert resp.json()["name"] == "new-name"
-    assert resp.json()["endpoint_url"] == "http://new:8000/v1"
+    # Normalised as on create: the gateway appends /v1/... to it.
+    assert resp.json()["endpoint_url"] == "http://new:8000"
     # untouched fields are preserved
     assert resp.json()["type"] == ProviderType.VLLM.value
     assert resp.json()["target"] == ProviderTarget.LOCAL_DOCKER.value

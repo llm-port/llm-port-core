@@ -554,6 +554,9 @@ async def _queue_health_checks(session: Any) -> None:
 async def _run_inference_reconcile_pass(app: FastAPI) -> None:
     """One reconcile pass: environments first, then deployments.
 
+    On the health interval, remote runtimes are probed too; found containers
+    are followed on every pass.
+
     The context gets the session *factory* so node commands are issued and
     polled in their own short transactions (visible to the node stream
     handler immediately); the pass session only carries the rows' observed
@@ -563,6 +566,28 @@ async def _run_inference_reconcile_pass(app: FastAPI) -> None:
         DeploymentDAO,
         EnvironmentDAO,
     )
+
+    factory = app.state.db_session_factory
+    gateway_sync = getattr(getattr(app.state, "llm_service", None), "gateway_sync", None)
+    async with factory() as session:
+        if _health_check_due():
+            await _queue_health_checks(session)
+            await session.commit()
+            await _follow_remote_runtimes(session, gateway_sync)
+        env_ids = [e.id for e in await EnvironmentDAO(session).list_pending_observation()]
+        dep_ids = [d.id for d in await DeploymentDAO(session).list_pending_observation()]
+        if env_ids or dep_ids:
+            await _reconcile_resources(session, factory, gateway_sync, env_ids, dep_ids)
+        # Whether or not a cluster had work: this returned early when none
+        # had, so on a server whose only routes were found containers, a
+        # container that stopped stayed routed.
+        await _follow_found_containers(session, gateway_sync)
+
+
+async def _reconcile_resources(
+    session: Any, factory: Any, gateway_sync: Any, env_ids: list[Any], dep_ids: list[Any],
+) -> None:
+    """Reconcile the environments and deployments that have work, each in its own commit."""
     from llm_port_backend.db.models.inference import (  # noqa: PLC0415
         InferenceDeployment,
         InferenceEnvironment,
@@ -573,41 +598,41 @@ async def _run_inference_reconcile_pass(app: FastAPI) -> None:
         reconcile_environment,
     )
 
-    factory = app.state.db_session_factory
-    async with factory() as session:
-        if _health_check_due():
-            await _queue_health_checks(session)
+    context = ReconciliationContext.for_session(session, session_factory=factory)
+    if gateway_sync is not None:
+        context.gateway_sync = gateway_sync
+    # Rows are re-fetched by id: a rollback after one failed resource
+    # expires every loaded object, and touching an expired attribute
+    # would trigger implicit (non-async) IO.
+    for env_id in env_ids:
+        try:
+            env = await session.get(InferenceEnvironment, env_id)
+            if env is not None:
+                await reconcile_environment(context, env)
             await session.commit()
-        env_ids = [e.id for e in await EnvironmentDAO(session).list_pending_observation()]
-        dep_ids = [d.id for d in await DeploymentDAO(session).list_pending_observation()]
-        if not env_ids and not dep_ids:
-            return
-        context = ReconciliationContext.for_session(session, session_factory=factory)
-        gateway_sync = getattr(getattr(app.state, "llm_service", None), "gateway_sync", None)
-        if gateway_sync is not None:
-            context.gateway_sync = gateway_sync
-        # Rows are re-fetched by id: a rollback after one failed resource
-        # expires every loaded object, and touching an expired attribute
-        # would trigger implicit (non-async) IO.
-        for env_id in env_ids:
-            try:
-                env = await session.get(InferenceEnvironment, env_id)
-                if env is not None:
-                    await reconcile_environment(context, env)
-                await session.commit()
-            except Exception:
-                log.exception("Failed to reconcile environment %s", env_id)
-                await session.rollback()
-        for dep_id in dep_ids:
-            try:
-                dep = await session.get(InferenceDeployment, dep_id)
-                if dep is not None:
-                    await reconcile_deployment(context, dep)
-                await session.commit()
-            except Exception:
-                log.exception("Failed to reconcile deployment %s", dep_id)
-                await session.rollback()
-        await _follow_found_containers(session, gateway_sync)
+        except Exception:
+            log.exception("Failed to reconcile environment %s", env_id)
+            await session.rollback()
+    for dep_id in dep_ids:
+        try:
+            dep = await session.get(InferenceDeployment, dep_id)
+            if dep is not None:
+                await reconcile_deployment(context, dep)
+            await session.commit()
+        except Exception:
+            log.exception("Failed to reconcile deployment %s", dep_id)
+            await session.rollback()
+
+
+async def _follow_remote_runtimes(session: Any, gateway_sync: Any) -> None:
+    """Hold remote runtimes to whether their endpoints answer (services/llm/remote_health.py)."""
+    from llm_port_backend.services.llm.remote_health import follow_remote_runtimes  # noqa: PLC0415
+
+    try:
+        await follow_remote_runtimes(session, gateway_sync)
+    except Exception:  # never takes the reconciler down with it
+        log.exception("Could not probe the remote runtimes")
+        await session.rollback()
 
 
 async def _follow_found_containers(session: Any, gateway_sync: Any) -> None:
