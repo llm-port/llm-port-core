@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     workers_count: int = 1  # stdio connections are per-worker; start with 1
     reload: bool = False
 
-    environment: str = "dev"
+    environment: str = "production"
     log_level: LogLevel = LogLevel.INFO
 
     # ── Database (PostgreSQL) ──

@@ -82,7 +82,7 @@ class Settings(BaseSettings):
     reload: bool = False
 
     # Current environment
-    environment: str = "dev"
+    environment: str = "production"
 
     # Set to False when running behind HTTP (no TLS termination).
     cookie_secure: bool = True

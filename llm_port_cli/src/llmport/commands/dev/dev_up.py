@@ -281,7 +281,12 @@ def _ensure_backend_env(backend_dir: Path, workspace: Path) -> None:
     append = {
         k: v
         for k, v in desired.items()
-        if k in ("LLM_PORT_BACKEND_COOKIE_SECURE", "LLM_PORT_BACKEND_GATEWAY_URL")
+        if k
+        in (
+            "LLM_PORT_BACKEND_COOKIE_SECURE",
+            "LLM_PORT_BACKEND_GATEWAY_URL",
+            "LLM_PORT_BACKEND_ENVIRONMENT",
+        )
     }
 
     lines = env_path.read_text(encoding="utf-8").splitlines()

@@ -230,6 +230,7 @@ BACKEND_DEV_ENV: dict[str, str] = {
     # login on a remote LAN access (HTTP, no TLS). Prod keeps the
     # default (True) behind TLS/nginx.
     "LLM_PORT_BACKEND_COOKIE_SECURE": "false",
+    "LLM_PORT_BACKEND_ENVIRONMENT": "dev",
     # The dev API gateway runs on the host's port 8001.
     "LLM_PORT_BACKEND_GATEWAY_URL": "http://127.0.0.1:8001",
     "LLM_PORT_BACKEND_RELOAD": "true",

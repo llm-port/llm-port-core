@@ -329,7 +329,7 @@ services:
       LLM_PORT_API_HOST: 0.0.0.0
       LLM_PORT_API_PORT: 8000
       LLM_PORT_API_RELOAD: "false"
-      LLM_PORT_API_ENVIRONMENT: dev
+      LLM_PORT_API_ENVIRONMENT: ${LLM_PORT_API_ENVIRONMENT:-production}
       # JWT secret is read from backend DB at startup (llm_port_api.jwt_secret system setting).
       # These two env vars enable that path; no static JWT_SECRET env var is needed.
       LLM_PORT_API_BACKEND_DB_BASE: llm_port_backend
@@ -421,7 +421,7 @@ services:
       LLM_PORT_BACKEND_HOST: 0.0.0.0
       LLM_PORT_BACKEND_PORT: 8000
       LLM_PORT_BACKEND_RELOAD: "false"
-      LLM_PORT_BACKEND_ENVIRONMENT: ${LLM_PORT_BACKEND_ENVIRONMENT:-dev}
+      LLM_PORT_BACKEND_ENVIRONMENT: ${LLM_PORT_BACKEND_ENVIRONMENT:-production}
       LLM_PORT_BACKEND_DB_HOST: postgres
       LLM_PORT_BACKEND_DB_PORT: 5432
       LLM_PORT_BACKEND_DB_USER: ${POSTGRES_USER:-postgres}
@@ -510,7 +510,7 @@ services:
       llm-port-backend-migrator:
         condition: service_completed_successfully
     environment:
-      LLM_PORT_BACKEND_ENVIRONMENT: ${LLM_PORT_BACKEND_ENVIRONMENT:-dev}
+      LLM_PORT_BACKEND_ENVIRONMENT: ${LLM_PORT_BACKEND_ENVIRONMENT:-production}
       LLM_PORT_BACKEND_DB_HOST: postgres
       LLM_PORT_BACKEND_DB_PORT: 5432
       LLM_PORT_BACKEND_DB_USER: ${POSTGRES_USER:-postgres}
@@ -596,7 +596,7 @@ services:
       LLM_PORT_PII_HOST: 0.0.0.0
       LLM_PORT_PII_PORT: 8000
       LLM_PORT_PII_RELOAD: "false"
-      LLM_PORT_PII_ENVIRONMENT: dev
+      LLM_PORT_PII_ENVIRONMENT: ${LLM_PORT_PII_ENVIRONMENT:-production}
       LLM_PORT_PII_BACKEND_URL: http://llm-port-backend:8000
       LLM_PORT_PII_RABBIT_HOST: llm-port-rmq
       LLM_PORT_PII_RABBIT_PORT: 5672
@@ -627,7 +627,7 @@ services:
       llm-port-rmq:
         condition: service_healthy
     environment:
-      LLM_PORT_PII_ENVIRONMENT: dev
+      LLM_PORT_PII_ENVIRONMENT: ${LLM_PORT_PII_ENVIRONMENT:-production}
       LLM_PORT_PII_BACKEND_URL: http://llm-port-backend:8000
       LLM_PORT_PII_RABBIT_HOST: llm-port-rmq
       LLM_PORT_PII_RABBIT_PORT: 5672
@@ -679,7 +679,7 @@ services:
       LLM_PORT_MCP_HOST: 0.0.0.0
       LLM_PORT_MCP_PORT: 8000
       LLM_PORT_MCP_RELOAD: "false"
-      LLM_PORT_MCP_ENVIRONMENT: dev
+      LLM_PORT_MCP_ENVIRONMENT: ${LLM_PORT_MCP_ENVIRONMENT:-production}
       LLM_PORT_MCP_DB_HOST: postgres
       LLM_PORT_MCP_DB_PORT: 5432
       LLM_PORT_MCP_DB_USER: ${POSTGRES_USER:-postgres}
@@ -745,7 +745,7 @@ services:
       LLM_PORT_SKILLS_HOST: 0.0.0.0
       LLM_PORT_SKILLS_PORT: 8000
       LLM_PORT_SKILLS_RELOAD: "false"
-      LLM_PORT_SKILLS_ENVIRONMENT: dev
+      LLM_PORT_SKILLS_ENVIRONMENT: ${LLM_PORT_SKILLS_ENVIRONMENT:-production}
       LLM_PORT_SKILLS_DB_HOST: postgres
       LLM_PORT_SKILLS_DB_PORT: 5432
       LLM_PORT_SKILLS_DB_USER: ${POSTGRES_USER:-postgres}

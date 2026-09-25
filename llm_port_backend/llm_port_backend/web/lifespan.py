@@ -941,6 +941,10 @@ async def lifespan_setup(
 
     # Seed a default admin user in dev mode so the UI is usable immediately
     if settings.environment == "dev":
+        log.warning(
+            "Dev mode: seeding admin@localhost / admin and enabling POST /auth/dev-login. "
+            "Never expose this instance beyond localhost.",
+        )
         await _seed_dev_user(app)
         await _assign_dev_admin_role(app)
 

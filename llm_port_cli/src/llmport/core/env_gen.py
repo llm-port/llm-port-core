@@ -127,6 +127,13 @@ def dev_env_vars(
         "LLM_PORT_API_ENCRYPTION_KEY": "dev-encryption-key-change-me",
         "LLM_PORT_API_LANGFUSE_ENABLED": "false",
         "LLM_PORT_BACKEND_GATEWAY_URL": "http://llm-port-api:8000",
+        # Dev stacks opt IN to dev mode (seeded admin, /auth/dev-login); the
+        # services and compose default to production.
+        "LLM_PORT_BACKEND_ENVIRONMENT": "dev",
+        "LLM_PORT_API_ENVIRONMENT": "dev",
+        "LLM_PORT_PII_ENVIRONMENT": "dev",
+        "LLM_PORT_MCP_ENVIRONMENT": "dev",
+        "LLM_PORT_SKILLS_ENVIRONMENT": "dev",
         # Langfuse initial admin seeding
         "LANGFUSE_INIT_USER_EMAIL": "",
         "LANGFUSE_INIT_USER_PASSWORD": "",
@@ -210,6 +217,10 @@ def default_env_vars(
         "LLM_PORT_API_LANGFUSE_ENABLED": "false",
         "LLM_PORT_BACKEND_GATEWAY_URL": "http://llm-port-api:8000",
         "LLM_PORT_BACKEND_ENVIRONMENT": "production",
+        "LLM_PORT_API_ENVIRONMENT": "production",
+        "LLM_PORT_PII_ENVIRONMENT": "production",
+        "LLM_PORT_MCP_ENVIRONMENT": "production",
+        "LLM_PORT_SKILLS_ENVIRONMENT": "production",
         "USERS_SECRET": _random_secret(),
         # Inter-service auth tokens (see comment above). Each pair of
         # caller env vars must equal the receiver's env var.

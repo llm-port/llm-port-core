@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     reload: bool = False
 
     # Current environment
-    environment: str = "dev"
+    environment: str = "production"
 
     log_level: LogLevel = LogLevel.INFO
     # Variables for the database

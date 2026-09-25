@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     workers_count: int = min(_CPU_COUNT, 4)
     reload: bool = False
 
-    environment: str = "dev"
+    environment: str = "production"
     log_level: LogLevel = LogLevel.INFO
 
     # ── Database (PostgreSQL) ──
