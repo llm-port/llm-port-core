@@ -34,7 +34,14 @@ llmport deploy
    `ghcr.io/llm-port/backend:0.3.0`;
 5. starts everything and creates the first admin. It asks for the admin's
    email and a password (leave the password blank to have one generated),
-   then shows both.
+   then shows both;
+6. pulls the **runtime images**: the containers the machines run models in,
+   `ghcr.io/llm-port/ray-runtime-x86_64` and `ray-runtime-gb10` (NVIDIA DGX
+   Spark). Machines download theirs from this server, not from the internet,
+   so the server keeps one per kind of machine -- about 10 GB each. Only
+   x86_64 machines? `llmport deploy --runtime-images x86_64`; the choice is
+   remembered for upgrades. `llmport runtime-images --check` shows what the
+   server holds.
 
 With `llmport deploy -y` nothing is asked. The admin is `admin@localhost`
 with a generated password, and both are saved in

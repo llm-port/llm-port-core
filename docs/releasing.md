@@ -48,6 +48,14 @@ runtime image:
 
 Until step 3 the released backend keeps the build it was certified with.
 
+A server gets the runtime images when it is deployed or upgraded: the CLI
+reads the manifests out of the release's backend image and pulls every image
+they name from GHCR (`llmport runtime-images` does the same on its own).
+Machines then download theirs from the server. So a committed manifest must
+name the published image -- `ghcr.io/llm-port/ray-runtime-…:<version>`, which
+is what CI mints -- or servers are told it is on no registry and cannot fetch
+it.
+
 ## A full release, in order
 
 1. `release-runtime.ps1` -- only when the runtime images changed; then certify

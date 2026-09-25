@@ -26,6 +26,13 @@ It upgrades the installation the CLI is configured for
 6. **Clears ClickHouse's old diagnostic logs** (see
    [The disk is full](#the-disk-is-full)).
 7. **Waits for the backend** to report healthy.
+8. **Gets the runtime images** this release pins -- the containers the
+   machines run models in, which they download from this server. Read out
+   of the new backend image, so they are exactly the builds it will hand
+   out; only what changed is downloaded. A failed pull stops nothing:
+   services are already up, and `llmport runtime-images` retries it.
+   `--runtime-images x86_64` (or `aarch64`, `none`) limits it, and is
+   remembered.
 
 The new version comes from the CLI (published images) or from the
 checkout (source), so put that in place first.
@@ -33,7 +40,8 @@ checkout (source), so put that in place first.
 ## Before you start
 
 **Free disk space.** The new images need a few GB (building them from
-source, about 10 GB), and the backup needs room for your databases. Check with `df -h /`.
+source, about 10 GB), a new runtime image about 10 GB per kind of machine,
+and the backup needs room for your databases. Check with `df -h /`.
 
 If the disk is already full -- Postgres, ClickHouse, Loki and Grafana
 restarting over and over is the sign -- see [The disk is full](#the-disk-is-full)

@@ -54,6 +54,16 @@ from llmport.core.settings import load_config, save_config
 @click.option("--no-cache", is_flag=True, default=False, help="Build images without cache.")
 @click.option("--skip-doctor", is_flag=True, default=False, help="Skip pre-flight checks.")
 @click.option(
+    "--runtime-images",
+    "runtime_images",
+    default=None,
+    metavar="ARCHS",
+    help=(
+        "Runtime images to fetch for machines: all, none, or architectures such as "
+        "x86_64,aarch64. Default: what deploy chose (all)."
+    ),
+)
+@click.option(
     "--dry-run",
     is_flag=True,
     default=False,
@@ -67,6 +77,7 @@ def upgrade_cmd(
     no_build: bool,
     no_cache: bool,
     skip_doctor: bool,
+    runtime_images: str | None,
     dry_run: bool,
     yes: bool,
 ) -> None:
@@ -74,7 +85,8 @@ def upgrade_cmd(
 
     Creates a backup, refreshes configuration (preserving secrets),
     rebuilds container images, and performs a rolling restart with
-    a health gate.
+    a health gate. Then fetches the runtime images this release pins, which
+    machines download from this server.
     """
     console.print("\n[bold magenta]llm.port — Upgrade[/bold magenta]\n")
 
@@ -134,6 +146,7 @@ def upgrade_cmd(
         else:
             console.print(f"  Build images:      {'skip' if no_build else 'yes'}")
         console.print(f"  Build cache:       {'no' if no_cache else 'yes'}")
+        console.print(f"  Runtime images:    {runtime_images or cfg.runtime_images} (for machines)")
         return
 
     # ── Confirm ───────────────────────────────────────────────
@@ -316,6 +329,16 @@ def upgrade_cmd(
             "Backend did not become healthy within 120 s.\n"
             "  Check logs: llmport logs backend"
         )
+
+    # ── 7. Runtime images ─────────────────────────────────────
+    # After the restart, not before it: the service images are what the
+    # upgrade waits on, and a runtime image is several gigabytes that only
+    # matters once a machine starts a cluster.
+    step += 1
+    console.print(f"\n[bold cyan]Step {step}: Runtime images for machines…[/bold cyan]")
+    from llmport.commands.runtime_images import run_step  # noqa: PLC0415
+
+    run_step(cfg, value=runtime_images)
 
     # ── Done ──────────────────────────────────────────────────
     console.print()

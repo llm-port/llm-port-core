@@ -187,6 +187,16 @@ def _login_for_api_token(backend_url: str, email: str) -> str | None:
 @click.option("--gpu/--no-gpu", default=None, help="Include GPU (NVIDIA) compose overlay. Default: auto-detect.")
 @click.option("--force-env", is_flag=True, help="Regenerate .env even if it exists.")
 @click.option(
+    "--runtime-images",
+    "runtime_images",
+    default=None,
+    metavar="ARCHS",
+    help=(
+        "Runtime images to fetch for the machines that will run models: all (default), none, "
+        "or architectures such as x86_64,aarch64. Remembered for upgrades."
+    ),
+)
+@click.option(
     "--skip-doctor", is_flag=True,
     help="Skip pre-flight system checks.",
 )
@@ -238,6 +248,7 @@ def _login_for_api_token(backend_url: str, email: str) -> str | None:
 def deploy_cmd(
     install_dir: str | None,
     *,
+    runtime_images: str | None,
     modules: str,
     build: bool,
     no_cache: bool,
@@ -616,9 +627,17 @@ def deploy_cmd(
         warning("Backend did not become healthy in time — skipping admin setup.")
         console.print("  [dim]Run 'llmport deploy' again or create an admin via the UI.[/dim]")
 
-    # ── 7. Optional local-node provisioning ───────────────────────
+    # ── 7. Runtime images ─────────────────────────────────────────
+    # Machines download the container they run models in from this server,
+    # so it has to be here before the first machine starts a cluster.
+    console.print("\n[bold cyan]Step 7: Runtime images for machines…[/bold cyan]")
+    from llmport.commands.runtime_images import run_step  # noqa: PLC0415
+
+    run_step(cfg, value=runtime_images)
+
+    # ── 8. Optional local-node provisioning ───────────────────────
     if local_node:
-        console.print("\n[bold cyan]Step 7: Local node-agent provisioning…[/bold cyan]")
+        console.print("\n[bold cyan]Step 8: Local node-agent provisioning…[/bold cyan]")
         from llmport.core.local_node import (  # noqa: PLC0415
             create_enrollment_token,
             provision_local_node_agent,

@@ -68,6 +68,10 @@ class LlmportConfig:
     admin_email: str = ""
     api_url: str = "http://localhost:8000"
     api_token: str = ""
+    #: Which runtime images deploy/upgrade put on this server, by the
+    #: architecture of the machines that will run models: "all", "none", or
+    #: a list such as "x86_64" or "x86_64,aarch64".
+    runtime_images: str = "all"
     dev: DevConfig = field(default_factory=DevConfig)
 
     # ── Derived paths ─────────────────────────────────────────
