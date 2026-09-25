@@ -14,7 +14,9 @@ import List from "@mui/material/List";
 import ListItem from "@mui/material/ListItem";
 import ListItemIcon from "@mui/material/ListItemIcon";
 import ListItemText from "@mui/material/ListItemText";
+import MenuItem from "@mui/material/MenuItem";
 import Stack from "@mui/material/Stack";
+import TextField from "@mui/material/TextField";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import { alpha, useTheme } from "@mui/material/styles";
@@ -22,6 +24,7 @@ import { alpha, useTheme } from "@mui/material/styles";
 import CloudIcon from "@mui/icons-material/Cloud";
 import DataUsageIcon from "@mui/icons-material/DataUsage";
 import DnsIcon from "@mui/icons-material/Dns";
+import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
 import LinkIcon from "@mui/icons-material/Link";
 import PowerIcon from "@mui/icons-material/Power";
 import PowerOffIcon from "@mui/icons-material/PowerOff";
@@ -33,6 +36,8 @@ import {
   runtimes as runtimesApi,
   models as modelsApi,
   type Provider,
+  type ResidencyKind,
+  type ResidencyOverride,
   type Runtime,
   type Model,
 } from "~/api/llm";
@@ -41,17 +46,20 @@ import {
   type DataUsageSummary,
   type DataUsagePerInstance,
 } from "~/api/llmGraph";
+import { residencyKind, residencyReason, splitByResidency, staysInside, type ResidencyBadge } from "~/lib/residency";
+import { useCan } from "~/lib/useCan";
+import ResidencyBar from "~/components/ResidencyBar";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-type ResidencyBadge = "air_gapped" | "hybrid" | "cloud_only" | "none";
+const RESIDENCY_COLOR: Record<ResidencyKind, "success" | "info" | "warning" | "default"> = {
+  machines: "success",
+  private: "info",
+  external: "warning",
+  unknown: "default",
+};
 
-function classifyBadge(local: number, remote: number): ResidencyBadge {
-  if (local === 0 && remote === 0) return "none";
-  if (remote === 0) return "air_gapped";
-  if (local === 0) return "cloud_only";
-  return "hybrid";
-}
+const OVERRIDES: Exclude<ResidencyOverride, null>[] = ["machines", "private", "external"];
 
 const BADGE_META: Record<
   ResidencyBadge,
@@ -163,6 +171,8 @@ interface ProviderCardProps {
   modelNames: Map<string, string>;
   usageByInstance: Map<string, DataUsagePerInstance>;
   t: (key: string, opts?: Record<string, unknown>) => string;
+  /** Present when the viewer may say where a provider's prompts go. */
+  onSetResidency?: (provider: Provider, override: ResidencyOverride) => void;
 }
 
 function ProviderCard({
@@ -171,8 +181,11 @@ function ProviderCard({
   modelNames,
   usageByInstance,
   t,
+  onSetResidency,
 }: ProviderCardProps) {
-  const isLocal = provider.target === "local_docker";
+  const kind = residencyKind(provider);
+  const isLocal = staysInside(kind);
+  const reason = residencyReason(t, provider.residency);
   const activeRuntimes = runtimes.filter((r) => r.status === "running").length;
   const runtimeIds = new Set(runtimes.map((r) => r.id));
   const usage = aggregateUsage(runtimeIds, usageByInstance);
@@ -186,10 +199,22 @@ function ProviderCard({
           <Typography variant="subtitle2" sx={{ flexGrow: 1 }}>
             {provider.name}
           </Typography>
+          <Chip
+            label={t(`security_map.residency.${kind}`)}
+            size="small"
+            color={RESIDENCY_COLOR[kind]}
+            data-testid={`residency-${provider.id}`}
+          />
           <Chip label={provider.type} size="small" variant="outlined" />
         </Stack>
 
-        {!isLocal && provider.endpoint_url && (
+        {reason && (
+          <Typography variant="caption" color="text.secondary" component="div" sx={{ ml: 3.5, mb: 0.5 }}>
+            {reason}
+          </Typography>
+        )}
+
+        {provider.endpoint_url && (
           <Stack
             direction="row"
             alignItems="center"
@@ -208,52 +233,107 @@ function ProviderCard({
           </Stack>
         )}
 
-        {runtimes.length > 0 && (
+        {/* A deployment or found container serves it: there is no runtime row to list. */}
+        {provider.managed_by && (
           <List dense disablePadding sx={{ ml: 2 }}>
-            {runtimes.map((rt) => (
-              <ListItem key={rt.id} disableGutters sx={{ py: 0.25 }}>
-                <ListItemIcon sx={{ minWidth: 28 }}>
-                  {rt.status === "running" ? (
-                    <PowerIcon fontSize="small" color="success" />
-                  ) : (
-                    <PowerOffIcon fontSize="small" color="disabled" />
-                  )}
-                </ListItemIcon>
-                <ListItemText
-                  primary={rt.name}
-                  secondary={modelNames.get(rt.model_id) ?? rt.model_id}
-                  primaryTypographyProps={{ variant: "body2" }}
-                  secondaryTypographyProps={{ variant: "caption" }}
-                />
+            <ListItem disableGutters sx={{ py: 0.25 }}>
+              <ListItemIcon sx={{ minWidth: 28 }}>
+                {provider.managed_by.state === "running" ? (
+                  <PowerIcon fontSize="small" color="success" />
+                ) : (
+                  <PowerOffIcon fontSize="small" color="disabled" />
+                )}
+              </ListItemIcon>
+              <ListItemText
+                primary={provider.managed_by.name ?? provider.name}
+                secondary={provider.managed_by.model_name}
+                primaryTypographyProps={{ variant: "body2" }}
+                secondaryTypographyProps={{ variant: "caption" }}
+              />
+              {provider.managed_by.state && (
                 <Chip
-                  label={rt.status}
+                  label={provider.managed_by.state}
                   size="small"
-                  color={runtimeStatusColor(rt.status)}
+                  color={runtimeStatusColor(provider.managed_by.state)}
                   variant="outlined"
                   sx={{ ml: 1 }}
                 />
-              </ListItem>
-            ))}
+              )}
+            </ListItem>
           </List>
         )}
 
-        {runtimes.length === 0 && (
-          <Typography variant="caption" color="text.secondary" sx={{ ml: 3.5 }}>
-            {t("security_map.no_runtimes", {
-              defaultValue: "No runtimes deployed",
-            })}
-          </Typography>
+        {/* An owned provider has no runtime rows: its owner above stands in for them. */}
+        {(runtimes.length > 0 || !provider.managed_by) && (
+          <>
+          {runtimes.length > 0 && (
+            <List dense disablePadding sx={{ ml: 2 }}>
+              {runtimes.map((rt) => (
+                <ListItem key={rt.id} disableGutters sx={{ py: 0.25 }}>
+                  <ListItemIcon sx={{ minWidth: 28 }}>
+                    {rt.status === "running" ? (
+                      <PowerIcon fontSize="small" color="success" />
+                    ) : (
+                      <PowerOffIcon fontSize="small" color="disabled" />
+                    )}
+                  </ListItemIcon>
+                  <ListItemText
+                    primary={rt.name}
+                    secondary={modelNames.get(rt.model_id) ?? rt.model_id}
+                    primaryTypographyProps={{ variant: "body2" }}
+                    secondaryTypographyProps={{ variant: "caption" }}
+                  />
+                  <Chip
+                    label={rt.status}
+                    size="small"
+                    color={runtimeStatusColor(rt.status)}
+                    variant="outlined"
+                    sx={{ ml: 1 }}
+                  />
+                </ListItem>
+              ))}
+            </List>
+          )}
+
+          {runtimes.length === 0 && (
+            <Typography variant="caption" color="text.secondary" sx={{ ml: 3.5 }}>
+              {t("security_map.no_runtimes", {
+                defaultValue: "No runtimes deployed",
+              })}
+            </Typography>
+          )}
+
+          <Stack direction="row" spacing={1} sx={{ mt: 0.5, ml: 3.5 }}>
+            <Typography variant="caption" color="text.secondary">
+              {t("security_map.runtimes_active", {
+                active: activeRuntimes,
+                total: runtimes.length,
+                defaultValue: "{{active}} / {{total}} runtimes active",
+              })}
+            </Typography>
+          </Stack>
+          </>
         )}
 
-        <Stack direction="row" spacing={1} sx={{ mt: 0.5, ml: 3.5 }}>
-          <Typography variant="caption" color="text.secondary">
-            {t("security_map.runtimes_active", {
-              active: activeRuntimes,
-              total: runtimes.length,
-              defaultValue: "{{active}} / {{total}} runtimes active",
-            })}
-          </Typography>
-        </Stack>
+        {onSetResidency && (
+          <TextField
+            select
+            size="small"
+            label={t("security_map.residency_set_label")}
+            value={provider.residency_override ?? ""}
+            onChange={(e) => onSetResidency(provider, (e.target.value || null) as ResidencyOverride)}
+            sx={{ mt: 1, ml: 3.5, minWidth: 220 }}
+            slotProps={{ select: { displayEmpty: true }, inputLabel: { shrink: true } }}
+            data-testid={`residency-set-${provider.id}`}
+          >
+            <MenuItem value="">{t("security_map.residency_detected")}</MenuItem>
+            {OVERRIDES.map((value) => (
+              <MenuItem key={value} value={value}>
+                {t(`security_map.residency.${value}`)}
+              </MenuItem>
+            ))}
+          </TextField>
+        )}
 
         {/* Data volume */}
         {usage.totalRequests > 0 && (
@@ -315,6 +395,8 @@ function ProviderCard({
 export default function SecurityMapPage() {
   const { t } = useTranslation();
   const theme = useTheme();
+  const can = useCan();
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const [allProviders, setAllProviders] = useState<Provider[]>([]);
   const [allRuntimes, setAllRuntimes] = useState<Runtime[]>([]);
@@ -353,13 +435,27 @@ export default function SecurityMapPage() {
     };
   }, []);
 
+  async function setResidency(provider: Provider, override: ResidencyOverride) {
+    setSaveError(null);
+    try {
+      const updated = await providersApi.setResidency(provider.id, override);
+      setAllProviders((current) => current.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)));
+    } catch (err: unknown) {
+      setSaveError(err instanceof Error ? err.message : t("common.action_failed"));
+    }
+  }
+  const residencySetter = can("llm.providers:update") ? setResidency : undefined;
+
   const {
     localProviders,
     remoteProviders,
+    unknownProviders,
     runtimesByProvider,
     modelNames,
     badge,
     localPct,
+    externalPct,
+    unknownPct,
     localRuntimeCount,
     remoteRuntimeCount,
     usageByInstance,
@@ -367,8 +463,9 @@ export default function SecurityMapPage() {
     remoteUsage,
     localDataPct,
   } = useMemo(() => {
-    const local = allProviders.filter((p) => p.target === "local_docker");
-    const remote = allProviders.filter((p) => p.target === "remote_endpoint");
+    const split = splitByResidency(allProviders);
+    const local = split.inside;
+    const remote = split.external;
     const runtimeMap = new Map<string, Runtime[]>();
     for (const rt of allRuntimes) {
       const list = runtimeMap.get(rt.provider_id) ?? [];
@@ -376,7 +473,6 @@ export default function SecurityMapPage() {
       runtimeMap.set(rt.provider_id, list);
     }
     const names = new Map(allModels.map((m) => [m.id, m.display_name]));
-    const total = local.length + remote.length;
     const localRt = local.reduce(
       (n, p) => n + (runtimeMap.get(p.id)?.length ?? 0),
       0,
@@ -406,10 +502,13 @@ export default function SecurityMapPage() {
     return {
       localProviders: local,
       remoteProviders: remote,
+      unknownProviders: split.unknown,
       runtimesByProvider: runtimeMap,
       modelNames: names,
-      badge: classifyBadge(local.length, remote.length),
-      localPct: total > 0 ? Math.round((local.length / total) * 100) : 100,
+      badge: split.badge as ResidencyBadge,
+      localPct: split.insidePct,
+      externalPct: split.externalPct,
+      unknownPct: split.unknownPct,
       localRuntimeCount: localRt,
       remoteRuntimeCount: remoteRt,
       usageByInstance: instMap,
@@ -442,6 +541,11 @@ export default function SecurityMapPage() {
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+      {saveError && (
+        <Alert severity="error" onClose={() => setSaveError(null)}>
+          {saveError}
+        </Alert>
+      )}
       {/* ── Summary bar ─────────────────────────────────────── */}
       <Card variant="outlined">
         <CardContent>
@@ -506,6 +610,16 @@ export default function SecurityMapPage() {
                 })}
               </Typography>
             </Stack>
+            {unknownProviders.length > 0 && (
+              <Stack alignItems="center">
+                <Typography variant="h4" fontWeight={700} color="text.secondary">
+                  {unknownProviders.length}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {t("security_map.unknown_providers")}
+                </Typography>
+              </Stack>
+            )}
             <Stack alignItems="center">
               <Typography variant="h4" fontWeight={700} color="success.main">
                 {localRuntimeCount}
@@ -666,28 +780,21 @@ export default function SecurityMapPage() {
                 {t("security_map.bar_local", { defaultValue: "On-Premises" })}{" "}
                 {localPct}%
               </Typography>
+              {unknownPct > 0 && (
+                <Typography variant="caption" fontWeight={600} color="text.secondary">
+                  {t("security_map.residency.unknown")} {unknownPct}%
+                </Typography>
+              )}
               <Typography
                 variant="caption"
                 fontWeight={600}
                 color="warning.main"
               >
-                {t("security_map.bar_cloud", { defaultValue: "Cloud" })}{" "}
-                {100 - localPct}%
+                {t("security_map.bar_cloud", { defaultValue: "External" })}{" "}
+                {externalPct}%
               </Typography>
             </Stack>
-            <LinearProgress
-              variant="determinate"
-              value={localPct}
-              sx={{
-                height: 12,
-                borderRadius: 1.5,
-                bgcolor: "warning.light",
-                "& .MuiLinearProgress-bar": {
-                  bgcolor: "success.main",
-                  borderRadius: 1.5,
-                },
-              }}
-            />
+            <ResidencyBar insidePct={localPct} unknownPct={unknownPct} externalPct={externalPct} />
           </Box>
         </CardContent>
       </Card>
@@ -745,6 +852,7 @@ export default function SecurityMapPage() {
                     modelNames={modelNames}
                     usageByInstance={usageByInstance}
                     t={t}
+                    onSetResidency={residencySetter}
                   />
                 ))
               )}
@@ -803,6 +911,7 @@ export default function SecurityMapPage() {
                     modelNames={modelNames}
                     usageByInstance={usageByInstance}
                     t={t}
+                    onSetResidency={residencySetter}
                   />
                 ))
               )}
@@ -810,6 +919,34 @@ export default function SecurityMapPage() {
           </Card>
         </Grid>
       </Grid>
+
+      {/* ── Providers that could not be placed ─────────────────── */}
+      {unknownProviders.length > 0 && (
+        <Card variant="outlined" data-testid="residency-unknown">
+          <CardContent>
+            <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+              <HelpOutlineIcon color="action" />
+              <Typography variant="h6" fontWeight={700}>
+                {t("security_map.unknown_title")}
+              </Typography>
+            </Stack>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              {t("security_map.unknown_desc")}
+            </Typography>
+            {unknownProviders.map((p) => (
+              <ProviderCard
+                key={p.id}
+                provider={p}
+                runtimes={runtimesByProvider.get(p.id) ?? []}
+                modelNames={modelNames}
+                usageByInstance={usageByInstance}
+                t={t}
+                onSetResidency={residencySetter}
+              />
+            ))}
+          </CardContent>
+        </Card>
+      )}
     </Box>
   );
 }

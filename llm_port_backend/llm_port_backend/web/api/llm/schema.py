@@ -115,6 +115,27 @@ class ManagedByDTO(BaseModel):
     node_id: str | None = None
 
 
+class ResidencyDTO(BaseModel):
+    """Where a provider's prompts go, and the evidence (services/llm/residency.py)."""
+
+    #: machines | private | external | unknown
+    kind: str
+    #: Why: override | managed | cloud_provider | cloud_host | machine |
+    #: this_server | private_address | internal_network | public_address |
+    #: unresolved | no_endpoint
+    source: str
+    host: str | None = None
+    addresses: list[str] = Field(default_factory=list)
+    machine: str | None = None
+    provider: str | None = None
+
+
+class ResidencyOverrideRequest(BaseModel):
+    """Say where a provider's prompts go, or ``null`` to go back to detecting it."""
+
+    override: Literal["machines", "private", "external"] | None = None
+
+
 class ProviderDTO(BaseModel):
     """Response DTO for a provider."""
 
@@ -137,6 +158,10 @@ class ProviderDTO(BaseModel):
     source_id: str | None = None
     #: Resolved owner, when there is one: name and state for the screen.
     managed_by: ManagedByDTO | None = None
+    #: What an administrator set; NULL when residency is detected.
+    residency_override: str | None = None
+    #: Where its prompts go. Filled by the list and detail endpoints.
+    residency: ResidencyDTO | None = None
     created_at: datetime
     updated_at: datetime
 

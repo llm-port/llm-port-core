@@ -284,6 +284,12 @@ class Settings(BaseSettings):
     #: the time (techqa 444 ms against 1,170 ms on a TITAN RTX).
     rag_lite_rerank_candidates: int = 10
 
+    # Networks counted as the organisation's own for data residency, beyond
+    # the private ranges (which always are): e.g. the public range of your own
+    # datacenter. Comma-separated CIDRs. System setting
+    # "llm.residency.internal_networks".
+    residency_internal_networks: str = ""
+
     # Chat & Sessions module settings (gateway feature, managed from backend)
     sessions_enabled: bool = True
 

@@ -162,6 +162,16 @@ class LLMProvider(Base):
         nullable=True,
         doc="Provider-specific params (headers, api_version, etc.).",
     )
+    residency_override: Mapped[str | None] = mapped_column(
+        String(16),
+        nullable=True,
+        doc=(
+            "Where an administrator says this provider's prompts go -- "
+            "'machines', 'private' or 'external' -- when detection cannot "
+            "know: a LAN proxy that forwards to a cloud API, a cloud VPC on "
+            "private addresses. NULL: detected (services/llm/residency.py)."
+        ),
+    )
     source_kind: Mapped[str | None] = mapped_column(
         String(64),
         nullable=True,

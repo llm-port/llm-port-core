@@ -30,6 +30,22 @@ class SettingDefinition:
 
 SETTINGS_REGISTRY: list[SettingDefinition] = [
     SettingDefinition(
+        key="llm.residency.internal_networks",
+        type="string",
+        category="llm",
+        group="data_residency",
+        label="Internal networks",
+        description=(
+            "Networks that count as your own on the data residency map, in addition to the private "
+            "ranges (10/8, 172.16/12, 192.168/16, 100.64/10, fc00::/7), which always do. Comma-separated "
+            "CIDRs, e.g. the public range of your own datacenter: 203.0.113.0/24."
+        ),
+        is_secret=False,
+        default="",
+        apply_scope=SystemApplyScope.LIVE_RELOAD,
+        service_targets=(),
+    ),
+    SettingDefinition(
         key="api.server.endpoint_url",
         type="string",
         category="api_server",

@@ -86,6 +86,26 @@ export function ownerPath(owner: ManagedBy): string {
   return `/admin/deployments/${owner.id}`;
 }
 
+/** Where a provider's prompts go (backend: services/llm/residency.py). */
+export type ResidencyKind = "machines" | "private" | "external" | "unknown";
+
+/** The residency an administrator can set; `null` goes back to detecting it. */
+export type ResidencyOverride = "machines" | "private" | "external" | null;
+
+export interface Residency {
+  kind: ResidencyKind;
+  /**
+   * Why that is the answer: override | managed | cloud_provider | cloud_host |
+   * machine | this_server | private_address | internal_network |
+   * public_address | unresolved | no_endpoint.
+   */
+  source: string;
+  host: string | null;
+  addresses: string[];
+  machine: string | null;
+  provider: string | null;
+}
+
 export interface Provider {
   id: string;
   name: string;
@@ -108,6 +128,10 @@ export interface Provider {
   source_id: string | null;
   /** Resolved owner, when there is one: what to call it and how it is doing. */
   managed_by: ManagedBy | null;
+  /** What an administrator set; null when residency is detected. */
+  residency_override?: ResidencyOverride;
+  /** Where its prompts go, with the evidence. Filled by list and get. */
+  residency?: Residency | null;
   created_at: string;
   updated_at: string;
 }
@@ -382,6 +406,13 @@ export const providers = {
   },
   delete(id: string) {
     return request<void>(`/providers/${id}`, { method: "DELETE" });
+  },
+  /** Say where a provider's prompts go, or `null` to detect it again. */
+  setResidency(id: string, override: ResidencyOverride) {
+    return request<Provider>(`/providers/${id}/residency`, {
+      method: "PUT",
+      body: JSON.stringify({ override }),
+    });
   },
   testEndpoint(payload: TestEndpointPayload) {
     return request<TestEndpointResult>("/providers/test-endpoint", {

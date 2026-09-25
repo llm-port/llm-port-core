@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from typing import Any
@@ -21,16 +22,18 @@ from llm_port_backend.db.models.inference import (
 )
 from llm_port_backend.db.models.llm import (
     LLMModel,
-    LLMRuntime,
     LLMProvider,
+    LLMRuntime,
     ModelSource,
     ModelStatus,
     ProviderTarget,
     ProviderType,
 )
 from llm_port_backend.db.models.users import User
+from llm_port_backend.services.llm import residency as residency_mod
 from llm_port_backend.services.llm.monitoring import get_monitoring_provisioner
 from llm_port_backend.services.llm.service import LLMService
+from llm_port_backend.services.tls import default_httpx_verify
 from llm_port_backend.web.api.admin.dependencies import audit_action
 from llm_port_backend.web.api.llm.dependencies import get_llm_service
 from llm_port_backend.web.api.llm.schema import (
@@ -38,11 +41,12 @@ from llm_port_backend.web.api.llm.schema import (
     ProviderCreateRequest,
     ProviderDTO,
     ProviderUpdateRequest,
+    ResidencyDTO,
+    ResidencyOverrideRequest,
     TestEndpointRequest,
     TestEndpointResponse,
 )
 from llm_port_backend.web.api.rbac import require_permission
-from llm_port_backend.services.tls import default_httpx_verify
 
 log = logging.getLogger(__name__)
 
@@ -181,6 +185,22 @@ def _provider_to_dto(
         if owner is not None:
             update["managed_by"] = owner
     return dto.model_copy(update=update)
+
+
+async def _residencies(
+    session: AsyncSession, providers: list[LLMProvider]
+) -> dict[str, ResidencyDTO]:
+    """Where each provider's prompts go, in one pass: machines read once, DNS resolved together."""
+    from llm_port_backend.db.models.node_control import InfraNode  # noqa: PLC0415
+    from llm_port_backend.settings import settings  # noqa: PLC0415
+
+    nodes = list((await session.execute(select(InfraNode))).scalars().all())
+    ctx = residency_mod.Context(
+        machine_addresses=residency_mod.machine_addresses(nodes),
+        internal_networks=residency_mod.parse_networks(settings.residency_internal_networks),
+    )
+    found = await residency_mod.classify_all(providers, ctx)
+    return {pid: ResidencyDTO(**r.to_dict()) for pid, r in found.items()}
 
 
 async def _resolve_owners(
@@ -389,7 +409,11 @@ async def list_providers(
     """List all registered LLM providers."""
     providers = await provider_dao.list_all()
     owners = await _resolve_owners(provider_dao.session, providers)
-    return [_provider_to_dto(p, owners) for p in providers]
+    residencies = await _residencies(provider_dao.session, providers)
+    return [
+        _provider_to_dto(p, owners).model_copy(update={"residency": residencies.get(str(p.id))})
+        for p in providers
+    ]
 
 
 @router.post("/", response_model=ProviderDTO, status_code=status.HTTP_201_CREATED)
@@ -502,7 +526,41 @@ async def get_provider(
     provider = await provider_dao.get(provider_id)
     if provider is None:
         raise HTTPException(status_code=404, detail="Provider not found")
-    return _provider_to_dto(provider)
+    residencies = await _residencies(provider_dao.session, [provider])
+    return _provider_to_dto(provider).model_copy(update={"residency": residencies.get(str(provider.id))})
+
+
+@router.put("/{provider_id}/residency", response_model=ProviderDTO)
+async def set_provider_residency(
+    provider_id: uuid.UUID,
+    body: ResidencyOverrideRequest,
+    user: User = Depends(require_permission("llm.providers", "update")),
+    provider_dao: ProviderDAO = Depends(),
+    audit_dao: AuditDAO = Depends(),
+) -> ProviderDTO:
+    """Say where a provider's prompts go, or clear that to detect it again.
+
+    Allowed on providers a deployment owns too: it is a statement about where
+    the data goes, which no reconcile rewrites.
+    """
+    provider = await provider_dao.get(provider_id)
+    if provider is None:
+        raise HTTPException(status_code=404, detail="Provider not found")
+    provider.residency_override = body.override
+    await provider_dao.session.flush()
+    await provider_dao.session.refresh(provider)  # updated_at is the database's
+    await audit_action(
+        action="llm.provider.residency",
+        target_type="llm_provider",
+        target_id=str(provider_id),
+        result=AuditResult.ALLOW,
+        actor_id=user.id,
+        severity="normal",
+        audit_dao=audit_dao,
+        metadata_json=json.dumps({"override": body.override}),
+    )
+    residencies = await _residencies(provider_dao.session, [provider])
+    return _provider_to_dto(provider).model_copy(update={"residency": residencies.get(str(provider.id))})
 
 
 def _refuse_if_derived(provider: object, action: str) -> None:

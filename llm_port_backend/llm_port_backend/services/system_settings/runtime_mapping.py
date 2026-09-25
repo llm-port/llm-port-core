@@ -29,6 +29,7 @@ _RUNTIME_VALUE_KEY_MAP: dict[str, str] = {
     "rag_lite.rerank_model": "rag_lite_rerank_model",
     "rag_lite.rerank_template": "rag_lite_rerank_template",
     "rag_lite.rerank_candidates": "rag_lite_rerank_candidates",
+    "llm.residency.internal_networks": "residency_internal_networks",
 }
 
 _RUNTIME_SECRET_KEY_MAP: dict[str, str] = {
